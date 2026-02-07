@@ -12,29 +12,35 @@
 #
 # Examples:
 #   oj run epic "Implement user authentication with OAuth"
+#   oj run epic "Implement OAuth" "Support Google and GitHub providers"
 #   oj run epic "Refactor storage layer" --after 5
 #   oj run epic "Wire everything together" --after "3 5 14"
 command "github:epic" {
-  args = "<description> [--after <numbers>]"
+  args = "<title> [body] [--after <numbers>]"
   run  = <<-SHELL
     labels="type:epic,plan:needed,build:needed"
-    body=""
+    body="${args.body}"
     if [ -n "${args.after}" ]; then
       labels="$labels,blocked"
       refs=""
       for n in ${args.after}; do refs="$refs #$n"; done
-      body="Blocked by:$refs"
+      if [ -n "$body" ]; then
+        body="$body\n\nBlocked by:$refs"
+      else
+        body="Blocked by:$refs"
+      fi
     fi
     if [ -n "$body" ]; then
-      gh issue create --label "$labels" --title "${args.description}" --body "$body"
+      gh issue create --label "$labels" --title "${args.title}" --body "$body"
     else
-      gh issue create --label "$labels" --title "${args.description}"
+      gh issue create --label "$labels" --title "${args.title}"
     fi
     oj worker start github:plan
     oj worker start github:build
   SHELL
 
   defaults = {
+    body  = ""
     after = ""
   }
 }
@@ -109,26 +115,6 @@ command "github:unblock" {
   SHELL
 }
 
-# Idempotently create all GitHub labels used by this runbook.
-#
-# Examples:
-#   oj run github:setup
-command "github:setup" {
-  run = <<-SHELL
-    gh label create "type:epic"      --color 5319E7 --description "Epic feature issue"       --force
-    gh label create "plan:needed"    --color FBCA04 --description "Needs implementation plan" --force
-    gh label create "plan:ready"     --color 0E8A16 --description "Plan complete"             --force
-    gh label create "plan:failed"    --color D93F0B --description "Planning failed"           --force
-    gh label create "build:needed"   --color FBCA04 --description "Needs implementation"      --force
-    gh label create "build:ready"    --color 0E8A16 --description "Built, PR awaiting merge"  --force
-    gh label create "build:failed"   --color D93F0B --description "Build failed"              --force
-    gh label create "blocked"        --color B60205 --description "Blocked by dependencies"   --force
-    gh label create "in-progress"    --color 1D76DB --description "Work in progress"          --force
-    gh label create "merge:auto"     --color 0E8A16 --description "PR queued for auto-merge"  --force
-    gh label create "merge:cicd"     --color D93F0B --description "PR needs CI/CD resolution"  --force
-  SHELL
-}
-
 # ------------------------------------------------------------------------------
 # Plan queue and worker
 # ------------------------------------------------------------------------------
@@ -151,6 +137,20 @@ job "github:plan" {
   vars      = ["epic"]
   on_fail   = { step = "reopen" }
   on_cancel = { step = "cancel" }
+
+  workspace {
+    git    = "worktree"
+    branch = "plan/${var.epic.number}-${workspace.nonce}"
+  }
+
+  locals {
+    base = "main"
+  }
+
+  step "sync" {
+    run     = "git fetch origin ${local.base} && git rebase origin/${local.base} || true"
+    on_done = { step = "think" }
+  }
 
   step "think" {
     run     = { agent = "plan" }
@@ -208,6 +208,11 @@ job "github:build" {
   locals {
     base  = "main"
     title = "$(printf 'feat: %.76s' \"${var.epic.title}\")"
+  }
+
+  step "sync" {
+    run     = "git fetch origin ${local.base} && git rebase origin/${local.base} || true"
+    on_done = { step = "implement" }
   }
 
   step "implement" {
