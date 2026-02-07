@@ -12,7 +12,7 @@ command "github:doctor" {
 
 agent "doctor" {
   run     = "claude --model opus --dangerously-skip-permissions --disallowed-tools EnterPlanMode,ExitPlanMode"
-  on_idle = { action = "escalate" }
+  on_idle = { action = "done" }
   on_dead = { action = "fail" }
 
   session "tmux" {
