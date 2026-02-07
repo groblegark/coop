@@ -143,7 +143,7 @@ command "unblock" {
 
 queue "github:plans" {
   type = "external"
-  list = "gh issue list --label type:epic,plan:needed --state open --json number,title --search '-label:in-progress'"
+  list = "gh issue list --label type:epic,plan:needed --state open --json number,title --search '-label:blocked -label:in-progress'"
   take = "gh issue edit ${item.number} --add-label in-progress"
   poll = "30s"
 }
