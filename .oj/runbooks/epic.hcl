@@ -124,7 +124,8 @@ command "github:setup" {
     gh label create "build:failed"   --color D93F0B --description "Build failed"              --force
     gh label create "blocked"        --color B60205 --description "Blocked by dependencies"   --force
     gh label create "in-progress"    --color 1D76DB --description "Work in progress"          --force
-    gh label create "auto-merge"     --color 0E8A16 --description "PR queued for auto-merge"  --force
+    gh label create "merge:auto"     --color 0E8A16 --description "PR queued for auto-merge"  --force
+    gh label create "merge:cicd"     --color D93F0B --description "PR needs CI/CD resolution"  --force
   SHELL
 }
 
@@ -221,7 +222,7 @@ job "github:build" {
       if test "$(git rev-list --count HEAD ^origin/${local.base})" -gt 0; then
         branch="${workspace.branch}"
         git push origin "$branch"
-        gh pr create --title "${local.title}" --body "Closes #${var.epic.number}" --head "$branch" --label auto-merge
+        gh pr create --title "${local.title}" --body "Closes #${var.epic.number}" --head "$branch" --label merge:auto
         gh issue edit ${var.epic.number} --remove-label build:needed,in-progress --add-label build:ready
         oj worker start github:merge
       else
@@ -244,12 +245,12 @@ job "github:build" {
 }
 
 # ------------------------------------------------------------------------------
-# Merge queue and worker
+# Merge queue and worker (fast-path: clean rebases only)
 # ------------------------------------------------------------------------------
 
 queue "github:merges" {
   type = "external"
-  list = "gh pr list --label auto-merge --json number,title,headRefName"
+  list = "gh pr list --label merge:auto --json number,title,headRefName"
   take = "gh pr edit ${item.number} --add-label in-progress"
   poll = "30s"
 }
@@ -260,8 +261,92 @@ worker "github:merge" {
   concurrency = 1
 }
 
+# Fast-path: clean rebases only. Failures are forwarded to the CI/CD resolve queue.
 job "github:merge" {
   name      = "Merge PR #${var.pr.number}: ${var.pr.title}"
+  vars      = ["pr"]
+  on_cancel = { step = "cleanup" }
+
+  workspace = "folder"
+
+  locals {
+    repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
+    branch = "merge-pr-${var.pr.number}-${workspace.nonce}"
+  }
+
+  step "init" {
+    run = <<-SHELL
+      git -C "${local.repo}" worktree remove --force "${workspace.root}" 2>/dev/null || true
+      git -C "${local.repo}" branch -D "${local.branch}" 2>/dev/null || true
+      git -C "${local.repo}" fetch origin main
+      git -C "${local.repo}" fetch origin pull/${var.pr.number}/head:${local.branch}
+      git -C "${local.repo}" worktree add "${workspace.root}" ${local.branch}
+    SHELL
+    on_done = { step = "rebase" }
+  }
+
+  step "rebase" {
+    run     = "git rebase origin/main"
+    on_done = { step = "verify" }
+    on_fail = { step = "queue-cicd" }
+  }
+
+  step "verify" {
+    run     = "make check"
+    on_done = { step = "push" }
+    on_fail = { step = "queue-cicd" }
+  }
+
+  step "queue-cicd" {
+    run = <<-SHELL
+      git rebase --abort 2>/dev/null || true
+      gh pr edit ${var.pr.number} --remove-label merge:auto --add-label merge:cicd
+      oj worker start github:cicd
+    SHELL
+    on_done = { step = "cleanup" }
+  }
+
+  step "push" {
+    run = <<-SHELL
+      git push --force-with-lease origin HEAD:${var.pr.headRefName}
+      gh pr merge ${var.pr.number} --squash --auto
+      gh pr edit ${var.pr.number} --remove-label in-progress
+      issue=$(gh pr view ${var.pr.number} --json body -q '.body' | grep -oE 'Closes #[0-9]+' | grep -oE '[0-9]+' | head -1)
+      if [ -n "$issue" ]; then
+        gh issue edit "$issue" --remove-label build:ready
+      fi
+    SHELL
+    on_done = { step = "cleanup" }
+  }
+
+  step "cleanup" {
+    run = <<-SHELL
+      git -C "${local.repo}" worktree remove --force "${workspace.root}" 2>/dev/null || true
+      git -C "${local.repo}" branch -D "${local.branch}" 2>/dev/null || true
+    SHELL
+  }
+}
+
+# ------------------------------------------------------------------------------
+# CI/CD resolve queue and worker (slow-path: agent-assisted resolution)
+# ------------------------------------------------------------------------------
+
+queue "github:cicd" {
+  type = "external"
+  list = "gh pr list --label merge:cicd --json number,title,headRefName"
+  take = "gh pr edit ${item.number} --add-label in-progress"
+  poll = "30s"
+}
+
+worker "github:cicd" {
+  source      = { queue = "github:cicd" }
+  handler     = { job = "github:cicd" }
+  concurrency = 1
+}
+
+# Slow-path: agent-assisted conflict resolution and build fixes.
+job "github:cicd" {
+  name      = "Resolve PR #${var.pr.number}: ${var.pr.title}"
   vars      = ["pr"]
   on_cancel = { step = "cleanup" }
 
@@ -304,7 +389,7 @@ job "github:merge" {
     run = <<-SHELL
       git push --force-with-lease origin HEAD:${var.pr.headRefName}
       gh pr merge ${var.pr.number} --squash --auto
-      gh pr edit ${var.pr.number} --remove-label in-progress
+      gh pr edit ${var.pr.number} --remove-label merge:cicd,in-progress
       issue=$(gh pr view ${var.pr.number} --json body -q '.body' | grep -oE 'Closes #[0-9]+' | grep -oE '[0-9]+' | head -1)
       if [ -n "$issue" ]; then
         gh issue edit "$issue" --remove-label build:ready
