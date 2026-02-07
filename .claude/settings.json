@@ -1,4 +1,9 @@
 {
+  "allow": [
+    "Bash(gh:*)",
+    "Bash(oj:*)",
+    "Bash(tmux:*)"
+  ],
   "hooks": {
     "SessionStart": [
       {
