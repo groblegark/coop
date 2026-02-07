@@ -1,0 +1,77 @@
+name: Upstream Sync
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/alfredjeanlab/coop.git
+          git fetch upstream main
+
+      - name: Merge upstream
+        id: merge
+        run: |
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "already_up_to_date=true" >> "$GITHUB_OUTPUT"
+            echo "Already up to date with upstream."
+            exit 0
+          fi
+
+          if git merge upstream/main --no-edit; then
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+            git merge --abort
+          fi
+
+      - name: Push merged changes
+        if: steps.merge.outputs.merged == 'true'
+        run: git push origin main
+
+      - name: Create conflict PR
+        if: steps.merge.outputs.conflict == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="upstream-sync/$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH"
+          git merge upstream/main --no-edit || true
+
+          CONFLICTED=$(git diff --name-only --diff-filter=U)
+          git add -A
+          git commit -m "chore: merge upstream with conflicts" --no-verify || true
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --title "chore: upstream sync conflict" \
+            --body "$(cat <<EOF
+          Automatic merge from alfredjeanlab/coop had conflicts.
+
+          **Conflicted files:**
+          \`\`\`
+          $CONFLICTED
+          \`\`\`
+
+          Please resolve manually.
+          EOF
+          )"
