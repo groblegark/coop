@@ -1,0 +1,25 @@
+CLAUDE.local.md
+
+# Build
+/target/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+
+# Coverage
+*.profraw
+*.profdata
+coverage/
+
+# Caches
+.quench/
+.wok/
+.v0/
+.v0.profile.rc
