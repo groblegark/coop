@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright 2025 Alfred Jean LLC
 
+pub mod claude;
 pub mod grace;
+pub mod hook_recv;
 pub mod jsonl_stdout;
+pub mod log_watch;
+pub mod process;
+pub mod screen_parse;
+pub mod unknown;
 
 use grace::IdleGraceTimer;
 use serde::{Deserialize, Serialize};
@@ -85,6 +91,41 @@ pub struct CompositeDetector {
     pub tiers: Vec<Box<dyn Detector>>,
     pub grace_timer: IdleGraceTimer,
     pub state_tx: mpsc::Sender<AgentState>,
+}
+
+impl AgentState {
+    /// Return the wire-format string for this state (e.g. `"working"`,
+    /// `"permission_prompt"`).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Starting => "starting",
+            Self::Working => "working",
+            Self::WaitingForInput => "waiting_for_input",
+            Self::PermissionPrompt { .. } => "permission_prompt",
+            Self::PlanPrompt { .. } => "plan_prompt",
+            Self::AskUser { .. } => "ask_user",
+            Self::Error { .. } => "error",
+            Self::AltScreen => "alt_screen",
+            Self::Exited { .. } => "exited",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// Extract the prompt context from state variants that carry one.
+    pub fn prompt(&self) -> Option<&PromptContext> {
+        match self {
+            Self::PermissionPrompt { prompt }
+            | Self::PlanPrompt { prompt }
+            | Self::AskUser { prompt } => Some(prompt),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for AgentState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 impl std::fmt::Debug for CompositeDetector {

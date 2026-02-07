@@ -62,7 +62,7 @@ job "github:bug" {
       if test "$(git rev-list --count HEAD ^origin/${local.base})" -gt 0; then
         branch="${workspace.branch}"
         git push origin "$branch"
-        gh pr create --title "${local.title}" --body "Closes #${var.bug.number}" --head "$branch" --label auto-merge
+        gh pr create --title "${local.title}" --body "Closes #${var.bug.number}" --head "$branch" --label merge:auto
         oj worker start github:merge
       elif gh issue view ${var.bug.number} --json state -q '.state' | grep -q 'CLOSED'; then
         echo "Issue already resolved, no changes needed"

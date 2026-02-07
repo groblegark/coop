@@ -45,7 +45,8 @@ agent "doctor" {
       build:failed    — build failed
       blocked         — blocked by dependencies
       in-progress     — work in progress
-      auto-merge      — PR queued for auto-merge
+      merge:auto      — PR queued for auto-merge
+      merge:cicd      — PR needs CI/CD resolution
 
     ### Dependencies
 
@@ -54,7 +55,7 @@ agent "doctor" {
 
     ### Workers to ensure are running
 
-      github:plan, github:build, github:merge
+      github:plan, github:build, github:merge, github:cicd
       Cron: github:unblock
 
     ### Label Inconsistencies to Fix
