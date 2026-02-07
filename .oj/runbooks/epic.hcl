@@ -8,13 +8,14 @@
 # Examples:
 #   oj run epic "Implement user authentication with OAuth"
 #   oj run epic "Refactor storage layer" --blocked 5
+#   oj run epic "Wire everything together" --blocked "3 5 14"
 command "github:epic" {
-  args = "<description> [--blocked <number>]"
+  args = "<description> [--blocked <numbers>]"
   run  = <<-SHELL
     labels="type:epic,plan:needed,build:needed"
-    if [ -n "${args.blocked}" ]; then
-      labels="$labels,blocked:${args.blocked}"
-    fi
+    for b in ${args.blocked}; do
+      labels="$labels,blocked:$b"
+    done
     gh issue create --label "$labels" --title "${args.description}"
     oj worker start plan
     oj worker start epic
@@ -89,7 +90,7 @@ queue "plans" {
 worker "plan" {
   source      = { queue = "plans" }
   handler     = { job = "plan" }
-  concurrency = 3
+  concurrency = 5
 }
 
 job "plan" {
@@ -140,7 +141,7 @@ queue "epics" {
 worker "epic" {
   source      = { queue = "epics" }
   handler     = { job = "epic" }
-  concurrency = 2
+  concurrency = 5
 }
 
 job "epic" {
