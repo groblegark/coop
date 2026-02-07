@@ -60,10 +60,10 @@ job "github:bug" {
       git add -A
       git diff --cached --quiet || git commit -m "${local.title}"
       if test "$(git rev-list --count HEAD ^origin/${local.base})" -gt 0; then
-        branch="${workspace.branch}" title="${local.title}"
+        branch="${workspace.branch}"
         git push origin "$branch"
-        gh issue close ${var.bug.number}
-        oj queue push merges --var branch="$branch" --var title="$title"
+        gh pr create --title "${local.title}" --body "Closes #${var.bug.number}" --head "$branch" --label auto-merge
+        oj worker start github:merge
       elif gh issue view ${var.bug.number} --json state -q '.state' | grep -q 'CLOSED'; then
         echo "Issue already resolved, no changes needed"
       else
@@ -87,16 +87,12 @@ job "github:bug" {
 
 agent "bugs" {
   run     = "claude --model opus --dangerously-skip-permissions --disallowed-tools ExitPlanMode,EnterPlanMode"
-  on_dead = { action = "gate", run = "make check" }
+  on_dead = { action = "resume", attempts = 1 }
 
   on_idle {
     action  = "nudge"
     message = <<-MSG
-      Keep working. Fix the bug, write tests, verify with:
-      ```
-      make check
-      ```
-      Then commit your changes.
+      Keep working. Fix the bug, verify with `make check`, then commit.
     MSG
   }
 
@@ -109,18 +105,28 @@ agent "bugs" {
     }
   }
 
-  prime = ["gh issue view ${var.bug.number}"]
+  prime = <<-SHELL
+    cat <<'GATE'
+    ## Acceptance Gate
+
+    Your work is REJECTED if `make check` does not pass.
+    You MUST run `make check` and fix any failures before committing.
+    If you exit without a passing `make check`, the job will be retried.
+    GATE
+
+    echo ''
+    echo '## Issue'
+    gh issue view ${var.bug.number}
+  SHELL
 
   prompt = <<-PROMPT
-    Fix the following bug: #${var.bug.number} - ${var.bug.title}
-
-    ## Steps
+    Fix GitHub issue #${var.bug.number}: ${var.bug.title}
 
     1. Understand the bug
     2. Find the relevant code
     3. Implement a fix
     4. Write or update tests
-    5. Verify: `make check`
+    5. Verify: `make check` (MUST pass — this is your acceptance gate)
     6. Commit your changes
 
     If the bug is already fixed (e.g. by a prior commit), just commit a no-op.

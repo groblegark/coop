@@ -350,7 +350,7 @@ job "github:unblock" {
 
 agent "plan" {
   run     = "claude --model opus --dangerously-skip-permissions --disallowed-tools EnterPlanMode,ExitPlanMode"
-  on_dead = { action = "gate", run = "test \"$(gh issue view ${var.epic.number} --json comments -q '.comments | length')\" -gt 0" }
+  on_dead = { action = "resume", attempts = 1 }
 
   session "tmux" {
     color = "blue"
@@ -358,12 +358,21 @@ agent "plan" {
     status { left = "#${var.epic.number}: ${var.epic.title}" }
   }
 
-  prime = ["gh issue view ${var.epic.number}"]
+  prime = <<-SHELL
+    cat <<'GATE'
+    ## Acceptance Gate
+
+    Your work is only accepted if you post a plan comment on the issue.
+    If you crash or exit without posting, the job will be retried.
+    GATE
+
+    echo ''
+    echo '## Issue'
+    gh issue view ${var.epic.number}
+  SHELL
 
   prompt = <<-PROMPT
     Create an implementation plan for GitHub issue #${var.epic.number}: ${var.epic.title}
-
-    The issue details are above (from `gh issue view ${var.epic.number}`).
 
     1. Spawn 3-5 Explore agents in parallel (depending on complexity)
     2. Spawn a Plan agent to synthesize findings
@@ -373,16 +382,12 @@ agent "plan" {
 
 agent "implement" {
   run     = "claude --model opus --dangerously-skip-permissions --disallowed-tools EnterPlanMode,ExitPlanMode"
-  on_dead = { action = "gate", run = "make check" }
+  on_dead = { action = "resume", attempts = 1 }
 
   on_idle {
     action  = "nudge"
     message = <<-MSG
-      Follow the plan, implement, test, then verify with:
-      ```
-      make check
-      ```
-      Then commit your changes.
+      Keep working. Implement, verify with `make check`, then commit.
     MSG
   }
 
@@ -395,16 +400,28 @@ agent "implement" {
     }
   }
 
-  prime = ["gh issue view ${var.epic.number} --comments"]
+  prime = <<-SHELL
+    cat <<'GATE'
+    ## Acceptance Gate
+
+    Your work is REJECTED if `make check` does not pass.
+    You MUST run `make check` and fix any failures before committing.
+    If you exit without a passing `make check`, the job will be retried.
+    GATE
+
+    echo ''
+    echo '## Issue & Plan'
+    gh issue view ${var.epic.number} --comments
+  SHELL
 
   prompt = <<-PROMPT
     Implement GitHub issue #${var.epic.number}: ${var.epic.title}
 
-    The plan is in the issue comments above (from `gh issue view ${var.epic.number} --comments`).
+    The plan is in the issue comments above.
 
     1. Follow the plan
     2. Implement
-    3. Verify: `make check`
+    3. Verify: `make check` (MUST pass — this is your acceptance gate)
     4. Commit
   PROMPT
 }
