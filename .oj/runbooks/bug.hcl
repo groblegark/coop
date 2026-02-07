@@ -11,24 +11,24 @@ command "github:fix" {
   args = "<description>"
   run  = <<-SHELL
     gh issue create --label type:bug --title "${args.description}"
-    oj worker start bug
+    oj worker start github:bug
   SHELL
 }
 
-queue "bugs" {
+queue "github:bugs" {
   type = "external"
   list = "gh issue list --label type:bug --state open --json number,title --search '-label:in-progress'"
   take = "gh issue edit ${item.number} --add-label in-progress"
   poll = "30s"
 }
 
-worker "bug" {
-  source      = { queue = "bugs" }
-  handler     = { job = "bug" }
+worker "github:bug" {
+  source      = { queue = "github:bugs" }
+  handler     = { job = "github:bug" }
   concurrency = 3
 }
 
-job "bug" {
+job "github:bug" {
   name      = "${var.bug.title}"
   vars      = ["bug"]
   on_fail   = { step = "reopen" }

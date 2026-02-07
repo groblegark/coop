@@ -29,8 +29,8 @@ command "github:epic" {
     else
       gh issue create --label "$labels" --title "${args.description}"
     fi
-    oj worker start plan
-    oj worker start epic
+    oj worker start github:plan
+    oj worker start github:build
   SHELL
 
   defaults = {
@@ -59,7 +59,7 @@ command "idea" {
     else
       gh issue create --label "$labels" --title "${args.description}"
     fi
-    oj worker start plan
+    oj worker start github:plan
   SHELL
 
   defaults = {
@@ -72,14 +72,14 @@ command "idea" {
 # Examples:
 #   oj run plan 42
 #   oj run plan 42 43
-command "plan" {
+command "github:plan" {
   args = "<issues>"
   run  = <<-SHELL
     for num in ${args.issues}; do
       gh issue edit "$num" --add-label plan:needed
       gh issue reopen "$num" 2>/dev/null || true
     done
-    oj worker start plan
+    oj worker start github:plan
   SHELL
 }
 
@@ -88,7 +88,7 @@ command "plan" {
 # Examples:
 #   oj run build 42
 #   oj run build 42 43
-command "build" {
+command "github:build" {
   args = "<issues>"
   run  = <<-SHELL
     for num in ${args.issues}; do
@@ -101,7 +101,7 @@ command "build" {
       gh issue edit "$num" --add-label build:needed
       gh issue reopen "$num" 2>/dev/null || true
     done
-    oj worker start epic
+    oj worker start github:build
   SHELL
 }
 
@@ -141,20 +141,20 @@ command "unblock" {
 # Plan queue and worker
 # ------------------------------------------------------------------------------
 
-queue "plans" {
+queue "github:plans" {
   type = "external"
   list = "gh issue list --label type:epic,plan:needed --state open --json number,title --search '-label:in-progress'"
   take = "gh issue edit ${item.number} --add-label in-progress"
   poll = "30s"
 }
 
-worker "plan" {
-  source      = { queue = "plans" }
-  handler     = { job = "plan" }
+worker "github:plan" {
+  source      = { queue = "github:plans" }
+  handler     = { job = "github:plan" }
   concurrency = 5
 }
 
-job "plan" {
+job "github:plan" {
   name      = "Plan: ${var.epic.title}"
   vars      = ["epic"]
   on_fail   = { step = "reopen" }
@@ -169,7 +169,7 @@ job "plan" {
     run = <<-SHELL
       gh issue edit ${var.epic.number} --remove-label plan:needed,in-progress --add-label plan:ready
       gh issue reopen ${var.epic.number} 2>/dev/null || true
-      oj worker start epic
+      oj worker start github:build
     SHELL
   }
 
@@ -189,20 +189,20 @@ job "plan" {
 # Epic (build) queue and worker
 # ------------------------------------------------------------------------------
 
-queue "epics" {
+queue "github:epics" {
   type = "external"
   list = "gh issue list --label type:epic,plan:ready,build:needed --state open --json number,title --search '-label:blocked -label:in-progress'"
   take = "gh issue edit ${item.number} --add-label in-progress"
   poll = "30s"
 }
 
-worker "epic" {
-  source      = { queue = "epics" }
-  handler     = { job = "epic" }
+worker "github:build" {
+  source      = { queue = "github:epics" }
+  handler     = { job = "github:build" }
   concurrency = 5
 }
 
-job "epic" {
+job "github:build" {
   name      = "${var.epic.title}"
   vars      = ["epic"]
   on_fail   = { step = "reopen" }

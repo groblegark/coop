@@ -11,24 +11,24 @@ command "github:chore" {
   args = "<description>"
   run  = <<-SHELL
     gh issue create --label type:chore --title "${args.description}"
-    oj worker start chore
+    oj worker start github:chore
   SHELL
 }
 
-queue "chores" {
+queue "github:chores" {
   type = "external"
   list = "gh issue list --label type:chore --state open --json number,title --search '-label:in-progress'"
   take = "gh issue edit ${item.number} --add-label in-progress"
   poll = "30s"
 }
 
-worker "chore" {
-  source      = { queue = "chores" }
-  handler     = { job = "chore" }
+worker "github:chore" {
+  source      = { queue = "github:chores" }
+  handler     = { job = "github:chore" }
   concurrency = 3
 }
 
-job "chore" {
+job "github:chore" {
   name      = "${var.task.title}"
   vars      = ["task"]
   on_fail   = { step = "reopen" }
