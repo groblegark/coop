@@ -2,27 +2,39 @@
 #
 # Workflow: create epic issue → plan worker explores and writes plan →
 # epic worker implements the plan → merge queue.
+#
+# Blocking: single `blocked` label. Dependencies tracked in issue body
+# as "Blocked by: #2, #5, #14". The submit step calls `unblock` to
+# check all blocked issues and remove the label when deps resolve.
 
 # Create a new epic with 'plan:needed' and 'build:needed'.
 #
 # Examples:
 #   oj run epic "Implement user authentication with OAuth"
-#   oj run epic "Refactor storage layer" --blocked 5
-#   oj run epic "Wire everything together" --blocked "3 5 14"
+#   oj run epic "Refactor storage layer" --after 5
+#   oj run epic "Wire everything together" --after "3 5 14"
 command "github:epic" {
-  args = "<description> [--blocked <numbers>]"
+  args = "<description> [--after <numbers>]"
   run  = <<-SHELL
     labels="type:epic,plan:needed,build:needed"
-    for b in ${args.blocked}; do
-      labels="$labels,blocked:$b"
-    done
-    gh issue create --label "$labels" --title "${args.description}"
+    body=""
+    if [ -n "${args.after}" ]; then
+      labels="$labels,blocked"
+      refs=""
+      for n in ${args.after}; do refs="$refs #$n"; done
+      body="Blocked by:$refs"
+    fi
+    if [ -n "$body" ]; then
+      gh issue create --label "$labels" --title "${args.description}" --body "$body"
+    else
+      gh issue create --label "$labels" --title "${args.description}"
+    fi
     oj worker start plan
     oj worker start epic
   SHELL
 
   defaults = {
-    blocked = ""
+    after = ""
   }
 }
 
@@ -30,12 +42,29 @@ command "github:epic" {
 #
 # Examples:
 #   oj run idea "Add caching layer for API responses"
+#   oj run idea "Add caching layer" --after "3 5"
 command "idea" {
-  args = "<description>"
+  args = "<description> [--after <numbers>]"
   run  = <<-SHELL
-    gh issue create --label type:epic,plan:needed --title "${args.description}"
+    labels="type:epic,plan:needed"
+    body=""
+    if [ -n "${args.after}" ]; then
+      labels="$labels,blocked"
+      refs=""
+      for n in ${args.after}; do refs="$refs #$n"; done
+      body="Blocked by:$refs"
+    fi
+    if [ -n "$body" ]; then
+      gh issue create --label "$labels" --title "${args.description}" --body "$body"
+    else
+      gh issue create --label "$labels" --title "${args.description}"
+    fi
     oj worker start plan
   SHELL
+
+  defaults = {
+    after = ""
+  }
 }
 
 # Queue existing issues for planning.
@@ -73,6 +102,38 @@ command "build" {
       gh issue reopen "$num" 2>/dev/null || true
     done
     oj worker start epic
+  SHELL
+}
+
+# Check all blocked issues and remove label when all deps are resolved.
+#
+# Called automatically after an epic closes. Can also be run manually.
+#
+# Examples:
+#   oj run unblock
+command "unblock" {
+  run = <<-SHELL
+    gh issue list --label blocked --state open --json number,body | jq -c '.[]' | while read -r obj; do
+      num=$(echo "$obj" | jq -r .number)
+      deps=$(echo "$obj" | jq -r '.body' | grep -i 'Blocked by:' | grep -oE '#[0-9]+' | grep -oE '[0-9]+')
+      if [ -z "$deps" ]; then
+        gh issue edit "$num" --remove-label blocked
+        echo "Unblocked #$num (no deps)"
+        continue
+      fi
+      all_closed=true
+      for dep in $deps; do
+        state=$(gh issue view "$dep" --json state -q .state 2>/dev/null)
+        if [ "$state" != "CLOSED" ]; then
+          all_closed=false
+          break
+        fi
+      done
+      if [ "$all_closed" = true ]; then
+        gh issue edit "$num" --remove-label blocked
+        echo "Unblocked #$num"
+      fi
+    done
   SHELL
 }
 
@@ -130,10 +191,7 @@ job "plan" {
 
 queue "epics" {
   type = "external"
-  list = <<-SHELL
-    gh issue list --label type:epic,plan:ready,build:needed --state open --json number,title,labels \
-      | jq '[.[] | select((.labels | map(.name) | any(startswith("blocked:")) | not) and (.labels | map(.name) | any(. == "in-progress") | not))]'
-  SHELL
+  list = "gh issue list --label type:epic,plan:ready,build:needed --state open --json number,title --search '-label:blocked -label:in-progress'"
   take = "gh issue edit ${item.number} --add-label in-progress"
   poll = "30s"
 }
@@ -173,9 +231,7 @@ job "epic" {
         branch="${workspace.branch}" title="${local.title}"
         git push origin "$branch"
         gh issue close ${var.epic.number}
-        # Unblock dependents
-        gh issue list --label "blocked:${var.epic.number}" --state open --json number -q '.[].number' \
-          | while read -r num; do gh issue edit "$num" --remove-label "blocked:${var.epic.number}"; done
+        oj run unblock
         oj queue push merges --var branch="$branch" --var title="$title"
       else
         echo "No changes" >&2
