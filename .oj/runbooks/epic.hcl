@@ -293,6 +293,10 @@ job "github:merge" {
       git push --force-with-lease origin HEAD:${var.pr.headRefName}
       gh pr merge ${var.pr.number} --squash --auto
       gh pr edit ${var.pr.number} --remove-label in-progress
+      issue=$(gh pr view ${var.pr.number} --json body -q '.body' | grep -oE 'Closes #[0-9]+' | grep -oE '[0-9]+' | head -1)
+      if [ -n "$issue" ]; then
+        gh issue edit "$issue" --remove-label build:ready
+      fi
     SHELL
     on_done = { step = "cleanup" }
   }
