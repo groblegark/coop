@@ -1,11 +1,12 @@
 # GitHub-backed epic queue with planning and implementation.
 #
 # Workflow: create epic issue → plan worker explores and writes plan →
-# epic worker implements the plan → merge queue.
+# build worker implements the plan → PR with auto-merge → unblock cron.
 #
 # Blocking: single `blocked` label. Dependencies tracked in issue body
-# as "Blocked by: #2, #5, #14". The submit step calls `unblock` to
-# check all blocked issues and remove the label when deps resolve.
+# as "Blocked by: #2, #5, #14". PRs use "Closes #N" so GitHub auto-closes
+# the issue on merge. A cron runs `unblock` every 60s to detect when
+# deps close and unblock dependents.
 
 # Create a new epic with 'plan:needed' and 'build:needed'.
 #
@@ -137,6 +138,25 @@ command "unblock" {
   SHELL
 }
 
+# Idempotently create all GitHub labels used by this runbook.
+#
+# Examples:
+#   oj run github:setup
+command "github:setup" {
+  run = <<-SHELL
+    gh label create "type:epic"      --color 5319E7 --description "Epic feature issue"       --force
+    gh label create "plan:needed"    --color FBCA04 --description "Needs implementation plan" --force
+    gh label create "plan:ready"     --color 0E8A16 --description "Plan complete"             --force
+    gh label create "plan:failed"    --color D93F0B --description "Planning failed"           --force
+    gh label create "build:needed"   --color FBCA04 --description "Needs implementation"      --force
+    gh label create "build:ready"    --color 0E8A16 --description "Built, PR awaiting merge"  --force
+    gh label create "build:failed"   --color D93F0B --description "Build failed"              --force
+    gh label create "blocked"        --color B60205 --description "Blocked by dependencies"   --force
+    gh label create "in-progress"    --color 1D76DB --description "Work in progress"          --force
+    gh label create "auto-merge"     --color 0E8A16 --description "PR queued for auto-merge"  --force
+  SHELL
+}
+
 # ------------------------------------------------------------------------------
 # Plan queue and worker
 # ------------------------------------------------------------------------------
@@ -228,11 +248,11 @@ job "github:build" {
       git add -A
       git diff --cached --quiet || git commit -m "${local.title}"
       if test "$(git rev-list --count HEAD ^origin/${local.base})" -gt 0; then
-        branch="${workspace.branch}" title="${local.title}"
+        branch="${workspace.branch}"
         git push origin "$branch"
-        gh issue close ${var.epic.number}
-        oj run unblock
-        oj queue push merges --var branch="$branch" --var title="$title"
+        gh pr create --title "${local.title}" --body "Closes #${var.epic.number}" --head "$branch" --label auto-merge
+        gh issue edit ${var.epic.number} --remove-label build:needed,in-progress --add-label build:ready
+        oj worker start github:merge
       else
         echo "No changes" >&2
         exit 1
@@ -253,6 +273,107 @@ job "github:build" {
 }
 
 # ------------------------------------------------------------------------------
+# Merge queue and worker
+# ------------------------------------------------------------------------------
+
+queue "github:merges" {
+  type = "external"
+  list = "gh pr list --label auto-merge --json number,title,headRefName"
+  take = "gh pr edit ${item.number} --add-label in-progress"
+  poll = "30s"
+}
+
+worker "github:merge" {
+  source      = { queue = "github:merges" }
+  handler     = { job = "github:merge" }
+  concurrency = 1
+}
+
+job "github:merge" {
+  name      = "Merge PR #${var.pr.number}: ${var.pr.title}"
+  vars      = ["pr"]
+  on_cancel = { step = "cleanup" }
+
+  workspace = "folder"
+
+  locals {
+    repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
+    branch = "merge-pr-${var.pr.number}-${workspace.nonce}"
+  }
+
+  step "init" {
+    run = <<-SHELL
+      git -C "${local.repo}" worktree remove --force "${workspace.root}" 2>/dev/null || true
+      git -C "${local.repo}" branch -D "${local.branch}" 2>/dev/null || true
+      git -C "${local.repo}" fetch origin main
+      git -C "${local.repo}" fetch origin pull/${var.pr.number}/head:${local.branch}
+      git -C "${local.repo}" worktree add "${workspace.root}" ${local.branch}
+    SHELL
+    on_done = { step = "rebase" }
+  }
+
+  step "rebase" {
+    run     = "git rebase origin/main"
+    on_done = { step = "push" }
+  }
+
+  step "push" {
+    run = <<-SHELL
+      git push --force-with-lease origin HEAD:${var.pr.headRefName}
+      gh pr merge ${var.pr.number} --squash --auto
+      gh pr edit ${var.pr.number} --remove-label in-progress
+    SHELL
+    on_done = { step = "cleanup" }
+  }
+
+  step "cleanup" {
+    run = <<-SHELL
+      git -C "${local.repo}" worktree remove --force "${workspace.root}" 2>/dev/null || true
+      git -C "${local.repo}" branch -D "${local.branch}" 2>/dev/null || true
+    SHELL
+  }
+}
+
+# ------------------------------------------------------------------------------
+# Unblock cron
+# ------------------------------------------------------------------------------
+
+cron "github:unblock" {
+  interval = "60s"
+  run      = { job = "github:unblock" }
+}
+
+job "github:unblock" {
+  name = "unblock"
+
+  step "check" {
+    run = <<-SHELL
+      gh issue list --label blocked --state open --json number,body | jq -c '.[]' | while read -r obj; do
+        num=$(echo "$obj" | jq -r .number)
+        deps=$(echo "$obj" | jq -r '.body' | grep -i 'Blocked by:' | grep -oE '#[0-9]+' | grep -oE '[0-9]+')
+        if [ -z "$deps" ]; then
+          gh issue edit "$num" --remove-label blocked
+          echo "Unblocked #$num (no deps)"
+          continue
+        fi
+        all_closed=true
+        for dep in $deps; do
+          state=$(gh issue view "$dep" --json state -q .state 2>/dev/null)
+          if [ "$state" != "CLOSED" ]; then
+            all_closed=false
+            break
+          fi
+        done
+        if [ "$all_closed" = true ]; then
+          gh issue edit "$num" --remove-label blocked
+          echo "Unblocked #$num"
+        fi
+      done
+    SHELL
+  }
+}
+
+# ------------------------------------------------------------------------------
 # Agents
 # ------------------------------------------------------------------------------
 
@@ -269,7 +390,9 @@ agent "plan" {
   prime = ["gh issue view ${var.epic.number}"]
 
   prompt = <<-PROMPT
-    Create an implementation plan for: #${var.epic.number} - ${var.epic.title}
+    Create an implementation plan for GitHub issue #${var.epic.number}: ${var.epic.title}
+
+    The issue details are above (from `gh issue view ${var.epic.number}`).
 
     1. Spawn 3-5 Explore agents in parallel (depending on complexity)
     2. Spawn a Plan agent to synthesize findings
@@ -304,9 +427,9 @@ agent "implement" {
   prime = ["gh issue view ${var.epic.number} --comments"]
 
   prompt = <<-PROMPT
-    Implement: #${var.epic.number} - ${var.epic.title}
+    Implement GitHub issue #${var.epic.number}: ${var.epic.title}
 
-    The plan is in the issue comments above.
+    The plan is in the issue comments above (from `gh issue view ${var.epic.number} --comments`).
 
     1. Follow the plan
     2. Implement
