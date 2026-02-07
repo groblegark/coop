@@ -6,13 +6,21 @@
 #
 # Examples:
 #   oj run fix "Button doesn't respond to clicks"
-#   oj run fix "Login page crashes on empty password"
+#   oj run fix "Login page crashes on empty password" "Repro steps..."
 command "github:fix" {
-  args = "<description>"
+  args = "<title> [body]"
   run  = <<-SHELL
-    gh issue create --label type:bug --title "${args.description}"
+    if [ -n "${args.body}" ]; then
+      gh issue create --label type:bug --title "${args.title}" --body "${args.body}"
+    else
+      gh issue create --label type:bug --title "${args.title}"
+    fi
     oj worker start github:bug
   SHELL
+
+  defaults = {
+    body = ""
+  }
 }
 
 queue "github:bugs" {

@@ -6,13 +6,21 @@
 #
 # Examples:
 #   oj run chore "Update dependencies to latest versions"
-#   oj run chore "Add missing test coverage for auth module"
+#   oj run chore "Add missing test coverage for auth module" "Details here..."
 command "github:chore" {
-  args = "<description>"
+  args = "<title> [body]"
   run  = <<-SHELL
-    gh issue create --label type:chore --title "${args.description}"
+    if [ -n "${args.body}" ]; then
+      gh issue create --label type:chore --title "${args.title}" --body "${args.body}"
+    else
+      gh issue create --label type:chore --title "${args.title}"
+    fi
     oj worker start github:chore
   SHELL
+
+  defaults = {
+    body = ""
+  }
 }
 
 queue "github:chores" {
