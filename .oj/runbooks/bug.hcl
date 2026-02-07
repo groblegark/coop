@@ -58,6 +58,11 @@ job "github:bug" {
     on_fail  = "Fix failed: ${var.bug.title}"
   }
 
+  step "sync" {
+    run     = "git fetch origin ${local.base} && git rebase origin/${local.base} || true"
+    on_done = { step = "fix" }
+  }
+
   step "fix" {
     run     = { agent = "bugs" }
     on_done = { step = "submit" }

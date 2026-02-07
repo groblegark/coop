@@ -58,6 +58,11 @@ job "github:chore" {
     on_fail  = "Chore failed: ${var.task.title}"
   }
 
+  step "sync" {
+    run     = "git fetch origin ${local.base} && git rebase origin/${local.base} || true"
+    on_done = { step = "work" }
+  }
+
   step "work" {
     run     = { agent = "chores" }
     on_done = { step = "submit" }

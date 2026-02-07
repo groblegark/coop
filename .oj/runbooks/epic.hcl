@@ -138,6 +138,20 @@ job "github:plan" {
   on_fail   = { step = "reopen" }
   on_cancel = { step = "cancel" }
 
+  workspace {
+    git    = "worktree"
+    branch = "plan/${var.epic.number}-${workspace.nonce}"
+  }
+
+  locals {
+    base = "main"
+  }
+
+  step "sync" {
+    run     = "git fetch origin ${local.base} && git rebase origin/${local.base} || true"
+    on_done = { step = "think" }
+  }
+
   step "think" {
     run     = { agent = "plan" }
     on_done = { step = "planned" }
@@ -194,6 +208,11 @@ job "github:build" {
   locals {
     base  = "main"
     title = "$(printf 'feat: %.76s' \"${var.epic.title}\")"
+  }
+
+  step "sync" {
+    run     = "git fetch origin ${local.base} && git rebase origin/${local.base} || true"
+    on_done = { step = "implement" }
   }
 
   step "implement" {
