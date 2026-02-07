@@ -33,13 +33,13 @@ jobs:
       - run: cargo clippy --all -- -D warnings
 
   quench:
-    name: License headers
+    name: Quench
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install quench
         run: curl -fsSL https://github.com/alfredjeanlab/quench/releases/latest/download/install.sh | bash
-      - run: quench check
+      - run: quench check --ci
 
   test:
     name: Test (${{ matrix.os }})
