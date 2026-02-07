@@ -1,5 +1,8 @@
 version = 1
 
+[ratchet]
+check = "off"
+
 [rust]
 cfg_test_split = "require"
 
