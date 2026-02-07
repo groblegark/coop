@@ -285,6 +285,18 @@ job "github:merge" {
 
   step "rebase" {
     run     = "git rebase origin/main"
+    on_done = { step = "verify" }
+    on_fail = { step = "resolve" }
+  }
+
+  step "verify" {
+    run     = "make check"
+    on_done = { step = "push" }
+    on_fail = { step = "resolve" }
+  }
+
+  step "resolve" {
+    run     = { agent = "merge-resolver" }
     on_done = { step = "push" }
   }
 
@@ -427,5 +439,50 @@ agent "implement" {
     2. Implement
     3. Verify: `make check` (MUST pass — this is your acceptance gate)
     4. Commit
+  PROMPT
+}
+
+agent "merge-resolver" {
+  run     = "claude --model sonnet --dangerously-skip-permissions"
+  on_idle = { action = "gate", command = "test ! -d $(git rev-parse --git-dir)/rebase-merge" }
+  on_dead = { action = "escalate" }
+
+  session "tmux" {
+    color = "yellow"
+    title = "Merge: PR #${var.pr.number}"
+    status {
+      left  = "${var.pr.title}"
+      right = "${var.pr.headRefName} -> main"
+    }
+  }
+
+  prime = <<-SHELL
+    echo '## Git Status'
+    git status
+
+    echo ''
+    echo '## PR'
+    gh pr view ${var.pr.number}
+
+    echo ''
+    echo '## Commits (branch vs main)'
+    git log --oneline origin/main..HEAD 2>/dev/null || git log --oneline REBASE_HEAD~1..REBASE_HEAD 2>/dev/null || true
+
+    echo ''
+    echo '## Recent build output'
+    make check 2>&1 | tail -80 || true
+  SHELL
+
+  prompt = <<-PROMPT
+    You are landing PR #${var.pr.number} ("${var.pr.title}") onto main.
+
+    Something went wrong — either a rebase conflict or a build failure.
+    Diagnose from the git status and build output above, fix it, and
+    get `make check` passing.
+
+    If mid-rebase: resolve conflicts, `git add`, `git rebase --continue`, repeat.
+    If build fails: fix the code, amend the commit.
+
+    Done when: rebase is complete and `make check` passes.
   PROMPT
 }
