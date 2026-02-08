@@ -41,7 +41,7 @@ command "github:chore" {
 queue "chores" {
   type = "external"
   list = "gh issue list --label type:chore --state open --json number,title --search '-label:blocked -label:in-progress'"
-  take = "gh issue edit ${item.number} --add-label in-progress"
+  take = "gh issue edit ${item.number} --add-label in-progress && gh issue lock ${item.number}"
   poll = "30s"
 }
 
