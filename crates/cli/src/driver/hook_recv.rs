@@ -133,7 +133,7 @@ impl Drop for HookReceiver {
 fn parse_hook_line(line: &str) -> Option<HookEvent> {
     let raw: RawHookEvent = serde_json::from_str(line).ok()?;
     match raw.event.as_str() {
-        "post_tool_use" => {
+        "post_tool_use" | "after_tool" => {
             let tool = raw
                 .data
                 .as_ref()

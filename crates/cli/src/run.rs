@@ -18,6 +18,8 @@ use crate::config::{self, Config};
 use crate::driver::claude::resume;
 use crate::driver::claude::setup::{self as claude_setup, ClaudeSessionSetup};
 use crate::driver::claude::{ClaudeDriver, ClaudeDriverConfig};
+use crate::driver::gemini::setup::{self as gemini_setup, GeminiSessionSetup};
+use crate::driver::gemini::{GeminiDriver, GeminiDriverConfig};
 use crate::driver::AgentType;
 use crate::driver::{AgentState, Detector, NudgeEncoder, RespondEncoder};
 use crate::pty::attach::{AttachSpec, TmuxBackend};
@@ -135,9 +137,19 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         None
     };
 
+    // 2b. Prepare Gemini session setup (creates FIFO pipe path, writes settings).
+    let gemini_setup: Option<GeminiSessionSetup> = if agent_enum == AgentType::Gemini {
+        Some(gemini_setup::prepare_gemini_session(&working_dir)?)
+    } else {
+        None
+    };
+
     // 3. Build the command with extra args from setup.
     let mut command = config.command.clone();
     if let Some(ref setup) = claude_setup {
+        command.extend(setup.extra_args.clone());
+    }
+    if let Some(ref setup) = gemini_setup {
         command.extend(setup.extra_args.clone());
     }
 
@@ -159,6 +171,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         &config,
         agent_enum,
         claude_setup.as_ref(),
+        gemini_setup.as_ref(),
         Arc::new(move || {
             let v = pid_terminal
                 .child_pid
@@ -174,10 +187,12 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     )?;
 
     // 6. Spawn backend AFTER driver is built (FIFO must exist before child starts).
-    let extra_env = claude_setup
+    let extra_env: Vec<(String, String)> = claude_setup
         .as_ref()
-        .map(|s| s.env_vars.as_slice())
-        .unwrap_or(&[]);
+        .map(|s| s.env_vars.clone())
+        .or_else(|| gemini_setup.as_ref().map(|s| s.env_vars.clone()))
+        .unwrap_or_default();
+    let extra_env = extra_env.as_slice();
     let backend: Box<dyn Backend> = if let Some(ref attach_spec) = config.attach {
         let spec: AttachSpec = attach_spec.parse()?;
         match spec {
@@ -381,6 +396,7 @@ fn build_driver(
     config: &Config,
     agent: AgentType,
     claude_setup: Option<&ClaudeSessionSetup>,
+    gemini_setup: Option<&GeminiSessionSetup>,
     child_pid_fn: Arc<dyn Fn() -> Option<u32> + Send + Sync>,
     ring_total_written_fn: Arc<dyn Fn() -> u64 + Send + Sync>,
     log_start_offset: u64,
@@ -401,6 +417,17 @@ fn build_driver(
             let detectors = driver.detectors;
             Ok((Some(nudge), Some(respond), detectors))
         }
+        AgentType::Gemini => {
+            let driver = GeminiDriver::new(GeminiDriverConfig {
+                hook_pipe_path: gemini_setup.map(|s| s.hook_pipe_path.clone()),
+                stdout_rx: None,
+                feedback_delay: config.feedback_delay(),
+            })?;
+            let nudge: Arc<dyn NudgeEncoder> = Arc::new(driver.nudge);
+            let respond: Arc<dyn RespondEncoder> = Arc::new(driver.respond);
+            let detectors = driver.detectors;
+            Ok((Some(nudge), Some(respond), detectors))
+        }
         AgentType::Unknown => {
             let detectors = crate::driver::unknown::build_detectors(
                 config,
@@ -410,7 +437,7 @@ fn build_driver(
             )?;
             Ok((None, None, detectors))
         }
-        AgentType::Codex | AgentType::Gemini => {
+        AgentType::Codex => {
             anyhow::bail!("{agent:?} driver is not yet implemented");
         }
     }

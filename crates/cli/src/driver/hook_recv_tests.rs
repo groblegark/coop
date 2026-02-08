@@ -112,6 +112,30 @@ fn pre_tool_use_missing_tool_name_returns_none() {
 }
 
 #[test]
+fn parses_after_tool_event() {
+    let event = parse_hook_line(
+        r#"{"event":"after_tool","data":{"tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":{"llmContent":"output"}}}"#,
+    );
+    assert_eq!(
+        event,
+        Some(HookEvent::ToolComplete {
+            tool: "Bash".to_string()
+        })
+    );
+}
+
+#[test]
+fn after_tool_missing_tool_name_returns_empty() {
+    let event = parse_hook_line(r#"{"event":"after_tool","data":{}}"#);
+    assert_eq!(
+        event,
+        Some(HookEvent::ToolComplete {
+            tool: "".to_string()
+        })
+    );
+}
+
+#[test]
 fn ignores_malformed_lines() {
     assert_eq!(parse_hook_line("not json"), None);
     assert_eq!(parse_hook_line("{}"), None);
