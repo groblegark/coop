@@ -3,6 +3,11 @@
 # Issues can declare dependencies via "Blocked by: #2, #5, #14" in the body.
 # The `blocked` label prevents workers from picking up the issue. An unblock
 # cron runs every 60s to detect when all deps close and removes the label.
+#
+# A dep counts as resolved only if CLOSED without pipeline-pending labels
+# (build:failed, plan:failed, build:needed, plan:needed). This prevents
+# premature unblocking when a dep is closed by a cancelled job or has a
+# failed build.
 
 # Check all blocked issues and remove label when all deps are resolved.
 #
@@ -18,15 +23,21 @@ command "github:unblock" {
         echo "Unblocked #$num (no deps)"
         continue
       fi
-      all_closed=true
+      all_resolved=true
       for dep in $deps; do
-        state=$(gh issue view "$dep" --json state -q .state 2>/dev/null)
+        dep_data=$(gh issue view "$dep" --json state,labels 2>/dev/null)
+        state=$(echo "$dep_data" | jq -r .state)
         if [ "$state" != "CLOSED" ]; then
-          all_closed=false
+          all_resolved=false
+          break
+        fi
+        pending=$(echo "$dep_data" | jq '[.labels[].name | select(test("^(build:failed|plan:failed|build:needed|plan:needed)$"))] | length')
+        if [ "$pending" -gt 0 ]; then
+          all_resolved=false
           break
         fi
       done
-      if [ "$all_closed" = true ]; then
+      if [ "$all_resolved" = true ]; then
         gh issue edit "$num" --remove-label blocked
         echo "Unblocked #$num"
       fi
@@ -52,15 +63,21 @@ job "unblock" {
           echo "Unblocked #$num (no deps)"
           continue
         fi
-        all_closed=true
+        all_resolved=true
         for dep in $deps; do
-          state=$(gh issue view "$dep" --json state -q .state 2>/dev/null)
+          dep_data=$(gh issue view "$dep" --json state,labels 2>/dev/null)
+          state=$(echo "$dep_data" | jq -r .state)
           if [ "$state" != "CLOSED" ]; then
-            all_closed=false
+            all_resolved=false
+            break
+          fi
+          pending=$(echo "$dep_data" | jq '[.labels[].name | select(test("^(build:failed|plan:failed|build:needed|plan:needed)$"))] | length')
+          if [ "$pending" -gt 0 ]; then
+            all_resolved=false
             break
           fi
         done
-        if [ "$all_closed" = true ]; then
+        if [ "$all_resolved" = true ]; then
           gh issue edit "$num" --remove-label blocked
           echo "Unblocked #$num"
         fi
