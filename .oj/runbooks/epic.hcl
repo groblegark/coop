@@ -112,7 +112,7 @@ command "github:build" {
 queue "plans" {
   type = "external"
   list = "gh issue list --label type:epic,plan:needed --state open --json number,title --search '-label:blocked -label:in-progress'"
-  take = "gh issue edit ${item.number} --add-label in-progress && gh issue lock ${item.number}"
+  take = "gh issue edit ${item.number} --add-label in-progress; gh issue lock ${item.number} 2>/dev/null || true"
   poll = "30s"
 }
 
@@ -174,7 +174,7 @@ job "plan" {
 queue "epics" {
   type = "external"
   list = "gh issue list --label type:epic,plan:ready,build:needed --state open --json number,title --search '-label:blocked -label:in-progress'"
-  take = "gh issue edit ${item.number} --add-label in-progress && gh issue lock ${item.number}"
+  take = "gh issue edit ${item.number} --add-label in-progress; gh issue lock ${item.number} 2>/dev/null || true"
   poll = "30s"
 }
 
