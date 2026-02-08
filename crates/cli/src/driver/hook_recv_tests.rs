@@ -29,6 +29,88 @@ fn parses_session_end_event() {
 }
 
 #[test]
+fn parses_notification_idle_prompt() {
+    let event = parse_hook_line(
+        r#"{"event":"notification","data":{"notification_type":"idle_prompt"}}"#,
+    );
+    assert_eq!(
+        event,
+        Some(HookEvent::Notification {
+            notification_type: "idle_prompt".to_string()
+        })
+    );
+}
+
+#[test]
+fn parses_notification_permission_prompt() {
+    let event = parse_hook_line(
+        r#"{"event":"notification","data":{"notification_type":"permission_prompt"}}"#,
+    );
+    assert_eq!(
+        event,
+        Some(HookEvent::Notification {
+            notification_type: "permission_prompt".to_string()
+        })
+    );
+}
+
+#[test]
+fn parses_pre_tool_use_ask_user() {
+    let event = parse_hook_line(
+        r#"{"event":"pre_tool_use","data":{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which DB?"}]}}}"#,
+    );
+    match event {
+        Some(HookEvent::PreToolUse { tool, tool_input }) => {
+            assert_eq!(tool, "AskUserQuestion");
+            assert!(tool_input.is_some());
+            let input = tool_input.unwrap();
+            assert!(input.get("questions").is_some());
+        }
+        other => panic!("expected PreToolUse, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_pre_tool_use_exit_plan() {
+    let event = parse_hook_line(
+        r#"{"event":"pre_tool_use","data":{"tool_name":"ExitPlanMode","tool_input":{}}}"#,
+    );
+    match event {
+        Some(HookEvent::PreToolUse { tool, tool_input }) => {
+            assert_eq!(tool, "ExitPlanMode");
+            assert!(tool_input.is_some());
+        }
+        other => panic!("expected PreToolUse, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_pre_tool_use_without_tool_input() {
+    let event = parse_hook_line(
+        r#"{"event":"pre_tool_use","data":{"tool_name":"EnterPlanMode"}}"#,
+    );
+    match event {
+        Some(HookEvent::PreToolUse { tool, tool_input }) => {
+            assert_eq!(tool, "EnterPlanMode");
+            assert!(tool_input.is_none());
+        }
+        other => panic!("expected PreToolUse, got {other:?}"),
+    }
+}
+
+#[test]
+fn notification_missing_type_returns_none() {
+    let event = parse_hook_line(r#"{"event":"notification","data":{}}"#);
+    assert_eq!(event, None);
+}
+
+#[test]
+fn pre_tool_use_missing_tool_name_returns_none() {
+    let event = parse_hook_line(r#"{"event":"pre_tool_use","data":{}}"#);
+    assert_eq!(event, None);
+}
+
+#[test]
 fn ignores_malformed_lines() {
     assert_eq!(parse_hook_line("not json"), None);
     assert_eq!(parse_hook_line("{}"), None);

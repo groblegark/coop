@@ -23,6 +23,7 @@ pub struct HookReceiver {
 struct RawHookEvent {
     event: String,
     tool: Option<String>,
+    data: Option<serde_json::Value>,
 }
 
 impl HookReceiver {
@@ -102,6 +103,23 @@ fn parse_hook_line(line: &str) -> Option<HookEvent> {
         }),
         "stop" => Some(HookEvent::AgentStop),
         "session_end" => Some(HookEvent::SessionEnd),
+        "notification" => {
+            let data = raw.data?;
+            let notification_type = data
+                .get("notification_type")
+                .and_then(|v| v.as_str())?
+                .to_string();
+            Some(HookEvent::Notification { notification_type })
+        }
+        "pre_tool_use" => {
+            let data = raw.data?;
+            let tool = data
+                .get("tool_name")
+                .and_then(|v| v.as_str())?
+                .to_string();
+            let tool_input = data.get("tool_input").cloned();
+            Some(HookEvent::PreToolUse { tool, tool_input })
+        }
         _ => None,
     }
 }

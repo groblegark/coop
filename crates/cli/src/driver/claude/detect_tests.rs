@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::{AgentState, Detector};
 
-use super::{LogDetector, StdoutDetector};
+use super::{HookDetector, LogDetector, StdoutDetector};
 
 #[tokio::test]
 async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
@@ -127,5 +127,157 @@ async fn stdout_detector_parses_jsonl_bytes() -> anyhow::Result<()> {
         Ok(Some(AgentState::Working)) => {} // tool_use → Working
         other => anyhow::bail!("expected Working, got {other:?}"),
     }
+    Ok(())
+}
+
+/// Helper: create a HookDetector with a named pipe, run it, and send events.
+async fn run_hook_detector(
+    events: Vec<&str>,
+) -> anyhow::Result<Vec<AgentState>> {
+    use crate::driver::hook_recv::HookReceiver;
+    use tokio::io::AsyncWriteExt;
+
+    let dir = tempfile::tempdir()?;
+    let pipe_path = dir.path().join("hook.pipe");
+    let receiver = HookReceiver::new(&pipe_path)?;
+    let detector = Box::new(HookDetector { receiver });
+    assert_eq!(detector.tier(), 1);
+
+    let (state_tx, mut state_rx) = mpsc::channel(32);
+    let shutdown = CancellationToken::new();
+    let sd = shutdown.clone();
+
+    let handle = tokio::spawn(async move {
+        detector.run(state_tx, sd).await;
+    });
+
+    // Write events from another task
+    let pipe = pipe_path.clone();
+    let events_owned: Vec<String> = events.iter().map(|s| s.to_string()).collect();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let mut file = match tokio::fs::OpenOptions::new().write(true).open(&pipe).await {
+            Ok(f) => f,
+            Err(_) => return,
+        };
+        for event in events_owned {
+            let _ = file.write_all(event.as_bytes()).await;
+            let _ = file.write_all(b"\n").await;
+        }
+    });
+
+    let mut states = Vec::new();
+    let timeout = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while let Some(state) = state_rx.recv().await {
+            states.push(state);
+            if states.len() >= events.len() {
+                break;
+            }
+        }
+    })
+    .await;
+
+    shutdown.cancel();
+    let _ = handle.await;
+
+    if timeout.is_err() && states.is_empty() {
+        anyhow::bail!("timed out waiting for states");
+    }
+    Ok(states)
+}
+
+#[tokio::test]
+async fn hook_detector_notification_idle_prompt() -> anyhow::Result<()> {
+    let states = run_hook_detector(vec![
+        r#"{"event":"notification","data":{"notification_type":"idle_prompt"}}"#,
+    ])
+    .await?;
+
+    assert_eq!(states.len(), 1);
+    assert!(matches!(states[0], AgentState::WaitingForInput));
+    Ok(())
+}
+
+#[tokio::test]
+async fn hook_detector_notification_permission_prompt() -> anyhow::Result<()> {
+    let states = run_hook_detector(vec![
+        r#"{"event":"notification","data":{"notification_type":"permission_prompt"}}"#,
+    ])
+    .await?;
+
+    assert_eq!(states.len(), 1);
+    assert!(matches!(states[0], AgentState::PermissionPrompt { .. }));
+    if let AgentState::PermissionPrompt { prompt } = &states[0] {
+        assert_eq!(prompt.prompt_type, "permission");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn hook_detector_pre_tool_use_ask_user() -> anyhow::Result<()> {
+    let states = run_hook_detector(vec![
+        r#"{"event":"pre_tool_use","data":{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which DB?","options":[{"label":"PostgreSQL"},{"label":"SQLite"}]}]}}}"#,
+    ])
+    .await?;
+
+    assert_eq!(states.len(), 1);
+    if let AgentState::AskUser { prompt } = &states[0] {
+        assert_eq!(prompt.prompt_type, "question");
+        assert_eq!(prompt.question.as_deref(), Some("Which DB?"));
+        assert_eq!(prompt.options, vec!["PostgreSQL", "SQLite"]);
+    } else {
+        anyhow::bail!("expected AskUser, got {:?}", states[0]);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn hook_detector_pre_tool_use_exit_plan_mode() -> anyhow::Result<()> {
+    let states = run_hook_detector(vec![
+        r#"{"event":"pre_tool_use","data":{"tool_name":"ExitPlanMode","tool_input":{}}}"#,
+    ])
+    .await?;
+
+    assert_eq!(states.len(), 1);
+    assert!(matches!(states[0], AgentState::PlanPrompt { .. }));
+    if let AgentState::PlanPrompt { prompt } = &states[0] {
+        assert_eq!(prompt.prompt_type, "plan");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn hook_detector_pre_tool_use_enter_plan_mode() -> anyhow::Result<()> {
+    let states = run_hook_detector(vec![
+        r#"{"event":"pre_tool_use","data":{"tool_name":"EnterPlanMode","tool_input":{}}}"#,
+    ])
+    .await?;
+
+    assert_eq!(states.len(), 1);
+    assert!(matches!(states[0], AgentState::Working));
+    Ok(())
+}
+
+#[tokio::test]
+async fn hook_detector_tool_complete() -> anyhow::Result<()> {
+    let states = run_hook_detector(vec![
+        r#"{"event":"post_tool_use","tool":"Bash"}"#,
+    ])
+    .await?;
+
+    assert_eq!(states.len(), 1);
+    assert!(matches!(states[0], AgentState::Working));
+    Ok(())
+}
+
+#[tokio::test]
+async fn hook_detector_stop() -> anyhow::Result<()> {
+    let states = run_hook_detector(vec![
+        r#"{"event":"stop"}"#,
+    ])
+    .await?;
+
+    assert_eq!(states.len(), 1);
+    assert!(matches!(states[0], AgentState::WaitingForInput));
     Ok(())
 }

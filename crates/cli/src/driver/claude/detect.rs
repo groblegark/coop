@@ -12,9 +12,10 @@ use tokio_util::sync::CancellationToken;
 use crate::driver::hook_recv::HookReceiver;
 use crate::driver::jsonl_stdout::JsonlParser;
 use crate::driver::log_watch::LogWatcher;
-use crate::driver::{AgentState, Detector};
+use crate::driver::{AgentState, Detector, PromptContext};
 use crate::event::HookEvent;
 
+use super::prompt::extract_ask_user_from_tool_input;
 use super::state::parse_claude_state;
 
 /// Tier 1 detector: receives push events from Claude's hook system.
@@ -22,6 +23,11 @@ use super::state::parse_claude_state;
 /// Maps hook events to agent states:
 /// - `AgentStop` / `SessionEnd` → `WaitingForInput`
 /// - `ToolComplete` → `Working`
+/// - `Notification(idle_prompt)` → `WaitingForInput`
+/// - `Notification(permission_prompt)` → `PermissionPrompt`
+/// - `PreToolUse(AskUserQuestion)` → `AskUser` with context
+/// - `PreToolUse(ExitPlanMode)` → `PlanPrompt`
+/// - `PreToolUse(EnterPlanMode)` → `Working`
 pub struct HookDetector {
     pub receiver: HookReceiver,
 }
@@ -38,15 +44,53 @@ impl Detector for HookDetector {
                 tokio::select! {
                     _ = shutdown.cancelled() => break,
                     event = receiver.next_event() => {
-                        match event {
+                        let state = match event {
                             Some(HookEvent::AgentStop) | Some(HookEvent::SessionEnd) => {
-                                let _ = state_tx.send(AgentState::WaitingForInput).await;
+                                AgentState::WaitingForInput
                             }
                             Some(HookEvent::ToolComplete { .. }) => {
-                                let _ = state_tx.send(AgentState::Working).await;
+                                AgentState::Working
+                            }
+                            Some(HookEvent::Notification { notification_type }) => {
+                                match notification_type.as_str() {
+                                    "idle_prompt" => AgentState::WaitingForInput,
+                                    "permission_prompt" => AgentState::PermissionPrompt {
+                                        prompt: PromptContext {
+                                            prompt_type: "permission".to_string(),
+                                            tool: None,
+                                            input_preview: None,
+                                            question: None,
+                                            options: vec![],
+                                            summary: None,
+                                            screen_lines: vec![],
+                                        },
+                                    },
+                                    _ => continue,
+                                }
+                            }
+                            Some(HookEvent::PreToolUse { ref tool, ref tool_input }) => {
+                                match tool.as_str() {
+                                    "AskUserQuestion" => AgentState::AskUser {
+                                        prompt: extract_ask_user_from_tool_input(tool_input.as_ref()),
+                                    },
+                                    "ExitPlanMode" => AgentState::PlanPrompt {
+                                        prompt: PromptContext {
+                                            prompt_type: "plan".to_string(),
+                                            tool: None,
+                                            input_preview: None,
+                                            question: None,
+                                            options: vec![],
+                                            summary: None,
+                                            screen_lines: vec![],
+                                        },
+                                    },
+                                    "EnterPlanMode" => AgentState::Working,
+                                    _ => continue,
+                                }
                             }
                             None => break,
-                        }
+                        };
+                        let _ = state_tx.send(state).await;
                     }
                 }
             }

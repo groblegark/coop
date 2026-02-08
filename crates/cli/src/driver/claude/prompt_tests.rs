@@ -5,7 +5,10 @@ use serde_json::json;
 
 use crate::screen::{CursorPosition, ScreenSnapshot};
 
-use super::{extract_ask_user_context, extract_permission_context, extract_plan_context};
+use super::{
+    extract_ask_user_context, extract_ask_user_from_tool_input, extract_permission_context,
+    extract_plan_context,
+};
 
 #[test]
 fn permission_context_extracts_tool_and_preview() {
@@ -118,6 +121,31 @@ fn plan_context_captures_screen_lines() {
     assert_eq!(ctx.prompt_type, "plan");
     assert_eq!(ctx.screen_lines.len(), 3);
     assert_eq!(ctx.screen_lines[0], "Plan: Implement auth system");
+}
+
+#[test]
+fn ask_user_from_tool_input_extracts_question_and_options() {
+    let tool_input = json!({
+        "questions": [{
+            "question": "Which framework?",
+            "options": [
+                { "label": "React", "description": "Popular" },
+                { "label": "Vue", "description": "Progressive" }
+            ]
+        }]
+    });
+    let ctx = extract_ask_user_from_tool_input(Some(&tool_input));
+    assert_eq!(ctx.prompt_type, "question");
+    assert_eq!(ctx.question.as_deref(), Some("Which framework?"));
+    assert_eq!(ctx.options, vec!["React", "Vue"]);
+}
+
+#[test]
+fn ask_user_from_tool_input_with_none() {
+    let ctx = extract_ask_user_from_tool_input(None);
+    assert_eq!(ctx.prompt_type, "question");
+    assert!(ctx.question.is_none());
+    assert!(ctx.options.is_empty());
 }
 
 #[test]

@@ -37,8 +37,14 @@ pub fn extract_permission_context(json: &Value) -> PromptContext {
 /// Handles Claude's tool input format where questions are in a
 /// `questions` array with `question` text and `options[].label`.
 pub fn extract_ask_user_context(block: &Value) -> PromptContext {
-    let input = block.get("input");
+    extract_ask_user_from_tool_input(block.get("input"))
+}
 
+/// Extract AskUser context directly from the tool input value.
+///
+/// Used by the `PreToolUse` hook path where `tool_input` is provided
+/// directly (not wrapped in a `tool_use` block).
+pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext {
     // Claude's format: input.questions[0]
     let first_q = input
         .and_then(|i| i.get("questions"))
