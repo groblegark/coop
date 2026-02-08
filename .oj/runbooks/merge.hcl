@@ -107,7 +107,7 @@ job "cicd" {
 # ------------------------------------------------------------------------------
 
 agent "merge-resolver" {
-  run     = "claude --model sonnet --dangerously-skip-permissions"
+  run     = "claude --model opus --dangerously-skip-permissions"
   on_idle = { action = "gate", command = "test ! -d $(git rev-parse --git-dir)/rebase-merge && test ! -f $(git rev-parse --git-dir)/MERGE_HEAD" }
   on_dead = { action = "escalate" }
 
