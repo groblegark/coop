@@ -89,7 +89,7 @@ job "cicd" {
     run = <<-SHELL
       git push --force-with-lease origin HEAD:${var.pr.headRefName}
       gh pr edit ${var.pr.number} --remove-label merge:cicd,in-progress --add-label merge:auto
-      gh pr merge ${var.pr.number} --squash --auto
+      gh pr merge ${var.pr.number} --squash --delete-branch --auto
     SHELL
     on_done = { step = "cleanup" }
   }
