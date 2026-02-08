@@ -10,7 +10,9 @@ use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use crate::driver::{AgentState, AgentType, ExitStatus, NudgeEncoder, RespondEncoder};
+use crate::driver::{
+    AgentState, AgentType, ErrorCategory, ExitStatus, NudgeEncoder, RespondEncoder,
+};
 use crate::error::ErrorCode;
 use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
 use crate::ring::RingBuffer;
@@ -64,6 +66,10 @@ pub struct DriverState {
     /// [`CompositeDetector::run`] without holding a reference to the
     /// entire `DriverState`.
     pub idle_grace_deadline: Arc<Mutex<Option<Instant>>>,
+    /// Error detail string when agent is in `Error` state, `None` otherwise.
+    pub error_detail: RwLock<Option<String>>,
+    /// Classified error category when agent is in `Error` state, `None` otherwise.
+    pub error_category: RwLock<Option<ErrorCategory>>,
 }
 
 impl DriverState {

@@ -168,6 +168,37 @@ fn state_change_to_proto_includes_prompt() {
 }
 
 // ---------------------------------------------------------------------------
+// Error field tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn state_change_to_proto_includes_error_fields() {
+    let event = crate::event::StateChangeEvent {
+        prev: AgentState::Working,
+        next: AgentState::Error {
+            detail: "rate_limit_error".to_owned(),
+        },
+        seq: 5,
+    };
+    let p = state_change_to_proto(&event);
+    assert_eq!(p.next, "error");
+    assert_eq!(p.error_detail.as_deref(), Some("rate_limit_error"));
+    assert_eq!(p.error_category.as_deref(), Some("rate_limited"));
+}
+
+#[test]
+fn state_change_to_proto_omits_error_fields_for_non_error() {
+    let event = crate::event::StateChangeEvent {
+        prev: AgentState::Starting,
+        next: AgentState::Working,
+        seq: 1,
+    };
+    let p = state_change_to_proto(&event);
+    assert!(p.error_detail.is_none());
+    assert!(p.error_category.is_none());
+}
+
+// ---------------------------------------------------------------------------
 // Key encoding tests
 // ---------------------------------------------------------------------------
 

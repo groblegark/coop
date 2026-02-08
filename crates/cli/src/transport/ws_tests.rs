@@ -47,12 +47,41 @@ fn state_change_serialization() -> anyhow::Result<()> {
         prev: "working".to_owned(),
         next: "waiting_for_input".to_owned(),
         seq: 42,
-        prompt: None,
+        prompt: Box::new(None),
+        error_detail: None,
+        error_category: None,
     };
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"state_change\""));
     assert!(json.contains("\"prev\":\"working\""));
     assert!(json.contains("\"next\":\"waiting_for_input\""));
+    // Error fields should be absent (skip_serializing_if = None)
+    assert!(!json.contains("error_detail"), "json: {json}");
+    assert!(!json.contains("error_category"), "json: {json}");
+    Ok(())
+}
+
+#[test]
+fn state_change_with_error_serialization() -> anyhow::Result<()> {
+    let msg = ServerMessage::StateChange {
+        prev: "working".to_owned(),
+        next: "error".to_owned(),
+        seq: 5,
+        prompt: Box::new(None),
+        error_detail: Some("rate_limit_error".to_owned()),
+        error_category: Some("rate_limited".to_owned()),
+    };
+    let json = serde_json::to_string(&msg).anyhow()?;
+    assert!(json.contains("\"type\":\"state_change\""));
+    assert!(json.contains("\"next\":\"error\""));
+    assert!(
+        json.contains("\"error_detail\":\"rate_limit_error\""),
+        "json: {json}"
+    );
+    assert!(
+        json.contains("\"error_category\":\"rate_limited\""),
+        "json: {json}"
+    );
     Ok(())
 }
 
@@ -187,6 +216,33 @@ fn ws_test_state(
         .agent_state(agent)
         .nudge_encoder(Arc::new(StubNudgeEncoder))
         .build()
+}
+
+#[tokio::test]
+async fn state_request_returns_error_fields() -> anyhow::Result<()> {
+    let (state, _rx) = TestAppStateBuilder::new()
+        .child_pid(1234)
+        .agent_state(AgentState::Error {
+            detail: "authentication_error".to_owned(),
+        })
+        .build();
+
+    let msg = ClientMessage::StateRequest {};
+    let reply = handle_client_message(&state, msg, "test-client", &mut true).await;
+    match reply {
+        Some(ServerMessage::StateChange {
+            next,
+            error_detail,
+            error_category,
+            ..
+        }) => {
+            assert_eq!(next, "error");
+            assert_eq!(error_detail.as_deref(), Some("authentication_error"));
+            assert_eq!(error_category.as_deref(), Some("unauthorized"));
+        }
+        other => anyhow::bail!("expected StateChange, got {other:?}"),
+    }
+    Ok(())
 }
 
 #[tokio::test]

@@ -148,6 +148,8 @@ async fn run(config: Config) -> anyhow::Result<coop::driver::ExitStatus> {
             state_seq: AtomicU64::new(0),
             detection_tier: AtomicU8::new(u8::MAX),
             idle_grace_deadline: Arc::new(parking_lot::Mutex::new(None)),
+            error_detail: RwLock::new(None),
+            error_category: RwLock::new(None),
         }),
         channels: TransportChannels {
             input_tx,

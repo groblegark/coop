@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 pub mod claude;
+pub mod error_category;
 pub mod grace;
 pub mod hook_recv;
 pub mod jsonl_stdout;
@@ -9,6 +10,8 @@ pub mod log_watch;
 pub mod process;
 pub mod screen_parse;
 pub mod unknown;
+
+pub use error_category::{classify_error_detail, ErrorCategory};
 
 use grace::{GraceCheck, IdleGraceTimer};
 use serde::{Deserialize, Serialize};
