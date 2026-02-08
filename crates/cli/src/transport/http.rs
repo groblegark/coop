@@ -111,11 +111,6 @@ pub struct KeysRequest {
     pub keys: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KeysResponse {
-    pub bytes_written: i32,
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ResizeRequest {
     pub cols: u16,
@@ -364,7 +359,7 @@ pub async fn input_keys(
         .send(InputEvent::Write(Bytes::from(data)))
         .await;
 
-    Json(KeysResponse { bytes_written: len }).into_response()
+    Json(InputResponse { bytes_written: len }).into_response()
 }
 
 /// `POST /api/v1/resize`

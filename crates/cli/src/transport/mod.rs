@@ -112,10 +112,7 @@ pub fn encode_response(
 /// and return the raw bytes.
 pub fn read_ring_combined(ring: &crate::ring::RingBuffer, offset: u64) -> Vec<u8> {
     let (a, b) = ring.read_from(offset).unwrap_or((&[], &[]));
-    let mut combined = Vec::with_capacity(a.len() + b.len());
-    combined.extend_from_slice(a);
-    combined.extend_from_slice(b);
-    combined
+    [a, b].concat()
 }
 
 // ---------------------------------------------------------------------------

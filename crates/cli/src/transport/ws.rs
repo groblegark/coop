@@ -350,11 +350,8 @@ async fn handle_client_message(
 
         // Write operations require auth and write lock
         ClientMessage::Input { text } => {
-            if !*authed {
-                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
-            }
-            if let Err(code) = state.lifecycle.write_lock.check_ws(client_id) {
-                return Some(ws_error(code, "write lock not held"));
+            if let Err(e) = require_write(*authed, state, client_id) {
+                return Some(e);
             }
             let data = Bytes::from(text.into_bytes());
             let _ = state.channels.input_tx.send(InputEvent::Write(data)).await;
@@ -362,11 +359,8 @@ async fn handle_client_message(
         }
 
         ClientMessage::InputRaw { data } => {
-            if !*authed {
-                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
-            }
-            if let Err(code) = state.lifecycle.write_lock.check_ws(client_id) {
-                return Some(ws_error(code, "write lock not held"));
+            if let Err(e) = require_write(*authed, state, client_id) {
+                return Some(e);
             }
             let decoded = base64::engine::general_purpose::STANDARD
                 .decode(&data)
@@ -380,11 +374,8 @@ async fn handle_client_message(
         }
 
         ClientMessage::Keys { keys } => {
-            if !*authed {
-                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
-            }
-            if let Err(code) = state.lifecycle.write_lock.check_ws(client_id) {
-                return Some(ws_error(code, "write lock not held"));
+            if let Err(e) = require_write(*authed, state, client_id) {
+                return Some(e);
             }
             let data = match keys_to_bytes(&keys) {
                 Ok(d) => d,
@@ -435,14 +426,11 @@ async fn handle_client_message(
         }
 
         ClientMessage::Nudge { message } => {
-            if !*authed {
-                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
+            if let Err(e) = require_write(*authed, state, client_id) {
+                return Some(e);
             }
             if !state.ready.load(Ordering::Acquire) {
                 return Some(ws_error(ErrorCode::NotReady, "agent is still starting"));
-            }
-            if let Err(code) = state.lifecycle.write_lock.check_ws(client_id) {
-                return Some(ws_error(code, "write lock not held"));
             }
             let encoder = match &state.config.nudge_encoder {
                 Some(enc) => Arc::clone(enc),
@@ -467,14 +455,11 @@ async fn handle_client_message(
             option,
             text,
         } => {
-            if !*authed {
-                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
+            if let Err(e) = require_write(*authed, state, client_id) {
+                return Some(e);
             }
             if !state.ready.load(Ordering::Acquire) {
                 return Some(ws_error(ErrorCode::NotReady, "agent is still starting"));
-            }
-            if let Err(code) = state.lifecycle.write_lock.check_ws(client_id) {
-                return Some(ws_error(code, "write lock not held"));
             }
             let encoder = match &state.config.respond_encoder {
                 Some(enc) => Arc::clone(enc),
@@ -495,11 +480,8 @@ async fn handle_client_message(
         }
 
         ClientMessage::Signal { name } => {
-            if !*authed {
-                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
-            }
-            if let Err(code) = state.lifecycle.write_lock.check_ws(client_id) {
-                return Some(ws_error(code, "write lock not held"));
+            if let Err(e) = require_write(*authed, state, client_id) {
+                return Some(e);
             }
             match PtySignal::from_name(&name) {
                 Some(sig) => {
@@ -513,6 +495,18 @@ async fn handle_client_message(
             }
         }
     }
+}
+
+/// Verify the client is authenticated and holds the write lock.
+fn require_write(authed: bool, state: &AppState, client_id: &str) -> Result<(), ServerMessage> {
+    if !authed {
+        return Err(ws_error(ErrorCode::Unauthorized, "not authenticated"));
+    }
+    state
+        .lifecycle
+        .write_lock
+        .check_ws(client_id)
+        .map_err(|code| ws_error(code, "write lock not held"))
 }
 
 /// Build a WebSocket error message.
