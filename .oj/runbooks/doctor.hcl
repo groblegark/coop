@@ -12,7 +12,8 @@ command "github:doctor" {
 
 agent "doctor" {
   run     = "claude --model opus --dangerously-skip-permissions --disallowed-tools EnterPlanMode,ExitPlanMode"
-  on_idle = { action = "escalate" }
+  on_idle = { action = "nudge", message = "Resolve any current issues, or continue monitoring. Use AskUserQuestion if you need guidance.", attempts = 3 }
+  on_stop = { action = "signal" }
   on_dead = { action = "fail" }
 
   session "tmux" {
@@ -44,7 +45,8 @@ agent "doctor" {
       build:failed    — build failed
       blocked         — blocked by dependencies
       in-progress     — work in progress
-      auto-merge      — PR queued for auto-merge
+      merge:auto      — PR queued for auto-merge
+      merge:cicd      — PR needs CI/CD resolution
 
     ### Dependencies
 
@@ -53,19 +55,8 @@ agent "doctor" {
 
     ### Workers to ensure are running
 
-      github:plan, github:build, github:merge
+      github:plan, github:build, github:merge, github:cicd
       Cron: github:unblock
-
-    ### Common Failures
-
-    1. `make check` fails on first run in worktrees (quench ratchet baseline missing).
-       Resume: `oj resume <id> -m "Run make check again, baseline was just created"`
-
-    2. Agent died before finishing (ghost). Check partial work:
-       - Plan jobs: `gh issue view <N> --json comments` (was comment posted?)
-       - Build jobs: check if commits exist in worktree
-
-    3. `gh pr merge --squash --auto` fails without branch protection — retries fix it.
 
     ### Label Inconsistencies to Fix
 
@@ -80,11 +71,27 @@ agent "doctor" {
       Builds: `gh issue list --label type:epic,plan:ready,build:needed --state open --json number,title --search '-label:blocked -label:in-progress'`
       If items sit with no active jobs → stop/start the worker.
 
+    ### Systemic Issues
+
+    After resolving immediate failures, look for patterns and fix root causes:
+
+    - **Retry loops**: If a job keeps failing and retrying (e.g. merge conflict
+      causing dozens of retries), stop the worker first, fix the cause, then restart.
+      Check for runbook gaps that allowed the loop.
+    - **Missing limits**: If a failure mode can cause unbounded retries or resource
+      accumulation (stale worktrees, branches, sessions), add guards to the runbook
+      or file a fix.
+    - **Duplicate jobs**: If the same issue has multiple active jobs of the same kind,
+      cancel the extras. Investigate why the dedup didn't work.
+    - **Runbook improvements**: When you find a failure mode not covered by the
+      runbook, update the runbook (`.oj/runbooks/*.hcl`) to handle it. Commit
+      changes to `.oj/` directly: `git -C .oj add -A && git -C .oj commit -m "..."`
+
     ### Rules
 
     - Prefer resuming over cancelling
     - Use `oj` for jobs/workers, `gh` for issues/PRs
-    - Monitor a few cycles (30-60s each) before signaling complete
+    - If all lights are green, long-poll ~every 2 minutes
     - If truly stuck, signal escalate
     ROLE
 
@@ -97,8 +104,12 @@ agent "doctor" {
     oj job list
 
     echo ''
-    echo '## Open Epics'
-    gh issue list --label type:epic --state open --json number,title,labels --jq '.[] | "#\(.number) \(.title) [\(.labels | map(.name) | join(", "))]"'
+    echo '## All Epics'
+    gh issue list --label type:epic --state all --json number,title,state,labels --jq '.[] | "#\(.number) \(.title) [\(.state)] [\(.labels | map(.name) | join(", "))]"'
+
+    echo ''
+    echo '## Stale Labels (closed issues with pipeline labels)'
+    gh issue list --label type:epic --state closed --json number,title,labels --jq '[.[] | select(.labels | map(.name) | any(. == "plan:needed" or . == "build:needed" or . == "in-progress" or . == "plan:failed" or . == "build:failed"))] | if length == 0 then "None" else .[] | "#\(.number) \(.title) [\(.labels | map(.name) | join(", "))]" end'
 
     echo ''
     echo '## Open PRs'

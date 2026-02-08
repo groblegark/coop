@@ -1,0 +1,25 @@
+#!/bin/bash
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+INSTALL_DIR="$HOME/.local/bin"
+
+# Ensure install directory exists
+mkdir -p "$INSTALL_DIR"
+
+# Build coop CLI
+echo "Building coop..."
+cd "$ROOT_DIR"
+cargo build --release -p coop
+
+# Install to ~/.local/bin/
+echo "Installing to $INSTALL_DIR..."
+/bin/cp "$ROOT_DIR/target/release/coop" "$INSTALL_DIR/coop"
+
+# Re-sign the binary after copying (required on macOS for adhoc-signed binaries)
+if [[ "$(uname)" == "Darwin" ]]; then
+    codesign --force --sign - "$INSTALL_DIR/coop"
+fi
+
+echo "Done."

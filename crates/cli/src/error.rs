@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-// Copyright 2025 Alfred Jean LLC
+// Copyright (c) 2026 Alfred Jean LLC
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -33,20 +33,6 @@ impl ErrorCode {
         }
     }
 
-    pub fn grpc_code(&self) -> &'static str {
-        match self {
-            Self::NotReady => "UNAVAILABLE",
-            Self::Exited => "NOT_FOUND",
-            Self::WriterBusy => "RESOURCE_EXHAUSTED",
-            Self::Unauthorized => "UNAUTHENTICATED",
-            Self::BadRequest => "INVALID_ARGUMENT",
-            Self::NoDriver => "UNIMPLEMENTED",
-            Self::AgentBusy => "FAILED_PRECONDITION",
-            Self::NoPrompt => "FAILED_PRECONDITION",
-            Self::Internal => "INTERNAL",
-        }
-    }
-
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::NotReady => "NOT_READY",
@@ -62,8 +48,30 @@ impl ErrorCode {
     }
 }
 
+impl ErrorCode {
+    /// Convert this error code into a [`tonic::Status`] with the given message.
+    pub fn to_grpc_status(&self, message: impl Into<String>) -> tonic::Status {
+        let code = match self {
+            Self::NotReady => tonic::Code::Unavailable,
+            Self::Exited => tonic::Code::NotFound,
+            Self::WriterBusy => tonic::Code::ResourceExhausted,
+            Self::Unauthorized => tonic::Code::Unauthenticated,
+            Self::BadRequest => tonic::Code::InvalidArgument,
+            Self::NoDriver => tonic::Code::Unimplemented,
+            Self::AgentBusy => tonic::Code::FailedPrecondition,
+            Self::NoPrompt => tonic::Code::FailedPrecondition,
+            Self::Internal => tonic::Code::Internal,
+        };
+        tonic::Status::new(code, message)
+    }
+}
+
 impl fmt::Display for ErrorCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
+
+#[cfg(test)]
+#[path = "error_tests.rs"]
+mod tests;
