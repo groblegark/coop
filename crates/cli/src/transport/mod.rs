@@ -58,27 +58,8 @@ pub fn encode_key(name: &str) -> Option<Vec<u8>> {
         "f11" => b"\x1b[23~",
         "f12" => b"\x1b[24~",
         "space" => b" ",
-        "ctrl-a" => b"\x01",
-        "ctrl-b" => b"\x02",
-        "ctrl-c" => b"\x03",
-        "ctrl-d" => b"\x04",
-        "ctrl-e" => b"\x05",
-        "ctrl-f" => b"\x06",
-        "ctrl-g" => b"\x07",
-        "ctrl-h" => b"\x08",
-        "ctrl-k" => b"\x0b",
-        "ctrl-l" => b"\x0c",
-        "ctrl-n" => b"\x0e",
-        "ctrl-o" => b"\x0f",
-        "ctrl-p" => b"\x10",
-        "ctrl-r" => b"\x12",
-        "ctrl-s" => b"\x13",
-        "ctrl-t" => b"\x14",
-        "ctrl-u" => b"\x15",
-        "ctrl-w" => b"\x17",
-        "ctrl-z" => b"\x1a",
         _ => {
-            // Generic Ctrl-<letter> handler for any letter not listed above
+            // Generic Ctrl-<letter> handler
             if let Some(ch_str) = lower.strip_prefix("ctrl-") {
                 let ch = ch_str.chars().next()?;
                 if ch.is_ascii_lowercase() {

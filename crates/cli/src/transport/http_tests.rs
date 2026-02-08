@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use axum::http::StatusCode;
 
-use crate::driver::{AgentState, NudgeEncoder, NudgeStep};
+use crate::driver::AgentState;
 use crate::event::InputEvent;
-use crate::test_support::{AnyhowExt, AppStateBuilder};
+use crate::test_support::{AnyhowExt, AppStateBuilder, StubNudgeEncoder};
 use crate::transport::build_router;
 
 fn test_state() -> (
@@ -289,7 +289,7 @@ async fn auth_rejects_without_token() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn agent_state_includes_error_fields() -> anyhow::Result<()> {
-    let (state, _rx) = TestAppStateBuilder::new()
+    let (state, _rx) = AppStateBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Error {
             detail: "rate_limit_error".to_owned(),
@@ -319,7 +319,7 @@ async fn agent_state_includes_error_fields() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn agent_state_omits_error_fields_when_not_error() -> anyhow::Result<()> {
-    let (state, _rx) = TestAppStateBuilder::new()
+    let (state, _rx) = AppStateBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Working)
         .nudge_encoder(Arc::new(StubNudgeEncoder))
@@ -340,16 +340,6 @@ async fn agent_state_omits_error_fields_when_not_error() -> anyhow::Result<()> {
         "error_category should be absent: {body}"
     );
     Ok(())
-}
-
-struct StubNudgeEncoder;
-impl NudgeEncoder for StubNudgeEncoder {
-    fn encode(&self, message: &str) -> Vec<NudgeStep> {
-        vec![NudgeStep {
-            bytes: message.as_bytes().to_vec(),
-            delay_after: None,
-        }]
-    }
 }
 
 #[tokio::test]

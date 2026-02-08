@@ -13,7 +13,7 @@ use bytes::Bytes;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use crate::driver::{AgentState, AgentType, ExitStatus, NudgeEncoder, RespondEncoder};
+use crate::driver::{AgentState, AgentType, ExitStatus, NudgeEncoder, NudgeStep, RespondEncoder};
 use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
 use crate::pty::Backend;
 use crate::ring::RingBuffer;
@@ -239,6 +239,39 @@ pub trait AnyhowExt<T> {
 impl<T, E: std::fmt::Display> AnyhowExt<T> for Result<T, E> {
     fn anyhow(self) -> anyhow::Result<T> {
         self.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+}
+
+/// Stub nudge encoder that passes through message bytes unchanged.
+pub struct StubNudgeEncoder;
+impl NudgeEncoder for StubNudgeEncoder {
+    fn encode(&self, message: &str) -> Vec<NudgeStep> {
+        vec![NudgeStep {
+            bytes: message.as_bytes().to_vec(),
+            delay_after: None,
+        }]
+    }
+}
+
+/// Stub respond encoder for testing permission/plan/question flows.
+pub struct StubRespondEncoder;
+impl RespondEncoder for StubRespondEncoder {
+    fn encode_permission(&self, accept: bool) -> Vec<NudgeStep> {
+        let text = if accept { "y" } else { "n" };
+        vec![NudgeStep {
+            bytes: text.as_bytes().to_vec(),
+            delay_after: None,
+        }]
+    }
+    fn encode_plan(&self, accept: bool, _text: Option<&str>) -> Vec<NudgeStep> {
+        self.encode_permission(accept)
+    }
+    fn encode_question(&self, _option: Option<u32>, text: Option<&str>) -> Vec<NudgeStep> {
+        let t = text.unwrap_or("1");
+        vec![NudgeStep {
+            bytes: t.as_bytes().to_vec(),
+            delay_after: None,
+        }]
     }
 }
 

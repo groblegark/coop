@@ -7,7 +7,7 @@ use super::*;
 use crate::driver::AgentState;
 use crate::event::PtySignal;
 use crate::screen::{CursorPosition, ScreenSnapshot};
-use crate::test_support::{AnyhowExt, AppStateBuilder};
+use crate::test_support::{AnyhowExt, AppStateBuilder, StubNudgeEncoder, StubRespondEncoder};
 use crate::transport::encode_key;
 
 // ---------------------------------------------------------------------------
@@ -298,39 +298,7 @@ fn service_instantiation_compiles() {
 // Write lock tests for nudge/respond
 // ---------------------------------------------------------------------------
 
-use crate::driver::{NudgeEncoder, NudgeStep, RespondEncoder};
 use tonic::Code;
-
-struct StubNudgeEncoder;
-impl NudgeEncoder for StubNudgeEncoder {
-    fn encode(&self, message: &str) -> Vec<NudgeStep> {
-        vec![NudgeStep {
-            bytes: message.as_bytes().to_vec(),
-            delay_after: None,
-        }]
-    }
-}
-
-struct StubRespondEncoder;
-impl RespondEncoder for StubRespondEncoder {
-    fn encode_permission(&self, accept: bool) -> Vec<NudgeStep> {
-        let text = if accept { "y" } else { "n" };
-        vec![NudgeStep {
-            bytes: text.as_bytes().to_vec(),
-            delay_after: None,
-        }]
-    }
-    fn encode_plan(&self, accept: bool, _text: Option<&str>) -> Vec<NudgeStep> {
-        self.encode_permission(accept)
-    }
-    fn encode_question(&self, _option: Option<u32>, text: Option<&str>) -> Vec<NudgeStep> {
-        let t = text.unwrap_or("1");
-        vec![NudgeStep {
-            bytes: t.as_bytes().to_vec(),
-            delay_after: None,
-        }]
-    }
-}
 
 fn mock_app_state_with_encoders(agent: AgentState) -> Arc<AppState> {
     let (state, _rx) = AppStateBuilder::new()

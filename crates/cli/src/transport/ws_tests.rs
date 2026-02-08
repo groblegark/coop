@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use crate::driver::{AgentState, NudgeEncoder, NudgeStep};
-use crate::test_support::{AnyhowExt, AppStateBuilder};
+use crate::driver::AgentState;
+use crate::test_support::{AnyhowExt, AppStateBuilder, StubNudgeEncoder};
 use crate::transport::ws::{
     handle_client_message, ClientMessage, LockAction, ServerMessage, SubscriptionMode,
 };
@@ -195,16 +195,6 @@ fn client_message_roundtrip() -> anyhow::Result<()> {
 // Integration tests using handle_client_message
 // ---------------------------------------------------------------------------
 
-struct StubNudgeEncoder;
-impl NudgeEncoder for StubNudgeEncoder {
-    fn encode(&self, message: &str) -> Vec<NudgeStep> {
-        vec![NudgeStep {
-            bytes: message.as_bytes().to_vec(),
-            delay_after: None,
-        }]
-    }
-}
-
 fn ws_test_state(
     agent: AgentState,
 ) -> (
@@ -220,7 +210,7 @@ fn ws_test_state(
 
 #[tokio::test]
 async fn state_request_returns_error_fields() -> anyhow::Result<()> {
-    let (state, _rx) = TestAppStateBuilder::new()
+    let (state, _rx) = AppStateBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Error {
             detail: "authentication_error".to_owned(),
