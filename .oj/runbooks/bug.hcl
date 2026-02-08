@@ -28,7 +28,8 @@ command "github:fix" {
     else
       url=$(gh issue create --label "$labels" --title "${args.title}")
     fi
-    gh issue lock "$${url##*/}"
+    issue=$(basename "$url")
+    gh issue lock "$issue"
     oj worker start bug
   SHELL
 
