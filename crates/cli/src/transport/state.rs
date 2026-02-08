@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: BUSL-1.1
-// Copyright 2025 Alfred Jean LLC
+// Copyright (c) 2026 Alfred Jean LLC
 
-use std::sync::atomic::{AtomicI32, AtomicU32};
+use std::sync::atomic::{AtomicI32, AtomicU32, AtomicU64};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio_util::sync::CancellationToken;
 
 use crate::driver::{AgentState, ExitStatus, NudgeEncoder, RespondEncoder};
 use crate::error::ErrorCode;
@@ -27,9 +28,11 @@ pub struct AppState {
     pub exit_status: Arc<RwLock<Option<ExitStatus>>>,
     pub write_lock: Arc<WriteLock>,
     pub ws_client_count: Arc<AtomicI32>,
+    pub bytes_written: AtomicU64,
     pub auth_token: Option<String>,
     pub nudge_encoder: Option<Arc<dyn NudgeEncoder>>,
     pub respond_encoder: Option<Arc<dyn RespondEncoder>>,
+    pub shutdown: CancellationToken,
 }
 
 impl std::fmt::Debug for AppState {

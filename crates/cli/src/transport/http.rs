@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
-// Copyright 2025 Alfred Jean LLC
+// Copyright (c) 2026 Alfred Jean LLC
 
-//! HTTP request and response types for the coop REST API.
-//!
-//! All 14 routes are covered. Types use `String` for state fields to match
-//! the wire format (e.g. `"working"`, `"permission_prompt"`). Prompt context
-//! reuses [`crate::driver::PromptContext`] directly.
+//! HTTP request/response types and axum handler implementations.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -25,10 +21,9 @@ use crate::transport::state::AppState;
 use crate::transport::{error_response, keys_to_bytes};
 
 // ---------------------------------------------------------------------------
-// GET /api/v1/health
+// Request / Response types
 // ---------------------------------------------------------------------------
 
-/// Response for `GET /api/v1/health`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
     pub status: String,
@@ -39,19 +34,13 @@ pub struct HealthResponse {
     pub ws_clients: i32,
 }
 
-/// Terminal dimensions included in the health response.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct TerminalSize {
     pub cols: u16,
     pub rows: u16,
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/screen
-// ---------------------------------------------------------------------------
-
-/// Query parameters for `GET /api/v1/screen`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ScreenQuery {
     #[serde(default)]
     pub format: ScreenFormat,
@@ -59,7 +48,6 @@ pub struct ScreenQuery {
     pub cursor: bool,
 }
 
-/// Output format for the screen endpoint.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ScreenFormat {
@@ -68,7 +56,6 @@ pub enum ScreenFormat {
     Ansi,
 }
 
-/// Response for `GET /api/v1/screen`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScreenResponse {
     pub lines: Vec<String>,
@@ -79,19 +66,13 @@ pub struct ScreenResponse {
     pub sequence: u64,
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/output
-// ---------------------------------------------------------------------------
-
-/// Query parameters for `GET /api/v1/output`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OutputQuery {
     #[serde(default)]
     pub offset: u64,
     pub limit: Option<usize>,
 }
 
-/// Response for `GET /api/v1/output`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputResponse {
     pub data: String,
@@ -100,11 +81,6 @@ pub struct OutputResponse {
     pub total_written: u64,
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/status
-// ---------------------------------------------------------------------------
-
-/// Response for `GET /api/v1/status`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusResponse {
     pub state: String,
@@ -116,11 +92,6 @@ pub struct StatusResponse {
     pub ws_clients: i32,
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/input
-// ---------------------------------------------------------------------------
-
-/// Request body for `POST /api/v1/input`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputRequest {
     pub text: String,
@@ -128,67 +99,43 @@ pub struct InputRequest {
     pub enter: bool,
 }
 
-/// Response for `POST /api/v1/input`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputResponse {
     pub bytes_written: i32,
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/input/keys
-// ---------------------------------------------------------------------------
-
-/// Request body for `POST /api/v1/input/keys`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeysRequest {
     pub keys: Vec<String>,
 }
 
-/// Response for `POST /api/v1/input/keys`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeysResponse {
     pub bytes_written: i32,
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/resize
-// ---------------------------------------------------------------------------
-
-/// Request body for `POST /api/v1/resize`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ResizeRequest {
     pub cols: u16,
     pub rows: u16,
 }
 
-/// Response for `POST /api/v1/resize`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ResizeResponse {
     pub cols: u16,
     pub rows: u16,
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/signal
-// ---------------------------------------------------------------------------
-
-/// Request body for `POST /api/v1/signal`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignalRequest {
     pub signal: String,
 }
 
-/// Response for `POST /api/v1/signal`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignalResponse {
     pub delivered: bool,
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/v1/agent/state
-// ---------------------------------------------------------------------------
-
-/// Response for `GET /api/v1/agent/state`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentStateResponse {
     pub agent_type: String,
@@ -200,17 +147,11 @@ pub struct AgentStateResponse {
     pub idle_grace_remaining_secs: Option<f32>,
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/agent/nudge
-// ---------------------------------------------------------------------------
-
-/// Request body for `POST /api/v1/agent/nudge`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NudgeRequest {
     pub message: String,
 }
 
-/// Response for `POST /api/v1/agent/nudge`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NudgeResponse {
     pub delivered: bool,
@@ -218,11 +159,6 @@ pub struct NudgeResponse {
     pub reason: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/v1/agent/respond
-// ---------------------------------------------------------------------------
-
-/// Request body for `POST /api/v1/agent/respond`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RespondRequest {
     pub accept: Option<bool>,
@@ -230,7 +166,6 @@ pub struct RespondRequest {
     pub text: Option<String>,
 }
 
-/// Response for `POST /api/v1/agent/respond`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RespondResponse {
     pub delivered: bool,
@@ -328,6 +263,7 @@ pub async fn status(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let screen = s.screen.read().await;
     let pid = s.child_pid.load(Ordering::Relaxed);
     let exit = s.exit_status.read().await;
+    let bw = s.bytes_written.load(Ordering::Relaxed);
 
     let state_str = match &*agent {
         AgentState::Exited { .. } => "exited",
@@ -346,7 +282,7 @@ pub async fn status(State(s): State<Arc<AppState>>) -> impl IntoResponse {
         exit_code: exit.as_ref().and_then(|e| e.code),
         screen_seq: screen.seq(),
         bytes_read: ring.total_written(),
-        bytes_written: ring.total_written(),
+        bytes_written: bw,
         ws_clients: s.ws_client_count.load(Ordering::Relaxed),
     })
 }

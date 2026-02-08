@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
-// Copyright 2025 Alfred Jean LLC
+// Copyright (c) 2026 Alfred Jean LLC
 
-use std::sync::atomic::{AtomicI32, AtomicU32};
+use std::sync::atomic::{AtomicI32, AtomicU32, AtomicU64};
 use std::sync::Arc;
 use std::time::Instant;
+
+use tokio_util::sync::CancellationToken;
 
 use axum::http::StatusCode;
 use tokio::sync::{broadcast, mpsc, RwLock};
@@ -33,9 +35,11 @@ fn test_state() -> (Arc<AppState>, mpsc::Receiver<InputEvent>) {
         exit_status: Arc::new(RwLock::new(None)),
         write_lock: Arc::new(WriteLock::new()),
         ws_client_count: Arc::new(AtomicI32::new(0)),
+        bytes_written: AtomicU64::new(0),
         auth_token: None,
         nudge_encoder: None,
         respond_encoder: None,
+        shutdown: CancellationToken::new(),
     });
 
     (state, input_rx)
@@ -274,9 +278,11 @@ async fn auth_rejects_without_token() -> anyhow::Result<()> {
         exit_status: Arc::new(RwLock::new(None)),
         write_lock: Arc::new(WriteLock::new()),
         ws_client_count: Arc::new(AtomicI32::new(0)),
+        bytes_written: AtomicU64::new(0),
         auth_token: Some("secret".to_owned()),
         nudge_encoder: None,
         respond_encoder: None,
+        shutdown: CancellationToken::new(),
     });
 
     let app = build_router(state);
