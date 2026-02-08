@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
+use std::time::Duration;
+
 use clap::Parser;
 
 use super::{AgentType, Config};
@@ -76,4 +78,19 @@ fn defaults_are_correct() {
     assert_eq!(config.idle_timeout, 0);
     assert_eq!(config.log_format, "json");
     assert_eq!(config.log_level, "info");
+}
+
+#[test]
+fn env_duration_defaults() {
+    // These read env vars, so with no env set we get production defaults.
+    let config = parse(&["coop", "--port", "8080", "--", "echo"]);
+    assert_eq!(config.shutdown_timeout(), Duration::from_secs(10));
+    assert_eq!(config.screen_debounce(), Duration::from_millis(50));
+    assert_eq!(config.idle_grace_poll(), Duration::from_secs(1));
+    assert_eq!(config.process_poll(), Duration::from_secs(5));
+    assert_eq!(config.screen_poll(), Duration::from_secs(2));
+    assert_eq!(config.log_poll(), Duration::from_secs(5));
+    assert_eq!(config.tmux_poll(), Duration::from_secs(1));
+    assert_eq!(config.pty_reap(), Duration::from_millis(50));
+    assert_eq!(config.feedback_delay(), Duration::from_millis(100));
 }

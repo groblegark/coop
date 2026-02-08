@@ -30,9 +30,8 @@ fn parses_session_end_event() {
 
 #[test]
 fn parses_notification_idle_prompt() {
-    let event = parse_hook_line(
-        r#"{"event":"notification","data":{"notification_type":"idle_prompt"}}"#,
-    );
+    let event =
+        parse_hook_line(r#"{"event":"notification","data":{"notification_type":"idle_prompt"}}"#);
     assert_eq!(
         event,
         Some(HookEvent::Notification {
@@ -86,9 +85,7 @@ fn parses_pre_tool_use_exit_plan() {
 
 #[test]
 fn parses_pre_tool_use_without_tool_input() {
-    let event = parse_hook_line(
-        r#"{"event":"pre_tool_use","data":{"tool_name":"EnterPlanMode"}}"#,
-    );
+    let event = parse_hook_line(r#"{"event":"pre_tool_use","data":{"tool_name":"EnterPlanMode"}}"#);
     match event {
         Some(HookEvent::PreToolUse { tool, tool_input }) => {
             assert_eq!(tool, "EnterPlanMode");

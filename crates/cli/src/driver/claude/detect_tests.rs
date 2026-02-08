@@ -24,6 +24,7 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
     let detector = Box::new(LogDetector {
         log_path: log_path.clone(),
         start_offset: 0,
+        poll_interval: std::time::Duration::from_secs(5),
     });
     assert_eq!(detector.tier(), 2);
 
@@ -71,6 +72,7 @@ async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
     let detector = Box::new(LogDetector {
         log_path: log_path.clone(),
         start_offset: 0,
+        poll_interval: std::time::Duration::from_secs(5),
     });
     let (state_tx, mut state_rx) = mpsc::channel(32);
     let shutdown = CancellationToken::new();
@@ -131,9 +133,7 @@ async fn stdout_detector_parses_jsonl_bytes() -> anyhow::Result<()> {
 }
 
 /// Helper: create a HookDetector with a named pipe, run it, and send events.
-async fn run_hook_detector(
-    events: Vec<&str>,
-) -> anyhow::Result<Vec<AgentState>> {
+async fn run_hook_detector(events: Vec<&str>) -> anyhow::Result<Vec<AgentState>> {
     use crate::driver::hook_recv::HookReceiver;
     use tokio::io::AsyncWriteExt;
 
@@ -260,10 +260,7 @@ async fn hook_detector_pre_tool_use_enter_plan_mode() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn hook_detector_tool_complete() -> anyhow::Result<()> {
-    let states = run_hook_detector(vec![
-        r#"{"event":"post_tool_use","tool":"Bash"}"#,
-    ])
-    .await?;
+    let states = run_hook_detector(vec![r#"{"event":"post_tool_use","tool":"Bash"}"#]).await?;
 
     assert_eq!(states.len(), 1);
     assert!(matches!(states[0], AgentState::Working));
@@ -272,10 +269,7 @@ async fn hook_detector_tool_complete() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn hook_detector_stop() -> anyhow::Result<()> {
-    let states = run_hook_detector(vec![
-        r#"{"event":"stop"}"#,
-    ])
-    .await?;
+    let states = run_hook_detector(vec![r#"{"event":"stop"}"#]).await?;
 
     assert_eq!(states.len(), 1);
     assert!(matches!(states[0], AgentState::WaitingForInput));

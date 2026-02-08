@@ -24,6 +24,7 @@ async fn run_composite(
     let composite = CompositeDetector {
         tiers: detectors,
         grace_timer,
+        grace_tick_interval: Duration::from_secs(1),
     };
 
     let activity_fn: Arc<dyn Fn() -> u64 + Send + Sync> = {

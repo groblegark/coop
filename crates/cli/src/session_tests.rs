@@ -6,44 +6,51 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::config::Config;
 use crate::pty::spawn::NativePty;
 use crate::session::{Session, SessionConfig};
 use crate::test_support::AppStateBuilder;
 
 #[tokio::test]
 async fn echo_exits_with_zero() -> anyhow::Result<()> {
+    let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new()
         .ring_size(65536)
         .build_with_sender(input_tx);
 
     let backend = NativePty::spawn(&["echo".into(), "hello".into()], 80, 24, &[])?;
-    let session = Session::new(SessionConfig::test_default(
-        Box::new(backend),
-        app_state,
-        consumer_input_rx,
-    ));
+    let session = Session::new(
+        &config,
+        SessionConfig::new(app_state, Box::new(backend), consumer_input_rx),
+    );
 
-    let status = session.run().await?;
+    let status = session.run(&config).await?;
     assert_eq!(status.code, Some(0));
     Ok(())
 }
 
 #[tokio::test]
 async fn output_captured_in_ring_and_screen() -> anyhow::Result<()> {
+    let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new()
         .ring_size(65536)
         .build_with_sender(input_tx);
 
     let backend = NativePty::spawn(&["echo".into(), "hello-ring".into()], 80, 24, &[])?;
-    let session = Session::new(SessionConfig::test_default(
-        Box::new(backend),
-        Arc::clone(&app_state),
-        consumer_input_rx,
-    ));
+    let session = Session::new(
+        &config,
+        SessionConfig {
+            backend: Box::new(backend),
+            detectors: vec![],
+            app_state: Arc::clone(&app_state),
+            consumer_input_rx,
+            shutdown: CancellationToken::new(),
+        },
+    );
 
-    let _ = session.run().await?;
+    let _ = session.run(&config).await?;
 
     // Check ring buffer
     let ring = app_state.terminal.ring.read().await;
@@ -65,6 +72,7 @@ async fn output_captured_in_ring_and_screen() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn shutdown_cancels_session() -> anyhow::Result<()> {
+    let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new()
         .ring_size(65536)
@@ -78,9 +86,16 @@ async fn shutdown_cancels_session() -> anyhow::Result<()> {
         24,
         &[],
     )?;
-    let mut config = SessionConfig::test_default(Box::new(backend), app_state, consumer_input_rx);
-    config.shutdown = shutdown.clone();
-    let session = Session::new(config);
+    let session = Session::new(
+        &config,
+        SessionConfig {
+            backend: Box::new(backend),
+            detectors: vec![],
+            app_state,
+            consumer_input_rx,
+            shutdown: shutdown.clone(),
+        },
+    );
 
     // Cancel after a short delay
     tokio::spawn(async move {
@@ -88,7 +103,7 @@ async fn shutdown_cancels_session() -> anyhow::Result<()> {
         shutdown.cancel();
     });
 
-    let status = session.run().await?;
+    let status = session.run(&config).await?;
     // Should have exited (signal or timeout)
     assert!(
         status.code.is_some() || status.signal.is_some(),

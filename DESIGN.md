@@ -1339,7 +1339,7 @@ coop --attach screen:SESSION [OPTIONS]
 | `--host ADDR` | `COOP_HOST` | `0.0.0.0` | Bind address |
 | `--grpc-port PORT` | `COOP_GRPC_PORT` | (none) | gRPC port |
 | `--auth-token TOKEN` | `COOP_AUTH_TOKEN` | (none) | Bearer token |
-| `--agent TYPE` | `COOP_agent` | `unknown` | `claude\|codex\|gemini\|unknown` |
+| `--agent TYPE` | `COOP_AGENT` | `unknown` | `claude\|codex\|gemini\|unknown` |
 | `--agent-config PATH` | `COOP_AGENT_CONFIG` | (none) | Screen pattern overrides |
 | `--idle-grace SECS` | `COOP_IDLE_GRACE` | 60 | Grace timer duration |
 | `--attach SPEC` | `COOP_ATTACH` | (none) | `tmux:NAME` or `screen:NAME` |

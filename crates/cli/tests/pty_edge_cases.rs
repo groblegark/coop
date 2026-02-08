@@ -9,6 +9,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use tokio::sync::mpsc;
 
+use coop::config::Config;
 use coop::pty::spawn::NativePty;
 use coop::pty::Backend;
 use coop::session::{Session, SessionConfig};
@@ -175,6 +176,7 @@ async fn resize_reflected_in_stty() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn large_output_through_session() -> anyhow::Result<()> {
+    let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new()
         .ring_size(1_048_576) // 1MB
@@ -186,13 +188,18 @@ async fn large_output_through_session() -> anyhow::Result<()> {
         24,
         &[],
     )?;
-    let session = Session::new(SessionConfig::test_default(
-        Box::new(backend),
-        Arc::clone(&app_state),
-        consumer_input_rx,
-    ));
+    let session = Session::new(
+        &config,
+        SessionConfig {
+            backend: Box::new(backend),
+            detectors: vec![],
+            app_state: Arc::clone(&app_state),
+            consumer_input_rx,
+            shutdown: tokio_util::sync::CancellationToken::new(),
+        },
+    );
 
-    let status = session.run().await?;
+    let status = session.run(&config).await?;
     assert_eq!(status.code, Some(0));
 
     // Ring should have captured substantial data
@@ -292,19 +299,28 @@ async fn rapid_input_output() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn signal_delivery_sigint() -> anyhow::Result<()> {
+    let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new()
         .ring_size(65536)
         .build_with_sender(input_tx.clone());
 
     let backend = NativePty::spawn(&["/bin/cat".into()], 80, 24, &[])?;
-    let session = Session::new(SessionConfig::test_default(
-        Box::new(backend),
-        Arc::clone(&app_state),
-        consumer_input_rx,
-    ));
+    let session = Session::new(
+        &config,
+        SessionConfig {
+            backend: Box::new(backend),
+            detectors: vec![],
+            app_state: Arc::clone(&app_state),
+            consumer_input_rx,
+            shutdown: tokio_util::sync::CancellationToken::new(),
+        },
+    );
 
-    let session_handle = tokio::spawn(async move { session.run().await });
+    let session_handle = tokio::spawn(async move {
+        let config = Config::test();
+        session.run(&config).await
+    });
 
     // Give cat time to start
     tokio::time::sleep(Duration::from_millis(200)).await;

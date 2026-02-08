@@ -144,7 +144,9 @@ async fn run(config: Config) -> anyhow::Result<coop::driver::ExitStatus> {
     let backend: Box<dyn Backend> = if let Some(ref attach_spec) = config.attach {
         let spec: AttachSpec = attach_spec.parse()?;
         match spec {
-            AttachSpec::Tmux { session } => Box::new(TmuxBackend::new(session)?),
+            AttachSpec::Tmux { session } => {
+                Box::new(TmuxBackend::new(session)?.with_poll_interval(config.tmux_poll()))
+            }
             AttachSpec::Screen { session: _ } => {
                 anyhow::bail!("screen attach is not yet implemented");
             }
@@ -153,16 +155,11 @@ async fn run(config: Config) -> anyhow::Result<coop::driver::ExitStatus> {
         if command.is_empty() {
             anyhow::bail!("no command specified");
         }
-        Box::new(NativePty::spawn(
-            &command,
-            config.cols,
-            config.rows,
-            extra_env,
-        )?)
+        Box::new(
+            NativePty::spawn(&command, config.cols, config.rows, extra_env)?
+                .with_reap_interval(config.pty_reap()),
+        )
     };
-
-    let idle_grace = Duration::from_secs(config.idle_grace);
-    let idle_timeout = Duration::from_secs(config.idle_timeout);
 
     // Create shared channels
     let (input_tx, consumer_input_rx) = mpsc::channel(256);
@@ -190,7 +187,7 @@ async fn run(config: Config) -> anyhow::Result<coop::driver::ExitStatus> {
             auth_token: config.auth_token.clone(),
             nudge_encoder,
             respond_encoder,
-            idle_grace_duration: idle_grace,
+            idle_grace_duration: Duration::from_secs(config.idle_grace),
         },
         lifecycle: LifecycleState {
             shutdown: shutdown.clone(),
@@ -319,19 +316,18 @@ async fn run(config: Config) -> anyhow::Result<coop::driver::ExitStatus> {
     }
 
     // Run session loop
-    let session = Session::new(coop::session::SessionConfig {
-        backend,
-        detectors,
-        app_state,
-        consumer_input_rx,
-        cols: config.cols,
-        rows: config.rows,
-        idle_grace,
-        idle_timeout,
-        shutdown,
-    });
+    let session = Session::new(
+        &config,
+        coop::session::SessionConfig {
+            backend,
+            detectors,
+            app_state,
+            consumer_input_rx,
+            shutdown,
+        },
+    );
 
-    session.run().await
+    session.run(&config).await
 }
 
 type DriverComponents = (
@@ -355,6 +351,8 @@ fn build_driver(
                 hook_pipe_path: claude_setup.map(|s| s.hook_pipe_path.clone()),
                 stdout_rx: None,
                 log_start_offset,
+                log_poll: config.log_poll(),
+                feedback_delay: config.feedback_delay(),
             })?;
             let nudge: Arc<dyn NudgeEncoder> = Arc::new(driver.nudge);
             let respond: Arc<dyn RespondEncoder> = Arc::new(driver.respond);
@@ -362,22 +360,12 @@ fn build_driver(
             Ok((Some(nudge), Some(respond), detectors))
         }
         AgentType::Unknown => {
-            // Unknown driver: no nudge/respond, minimal detectors
-            let detectors = if let Some(ref agent_config) = config.agent_config {
-                coop::driver::unknown::build_detectors(
-                    child_pid_fn,
-                    ring_total_written_fn,
-                    Some(agent_config.as_path()),
-                    None,
-                )?
-            } else {
-                coop::driver::unknown::build_detectors(
-                    child_pid_fn,
-                    ring_total_written_fn,
-                    None,
-                    None,
-                )?
-            };
+            let detectors = coop::driver::unknown::build_detectors(
+                config,
+                child_pid_fn,
+                ring_total_written_fn,
+                None,
+            )?;
             Ok((None, None, detectors))
         }
         AgentType::Codex | AgentType::Gemini => {

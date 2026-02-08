@@ -5,6 +5,7 @@ use std::ffi::CString;
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{bail, Context};
 use bytes::Bytes;
@@ -26,6 +27,7 @@ pub struct NativePty {
     child_pid: Pid,
     cols: Arc<AtomicU16>,
     rows: Arc<AtomicU16>,
+    reap_interval: Duration,
 }
 
 impl NativePty {
@@ -90,9 +92,15 @@ impl NativePty {
                     child_pid: child,
                     cols: Arc::new(AtomicU16::new(cols)),
                     rows: Arc::new(AtomicU16::new(rows)),
+                    reap_interval: Duration::from_millis(50),
                 })
             }
         }
+    }
+
+    pub fn with_reap_interval(mut self, interval: Duration) -> Self {
+        self.reap_interval = interval;
+        self
     }
 }
 
@@ -220,10 +228,11 @@ impl Drop for NativePty {
         let _ = kill(pgid, Signal::SIGHUP);
 
         // Poll for exit up to 500ms before escalating to SIGKILL.
-        for _ in 0..10 {
+        let iterations = (500 / self.reap_interval.as_millis().max(1)) as usize;
+        for _ in 0..iterations.max(1) {
             match waitpid(self.child_pid, Some(WaitPidFlag::WNOHANG)) {
                 Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => return,
-                _ => std::thread::sleep(std::time::Duration::from_millis(50)),
+                _ => std::thread::sleep(self.reap_interval),
             }
         }
 

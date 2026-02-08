@@ -132,6 +132,7 @@ pub struct DetectedState {
 pub struct CompositeDetector {
     pub tiers: Vec<Box<dyn Detector>>,
     pub grace_timer: IdleGraceTimer,
+    pub grace_tick_interval: Duration,
 }
 
 impl AgentState {
@@ -209,7 +210,7 @@ impl CompositeDetector {
         let mut current_state = AgentState::Starting;
         let mut current_tier: u8 = u8::MAX;
         let mut grace_proposed: Option<(u8, AgentState)> = None;
-        let mut grace_check_interval = tokio::time::interval(Duration::from_secs(1));
+        let mut grace_check_interval = tokio::time::interval(self.grace_tick_interval);
 
         loop {
             tokio::select! {

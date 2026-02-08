@@ -11,6 +11,7 @@ pub mod startup;
 pub mod state;
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use bytes::Bytes;
 use tokio::sync::mpsc;
@@ -31,6 +32,10 @@ pub struct ClaudeDriverConfig {
     pub stdout_rx: Option<mpsc::Receiver<Bytes>>,
     /// Byte offset to start reading the session log from (for resume).
     pub log_start_offset: u64,
+    /// Log watcher fallback poll interval.
+    pub log_poll: Duration,
+    /// Delay between plan rejection keystroke and feedback text.
+    pub feedback_delay: Duration,
 }
 
 /// Claude Code agent driver.
@@ -67,6 +72,7 @@ impl ClaudeDriver {
             detectors.push(Box::new(LogDetector {
                 log_path,
                 start_offset: config.log_start_offset,
+                poll_interval: config.log_poll,
             }));
         }
 
@@ -80,7 +86,9 @@ impl ClaudeDriver {
 
         Ok(Self {
             nudge: ClaudeNudgeEncoder,
-            respond: ClaudeRespondEncoder,
+            respond: ClaudeRespondEncoder {
+                feedback_delay: config.feedback_delay,
+            },
             detectors,
             hook_pipe_path,
         })

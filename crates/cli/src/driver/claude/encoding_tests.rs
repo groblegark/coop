@@ -29,7 +29,7 @@ fn nudge_with_multiline_message() {
     deny   = { false, b"n\r" },
 )]
 fn permission_encoding(accept: bool, expected: &[u8]) {
-    let encoder = ClaudeRespondEncoder;
+    let encoder = ClaudeRespondEncoder::default();
     let steps = encoder.encode_permission(accept);
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].bytes, expected);
@@ -37,7 +37,7 @@ fn permission_encoding(accept: bool, expected: &[u8]) {
 
 #[test]
 fn plan_accept() {
-    let encoder = ClaudeRespondEncoder;
+    let encoder = ClaudeRespondEncoder::default();
     let steps = encoder.encode_plan(true, None);
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].bytes, b"y\r");
@@ -46,7 +46,7 @@ fn plan_accept() {
 
 #[test]
 fn plan_reject_with_feedback() {
-    let encoder = ClaudeRespondEncoder;
+    let encoder = ClaudeRespondEncoder::default();
     let steps = encoder.encode_plan(false, Some("Don't modify the schema"));
     assert_eq!(steps.len(), 2);
     assert_eq!(steps[0].bytes, b"n\r");
@@ -57,7 +57,7 @@ fn plan_reject_with_feedback() {
 
 #[test]
 fn plan_reject_without_feedback() {
-    let encoder = ClaudeRespondEncoder;
+    let encoder = ClaudeRespondEncoder::default();
     let steps = encoder.encode_plan(false, None);
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].bytes, b"n\r");
@@ -66,7 +66,7 @@ fn plan_reject_without_feedback() {
 
 #[test]
 fn question_with_option_number() {
-    let encoder = ClaudeRespondEncoder;
+    let encoder = ClaudeRespondEncoder::default();
     let steps = encoder.encode_question(Some(2), None);
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].bytes, b"2\r");
@@ -74,7 +74,7 @@ fn question_with_option_number() {
 
 #[test]
 fn question_with_freeform_text() {
-    let encoder = ClaudeRespondEncoder;
+    let encoder = ClaudeRespondEncoder::default();
     let steps = encoder.encode_question(None, Some("Use Redis instead"));
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].bytes, b"Use Redis instead\r");
@@ -82,7 +82,7 @@ fn question_with_freeform_text() {
 
 #[test]
 fn question_with_neither_option_nor_text() {
-    let encoder = ClaudeRespondEncoder;
+    let encoder = ClaudeRespondEncoder::default();
     let steps = encoder.encode_question(None, None);
     assert!(steps.is_empty());
 }

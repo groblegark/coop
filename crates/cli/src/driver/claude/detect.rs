@@ -4,6 +4,7 @@
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::time::Duration;
 
 use bytes::Bytes;
 use tokio::sync::mpsc;
@@ -110,6 +111,8 @@ pub struct LogDetector {
     pub log_path: PathBuf,
     /// Byte offset to start reading from (used for session resume).
     pub start_offset: u64,
+    /// Fallback poll interval for the log watcher.
+    pub poll_interval: Duration,
 }
 
 impl Detector for LogDetector {
@@ -123,7 +126,8 @@ impl Detector for LogDetector {
                 LogWatcher::with_offset(self.log_path, self.start_offset)
             } else {
                 LogWatcher::new(self.log_path)
-            };
+            }
+            .with_poll_interval(self.poll_interval);
             let (line_tx, mut line_rx) = mpsc::channel(32);
             let watch_shutdown = shutdown.clone();
 

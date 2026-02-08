@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use clap::Parser;
 
@@ -32,7 +33,7 @@ pub struct Config {
     pub auth_token: Option<String>,
 
     /// Agent type (claude, codex, gemini, unknown).
-    #[arg(long, env = "COOP_agent", default_value = "unknown")]
+    #[arg(long, env = "COOP_AGENT", default_value = "unknown")]
     pub agent: String,
 
     /// Path to agent-specific config file.
@@ -123,6 +124,83 @@ impl Config {
         Ok(())
     }
 
+    // -- Env-only tuning knobs (COOP_*_MS) --------------------------------
+
+    /// Time to wait for backend exit before SIGKILL.
+    pub fn shutdown_timeout(&self) -> Duration {
+        env_duration_ms("COOP_SHUTDOWN_TIMEOUT_MS", 10_000)
+    }
+
+    /// Screen debounce interval for broadcasting ScreenUpdate events.
+    pub fn screen_debounce(&self) -> Duration {
+        env_duration_ms("COOP_SCREEN_DEBOUNCE_MS", 50)
+    }
+
+    /// How often the composite detector polls the idle grace timer.
+    pub fn idle_grace_poll(&self) -> Duration {
+        env_duration_ms("COOP_IDLE_GRACE_POLL_MS", 1_000)
+    }
+
+    /// Process monitor poll interval (Tier 4).
+    pub fn process_poll(&self) -> Duration {
+        env_duration_ms("COOP_PROCESS_POLL_MS", 5_000)
+    }
+
+    /// Screen parser poll interval (Tier 5).
+    pub fn screen_poll(&self) -> Duration {
+        env_duration_ms("COOP_SCREEN_POLL_MS", 2_000)
+    }
+
+    /// Log watcher fallback poll interval (Tier 2).
+    pub fn log_poll(&self) -> Duration {
+        env_duration_ms("COOP_LOG_POLL_MS", 5_000)
+    }
+
+    /// Tmux capture-pane poll interval.
+    pub fn tmux_poll(&self) -> Duration {
+        env_duration_ms("COOP_TMUX_POLL_MS", 1_000)
+    }
+
+    /// PTY reap check interval in the NativePty drop handler.
+    pub fn pty_reap(&self) -> Duration {
+        env_duration_ms("COOP_PTY_REAP_MS", 50)
+    }
+
+    /// Delay between plan rejection keystroke and feedback text.
+    pub fn feedback_delay(&self) -> Duration {
+        env_duration_ms("COOP_FEEDBACK_DELAY_MS", 100)
+    }
+
+    /// Idle timeout as a `Duration` (derived from the `--idle-timeout` CLI flag).
+    pub fn idle_timeout_duration(&self) -> Duration {
+        Duration::from_secs(self.idle_timeout)
+    }
+
+    /// Build a minimal `Config` for tests (port 0, `echo` command).
+    pub fn test() -> Self {
+        Self {
+            port: Some(0),
+            socket: None,
+            host: "127.0.0.1".into(),
+            grpc_port: None,
+            auth_token: None,
+            agent: "unknown".into(),
+            agent_config: None,
+            idle_grace: 60,
+            attach: None,
+            cols: 80,
+            rows: 24,
+            ring_size: 4096,
+            term: "xterm-256color".into(),
+            health_port: None,
+            idle_timeout: 0,
+            log_format: "json".into(),
+            log_level: "info".into(),
+            resume: None,
+            command: vec!["echo".into()],
+        }
+    }
+
     /// Parse the agent type string into an enum.
     pub fn agent_enum(&self) -> anyhow::Result<AgentType> {
         match self.agent.to_lowercase().as_str() {
@@ -133,6 +211,14 @@ impl Config {
             other => anyhow::bail!("invalid agent type: {other}"),
         }
     }
+}
+
+fn env_duration_ms(var: &str, default: u64) -> Duration {
+    let ms = std::env::var(var)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default);
+    Duration::from_millis(ms)
 }
 
 #[cfg(test)]

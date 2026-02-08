@@ -90,6 +90,11 @@ impl TmuxBackend {
         })
     }
 
+    pub fn with_poll_interval(mut self, interval: Duration) -> Self {
+        self.poll_interval = interval;
+        self
+    }
+
     /// Returns the session name.
     pub fn session(&self) -> &str {
         &self.session
