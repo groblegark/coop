@@ -224,7 +224,7 @@ job "epic" {
         branch="${workspace.branch}"
         git push origin "$branch"
         gh pr create --title "${local.title}" --body "Closes #${var.epic.number}" --head "$branch" --label merge:auto
-        gh pr merge --squash --delete-branch --auto
+        gh pr merge --squash --auto
         gh issue edit ${var.epic.number} --remove-label build:needed,in-progress --add-label build:ready
       else
         echo "No changes" >&2
