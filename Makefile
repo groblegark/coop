@@ -1,4 +1,4 @@
-.PHONY: check ci fmt install coverage outdated web
+.PHONY: check ci fmt install coverage outdated try-claude
 
 # Quick checks
 #
@@ -44,5 +44,5 @@ outdated:
 	cargo outdated
 
 # Launch coop wrapping claude with browser terminal
-web:
+try-claude:
 	@COOP_AGENT=claude tests/debug/start.sh -- claude
