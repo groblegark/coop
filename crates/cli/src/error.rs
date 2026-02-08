@@ -33,20 +33,6 @@ impl ErrorCode {
         }
     }
 
-    pub fn grpc_code(&self) -> &'static str {
-        match self {
-            Self::NotReady => "UNAVAILABLE",
-            Self::Exited => "NOT_FOUND",
-            Self::WriterBusy => "RESOURCE_EXHAUSTED",
-            Self::Unauthorized => "UNAUTHENTICATED",
-            Self::BadRequest => "INVALID_ARGUMENT",
-            Self::NoDriver => "UNIMPLEMENTED",
-            Self::AgentBusy => "FAILED_PRECONDITION",
-            Self::NoPrompt => "FAILED_PRECONDITION",
-            Self::Internal => "INTERNAL",
-        }
-    }
-
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::NotReady => "NOT_READY",

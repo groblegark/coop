@@ -37,6 +37,7 @@ tokio-stream.workspace = true
 tonic.workspace = true
 tonic-prost.workspace = true
 futures-util.workspace = true
+parking_lot = "0.12.5"
 
 [build-dependencies]
 tonic-build.workspace = true

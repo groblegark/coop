@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use crate::driver::{AgentState, NudgeEncoder, NudgeStep};
-use crate::test_support::{AnyhowExt, TestAppStateBuilder};
+use crate::test_support::{AnyhowExt, AppStateBuilder};
 use crate::transport::ws::{
     handle_client_message, ClientMessage, LockAction, ServerMessage, SubscriptionMode,
 };
@@ -182,7 +182,7 @@ fn ws_test_state(
     Arc<crate::transport::state::AppState>,
     tokio::sync::mpsc::Receiver<crate::event::InputEvent>,
 ) {
-    TestAppStateBuilder::new()
+    AppStateBuilder::new()
         .child_pid(1234)
         .agent_state(agent)
         .nudge_encoder(Arc::new(StubNudgeEncoder))

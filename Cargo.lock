@@ -371,6 +371,7 @@ dependencies = [
  "hyper-util",
  "nix",
  "notify",
+ "parking_lot",
  "proptest",
  "prost",
  "regex",

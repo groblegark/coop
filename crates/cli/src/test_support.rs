@@ -23,12 +23,8 @@ use crate::transport::state::{
     WriteLock,
 };
 
-// ---------------------------------------------------------------------------
-// TestAppStateBuilder
-// ---------------------------------------------------------------------------
-
 /// Builder for constructing `AppState` in tests with sensible defaults.
-pub struct TestAppStateBuilder {
+pub struct AppStateBuilder {
     ring_size: usize,
     child_pid: u32,
     auth_token: Option<String>,
@@ -37,13 +33,13 @@ pub struct TestAppStateBuilder {
     respond_encoder: Option<Arc<dyn RespondEncoder>>,
 }
 
-impl Default for TestAppStateBuilder {
+impl Default for AppStateBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl TestAppStateBuilder {
+impl AppStateBuilder {
     pub fn new() -> Self {
         Self {
             ring_size: 4096,
@@ -109,7 +105,7 @@ impl TestAppStateBuilder {
                 agent_state: RwLock::new(self.agent_state),
                 state_seq: AtomicU64::new(0),
                 detection_tier: AtomicU8::new(u8::MAX),
-                idle_grace_deadline: Arc::new(std::sync::Mutex::new(None)),
+                idle_grace_deadline: Arc::new(parking_lot::Mutex::new(None)),
             }),
             channels: TransportChannels {
                 input_tx,
@@ -118,7 +114,7 @@ impl TestAppStateBuilder {
             },
             config: SessionSettings {
                 started_at: Instant::now(),
-                agent_type: AgentType::Unknown,
+                agent: AgentType::Unknown,
                 auth_token: self.auth_token,
                 nudge_encoder: self.nudge_encoder,
                 respond_encoder: self.respond_encoder,
@@ -136,26 +132,22 @@ impl TestAppStateBuilder {
     }
 }
 
-// ---------------------------------------------------------------------------
-// MockPtyBackend
-// ---------------------------------------------------------------------------
-
 /// A fake PTY backend for deterministic, sub-millisecond session tests.
-pub struct MockPtyBackend {
+pub struct MockPty {
     output: Vec<Bytes>,
     chunk_delay: Duration,
     exit_status: ExitStatus,
     drain_input: bool,
-    captured_input: Arc<std::sync::Mutex<Vec<Bytes>>>,
+    captured_input: Arc<parking_lot::Mutex<Vec<Bytes>>>,
 }
 
-impl Default for MockPtyBackend {
+impl Default for MockPty {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl MockPtyBackend {
+impl MockPty {
     pub fn new() -> Self {
         Self {
             output: Vec::new(),
@@ -165,7 +157,7 @@ impl MockPtyBackend {
                 signal: None,
             },
             drain_input: false,
-            captured_input: Arc::new(std::sync::Mutex::new(Vec::new())),
+            captured_input: Arc::new(parking_lot::Mutex::new(Vec::new())),
         }
     }
 
@@ -191,12 +183,12 @@ impl MockPtyBackend {
         self
     }
 
-    pub fn captured_input(&self) -> Arc<std::sync::Mutex<Vec<Bytes>>> {
+    pub fn captured_input(&self) -> Arc<parking_lot::Mutex<Vec<Bytes>>> {
         Arc::clone(&self.captured_input)
     }
 }
 
-impl Backend for MockPtyBackend {
+impl Backend for MockPty {
     fn run(
         &mut self,
         output_tx: mpsc::Sender<Bytes>,
@@ -220,9 +212,7 @@ impl Backend for MockPtyBackend {
             }
             if drain_input {
                 while let Some(data) = input_rx.recv().await {
-                    if let Ok(mut buf) = captured_input.lock() {
-                        buf.push(data);
-                    }
+                    captured_input.lock().push(data);
                 }
             }
             Ok(exit_status)
@@ -237,10 +227,6 @@ impl Backend for MockPtyBackend {
         None
     }
 }
-
-// ---------------------------------------------------------------------------
-// Assertion helpers
-// ---------------------------------------------------------------------------
 
 /// Extension trait to convert any `Display` error into `anyhow::Error`.
 /// Replaces `.map_err(|e| anyhow::anyhow!("{e}"))` with `.anyhow()`.

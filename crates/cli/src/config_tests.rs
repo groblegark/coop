@@ -46,39 +46,23 @@ fn invalid_config(args: &[&str], expected_substr: &str) {
 }
 
 #[test]
-fn agent_type_claude() -> anyhow::Result<()> {
-    let config = parse(&[
-        "coop",
-        "--port",
-        "8080",
-        "--agent-type",
-        "claude",
-        "--",
-        "echo",
-    ]);
-    assert_eq!(config.agent_type_enum()?, AgentType::Claude);
+fn agent_claude() -> anyhow::Result<()> {
+    let config = parse(&["coop", "--port", "8080", "--agent", "claude", "--", "echo"]);
+    assert_eq!(config.agent_enum()?, AgentType::Claude);
     Ok(())
 }
 
 #[test]
-fn agent_type_unknown_default() -> anyhow::Result<()> {
+fn agent_unknown_default() -> anyhow::Result<()> {
     let config = parse(&["coop", "--port", "8080", "--", "echo"]);
-    assert_eq!(config.agent_type_enum()?, AgentType::Unknown);
+    assert_eq!(config.agent_enum()?, AgentType::Unknown);
     Ok(())
 }
 
 #[test]
-fn agent_type_invalid() {
-    let config = parse(&[
-        "coop",
-        "--port",
-        "8080",
-        "--agent-type",
-        "gpt",
-        "--",
-        "echo",
-    ]);
-    assert!(config.agent_type_enum().is_err());
+fn agent_invalid() {
+    let config = parse(&["coop", "--port", "8080", "--agent", "gpt", "--", "echo"]);
+    assert!(config.agent_enum().is_err());
 }
 
 #[test]

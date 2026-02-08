@@ -21,7 +21,7 @@ Coop is a standalone Rust binary that:
 | Layer | Always on? | What it does |
 |-------|-----------|--------------|
 | **PTY + VTE** | Yes | Spawn child, read output, render screen, ring buffer |
-| **Detection** | Opt-in (`--agent-type`) | Classify agent state from structured sources, emit events |
+| **Detection** | Opt-in (`--agent`) | Classify agent state from structured sources, emit events |
 | **Nudge** | When driver active | Mechanically deliver a message to an idle agent |
 | **Respond** | When driver active | Mechanically answer a prompt the agent asked |
 
@@ -347,7 +347,7 @@ acquire via `{ "type": "lock" }`. Auto-releases after 30s. 409 if held.
   "status": "running",
   "pid": 12345,
   "uptime_secs": 3600,
-  "agent_type": "claude",
+  "agent": "claude",
   "terminal": { "cols": 200, "rows": 50 },
   "ws_clients": 2
 }
@@ -421,7 +421,7 @@ Plain text body. One line per row. For `curl`.
 }
 ```
 
-#### Agent endpoints (require `--agent-type`)
+#### Agent endpoints (require `--agent`)
 
 **GET /api/v1/agent/state**
 
@@ -429,7 +429,7 @@ Returns classified agent state with prompt context when applicable.
 
 ```json
 {
-  "agent_type": "claude",
+  "agent": "claude",
   "state": "waiting_for_input",
   "since_seq": 4210,
   "screen_seq": 4217,
@@ -443,7 +443,7 @@ When the agent is at a prompt:
 
 ```json
 {
-  "agent_type": "claude",
+  "agent": "claude",
   "state": "permission_prompt",
   "since_seq": 4215,
   "screen_seq": 4217,
@@ -498,7 +498,7 @@ Agent states:
 | `exited` | Child process exited |
 | `unknown` | Driver cannot classify |
 
-When `--agent-type unknown`, state is always `unknown` (except `exited`).
+When `--agent unknown`, state is always `unknown` (except `exited`).
 
 **POST /api/v1/agent/nudge**
 
@@ -632,7 +632,7 @@ message GetHealthResponse {
   string status = 1;
   optional int32 pid = 2;
   int64 uptime_secs = 3;
-  string agent_type = 4;
+  string agent = 4;
   int32 ws_clients = 5;
 }
 
@@ -731,7 +731,7 @@ message PromptContext {
 
 message GetAgentStateRequest {}
 message GetAgentStateResponse {
-  string agent_type = 1;
+  string agent = 1;
   string state = 2;
   uint64 since_seq = 3;
   uint64 screen_seq = 4;
@@ -1339,7 +1339,7 @@ coop --attach screen:SESSION [OPTIONS]
 | `--host ADDR` | `COOP_HOST` | `0.0.0.0` | Bind address |
 | `--grpc-port PORT` | `COOP_GRPC_PORT` | (none) | gRPC port |
 | `--auth-token TOKEN` | `COOP_AUTH_TOKEN` | (none) | Bearer token |
-| `--agent-type TYPE` | `COOP_AGENT_TYPE` | `unknown` | `claude\|codex\|gemini\|unknown` |
+| `--agent TYPE` | `COOP_agent` | `unknown` | `claude\|codex\|gemini\|unknown` |
 | `--agent-config PATH` | `COOP_AGENT_CONFIG` | (none) | Screen pattern overrides |
 | `--idle-grace SECS` | `COOP_IDLE_GRACE` | 60 | Grace timer duration |
 | `--attach SPEC` | `COOP_ATTACH` | (none) | `tmux:NAME` or `screen:NAME` |
@@ -1356,19 +1356,19 @@ coop --attach screen:SESSION [OPTIONS]
 
 ```bash
 # Claude with structured detection
-coop --agent-type claude --port 8080 -- claude --dangerously-skip-permissions
+coop --agent claude --port 8080 -- claude --dangerously-skip-permissions
 
 # Codex on Unix socket
-coop --agent-type codex --socket /tmp/coop.sock -- codex
+coop --agent codex --socket /tmp/coop.sock -- codex
 
 # Dumb PTY server (no driver)
 coop --port 8080 -- /bin/bash
 
 # Attach to existing tmux
-coop --agent-type claude --attach tmux:gt-alpha --port 8080
+coop --agent claude --attach tmux:gt-alpha --port 8080
 
 # K8s: all transports + auth
-coop --agent-type claude --port 8080 --grpc-port 9090 \
+coop --agent claude --port 8080 --grpc-port 9090 \
   --health-port 9091 --auth-token $TOKEN -- claude
 
 # Poll agent state
@@ -1418,7 +1418,7 @@ spec:
     - name: coop
       image: coop:latest
       args:
-        - "--agent-type=claude"
+        - "--agent=claude"
         - "--port=8080"
         - "--health-port=9090"
         - "--cols=200"
@@ -1567,7 +1567,7 @@ coop binary (~2,950 lines).
 | POST | `/api/v1/agent/respond` | Yes* | Answer agent prompt |
 | GET | `/ws` | No | WebSocket |
 
-*Not available when `--agent-type unknown`.
+*Not available when `--agent unknown`.
 
 ### WebSocket
 

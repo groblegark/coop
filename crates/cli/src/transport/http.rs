@@ -19,9 +19,7 @@ use crate::event::InputEvent;
 use crate::event::PtySignal;
 use crate::screen::CursorPosition;
 use crate::transport::state::AppState;
-use crate::transport::{
-    deliver_steps, encode_response, error_response, keys_to_bytes, read_ring_combined,
-};
+use crate::transport::{deliver_steps, encode_response, keys_to_bytes, read_ring_combined};
 
 // ---------------------------------------------------------------------------
 // Request / Response types
@@ -32,7 +30,7 @@ pub struct HealthResponse {
     pub status: String,
     pub pid: Option<i32>,
     pub uptime_secs: i64,
-    pub agent_type: String,
+    pub agent: String,
     pub terminal: TerminalSize,
     pub ws_clients: i32,
     pub ready: bool,
@@ -142,7 +140,7 @@ pub struct SignalResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentStateResponse {
-    pub agent_type: String,
+    pub agent: String,
     pub state: String,
     pub since_seq: u64,
     pub screen_seq: u64,
@@ -192,7 +190,7 @@ pub async fn health(State(s): State<Arc<AppState>>) -> impl IntoResponse {
         status: "running".to_owned(),
         pid: if pid == 0 { None } else { Some(pid as i32) },
         uptime_secs: uptime,
-        agent_type: s.config.agent_type.to_string(),
+        agent: s.config.agent.to_string(),
         terminal: TerminalSize {
             cols: snap.cols,
             rows: snap.rows,
@@ -313,7 +311,9 @@ pub async fn input(
     let _guard = match s.lifecycle.write_lock.acquire_http() {
         Ok(g) => g,
         Err(code) => {
-            return error_response(code, "write lock held by another client").into_response()
+            return code
+                .to_http_response("write lock held by another client")
+                .into_response()
         }
     };
 
@@ -339,14 +339,17 @@ pub async fn input_keys(
     let _guard = match s.lifecycle.write_lock.acquire_http() {
         Ok(g) => g,
         Err(code) => {
-            return error_response(code, "write lock held by another client").into_response()
+            return code
+                .to_http_response("write lock held by another client")
+                .into_response()
         }
     };
 
     let data = match keys_to_bytes(&req.keys) {
         Ok(d) => d,
         Err(bad_key) => {
-            return error_response(ErrorCode::BadRequest, format!("unknown key: {bad_key}"))
+            return ErrorCode::BadRequest
+                .to_http_response(format!("unknown key: {bad_key}"))
                 .into_response()
         }
     };
@@ -366,7 +369,8 @@ pub async fn resize(
     Json(req): Json<ResizeRequest>,
 ) -> impl IntoResponse {
     if req.cols == 0 || req.rows == 0 {
-        return error_response(ErrorCode::BadRequest, "cols and rows must be positive")
+        return ErrorCode::BadRequest
+            .to_http_response("cols and rows must be positive")
             .into_response();
     }
 
@@ -394,11 +398,9 @@ pub async fn signal(
     let sig = match PtySignal::from_name(&req.signal) {
         Some(s) => s,
         None => {
-            return error_response(
-                ErrorCode::BadRequest,
-                format!("unknown signal: {}", req.signal),
-            )
-            .into_response()
+            return ErrorCode::BadRequest
+                .to_http_response(format!("unknown signal: {}", req.signal))
+                .into_response()
         }
     };
 
@@ -409,44 +411,22 @@ pub async fn signal(
 /// `GET /api/v1/agent/state`
 pub async fn agent_state(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     if s.config.nudge_encoder.is_none() && s.config.respond_encoder.is_none() {
-        return error_response(ErrorCode::NoDriver, "no agent driver configured").into_response();
+        return ErrorCode::NoDriver
+            .to_http_response("no agent driver configured")
+            .into_response();
     }
 
     let state = s.driver.agent_state.read().await;
     let screen = s.terminal.screen.read().await;
 
-    let since_seq = s.driver.state_seq.load(Ordering::Relaxed);
-    let tier = s.driver.detection_tier.load(Ordering::Relaxed);
-    let tier_str = if tier == u8::MAX {
-        "none".to_owned()
-    } else {
-        tier.to_string()
-    };
-
-    let idle_grace_remaining_secs = {
-        let deadline = s
-            .driver
-            .idle_grace_deadline
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        deadline.map(|dl| {
-            let now = std::time::Instant::now();
-            if now < dl {
-                (dl - now).as_secs_f32()
-            } else {
-                0.0
-            }
-        })
-    };
-
     Json(AgentStateResponse {
-        agent_type: s.config.agent_type.to_string(),
+        agent: s.config.agent.to_string(),
         state: state.as_str().to_owned(),
-        since_seq,
+        since_seq: s.driver.state_seq.load(Ordering::Relaxed),
         screen_seq: screen.seq(),
-        detection_tier: tier_str,
+        detection_tier: s.driver.detection_tier_str(),
         prompt: state.prompt().cloned(),
-        idle_grace_remaining_secs,
+        idle_grace_remaining_secs: s.driver.idle_grace_remaining_secs(),
     })
     .into_response()
 }
@@ -457,13 +437,16 @@ pub async fn agent_nudge(
     Json(req): Json<NudgeRequest>,
 ) -> impl IntoResponse {
     if !s.ready.load(Ordering::Acquire) {
-        return error_response(ErrorCode::NotReady, "agent is still starting").into_response();
+        return ErrorCode::NotReady
+            .to_http_response("agent is still starting")
+            .into_response();
     }
 
     let encoder = match &s.config.nudge_encoder {
         Some(enc) => Arc::clone(enc),
         None => {
-            return error_response(ErrorCode::NoDriver, "no agent driver configured")
+            return ErrorCode::NoDriver
+                .to_http_response("no agent driver configured")
                 .into_response()
         }
     };
@@ -471,7 +454,9 @@ pub async fn agent_nudge(
     let _guard = match s.lifecycle.write_lock.acquire_http() {
         Ok(g) => g,
         Err(code) => {
-            return error_response(code, "write lock held by another client").into_response()
+            return code
+                .to_http_response("write lock held by another client")
+                .into_response()
         }
     };
 
@@ -510,13 +495,16 @@ pub async fn agent_respond(
     Json(req): Json<RespondRequest>,
 ) -> impl IntoResponse {
     if !s.ready.load(Ordering::Acquire) {
-        return error_response(ErrorCode::NotReady, "agent is still starting").into_response();
+        return ErrorCode::NotReady
+            .to_http_response("agent is still starting")
+            .into_response();
     }
 
     let encoder = match &s.config.respond_encoder {
         Some(enc) => Arc::clone(enc),
         None => {
-            return error_response(ErrorCode::NoDriver, "no agent driver configured")
+            return ErrorCode::NoDriver
+                .to_http_response("no agent driver configured")
                 .into_response()
         }
     };
@@ -524,7 +512,9 @@ pub async fn agent_respond(
     let _guard = match s.lifecycle.write_lock.acquire_http() {
         Ok(g) => g,
         Err(code) => {
-            return error_response(code, "write lock held by another client").into_response()
+            return code
+                .to_http_response("write lock held by another client")
+                .into_response()
         }
     };
 
@@ -540,7 +530,7 @@ pub async fn agent_respond(
     ) {
         Ok(s) => s,
         Err(code) => {
-            return error_response(code, "no prompt active").into_response();
+            return code.to_http_response("no prompt active").into_response();
         }
     };
 

@@ -32,8 +32,8 @@ pub struct Config {
     pub auth_token: Option<String>,
 
     /// Agent type (claude, codex, gemini, unknown).
-    #[arg(long, env = "COOP_AGENT_TYPE", default_value = "unknown")]
-    pub agent_type: String,
+    #[arg(long, env = "COOP_agent", default_value = "unknown")]
+    pub agent: String,
 
     /// Path to agent-specific config file.
     #[arg(long, env = "COOP_AGENT_CONFIG")]
@@ -80,7 +80,7 @@ pub struct Config {
     pub log_level: String,
 
     /// Auto-handle startup prompts (trust, permissions).
-    /// Default: true for --agent-type claude, false otherwise.
+    /// Default: true for --agent claude, false otherwise.
     #[arg(long, env = "COOP_SKIP_STARTUP_PROMPTS")]
     pub skip_startup_prompts: Option<bool>,
 
@@ -113,12 +113,12 @@ impl Config {
         }
 
         // Validate agent type
-        self.agent_type_enum()?;
+        self.agent_enum()?;
 
-        // --resume is only valid with --agent-type claude and cannot combine with --attach
+        // --resume is only valid with --agent claude and cannot combine with --attach
         if self.resume.is_some() {
-            if self.agent_type_enum()? != AgentType::Claude {
-                anyhow::bail!("--resume is only supported with --agent-type claude");
+            if self.agent_enum()? != AgentType::Claude {
+                anyhow::bail!("--resume is only supported with --agent claude");
             }
             if self.attach.is_some() {
                 anyhow::bail!("--resume cannot be combined with --attach");
@@ -129,8 +129,8 @@ impl Config {
     }
 
     /// Parse the agent type string into an enum.
-    pub fn agent_type_enum(&self) -> anyhow::Result<AgentType> {
-        match self.agent_type.to_lowercase().as_str() {
+    pub fn agent_enum(&self) -> anyhow::Result<AgentType> {
+        match self.agent.to_lowercase().as_str() {
             "claude" => Ok(AgentType::Claude),
             "codex" => Ok(AgentType::Codex),
             "gemini" => Ok(AgentType::Gemini),
@@ -143,7 +143,7 @@ impl Config {
     /// Defaults to `true` for Claude, `false` otherwise.
     pub fn effective_skip_startup_prompts(&self) -> bool {
         self.skip_startup_prompts.unwrap_or_else(|| {
-            self.agent_type_enum()
+            self.agent_enum()
                 .map(|t| t == AgentType::Claude)
                 .unwrap_or(false)
         })

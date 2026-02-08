@@ -7,14 +7,14 @@ use axum::http::StatusCode;
 
 use crate::driver::{AgentState, NudgeEncoder, NudgeStep};
 use crate::event::InputEvent;
-use crate::test_support::{AnyhowExt, TestAppStateBuilder};
+use crate::test_support::{AnyhowExt, AppStateBuilder};
 use crate::transport::build_router;
 
 fn test_state() -> (
     Arc<crate::transport::state::AppState>,
     tokio::sync::mpsc::Receiver<InputEvent>,
 ) {
-    TestAppStateBuilder::new().child_pid(1234).build()
+    AppStateBuilder::new().child_pid(1234).build()
 }
 
 #[tokio::test]
@@ -258,7 +258,7 @@ async fn write_endpoint_conflict_409() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn auth_rejects_without_token() -> anyhow::Result<()> {
-    let (state, _rx) = TestAppStateBuilder::new()
+    let (state, _rx) = AppStateBuilder::new()
         .child_pid(1234)
         .auth_token("secret")
         .build();
@@ -299,7 +299,7 @@ impl NudgeEncoder for StubNudgeEncoder {
 
 #[tokio::test]
 async fn agent_nudge_rejected_when_working() -> anyhow::Result<()> {
-    let (state, _rx) = TestAppStateBuilder::new()
+    let (state, _rx) = AppStateBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Working)
         .nudge_encoder(Arc::new(StubNudgeEncoder))
@@ -323,7 +323,7 @@ async fn agent_nudge_rejected_when_working() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn agent_nudge_delivered_when_waiting() -> anyhow::Result<()> {
-    let (state, _rx) = TestAppStateBuilder::new()
+    let (state, _rx) = AppStateBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::WaitingForInput)
         .nudge_encoder(Arc::new(StubNudgeEncoder))

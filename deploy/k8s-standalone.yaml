@@ -10,7 +10,7 @@ spec:
     - name: coop
       image: coop:latest
       args:
-        - "--agent-type=claude"
+        - "--agent=claude"
         - "--port=8080"
         - "--health-port=9090"
         - "--cols=200"

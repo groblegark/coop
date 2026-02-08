@@ -112,13 +112,13 @@ async fn run(config: Config) -> anyhow::Result<coop::driver::ExitStatus> {
     });
 
     // Build driver (detectors + encoders)
-    let agent_type_enum = config.agent_type_enum()?;
+    let agent_enum = config.agent_enum()?;
     let log_start_offset = resume_state.as_ref().map(|s| s.log_offset).unwrap_or(0);
     let pid_terminal = Arc::clone(&terminal);
     let rtw_for_driver = Arc::clone(&terminal.ring_total_written);
     let (nudge_encoder, respond_encoder, detectors) = build_driver(
         &config,
-        agent_type_enum,
+        agent_enum,
         Arc::new(move || {
             let v = pid_terminal
                 .child_pid
@@ -147,7 +147,7 @@ async fn run(config: Config) -> anyhow::Result<coop::driver::ExitStatus> {
             agent_state: RwLock::new(AgentState::Starting),
             state_seq: AtomicU64::new(0),
             detection_tier: AtomicU8::new(u8::MAX),
-            idle_grace_deadline: Arc::new(std::sync::Mutex::new(None)),
+            idle_grace_deadline: Arc::new(parking_lot::Mutex::new(None)),
         }),
         channels: TransportChannels {
             input_tx,
@@ -156,7 +156,7 @@ async fn run(config: Config) -> anyhow::Result<coop::driver::ExitStatus> {
         },
         config: SessionSettings {
             started_at: Instant::now(),
-            agent_type: agent_type_enum,
+            agent: agent_enum,
             auth_token: config.auth_token.clone(),
             nudge_encoder,
             respond_encoder,
@@ -314,12 +314,12 @@ type DriverComponents = (
 
 fn build_driver(
     config: &Config,
-    agent_type: AgentType,
+    agent: AgentType,
     child_pid_fn: Arc<dyn Fn() -> Option<u32> + Send + Sync>,
     ring_total_written_fn: Arc<dyn Fn() -> u64 + Send + Sync>,
     log_start_offset: u64,
 ) -> anyhow::Result<DriverComponents> {
-    match agent_type {
+    match agent {
         AgentType::Claude => {
             let driver = ClaudeDriver::new(ClaudeDriverConfig {
                 session_log_path: None,
@@ -352,7 +352,7 @@ fn build_driver(
             Ok((None, None, detectors))
         }
         AgentType::Codex | AgentType::Gemini => {
-            anyhow::bail!("{agent_type:?} driver is not yet implemented");
+            anyhow::bail!("{agent:?} driver is not yet implemented");
         }
     }
 }

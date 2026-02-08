@@ -15,10 +15,10 @@ make check   # Run all CI checks (fmt, clippy, quench, test, build)
 
 ```bash
 # Claude with structured detection
-coop --agent-type claude --port 8080 -- claude --dangerously-skip-permissions
+coop --agent claude --port 8080 -- claude --dangerously-skip-permissions
 
 # Codex on Unix socket
-coop --agent-type codex --socket /tmp/coop.sock -- codex
+coop --agent codex --socket /tmp/coop.sock -- codex
 
 # Dumb PTY server (no driver)
 coop --port 8080 -- /bin/bash

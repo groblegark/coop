@@ -32,7 +32,7 @@ message GetHealthResponse {
   string status = 1;
   optional int32 pid = 2;
   int64 uptime_secs = 3;
-  string agent_type = 4;
+  string agent = 4;
   int32 ws_clients = 5;
 }
 
@@ -134,7 +134,7 @@ message PromptContext {
 
 message GetAgentStateRequest {}
 message GetAgentStateResponse {
-  string agent_type = 1;
+  string agent = 1;
   string state = 2;
   uint64 since_seq = 3;
   uint64 screen_seq = 4;

@@ -179,7 +179,7 @@ impl CompositeDetector {
         mut self,
         output_tx: mpsc::Sender<DetectedState>,
         activity_fn: Arc<dyn Fn() -> u64 + Send + Sync>,
-        grace_deadline: Arc<std::sync::Mutex<Option<std::time::Instant>>>,
+        grace_deadline: Arc<parking_lot::Mutex<Option<std::time::Instant>>>,
         shutdown: CancellationToken,
     ) {
         // Internal channel where each detector sends (tier, state).
@@ -296,12 +296,10 @@ fn is_idle_state(state: &AgentState) -> bool {
 }
 
 fn set_grace_deadline(
-    deadline: &std::sync::Mutex<Option<std::time::Instant>>,
+    deadline: &parking_lot::Mutex<Option<std::time::Instant>>,
     value: Option<std::time::Instant>,
 ) {
-    if let Ok(mut guard) = deadline.lock() {
-        *guard = value;
-    }
+    *deadline.lock() = value;
 }
 
 impl std::fmt::Debug for CompositeDetector {

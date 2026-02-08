@@ -8,12 +8,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::pty::spawn::NativePty;
 use crate::session::{Session, SessionConfig};
-use crate::test_support::TestAppStateBuilder;
+use crate::test_support::AppStateBuilder;
 
 #[tokio::test]
 async fn echo_exits_with_zero() -> anyhow::Result<()> {
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = TestAppStateBuilder::new()
+    let app_state = AppStateBuilder::new()
         .ring_size(65536)
         .build_with_sender(input_tx);
 
@@ -32,7 +32,7 @@ async fn echo_exits_with_zero() -> anyhow::Result<()> {
 #[tokio::test]
 async fn output_captured_in_ring_and_screen() -> anyhow::Result<()> {
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = TestAppStateBuilder::new()
+    let app_state = AppStateBuilder::new()
         .ring_size(65536)
         .build_with_sender(input_tx);
 
@@ -66,7 +66,7 @@ async fn output_captured_in_ring_and_screen() -> anyhow::Result<()> {
 #[tokio::test]
 async fn shutdown_cancels_session() -> anyhow::Result<()> {
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = TestAppStateBuilder::new()
+    let app_state = AppStateBuilder::new()
         .ring_size(65536)
         .build_with_sender(input_tx);
     let shutdown = CancellationToken::new();

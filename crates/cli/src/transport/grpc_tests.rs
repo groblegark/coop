@@ -7,7 +7,7 @@ use super::*;
 use crate::driver::AgentState;
 use crate::event::PtySignal;
 use crate::screen::{CursorPosition, ScreenSnapshot};
-use crate::test_support::{AnyhowExt, TestAppStateBuilder};
+use crate::test_support::{AnyhowExt, AppStateBuilder};
 use crate::transport::encode_key;
 
 // ---------------------------------------------------------------------------
@@ -257,7 +257,7 @@ fn pty_signal_from_name_case_insensitive() {
 
 #[test]
 fn service_instantiation_compiles() {
-    let state = TestAppStateBuilder::new().build().0;
+    let state = AppStateBuilder::new().build().0;
     let service = CoopGrpc::new(state);
     // Verify we can construct a tonic server from the service
     let _router = service.into_router();
@@ -302,7 +302,7 @@ impl RespondEncoder for StubRespondEncoder {
 }
 
 fn mock_app_state_with_encoders(agent: AgentState) -> Arc<AppState> {
-    let (state, _rx) = TestAppStateBuilder::new()
+    let (state, _rx) = AppStateBuilder::new()
         .agent_state(agent)
         .nudge_encoder(Arc::new(StubNudgeEncoder))
         .respond_encoder(Arc::new(StubRespondEncoder))

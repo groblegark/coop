@@ -2,8 +2,10 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use parking_lot::Mutex;
 
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -64,6 +66,33 @@ pub struct DriverState {
     pub idle_grace_deadline: Arc<Mutex<Option<Instant>>>,
 }
 
+impl DriverState {
+    /// Format the current detection tier as a display string.
+    pub fn detection_tier_str(&self) -> String {
+        let tier = self
+            .detection_tier
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if tier == u8::MAX {
+            "none".to_owned()
+        } else {
+            tier.to_string()
+        }
+    }
+
+    /// Compute the remaining seconds on the idle grace timer, if any.
+    pub fn idle_grace_remaining_secs(&self) -> Option<f32> {
+        let deadline = self.idle_grace_deadline.lock();
+        deadline.map(|dl| {
+            let now = Instant::now();
+            if now < dl {
+                (dl - now).as_secs_f32()
+            } else {
+                0.0
+            }
+        })
+    }
+}
+
 /// Channel endpoints for consumer ↔ session communication.
 pub struct TransportChannels {
     pub input_tx: mpsc::Sender<InputEvent>,
@@ -74,7 +103,7 @@ pub struct TransportChannels {
 /// Static session configuration (immutable after construction).
 pub struct SessionSettings {
     pub started_at: Instant,
-    pub agent_type: AgentType,
+    pub agent: AgentType,
     pub auth_token: Option<String>,
     pub nudge_encoder: Option<Arc<dyn NudgeEncoder>>,
     pub respond_encoder: Option<Arc<dyn RespondEncoder>>,
@@ -92,7 +121,7 @@ pub struct LifecycleState {
 impl std::fmt::Debug for AppState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AppState")
-            .field("agent_type", &self.config.agent_type)
+            .field("agent", &self.config.agent)
             .field("auth_token", &self.config.auth_token.is_some())
             .finish()
     }
@@ -132,10 +161,7 @@ pub struct WriteLockGuard<'a> {
 
 impl Drop for WriteLockGuard<'_> {
     fn drop(&mut self) {
-        let mut inner = match self.lock.inner.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let mut inner = self.lock.lock_inner();
         if inner.owner == Some(LockOwner::Http) {
             inner.owner = None;
             inner.acquired_at = None;
@@ -154,25 +180,22 @@ impl WriteLock {
         }
     }
 
-    /// Check if the lock is expired and clear it if so. Must be called with
-    /// the inner mutex already held.
-    fn maybe_expire(inner: &mut LockInner) {
+    /// Acquire the inner mutex and expire stale locks.
+    fn lock_inner(&self) -> parking_lot::MutexGuard<'_, LockInner> {
+        let mut inner = self.inner.lock();
         if let Some(acquired_at) = inner.acquired_at {
             if acquired_at.elapsed() >= WRITE_LOCK_TIMEOUT {
                 inner.owner = None;
                 inner.acquired_at = None;
             }
         }
+        inner
     }
 
     /// Acquire the write lock for an HTTP request. Returns a guard that
     /// auto-releases on drop. Returns `WriterBusy` if held by another owner.
     pub fn acquire_http(&self) -> Result<WriteLockGuard<'_>, ErrorCode> {
-        let mut inner = match self.inner.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        Self::maybe_expire(&mut inner);
+        let mut inner = self.lock_inner();
         if inner.owner.is_some() {
             return Err(ErrorCode::WriterBusy);
         }
@@ -184,11 +207,7 @@ impl WriteLock {
     /// Acquire the write lock for a WebSocket client. Returns `WriterBusy` if
     /// held by another owner.
     pub fn acquire_ws(&self, client_id: &str) -> Result<(), ErrorCode> {
-        let mut inner = match self.inner.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        Self::maybe_expire(&mut inner);
+        let mut inner = self.lock_inner();
         match &inner.owner {
             Some(LockOwner::Ws(id)) if id == client_id => return Ok(()),
             Some(_) => return Err(ErrorCode::WriterBusy),
@@ -202,11 +221,7 @@ impl WriteLock {
     /// Release the write lock for a WebSocket client. Returns `WriterBusy`
     /// if the client is not the current owner.
     pub fn release_ws(&self, client_id: &str) -> Result<(), ErrorCode> {
-        let mut inner = match self.inner.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        Self::maybe_expire(&mut inner);
+        let mut inner = self.lock_inner();
         match &inner.owner {
             Some(LockOwner::Ws(id)) if id == client_id => {
                 inner.owner = None;
@@ -221,11 +236,7 @@ impl WriteLock {
     /// Check that the given WebSocket client currently holds the write lock.
     /// Returns `WriterBusy` if the client does not hold the lock.
     pub fn check_ws(&self, client_id: &str) -> Result<(), ErrorCode> {
-        let mut inner = match self.inner.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        Self::maybe_expire(&mut inner);
+        let inner = self.lock_inner();
         match &inner.owner {
             Some(LockOwner::Ws(id)) if id == client_id => Ok(()),
             _ => Err(ErrorCode::WriterBusy),
@@ -235,10 +246,7 @@ impl WriteLock {
     /// Force-release the lock if held by the given WebSocket client.
     /// Used during connection cleanup.
     pub fn force_release_ws(&self, client_id: &str) {
-        let mut inner = match self.inner.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let mut inner = self.lock_inner();
         if inner.owner == Some(LockOwner::Ws(client_id.to_owned())) {
             inner.owner = None;
             inner.acquired_at = None;
@@ -247,12 +255,7 @@ impl WriteLock {
 
     /// Check if the lock is currently held (after expiry check).
     pub fn is_held(&self) -> bool {
-        let mut inner = match self.inner.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        Self::maybe_expire(&mut inner);
-        inner.owner.is_some()
+        self.lock_inner().owner.is_some()
     }
 }
 

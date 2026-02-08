@@ -154,16 +154,6 @@ pub struct ErrorBody {
     pub message: String,
 }
 
-impl ErrorBody {
-    /// Create an `ErrorBody` from a code string and message.
-    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            code: code.into(),
-            message: message.into(),
-        }
-    }
-}
-
 impl ErrorCode {
     /// Convert this error code into a transport [`ErrorBody`].
     pub fn to_error_body(&self, message: impl Into<String>) -> ErrorBody {
@@ -177,27 +167,14 @@ impl ErrorCode {
     pub fn to_http_response(
         &self,
         message: impl Into<String>,
-    ) -> (axum::http::StatusCode, axum::Json<ErrorResponse>) {
-        let status = axum::http::StatusCode::from_u16(self.http_status())
-            .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+    ) -> (StatusCode, Json<ErrorResponse>) {
+        let status =
+            StatusCode::from_u16(self.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         let body = ErrorResponse {
             error: self.to_error_body(message),
         };
-        (status, axum::Json(body))
+        (status, Json(body))
     }
-}
-
-/// Build a JSON error response from an `ErrorCode` and message.
-pub fn error_response(
-    code: ErrorCode,
-    message: impl Into<String>,
-) -> (StatusCode, Json<ErrorResponse>) {
-    let status =
-        StatusCode::from_u16(code.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    let body = ErrorResponse {
-        error: code.to_error_body(message),
-    };
-    (status, Json(body))
 }
 
 // ---------------------------------------------------------------------------
