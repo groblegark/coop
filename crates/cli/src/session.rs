@@ -21,7 +21,7 @@ use crate::driver::{
     classify_error_detail, AgentState, CompositeDetector, DetectedState, Detector, ExitStatus,
 };
 use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
-use crate::pty::Backend;
+use crate::pty::{Backend, Boxed};
 use crate::transport::AppState;
 
 /// Runtime objects for building a new [`Session`] (not derivable from [`Config`]).
@@ -35,17 +35,27 @@ pub struct SessionConfig {
 
 impl SessionConfig {
     pub fn new(
-        state: Arc<AppState>,
-        backend: Box<dyn Backend>,
-        channel: mpsc::Receiver<InputEvent>,
-    ) -> SessionConfig {
-        SessionConfig {
-            backend,
-            app_state: state,
+        app_state: Arc<AppState>,
+        backend: impl Boxed,
+        consumer_input_rx: mpsc::Receiver<InputEvent>,
+    ) -> Self {
+        Self {
+            backend: backend.boxed(),
+            app_state,
             detectors: Vec::new(),
-            consumer_input_rx: channel,
+            consumer_input_rx,
             shutdown: CancellationToken::new(),
         }
+    }
+
+    pub fn with_detectors(mut self, detectors: Vec<Box<dyn Detector>>) -> Self {
+        self.detectors = detectors;
+        self
+    }
+
+    pub fn with_shutdown(mut self, shutdown: CancellationToken) -> Self {
+        self.shutdown = shutdown;
+        self
     }
 }
 

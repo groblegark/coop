@@ -190,13 +190,7 @@ async fn large_output_through_session() -> anyhow::Result<()> {
     )?;
     let session = Session::new(
         &config,
-        SessionConfig {
-            backend: Box::new(backend),
-            detectors: vec![],
-            app_state: Arc::clone(&app_state),
-            consumer_input_rx,
-            shutdown: tokio_util::sync::CancellationToken::new(),
-        },
+        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
     );
 
     let status = session.run(&config).await?;
@@ -308,13 +302,7 @@ async fn signal_delivery_sigint() -> anyhow::Result<()> {
     let backend = NativePty::spawn(&["/bin/cat".into()], 80, 24, &[])?;
     let session = Session::new(
         &config,
-        SessionConfig {
-            backend: Box::new(backend),
-            detectors: vec![],
-            app_state: Arc::clone(&app_state),
-            consumer_input_rx,
-            shutdown: tokio_util::sync::CancellationToken::new(),
-        },
+        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
     );
 
     let session_handle = tokio::spawn(async move {

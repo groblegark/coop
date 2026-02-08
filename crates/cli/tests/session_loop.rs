@@ -35,13 +35,7 @@ async fn session_echo_captures_output_and_exits_zero() -> anyhow::Result<()> {
     let backend = NativePty::spawn(&["echo".into(), "integration".into()], 80, 24, &[])?;
     let session = Session::new(
         &config,
-        SessionConfig {
-            backend: Box::new(backend),
-            detectors: vec![],
-            app_state: Arc::clone(&app_state),
-            consumer_input_rx,
-            shutdown: CancellationToken::new(),
-        },
+        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
     );
 
     let status = session.run(&config).await?;
@@ -76,13 +70,7 @@ async fn session_input_roundtrip() -> anyhow::Result<()> {
     let backend = NativePty::spawn(&["/bin/cat".into()], 80, 24, &[])?;
     let session = Session::new(
         &config,
-        SessionConfig {
-            backend: Box::new(backend),
-            detectors: vec![],
-            app_state: Arc::clone(&app_state),
-            consumer_input_rx,
-            shutdown: CancellationToken::new(),
-        },
+        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
     );
 
     let session_handle = tokio::spawn(async move {
@@ -134,13 +122,7 @@ async fn session_shutdown_terminates_child() -> anyhow::Result<()> {
     )?;
     let session = Session::new(
         &config,
-        SessionConfig {
-            backend: Box::new(backend),
-            detectors: vec![],
-            app_state,
-            consumer_input_rx,
-            shutdown: shutdown.clone(),
-        },
+        SessionConfig::new(app_state, backend, consumer_input_rx).with_shutdown(shutdown.clone()),
     );
 
     // Cancel after a short delay
@@ -168,13 +150,7 @@ async fn session_exited_state_broadcast() -> anyhow::Result<()> {
     let backend = NativePty::spawn(&["true".into()], 80, 24, &[])?;
     let session = Session::new(
         &config,
-        SessionConfig {
-            backend: Box::new(backend),
-            detectors: vec![],
-            app_state: Arc::clone(&app_state),
-            consumer_input_rx,
-            shutdown: CancellationToken::new(),
-        },
+        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
     );
 
     let _ = session.run(&config).await?;
@@ -391,13 +367,7 @@ async fn full_stack_echo_screen_via_http() -> anyhow::Result<()> {
     let backend = NativePty::spawn(&["echo".into(), "fullstack".into()], 80, 24, &[])?;
     let session = Session::new(
         &config,
-        SessionConfig {
-            backend: Box::new(backend),
-            detectors: vec![],
-            app_state: Arc::clone(&app_state),
-            consumer_input_rx,
-            shutdown: CancellationToken::new(),
-        },
+        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
     );
 
     // Run session to completion

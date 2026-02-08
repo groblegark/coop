@@ -22,7 +22,7 @@ async fn echo_exits_with_zero() -> anyhow::Result<()> {
     let backend = NativePty::spawn(&["echo".into(), "hello".into()], 80, 24, &[])?;
     let session = Session::new(
         &config,
-        SessionConfig::new(app_state, Box::new(backend), consumer_input_rx),
+        SessionConfig::new(app_state, backend, consumer_input_rx),
     );
 
     let status = session.run(&config).await?;
@@ -41,13 +41,7 @@ async fn output_captured_in_ring_and_screen() -> anyhow::Result<()> {
     let backend = NativePty::spawn(&["echo".into(), "hello-ring".into()], 80, 24, &[])?;
     let session = Session::new(
         &config,
-        SessionConfig {
-            backend: Box::new(backend),
-            detectors: vec![],
-            app_state: Arc::clone(&app_state),
-            consumer_input_rx,
-            shutdown: CancellationToken::new(),
-        },
+        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
     );
 
     let _ = session.run(&config).await?;
@@ -88,13 +82,7 @@ async fn shutdown_cancels_session() -> anyhow::Result<()> {
     )?;
     let session = Session::new(
         &config,
-        SessionConfig {
-            backend: Box::new(backend),
-            detectors: vec![],
-            app_state,
-            consumer_input_rx,
-            shutdown: shutdown.clone(),
-        },
+        SessionConfig::new(app_state, backend, consumer_input_rx).with_shutdown(shutdown.clone()),
     );
 
     // Cancel after a short delay

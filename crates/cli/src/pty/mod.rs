@@ -27,3 +27,21 @@ pub trait Backend: Send + 'static {
 
     fn child_pid(&self) -> Option<u32>;
 }
+
+/// Conversion trait so both concrete backends and `Box<dyn Backend>`
+/// can be passed to [`SessionConfig::new`] without explicit boxing.
+pub trait Boxed {
+    fn boxed(self) -> Box<dyn Backend>;
+}
+
+impl Boxed for T {
+    fn boxed(self) -> Box<dyn Backend> {
+        Box::new(self)
+    }
+}
+
+impl Boxed for Box<dyn Backend> {
+    fn boxed(self) -> Box<dyn Backend> {
+        self
+    }
+}

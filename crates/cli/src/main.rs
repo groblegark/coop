@@ -318,13 +318,9 @@ async fn run(config: Config) -> anyhow::Result<coop::driver::ExitStatus> {
     // Run session loop
     let session = Session::new(
         &config,
-        coop::session::SessionConfig {
-            backend,
-            detectors,
-            app_state,
-            consumer_input_rx,
-            shutdown,
-        },
+        coop::session::SessionConfig::new(app_state, backend, consumer_input_rx)
+            .with_detectors(detectors)
+            .with_shutdown(shutdown),
     );
 
     session.run(&config).await
