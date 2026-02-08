@@ -1,5 +1,10 @@
 # Idempotently create all GitHub labels used by this runbook.
 #
+# Also recommended (configured manually or via GitHub settings):
+#   - Branch protection on main requiring CI to pass
+#   - strict=false: branches don't need to be up-to-date before merging
+#   - Merge queue with squash merges so CI runs on the merged result
+#
 # Examples:
 #   oj run github:setup
 command "github:setup" {
