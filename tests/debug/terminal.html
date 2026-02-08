@@ -7,11 +7,67 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; background: #1e1e1e; overflow: hidden; }
-  #terminal { height: calc(100% - 24px); }
+
+  #main { display: flex; height: calc(100% - 24px); }
+  #terminal { flex: 1; min-width: 0; }
+
+  /* --- Sidebar --- */
+  #sidebar {
+    width: 340px; flex-shrink: 0;
+    background: #181818; border-left: 1px solid #333;
+    display: flex; flex-direction: column;
+    font: 12px/1.5 Menlo, Monaco, monospace; color: #ccc;
+    overflow: hidden;
+  }
+  #sidebar.hidden { display: none; }
+  #sidebar h2 {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.05em; color: #888; padding: 8px 10px 4px;
+    border-bottom: 1px solid #2a2a2a; flex-shrink: 0;
+  }
+  .api-section { flex-shrink: 0; overflow-y: auto; max-height: 45%; }
+  .api-block { padding: 4px 10px; }
+  .api-block summary {
+    cursor: pointer; font-size: 11px; font-weight: 600; color: #aaa;
+    padding: 2px 0; user-select: none;
+  }
+  .api-block table { width: 100%; border-collapse: collapse; }
+  .api-block td {
+    padding: 1px 4px; font-size: 11px; vertical-align: top;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 180px;
+  }
+  .api-block td:first-child { color: #888; width: 90px; }
+  .api-block td:last-child { color: #ddd; }
+
+  /* --- Event log --- */
+  #events-section {
+    flex: 1; display: flex; flex-direction: column;
+    border-top: 1px solid #2a2a2a; min-height: 0;
+  }
+  #event-log {
+    flex: 1; overflow-y: auto; padding: 4px 10px;
+    font-size: 11px; line-height: 1.4;
+  }
+  .ev { padding: 2px 0; border-bottom: 1px solid #222; }
+  .ev-time { color: #666; }
+  .ev-type { font-weight: 600; }
+  .ev-type-output       { color: #7cb7ff; }
+  .ev-type-stream       { color: #7cb7ff; }
+  .ev-type-screen       { color: #b8a0e8; }
+  .ev-type-state_change { color: #e8c84a; }
+  .ev-type-exit         { color: #e06060; }
+  .ev-type-error        { color: #e06060; }
+  .ev-type-resize       { color: #6cc; }
+  .ev-type-pong         { color: #666; }
+  .ev-detail { color: #999; margin-left: 4px; }
+
+  /* --- Status bar --- */
   #status {
     height: 24px; line-height: 24px; padding: 0 8px;
     font: 12px/24px monospace; color: #ccc; background: #111;
     display: flex; justify-content: space-between; align-items: center;
+    flex-shrink: 0;
   }
   #status .dot {
     display: inline-block; width: 8px; height: 8px; border-radius: 50%;
@@ -20,13 +76,54 @@
   .dot-connected    { background: #4ec950; }
   .dot-connecting   { background: #e8a317; }
   .dot-disconnected { background: #e04040; }
+  #toggle-btn {
+    background: none; border: 1px solid #555; color: #aaa;
+    font: 11px monospace; padding: 1px 8px; cursor: pointer;
+    border-radius: 3px; margin-left: 8px;
+  }
+  #toggle-btn:hover { border-color: #888; color: #ddd; }
 </style>
 </head>
 <body>
-<div id="terminal"></div>
+<div id="main">
+  <div id="terminal"></div>
+  <div id="sidebar">
+    <h2>API State</h2>
+    <div class="api-section">
+      <div class="api-block">
+        <details open>
+          <summary>Health</summary>
+          <table id="t-health"></table>
+        </details>
+      </div>
+      <div class="api-block">
+        <details open>
+          <summary>Status</summary>
+          <table id="t-status"></table>
+        </details>
+      </div>
+      <div class="api-block">
+        <details open>
+          <summary>Agent</summary>
+          <table id="t-agent"></table>
+        </details>
+      </div>
+    </div>
+    <div id="events-section">
+      <h2>Events</h2>
+      <div id="event-log"></div>
+    </div>
+  </div>
+</div>
 <div id="status">
-  <span><span id="dot" class="dot dot-connecting"></span><span id="label">Connecting…</span></span>
-  <span id="info"></span>
+  <span>
+    <span id="dot" class="dot dot-connecting"></span>
+    <span id="label">Connecting…</span>
+  </span>
+  <span>
+    <span id="info"></span>
+    <button id="toggle-btn">Inspector</button>
+  </span>
 </div>
 
 <script type="module">
@@ -36,7 +133,8 @@ import { WebglAddon } from 'https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18
 
 const params = new URLSearchParams(location.search);
 const PORT = params.get('port') || '7070';
-const WS_URL = `ws://localhost:${PORT}/ws?mode=raw`;
+const BASE = `http://localhost:${PORT}`;
+const WS_URL = `ws://localhost:${PORT}/ws?mode=all`;
 
 const dot   = document.getElementById('dot');
 const label = document.getElementById('label');
@@ -70,6 +168,183 @@ try {
 
 fitAddon.fit();
 term.focus();
+
+// --- Sidebar toggle ---
+const sidebar = document.getElementById('sidebar');
+const toggleBtn = document.getElementById('toggle-btn');
+let sidebarVisible = true;
+
+function setSidebarVisible(show) {
+  sidebarVisible = show;
+  sidebar.classList.toggle('hidden', !show);
+  toggleBtn.textContent = show ? 'Hide' : 'Inspector';
+  // refit terminal after layout change
+  requestAnimationFrame(() => fitAddon.fit());
+}
+
+toggleBtn.addEventListener('click', () => {
+  setSidebarVisible(!sidebarVisible);
+  term.focus();
+});
+
+// --- API polling ---
+const tHealth = document.getElementById('t-health');
+const tStatus = document.getElementById('t-status');
+const tAgent  = document.getElementById('t-agent');
+
+function renderTable(el, obj, prefix) {
+  if (!obj) { el.innerHTML = '<tr><td colspan="2" style="color:#666">--</td></tr>'; return; }
+  let html = '';
+  for (const [k, v] of Object.entries(obj)) {
+    if (v != null && typeof v === 'object') {
+      for (const [k2, v2] of Object.entries(v)) {
+        html += `<tr><td>${prefix ? prefix + '.' : ''}${k}.${k2}</td><td>${esc(v2)}</td></tr>`;
+      }
+    } else {
+      html += `<tr><td>${prefix ? prefix + '.' : ''}${k}</td><td>${esc(v)}</td></tr>`;
+    }
+  }
+  el.innerHTML = html;
+}
+
+function esc(v) {
+  const s = String(v ?? '--');
+  const el = document.createElement('span');
+  el.textContent = s;
+  return el.innerHTML;
+}
+
+async function pollApi() {
+  if (!sidebarVisible) return;
+  try {
+    const [health, status, agent] = await Promise.all([
+      fetch(`${BASE}/api/v1/health`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${BASE}/api/v1/status`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${BASE}/api/v1/agent/state`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]);
+    renderTable(tHealth, health, '');
+    renderTable(tStatus, status, '');
+    renderTable(tAgent, agent, '');
+  } catch (_) { /* ignore */ }
+}
+
+let pollTimer = setInterval(pollApi, 2000);
+pollApi();
+
+// --- Event log ---
+const eventLog = document.getElementById('event-log');
+const MAX_EVENTS = 200;
+let eventCount = 0;
+
+// Collapse consecutive output/screen bursts into a single updating row.
+// Output and screen always arrive as pairs, so treat them as one group.
+let streamEl = null;   // current collapsed row element
+let streamAcc = null;  // { count, totalBytes, lastOffset, lastSeq, cols, rows }
+
+function logEvent(msg) {
+  if (!sidebarVisible) return;
+  const type = msg.type || '?';
+  const now = new Date();
+  const ts = now.toTimeString().slice(0, 8);
+
+  // Collapse consecutive output+screen bursts in-place
+  if (type === 'output' || type === 'screen') {
+    if (streamEl && streamAcc) {
+      // Update existing collapsed row
+      if (type === 'output') {
+        const len = msg.data ? atob(msg.data).length : 0;
+        streamAcc.count++;
+        streamAcc.totalBytes += len;
+        streamAcc.lastOffset = msg.offset + len;
+      } else {
+        streamAcc.lastSeq = msg.seq;
+        streamAcc.cols = msg.cols;
+        streamAcc.rows = msg.rows;
+      }
+      streamEl.innerHTML = renderStreamHtml(ts, streamAcc);
+      autoScroll();
+      return;
+    }
+    // Start a new collapsed row
+    if (type === 'output') {
+      const len = msg.data ? atob(msg.data).length : 0;
+      streamAcc = { count: 1, totalBytes: len, lastOffset: msg.offset + len,
+                    lastSeq: 0, cols: 0, rows: 0 };
+    } else {
+      streamAcc = { count: 0, totalBytes: 0, lastOffset: 0,
+                    lastSeq: msg.seq, cols: msg.cols, rows: msg.rows };
+    }
+    const div = document.createElement('div');
+    div.className = 'ev';
+    div.innerHTML = renderStreamHtml(ts, streamAcc);
+    eventLog.appendChild(div);
+    streamEl = div;
+    eventCount++;
+    trimEvents();
+    autoScroll();
+    return;
+  }
+
+  // Non-stream event — break the collapsed run
+  streamEl = null;
+  streamAcc = null;
+
+  let detail = '';
+  switch (type) {
+    case 'state_change':
+      detail = `${msg.prev} -> ${msg.next}`;
+      if (msg.error_detail) detail += ` (${msg.error_category || 'error'})`;
+      break;
+    case 'exit':
+      detail = msg.signal != null ? `signal ${msg.signal}` : `code ${msg.code ?? '?'}`;
+      break;
+    case 'error':
+      detail = `${msg.code}: ${msg.message}`;
+      break;
+    case 'resize':
+      detail = `${msg.cols}x${msg.rows}`;
+      break;
+  }
+
+  const div = document.createElement('div');
+  div.className = 'ev';
+  div.innerHTML = renderEvHtml(ts, type, detail);
+  eventLog.appendChild(div);
+
+  eventCount++;
+  trimEvents();
+  autoScroll();
+}
+
+function renderStreamHtml(ts, acc) {
+  let parts = `<span class="ev-time">${ts}</span> `;
+  parts += `<span class="ev-type ev-type-output">stream</span>`;
+  const details = [];
+  if (acc.count > 0) details.push(`${acc.count}x ${acc.totalBytes}B thru ${acc.lastOffset}`);
+  if (acc.lastSeq > 0) details.push(`seq=${acc.lastSeq}`);
+  if (details.length) parts += `<span class="ev-detail">${esc(details.join(' '))}</span>`;
+  return parts;
+}
+
+function renderEvHtml(ts, type, detail) {
+  return `<span class="ev-time">${ts}</span> ` +
+    `<span class="ev-type ev-type-${type}">${type}</span>` +
+    (detail ? `<span class="ev-detail">${esc(detail)}</span>` : '');
+}
+
+function trimEvents() {
+  while (eventCount > MAX_EVENTS) {
+    if (eventLog.firstChild === streamEl) { streamEl = null; streamAcc = null; }
+    eventLog.removeChild(eventLog.firstChild);
+    eventCount--;
+  }
+}
+
+function autoScroll() {
+  if (eventLog.scrollHeight - eventLog.scrollTop - eventLog.clientHeight < 60) {
+    eventLog.scrollTop = eventLog.scrollHeight;
+  }
+}
 
 // --- WebSocket helpers ---
 function send(ws, msg) {
@@ -117,11 +392,17 @@ function connect() {
 
     // Re-acquire lock every 25s (lock expires at 30s server-side)
     lockTimer = setInterval(() => send(ws, { type: 'lock', action: 'acquire' }), 25_000);
+
+    // Kick off an API poll on connect
+    pollApi();
   };
 
   ws.onmessage = (ev) => {
     let msg;
     try { msg = JSON.parse(ev.data); } catch (_) { return; }
+
+    // Log all events to sidebar
+    logEvent(msg);
 
     if (msg.type === 'output') {
       const bytes = b64decode(msg.data);
@@ -162,7 +443,6 @@ term.onData((str) => {
 });
 
 term.onBinary((data) => {
-  // data is a binary string; encode each char code
   const bytes = new Uint8Array(data.length);
   for (let i = 0; i < data.length; i++) bytes[i] = data.charCodeAt(i);
   send(ws, { type: 'input_raw', data: b64encode(bytes) });
