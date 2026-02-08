@@ -4,18 +4,14 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: gt-gastown-toast          # template — replace per workload
-  namespace: gastown
+  name: agent-template  # TEMPLATE — replace per workload
+  namespace: default
 spec:
   shareProcessNamespace: true
   containers:
     - name: agent
-      image: gastown-agent:latest
+      image: agent:latest
       command: ["sleep", "infinity"]
-      env:
-        - name: ANTHROPIC_AUTH_TOKEN
-          valueFrom:
-            secretKeyRef: { name: anthropic-credentials, key: auth-token }
       resources:
         requests: { cpu: "500m", memory: "1Gi" }
         limits:   { cpu: "2",    memory: "4Gi" }
@@ -36,9 +32,12 @@ spec:
         - name: COOP_AUTH_TOKEN
           valueFrom:
             secretKeyRef: { name: coop-auth, key: token }
-        - name: ANTHROPIC_AUTH_TOKEN
+        - name: ANTHROPIC_API_KEY
           valueFrom:
-            secretKeyRef: { name: anthropic-credentials, key: auth-token }
+            secretKeyRef: { name: anthropic-credentials, key: api-key, optional: true }
+        - name: CLAUDE_CODE_OAUTH_TOKEN
+          valueFrom:
+            secretKeyRef: { name: anthropic-credentials, key: oauth-token, optional: true }
       ports:
         - { containerPort: 8080, name: api }
         - { containerPort: 9090, name: health }

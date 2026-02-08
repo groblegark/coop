@@ -23,9 +23,12 @@ spec:
         - name: COOP_AUTH_TOKEN
           valueFrom:
             secretKeyRef: { name: coop-auth, key: token }
-        - name: ANTHROPIC_AUTH_TOKEN
+        - name: ANTHROPIC_API_KEY
           valueFrom:
-            secretKeyRef: { name: anthropic-credentials, key: auth-token }
+            secretKeyRef: { name: anthropic-credentials, key: api-key, optional: true }
+        - name: CLAUDE_CODE_OAUTH_TOKEN
+          valueFrom:
+            secretKeyRef: { name: anthropic-credentials, key: oauth-token, optional: true }
       ports:
         - { containerPort: 8080, name: api }
         - { containerPort: 9090, name: health }
