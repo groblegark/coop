@@ -204,7 +204,8 @@ impl Backend for TmuxBackend {
     }
 
     fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
-        let status = self.tmux_cmd()
+        let status = self
+            .tmux_cmd()
             .args([
                 "resize-pane",
                 "-t",
@@ -225,7 +226,8 @@ impl Backend for TmuxBackend {
     }
 
     fn child_pid(&self) -> Option<u32> {
-        let output = self.tmux_cmd()
+        let output = self
+            .tmux_cmd()
             .args(["display-message", "-p", "-t", &self.target, "#{pane_pid}"])
             .output()
             .ok()?;
