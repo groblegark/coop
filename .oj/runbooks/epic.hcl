@@ -33,7 +33,7 @@ command "github:epic" {
       url=$(gh issue create --label "$labels" --title "${args.title}")
     fi
     issue=$(basename "$url")
-    gh issue lock "$issue"
+    gh issue lock "$issue" 2>/dev/null || true
     oj worker start plan
     oj worker start epic
   SHELL
@@ -58,7 +58,7 @@ command "github:idea" {
       url=$(gh issue create --label type:epic,plan:needed --title "${args.title}")
     fi
     issue=$(basename "$url")
-    gh issue lock "$issue"
+    gh issue lock "$issue" 2>/dev/null || true
     oj worker start plan
   SHELL
 
