@@ -287,6 +287,61 @@ async fn auth_rejects_without_token() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn agent_state_includes_error_fields() -> anyhow::Result<()> {
+    let (state, _rx) = TestAppStateBuilder::new()
+        .child_pid(1234)
+        .agent_state(AgentState::Error {
+            detail: "rate_limit_error".to_owned(),
+        })
+        .nudge_encoder(Arc::new(StubNudgeEncoder))
+        .build();
+    // Populate error fields as session loop would
+    *state.driver.error_detail.write().await = Some("rate_limit_error".to_owned());
+    *state.driver.error_category.write().await = Some(crate::driver::ErrorCategory::RateLimited);
+
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    let resp = server.get("/api/v1/agent/state").await;
+    resp.assert_status(StatusCode::OK);
+    let body = resp.text();
+    assert!(
+        body.contains("\"error_detail\":\"rate_limit_error\""),
+        "body: {body}"
+    );
+    assert!(
+        body.contains("\"error_category\":\"rate_limited\""),
+        "body: {body}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn agent_state_omits_error_fields_when_not_error() -> anyhow::Result<()> {
+    let (state, _rx) = TestAppStateBuilder::new()
+        .child_pid(1234)
+        .agent_state(AgentState::Working)
+        .nudge_encoder(Arc::new(StubNudgeEncoder))
+        .build();
+
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    let resp = server.get("/api/v1/agent/state").await;
+    resp.assert_status(StatusCode::OK);
+    let body = resp.text();
+    assert!(
+        !body.contains("error_detail"),
+        "error_detail should be absent: {body}"
+    );
+    assert!(
+        !body.contains("error_category"),
+        "error_category should be absent: {body}"
+    );
+    Ok(())
+}
+
 struct StubNudgeEncoder;
 impl NudgeEncoder for StubNudgeEncoder {
     fn encode(&self, message: &str) -> Vec<NudgeStep> {

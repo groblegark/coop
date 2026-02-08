@@ -141,6 +141,8 @@ message GetAgentStateResponse {
   string detection_tier = 5;
   optional PromptContext prompt = 6;
   optional float idle_grace_remaining_secs = 7;
+  optional string error_detail = 8;
+  optional string error_category = 9;
 }
 
 message NudgeRequest {
@@ -169,4 +171,6 @@ message AgentStateEvent {
   string next = 2;
   uint64 seq = 3;
   optional PromptContext prompt = 4;
+  optional string error_detail = 5;
+  optional string error_category = 6;
 }

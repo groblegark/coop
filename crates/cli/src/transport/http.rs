@@ -149,6 +149,10 @@ pub struct AgentStateResponse {
     pub detection_tier: String,
     pub prompt: Option<PromptContext>,
     pub idle_grace_remaining_secs: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_category: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -439,6 +443,14 @@ pub async fn agent_state(State(s): State<Arc<AppState>>) -> impl IntoResponse {
         })
     };
 
+    let error_detail = s.driver.error_detail.read().await.clone();
+    let error_category = s
+        .driver
+        .error_category
+        .read()
+        .await
+        .map(|c| c.as_str().to_owned());
+
     Json(AgentStateResponse {
         agent_type: s.config.agent_type.to_string(),
         state: state.as_str().to_owned(),
@@ -447,6 +459,8 @@ pub async fn agent_state(State(s): State<Arc<AppState>>) -> impl IntoResponse {
         detection_tier: tier_str,
         prompt: state.prompt().cloned(),
         idle_grace_remaining_secs,
+        error_detail,
+        error_category,
     })
     .into_response()
 }

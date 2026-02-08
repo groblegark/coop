@@ -17,7 +17,9 @@ use tracing::{debug, warn};
 
 use crate::driver::claude::startup::{detect_startup_prompt, encode_startup_response};
 use crate::driver::grace::IdleGraceTimer;
-use crate::driver::{AgentState, CompositeDetector, DetectedState, Detector, ExitStatus};
+use crate::driver::{
+    classify_error_detail, AgentState, CompositeDetector, DetectedState, Detector, ExitStatus,
+};
 use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
 use crate::pty::Backend;
 use crate::transport::AppState;
@@ -236,6 +238,16 @@ impl Session {
                                 .ready
                                 .store(true, std::sync::atomic::Ordering::Release);
                             startup_complete = true;
+                        }
+
+                        // Store error detail + category when entering Error state.
+                        if let AgentState::Error { ref detail } = detected.state {
+                            let category = classify_error_detail(detail);
+                            *self.app_state.driver.error_detail.write().await = Some(detail.clone());
+                            *self.app_state.driver.error_category.write().await = Some(category);
+                        } else {
+                            *self.app_state.driver.error_detail.write().await = None;
+                            *self.app_state.driver.error_category.write().await = None;
                         }
 
                         // Store metadata for the HTTP/gRPC API.

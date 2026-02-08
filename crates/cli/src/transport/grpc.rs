@@ -13,7 +13,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use super::{deliver_steps, encode_response, keys_to_bytes, read_ring_combined};
-use crate::driver::{AgentState, PromptContext};
+use crate::driver::{classify_error_detail, AgentState, PromptContext};
 use crate::error::ErrorCode;
 use crate::event::{InputEvent, OutputEvent, PtySignal, StateChangeEvent};
 use crate::transport::state::AppState;
@@ -82,11 +82,20 @@ pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
 
 /// Convert a domain [`StateChangeEvent`] to proto [`proto::AgentStateEvent`].
 pub fn state_change_to_proto(e: &StateChangeEvent) -> proto::AgentStateEvent {
+    let (error_detail, error_category) = match &e.next {
+        AgentState::Error { detail } => (
+            Some(detail.clone()),
+            Some(classify_error_detail(detail).as_str().to_owned()),
+        ),
+        _ => (None, None),
+    };
     proto::AgentStateEvent {
         prev: e.prev.as_str().to_owned(),
         next: e.next.as_str().to_owned(),
         seq: e.seq,
         prompt: e.next.prompt().map(prompt_to_proto),
+        error_detail,
+        error_category,
     }
 }
 
@@ -309,6 +318,15 @@ impl proto::coop_server::Coop for CoopGrpc {
             })
         };
 
+        let error_detail = self.state.driver.error_detail.read().await.clone();
+        let error_category = self
+            .state
+            .driver
+            .error_category
+            .read()
+            .await
+            .map(|c| c.as_str().to_owned());
+
         Ok(Response::new(proto::GetAgentStateResponse {
             agent_type: self.state.config.agent_type.to_string(),
             state: agent.as_str().to_owned(),
@@ -317,6 +335,8 @@ impl proto::coop_server::Coop for CoopGrpc {
             detection_tier,
             prompt: agent.prompt().map(prompt_to_proto),
             idle_grace_remaining_secs,
+            error_detail,
+            error_category,
         }))
     }
 

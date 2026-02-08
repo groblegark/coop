@@ -18,7 +18,7 @@ use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 
-use crate::driver::{AgentState, PromptContext};
+use crate::driver::{classify_error_detail, AgentState, PromptContext};
 use crate::error::ErrorCode;
 use crate::event::{InputEvent, OutputEvent, PtySignal, StateChangeEvent};
 use crate::screen::CursorPosition;
@@ -49,7 +49,11 @@ pub enum ServerMessage {
         prev: String,
         next: String,
         seq: u64,
-        prompt: Option<PromptContext>,
+        prompt: Box<Option<PromptContext>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_detail: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_category: Option<String>,
     },
     Exit {
         code: Option<i32>,
@@ -317,11 +321,20 @@ async fn handle_client_message(
         ClientMessage::StateRequest {} => {
             let agent = state.driver.agent_state.read().await;
             let screen = state.terminal.screen.read().await;
+            let (error_detail, error_category) = match &*agent {
+                AgentState::Error { detail } => {
+                    let category = classify_error_detail(detail);
+                    (Some(detail.clone()), Some(category.as_str().to_owned()))
+                }
+                _ => (None, None),
+            };
             Some(ServerMessage::StateChange {
                 prev: agent.as_str().to_owned(),
                 next: agent.as_str().to_owned(),
                 seq: screen.seq(),
-                prompt: agent.prompt().cloned(),
+                prompt: Box::new(agent.prompt().cloned()),
+                error_detail,
+                error_category,
             })
         }
 
@@ -512,17 +525,30 @@ fn ws_error(code: ErrorCode, message: &str) -> ServerMessage {
 
 /// Convert a `StateChangeEvent` to a `ServerMessage`.
 fn state_change_to_msg(event: &StateChangeEvent) -> ServerMessage {
-    let prompt = event.next.prompt().cloned();
+    let prompt = Box::new(event.next.prompt().cloned());
     match &event.next {
         AgentState::Exited { status } => ServerMessage::Exit {
             code: status.code,
             signal: status.signal,
         },
+        AgentState::Error { detail } => {
+            let category = classify_error_detail(detail);
+            ServerMessage::StateChange {
+                prev: event.prev.as_str().to_owned(),
+                next: event.next.as_str().to_owned(),
+                seq: event.seq,
+                prompt,
+                error_detail: Some(detail.clone()),
+                error_category: Some(category.as_str().to_owned()),
+            }
+        }
         _ => ServerMessage::StateChange {
             prev: event.prev.as_str().to_owned(),
             next: event.next.as_str().to_owned(),
             seq: event.seq,
             prompt,
+            error_detail: None,
+            error_category: None,
         },
     }
 }
