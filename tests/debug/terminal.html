@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Coop Terminal</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: #1e1e1e; overflow: hidden; }
+  #terminal { height: calc(100% - 24px); }
+  #status {
+    height: 24px; line-height: 24px; padding: 0 8px;
+    font: 12px/24px monospace; color: #ccc; background: #111;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  #status .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    margin-right: 6px; vertical-align: middle;
+  }
+  .dot-connected    { background: #4ec950; }
+  .dot-connecting   { background: #e8a317; }
+  .dot-disconnected { background: #e04040; }
+</style>
+</head>
+<body>
+<div id="terminal"></div>
+<div id="status">
+  <span><span id="dot" class="dot dot-connecting"></span><span id="label">Connecting…</span></span>
+  <span id="info"></span>
+</div>
+
+<script type="module">
+import { Terminal }  from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm';
+import { FitAddon }  from 'https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/+esm';
+import { WebglAddon } from 'https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/+esm';
+
+const params = new URLSearchParams(location.search);
+const PORT = params.get('port') || '7070';
+const WS_URL = `ws://localhost:${PORT}/ws?mode=raw`;
+
+const dot   = document.getElementById('dot');
+const label = document.getElementById('label');
+const info  = document.getElementById('info');
+
+function setStatus(state, text) {
+  dot.className = `dot dot-${state}`;
+  label.textContent = text;
+}
+
+// --- Terminal setup ---
+const term = new Terminal({
+  cursorBlink: true,
+  scrollback: 10000,
+  fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+  fontSize: 14,
+  theme: { background: '#1e1e1e' },
+});
+
+const fitAddon = new FitAddon();
+term.loadAddon(fitAddon);
+term.open(document.getElementById('terminal'));
+
+try {
+  const webgl = new WebglAddon();
+  webgl.onContextLoss(() => webgl.dispose());
+  term.loadAddon(webgl);
+} catch (_) {
+  // canvas fallback is automatic
+}
+
+fitAddon.fit();
+term.focus();
+
+// --- WebSocket helpers ---
+function send(ws, msg) {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg));
+  }
+}
+
+function b64decode(str) {
+  const bin = atob(str);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return buf;
+}
+
+function b64encode(bytes) {
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+// --- Connection lifecycle ---
+let ws = null;
+let pingTimer = null;
+let lockTimer = null;
+
+function connect() {
+  setStatus('connecting', 'Connecting…');
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    setStatus('connected', `Connected — localhost:${PORT}`);
+
+    // Acquire write lock
+    send(ws, { type: 'lock', action: 'acquire' });
+
+    // Replay full history
+    send(ws, { type: 'replay', offset: 0 });
+
+    // Send initial resize
+    send(ws, { type: 'resize', cols: term.cols, rows: term.rows });
+
+    // Keep-alive ping every 25s
+    pingTimer = setInterval(() => send(ws, { type: 'ping' }), 25_000);
+
+    // Re-acquire lock every 25s (lock expires at 30s server-side)
+    lockTimer = setInterval(() => send(ws, { type: 'lock', action: 'acquire' }), 25_000);
+  };
+
+  ws.onmessage = (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (_) { return; }
+
+    if (msg.type === 'output') {
+      const bytes = b64decode(msg.data);
+      term.write(bytes);
+      info.textContent = `offset: ${msg.offset + bytes.length}`;
+    } else if (msg.type === 'exit') {
+      const desc = msg.signal != null ? `signal ${msg.signal}` : `code ${msg.code ?? '?'}`;
+      setStatus('disconnected', `Exited (${desc})`);
+    } else if (msg.type === 'error') {
+      console.warn('server error:', msg.code, msg.message);
+    }
+  };
+
+  ws.onclose = () => {
+    cleanup();
+    setStatus('disconnected', 'Disconnected');
+    setTimeout(connect, 2000);
+  };
+
+  ws.onerror = () => {
+    // onclose will fire after this
+  };
+}
+
+function cleanup() {
+  clearInterval(pingTimer);
+  clearInterval(lockTimer);
+  pingTimer = null;
+  lockTimer = null;
+}
+
+// --- Input forwarding ---
+const encoder = new TextEncoder();
+
+term.onData((str) => {
+  const bytes = encoder.encode(str);
+  send(ws, { type: 'input_raw', data: b64encode(bytes) });
+});
+
+term.onBinary((data) => {
+  // data is a binary string; encode each char code
+  const bytes = new Uint8Array(data.length);
+  for (let i = 0; i < data.length; i++) bytes[i] = data.charCodeAt(i);
+  send(ws, { type: 'input_raw', data: b64encode(bytes) });
+});
+
+// --- Resize handling ---
+window.addEventListener('resize', () => fitAddon.fit());
+
+term.onResize(({ cols, rows }) => {
+  send(ws, { type: 'resize', cols, rows });
+});
+
+// --- Go ---
+connect();
+</script>
+</body>
+</html>
