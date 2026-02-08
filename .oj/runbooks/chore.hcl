@@ -24,10 +24,11 @@ command "github:chore" {
       fi
     fi
     if [ -n "$body" ]; then
-      gh issue create --label "$labels" --title "${args.title}" --body "$body"
+      url=$(gh issue create --label "$labels" --title "${args.title}" --body "$body")
     else
-      gh issue create --label "$labels" --title "${args.title}"
+      url=$(gh issue create --label "$labels" --title "${args.title}")
     fi
+    gh issue lock "${url##*/}"
     oj worker start chore
   SHELL
 

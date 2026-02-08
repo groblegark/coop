@@ -28,10 +28,11 @@ command "github:epic" {
       fi
     fi
     if [ -n "$body" ]; then
-      gh issue create --label "$labels" --title "${args.title}" --body "$body"
+      url=$(gh issue create --label "$labels" --title "${args.title}" --body "$body")
     else
-      gh issue create --label "$labels" --title "${args.title}"
+      url=$(gh issue create --label "$labels" --title "${args.title}")
     fi
+    gh issue lock "${url##*/}"
     oj worker start plan
     oj worker start epic
   SHELL
@@ -51,10 +52,11 @@ command "github:idea" {
   args = "<title> [body]"
   run  = <<-SHELL
     if [ -n "${args.body}" ]; then
-      gh issue create --label type:epic,plan:needed --title "${args.title}" --body "${args.body}"
+      url=$(gh issue create --label type:epic,plan:needed --title "${args.title}" --body "${args.body}")
     else
-      gh issue create --label type:epic,plan:needed --title "${args.title}"
+      url=$(gh issue create --label type:epic,plan:needed --title "${args.title}")
     fi
+    gh issue lock "${url##*/}"
     oj worker start plan
   SHELL
 
