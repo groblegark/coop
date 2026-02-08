@@ -22,7 +22,7 @@ command "github:epic" {
       refs=""
       for n in $nums; do refs="$refs #$n"; done
       if [ -n "$body" ]; then
-        body="$body\n\nBlocked by:$refs"
+        body="$(printf '%s\n\nBlocked by:%s' "$body" "$refs")"
       else
         body="Blocked by:$refs"
       fi
