@@ -51,12 +51,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install protoc (Ubuntu)
+      - name: Install system deps (Ubuntu)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-      - name: Install protoc (macOS)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler tmux
+      - name: Install system deps (macOS)
         if: runner.os == 'macOS'
-        run: brew install protobuf
+        run: brew install protobuf tmux
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --all
       - run: cargo test --all

@@ -44,6 +44,7 @@ impl FromStr for AttachSpec {
 pub struct TmuxBackend {
     session: String,
     target: String,
+    socket: Option<std::path::PathBuf>,
     poll_interval: Duration,
 }
 
@@ -52,13 +53,26 @@ impl TmuxBackend {
     ///
     /// Validates the session exists via `tmux has-session`.
     pub fn new(session: String) -> anyhow::Result<Self> {
-        let status = std::process::Command::new("tmux")
-            .args(["has-session", "-t", &session])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+        Self::with_socket(session, None)
+    }
 
-        match status {
+    /// Create a new `TmuxBackend` targeting a specific tmux server socket.
+    ///
+    /// When `socket` is `Some`, every tmux invocation uses `-S <path>` to
+    /// address an isolated server instead of the user's default.
+    pub fn with_socket(
+        session: String,
+        socket: Option<std::path::PathBuf>,
+    ) -> anyhow::Result<Self> {
+        let mut cmd = std::process::Command::new("tmux");
+        if let Some(ref s) = socket {
+            cmd.arg("-S").arg(s);
+        }
+        cmd.args(["has-session", "-t", &session])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+
+        match cmd.status() {
             Ok(s) if s.success() => {}
             Ok(_) => anyhow::bail!("tmux session '{session}' does not exist"),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -71,6 +85,7 @@ impl TmuxBackend {
         Ok(Self {
             session,
             target,
+            socket,
             poll_interval: Duration::from_secs(1),
         })
     }
@@ -78,6 +93,24 @@ impl TmuxBackend {
     /// Returns the session name.
     pub fn session(&self) -> &str {
         &self.session
+    }
+
+    /// Build a `std::process::Command` for tmux, prepending `-S <socket>` if set.
+    fn tmux_cmd(&self) -> std::process::Command {
+        let mut cmd = std::process::Command::new("tmux");
+        if let Some(ref s) = self.socket {
+            cmd.arg("-S").arg(s);
+        }
+        cmd
+    }
+
+    /// Build a `tokio::process::Command` for tmux, prepending `-S <socket>` if set.
+    fn tmux_async_cmd(&self) -> tokio::process::Command {
+        let mut cmd = tokio::process::Command::new("tmux");
+        if let Some(ref s) = self.socket {
+            cmd.arg("-S").arg(s);
+        }
+        cmd
     }
 }
 
@@ -95,7 +128,7 @@ impl Backend for TmuxBackend {
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        let output = tokio::process::Command::new("tmux")
+                        let output = self.tmux_async_cmd()
                             .args(["capture-pane", "-p", "-e", "-t", &self.target])
                             .output()
                             .await;
@@ -128,7 +161,7 @@ impl Backend for TmuxBackend {
                         match data {
                             Some(bytes) => {
                                 let text = String::from_utf8_lossy(&bytes);
-                                let status = tokio::process::Command::new("tmux")
+                                let status = self.tmux_async_cmd()
                                     .args([
                                         "send-keys", "-l", "-t", &self.target, &text,
                                     ])
@@ -153,7 +186,7 @@ impl Backend for TmuxBackend {
                     }
                     resize = resize_rx.recv() => {
                         if let Some((cols, rows)) = resize {
-                            let _ = tokio::process::Command::new("tmux")
+                            let _ = self.tmux_async_cmd()
                                 .args([
                                     "resize-pane", "-t", &self.target,
                                     "-x", &cols.to_string(),
@@ -171,7 +204,7 @@ impl Backend for TmuxBackend {
     }
 
     fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
-        let status = std::process::Command::new("tmux")
+        let status = self.tmux_cmd()
             .args([
                 "resize-pane",
                 "-t",
@@ -192,7 +225,7 @@ impl Backend for TmuxBackend {
     }
 
     fn child_pid(&self) -> Option<u32> {
-        let output = std::process::Command::new("tmux")
+        let output = self.tmux_cmd()
             .args(["display-message", "-p", "-t", &self.target, "#{pane_pid}"])
             .output()
             .ok()?;
