@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use std::sync::Arc;
-
 use super::*;
 use crate::driver::AgentState;
 use crate::event::PtySignal;
 use crate::screen::{CursorPosition, ScreenSnapshot};
-use crate::test_support::{AnyhowExt, AppStateBuilder, StubNudgeEncoder, StubRespondEncoder};
+use crate::test_support::AppStateBuilder;
 use crate::transport::encode_key;
 
 // ---------------------------------------------------------------------------
@@ -292,80 +290,4 @@ fn service_instantiation_compiles() {
     let service = CoopGrpc::new(state);
     // Verify we can construct a tonic server from the service
     let _router = service.into_router();
-}
-
-// ---------------------------------------------------------------------------
-// Write lock tests for nudge/respond
-// ---------------------------------------------------------------------------
-
-use tonic::Code;
-
-fn mock_app_state_with_encoders(agent: AgentState) -> Arc<AppState> {
-    let (state, _rx) = AppStateBuilder::new()
-        .agent_state(agent)
-        .nudge_encoder(Arc::new(StubNudgeEncoder))
-        .respond_encoder(Arc::new(StubRespondEncoder))
-        .build();
-    state
-        .ready
-        .store(true, std::sync::atomic::Ordering::Release);
-    state
-}
-
-#[tokio::test]
-async fn nudge_fails_when_write_lock_held() -> anyhow::Result<()> {
-    use proto::coop_server::Coop;
-
-    let state = mock_app_state_with_encoders(AgentState::WaitingForInput);
-    // Simulate another client holding the write lock
-    state
-        .lifecycle
-        .write_lock
-        .acquire_ws("other-client")
-        .anyhow()?;
-
-    let service = CoopGrpc::new(state);
-    let req = Request::new(proto::NudgeRequest {
-        message: "hello".to_owned(),
-    });
-    let result = service.nudge(req).await;
-    let err = result
-        .err()
-        .ok_or_else(|| anyhow::anyhow!("expected error"))?;
-    assert_eq!(err.code(), Code::ResourceExhausted);
-    Ok(())
-}
-
-#[tokio::test]
-async fn respond_fails_when_write_lock_held() -> anyhow::Result<()> {
-    use proto::coop_server::Coop;
-
-    let prompt = crate::driver::PromptContext {
-        prompt_type: "permission".to_owned(),
-        tool: None,
-        input_preview: None,
-        question: None,
-        options: vec![],
-        summary: None,
-        screen_lines: vec![],
-    };
-    let state = mock_app_state_with_encoders(AgentState::PermissionPrompt { prompt });
-    state
-        .lifecycle
-        .write_lock
-        .acquire_ws("other-client")
-        .anyhow()?;
-
-    let service = CoopGrpc::new(state);
-    let req = Request::new(proto::RespondRequest {
-        accept: Some(true),
-        option: None,
-        text: None,
-    });
-    let result = service.respond(req).await;
-    let err = result
-        .err()
-        .ok_or_else(|| anyhow::anyhow!("expected error"))?;
-    assert_eq!(err.code(), Code::ResourceExhausted);
-    Ok(())
 }

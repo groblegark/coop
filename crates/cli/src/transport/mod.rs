@@ -82,7 +82,7 @@ pub async fn deliver_steps(
         input_tx
             .send(InputEvent::Write(bytes::Bytes::from(step.bytes)))
             .await
-            .map_err(|_| ErrorCode::WriterBusy)?;
+            .map_err(|_| ErrorCode::Internal)?;
         if let Some(delay) = step.delay_after {
             tokio::time::sleep(delay).await;
         }

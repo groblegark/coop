@@ -377,19 +377,15 @@ function connect() {
   ws.onopen = () => {
     setStatus('connected', `Connected — localhost:${PORT}`);
 
-    // Acquire write lock
-    send(ws, { type: 'lock', action: 'acquire' });
-
     // Replay full history
     send(ws, { type: 'replay', offset: 0 });
 
     // Send initial resize
     send(ws, { type: 'resize', cols: term.cols, rows: term.rows });
 
-    // Keep-alive: ping + re-acquire lock every 15s (lock expires at 30s)
+    // Keep-alive ping every 15s
     pingTimer = setInterval(() => {
       send(ws, { type: 'ping' });
-      send(ws, { type: 'lock', action: 'acquire' });
     }, 15_000);
 
     // Kick off an API poll on connect
@@ -411,10 +407,6 @@ function connect() {
       const desc = msg.signal != null ? `signal ${msg.signal}` : `code ${msg.code ?? '?'}`;
       setStatus('disconnected', `Exited (${desc})`);
     } else if (msg.type === 'error') {
-      // Re-acquire lock on WRITER_BUSY
-      if (msg.code === 'WRITER_BUSY') {
-        send(ws, { type: 'lock', action: 'acquire' });
-      }
       console.warn('server error:', msg.code, msg.message);
     }
   };

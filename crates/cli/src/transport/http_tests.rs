@@ -236,27 +236,6 @@ async fn agent_respond_no_driver_404() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn write_endpoint_conflict_409() -> anyhow::Result<()> {
-    let (state, _rx) = test_state();
-    // Pre-acquire the write lock via WS
-    state
-        .lifecycle
-        .write_lock
-        .acquire_ws("other-client")
-        .anyhow()?;
-
-    let app = build_router(state);
-    let server = axum_test::TestServer::new(app).anyhow()?;
-
-    let resp = server
-        .post("/api/v1/input")
-        .json(&serde_json::json!({"text": "hello"}))
-        .await;
-    resp.assert_status(StatusCode::CONFLICT);
-    Ok(())
-}
-
-#[tokio::test]
 async fn auth_rejects_without_token() -> anyhow::Result<()> {
     let (state, _rx) = AppStateBuilder::new()
         .child_pid(1234)

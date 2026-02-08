@@ -393,37 +393,3 @@ async fn grpc_nudge_agent_busy() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// grpc_nudge_write_lock_conflict
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn grpc_nudge_write_lock_conflict() -> anyhow::Result<()> {
-    let (app_state, _rx) = AppStateBuilder::new()
-        .nudge_encoder(Arc::new(StubNudgeEncoder))
-        .agent_state(AgentState::WaitingForInput)
-        .build();
-    app_state.ready.store(true, Ordering::Release);
-
-    // Simulate WS client holding the write lock
-    app_state
-        .lifecycle
-        .write_lock
-        .acquire_ws("ws-holder")
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
-
-    let (mut client, _state) = grpc_client(app_state).await?;
-
-    let result = client
-        .nudge(proto::NudgeRequest {
-            message: "hello".to_owned(),
-        })
-        .await;
-    let err = result
-        .err()
-        .ok_or_else(|| anyhow::anyhow!("expected error"))?;
-    assert_eq!(err.code(), tonic::Code::ResourceExhausted);
-
-    Ok(())
-}

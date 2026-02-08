@@ -10,7 +10,7 @@ use anyhow::{bail, Context};
 use bytes::Bytes;
 use nix::libc;
 use nix::pty::{forkpty, ForkptyResult, Winsize};
-use nix::sys::signal::{kill, Signal};
+use nix::sys::signal::{kill, SigHandler, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{execvp, ForkResult, Pid};
 use tokio::io::unix::AsyncFd;
@@ -58,7 +58,15 @@ impl NativePty {
 
         match fork_result {
             ForkResult::Child => {
-                // Child process: set env and exec
+                // Child process: restore default signal handlers and exec.
+                // Tokio sets SIGPIPE to SIG_IGN which the child inherits;
+                // restore it so piped programs behave normally.
+                // SAFETY: signal() is unsafe because it changes process-wide
+                // signal disposition; in the post-fork child before exec this
+                // is the expected place to do so.
+                unsafe {
+                    let _ = nix::sys::signal::signal(Signal::SIGPIPE, SigHandler::SigDfl);
+                }
                 std::env::set_var("TERM", "xterm-256color");
                 std::env::set_var("COOP", "1");
                 for (key, val) in extra_env {
@@ -142,7 +150,12 @@ impl Backend for NativePty {
                         input = input_rx.recv() => {
                             match input {
                                 Some(data) => {
-                                    write_all(&self.master, &data).await?;
+                                    if let Err(e) = write_all(&self.master, &data).await {
+                                        if e.raw_os_error() == Some(libc::EIO) {
+                                            break; // Child exited; fall through to wait_for_exit
+                                        }
+                                        return Err(e.into());
+                                    }
                                 }
                                 None => input_closed = true,
                             }

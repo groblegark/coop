@@ -6,7 +6,6 @@ use super::*;
 #[yare::parameterized(
     not_ready = { ErrorCode::NotReady, tonic::Code::Unavailable },
     exited = { ErrorCode::Exited, tonic::Code::NotFound },
-    writer_busy = { ErrorCode::WriterBusy, tonic::Code::ResourceExhausted },
     unauthorized = { ErrorCode::Unauthorized, tonic::Code::Unauthenticated },
     bad_request = { ErrorCode::BadRequest, tonic::Code::InvalidArgument },
     no_driver = { ErrorCode::NoDriver, tonic::Code::Unimplemented },

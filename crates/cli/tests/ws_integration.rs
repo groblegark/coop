@@ -12,7 +12,7 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use coop::driver::AgentState;
 use coop::event::{OutputEvent, StateChangeEvent};
-use coop::test_support::{spawn_http_server, AppStateBuilder, StubNudgeEncoder};
+use coop::test_support::{spawn_http_server, AppStateBuilder};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -148,116 +148,6 @@ async fn ws_auth_message() -> anyhow::Result<()> {
     // Verify subsequent operations work (ping/pong)
     ws_send(&mut tx, &serde_json::json!({"type": "ping"})).await?;
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
-    assert_eq!(resp.get("type").and_then(|t| t.as_str()), Some("pong"));
-
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// ws_lock_acquire_release
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn ws_lock_acquire_release() -> anyhow::Result<()> {
-    let (app_state, _rx) = AppStateBuilder::new().build();
-    let (addr, _handle) = spawn_http_server(app_state).await?;
-
-    let (mut tx, mut rx) = ws_connect(&addr, "").await?;
-
-    // Acquire lock — no error response means success
-    ws_send(
-        &mut tx,
-        &serde_json::json!({"type": "lock", "action": "acquire"}),
-    )
-    .await?;
-
-    // Send input (should work since we hold the lock)
-    ws_send(
-        &mut tx,
-        &serde_json::json!({"type": "input", "text": "test"}),
-    )
-    .await?;
-
-    // Release lock
-    ws_send(
-        &mut tx,
-        &serde_json::json!({"type": "lock", "action": "release"}),
-    )
-    .await?;
-
-    // After release, input should fail with WRITER_BUSY
-    ws_send(
-        &mut tx,
-        &serde_json::json!({"type": "input", "text": "fail"}),
-    )
-    .await?;
-    let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
-    assert_eq!(
-        resp.get("code").and_then(|c| c.as_str()),
-        Some("WRITER_BUSY"),
-        "expected WRITER_BUSY after release: {resp}"
-    );
-
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// ws_lock_conflict_two_clients
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn ws_lock_conflict_two_clients() -> anyhow::Result<()> {
-    let (app_state, _rx) = AppStateBuilder::new().build();
-    let (addr, _handle) = spawn_http_server(app_state).await?;
-
-    // Client A acquires lock
-    let (mut tx_a, _rx_a) = ws_connect(&addr, "").await?;
-    ws_send(
-        &mut tx_a,
-        &serde_json::json!({"type": "lock", "action": "acquire"}),
-    )
-    .await?;
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    // Client B tries to acquire — should get WRITER_BUSY
-    let (mut tx_b, mut rx_b) = ws_connect(&addr, "").await?;
-    ws_send(
-        &mut tx_b,
-        &serde_json::json!({"type": "lock", "action": "acquire"}),
-    )
-    .await?;
-    let resp = ws_recv(&mut rx_b, RECV_TIMEOUT).await?;
-    assert_eq!(
-        resp.get("code").and_then(|c| c.as_str()),
-        Some("WRITER_BUSY"),
-        "client B should be blocked: {resp}"
-    );
-
-    // Client A releases
-    ws_send(
-        &mut tx_a,
-        &serde_json::json!({"type": "lock", "action": "release"}),
-    )
-    .await?;
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    // Client B can now acquire
-    ws_send(
-        &mut tx_b,
-        &serde_json::json!({"type": "lock", "action": "acquire"}),
-    )
-    .await?;
-
-    // Verify by sending input (should succeed — no error response)
-    ws_send(
-        &mut tx_b,
-        &serde_json::json!({"type": "input", "text": "from_b"}),
-    )
-    .await?;
-
-    // Ping to verify connection still healthy
-    ws_send(&mut tx_b, &serde_json::json!({"type": "ping"})).await?;
-    let resp = ws_recv(&mut rx_b, RECV_TIMEOUT).await?;
     assert_eq!(resp.get("type").and_then(|t| t.as_str()), Some("pong"));
 
     Ok(())
@@ -447,80 +337,16 @@ async fn ws_concurrent_readers() -> anyhow::Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// ws_disconnect_releases_lock
+// ws_resize_sends_event
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn ws_disconnect_releases_lock() -> anyhow::Result<()> {
-    let (app_state, _rx) = AppStateBuilder::new().ring_size(65536).build();
-    let (addr, _handle) = spawn_http_server(Arc::clone(&app_state)).await?;
-
-    // Client acquires lock then disconnects
-    {
-        let (mut tx, _rx) = ws_connect(&addr, "").await?;
-        ws_send(
-            &mut tx,
-            &serde_json::json!({"type": "lock", "action": "acquire"}),
-        )
-        .await?;
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        // Drop the connection
-    }
-
-    // Wait for cleanup
-    tokio::time::sleep(Duration::from_millis(200)).await;
-
-    // New client should be able to acquire lock
-    let (mut tx2, mut _rx2) = ws_connect(&addr, "").await?;
-    ws_send(
-        &mut tx2,
-        &serde_json::json!({"type": "lock", "action": "acquire"}),
-    )
-    .await?;
-
-    // Verify by sending input (should succeed — no error)
-    ws_send(
-        &mut tx2,
-        &serde_json::json!({"type": "input", "text": "after_reconnect"}),
-    )
-    .await?;
-    ws_send(&mut tx2, &serde_json::json!({"type": "ping"})).await?;
-
-    // Read responses — should get pong, not error
-    // (input has no response on success; ping gives pong)
-    let mut got_pong = false;
-    for _ in 0..5 {
-        match ws_recv(&mut _rx2, Duration::from_millis(500)).await {
-            Ok(resp) => {
-                if resp.get("type").and_then(|t| t.as_str()) == Some("pong") {
-                    got_pong = true;
-                    break;
-                }
-                // Error with WRITER_BUSY means lock wasn't released
-                if resp.get("code").and_then(|c| c.as_str()) == Some("WRITER_BUSY") {
-                    anyhow::bail!("lock was not released after disconnect");
-                }
-            }
-            Err(_) => break,
-        }
-    }
-    assert!(got_pong, "should be able to operate after reconnect");
-
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// ws_resize_no_lock_required
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn ws_resize_no_lock_required() -> anyhow::Result<()> {
+async fn ws_resize_sends_event() -> anyhow::Result<()> {
     let (app_state, mut rx) = AppStateBuilder::new().build();
     let (addr, _handle) = spawn_http_server(app_state).await?;
 
     let (mut tx, _ws_rx) = ws_connect(&addr, "").await?;
 
-    // Send resize without acquiring lock — should succeed
     ws_send(
         &mut tx,
         &serde_json::json!({"type": "resize", "cols": 120, "rows": 40}),
@@ -536,41 +362,6 @@ async fn ws_resize_no_lock_required() -> anyhow::Result<()> {
         }
         other => anyhow::bail!("expected Resize event, got {other:?}"),
     }
-
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// ws_nudge_requires_lock
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn ws_nudge_requires_lock() -> anyhow::Result<()> {
-    let (app_state, _rx) = AppStateBuilder::new()
-        .nudge_encoder(Arc::new(StubNudgeEncoder))
-        .agent_state(AgentState::WaitingForInput)
-        .build();
-    app_state
-        .ready
-        .store(true, std::sync::atomic::Ordering::Release);
-
-    let (addr, _handle) = spawn_http_server(app_state).await?;
-
-    let (mut tx, mut rx) = ws_connect(&addr, "").await?;
-
-    // Send nudge without lock — should get WRITER_BUSY
-    ws_send(
-        &mut tx,
-        &serde_json::json!({"type": "nudge", "message": "hello"}),
-    )
-    .await?;
-
-    let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
-    assert_eq!(
-        resp.get("code").and_then(|c| c.as_str()),
-        Some("WRITER_BUSY"),
-        "nudge without lock should fail: {resp}"
-    );
 
     Ok(())
 }

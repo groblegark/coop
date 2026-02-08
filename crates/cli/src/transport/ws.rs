@@ -103,9 +103,6 @@ pub enum ClientMessage {
     Replay {
         offset: u64,
     },
-    Lock {
-        action: LockAction,
-    },
     Auth {
         token: String,
     },
@@ -113,13 +110,6 @@ pub enum ClientMessage {
         name: String,
     },
     Ping {},
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LockAction {
-    Acquire,
-    Release,
 }
 
 /// WebSocket subscription mode (query parameter on upgrade).
@@ -280,14 +270,13 @@ async fn handle_connection(
         .lifecycle
         .ws_client_count
         .fetch_sub(1, Ordering::Relaxed);
-    state.lifecycle.write_lock.force_release_ws(&client_id);
 }
 
 /// Handle a single client message and optionally return a reply.
 async fn handle_client_message(
     state: &AppState,
     msg: ClientMessage,
-    client_id: &str,
+    _client_id: &str,
     authed: &mut bool,
 ) -> Option<ServerMessage> {
     match msg {
@@ -348,10 +337,10 @@ async fn handle_client_message(
             })
         }
 
-        // Write operations require auth and write lock
+        // Write operations require auth
         ClientMessage::Input { text } => {
-            if let Err(e) = require_write(*authed, state, client_id) {
-                return Some(e);
+            if !*authed {
+                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
             }
             let data = Bytes::from(text.into_bytes());
             let _ = state.channels.input_tx.send(InputEvent::Write(data)).await;
@@ -359,8 +348,8 @@ async fn handle_client_message(
         }
 
         ClientMessage::InputRaw { data } => {
-            if let Err(e) = require_write(*authed, state, client_id) {
-                return Some(e);
+            if !*authed {
+                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
             }
             let decoded = base64::engine::general_purpose::STANDARD
                 .decode(&data)
@@ -374,8 +363,8 @@ async fn handle_client_message(
         }
 
         ClientMessage::Keys { keys } => {
-            if let Err(e) = require_write(*authed, state, client_id) {
-                return Some(e);
+            if !*authed {
+                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
             }
             let data = match keys_to_bytes(&keys) {
                 Ok(d) => d,
@@ -409,25 +398,9 @@ async fn handle_client_message(
             None
         }
 
-        ClientMessage::Lock { action } => {
+        ClientMessage::Nudge { message } => {
             if !*authed {
                 return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
-            }
-            match action {
-                LockAction::Acquire => match state.lifecycle.write_lock.acquire_ws(client_id) {
-                    Ok(()) => None,
-                    Err(code) => Some(ws_error(code, "write lock held by another client")),
-                },
-                LockAction::Release => match state.lifecycle.write_lock.release_ws(client_id) {
-                    Ok(()) => None,
-                    Err(code) => Some(ws_error(code, "not the lock owner")),
-                },
-            }
-        }
-
-        ClientMessage::Nudge { message } => {
-            if let Err(e) = require_write(*authed, state, client_id) {
-                return Some(e);
             }
             if !state.ready.load(Ordering::Acquire) {
                 return Some(ws_error(ErrorCode::NotReady, "agent is still starting"));
@@ -436,6 +409,7 @@ async fn handle_client_message(
                 Some(enc) => Arc::clone(enc),
                 None => return Some(ws_error(ErrorCode::NoDriver, "no agent driver configured")),
             };
+            let _delivery = state.nudge_mutex.lock().await;
             let agent = state.driver.agent_state.read().await;
             if !matches!(&*agent, AgentState::WaitingForInput) {
                 return Some(ws_error(
@@ -445,7 +419,6 @@ async fn handle_client_message(
             }
             drop(agent);
             let steps = encoder.encode(&message);
-            let _delivery = state.nudge_mutex.lock().await;
             let _ = deliver_steps(&state.channels.input_tx, steps).await;
             None
         }
@@ -455,8 +428,8 @@ async fn handle_client_message(
             option,
             text,
         } => {
-            if let Err(e) = require_write(*authed, state, client_id) {
-                return Some(e);
+            if !*authed {
+                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
             }
             if !state.ready.load(Ordering::Acquire) {
                 return Some(ws_error(ErrorCode::NotReady, "agent is still starting"));
@@ -465,6 +438,7 @@ async fn handle_client_message(
                 Some(enc) => Arc::clone(enc),
                 None => return Some(ws_error(ErrorCode::NoDriver, "no agent driver configured")),
             };
+            let _delivery = state.nudge_mutex.lock().await;
             let agent = state.driver.agent_state.read().await;
             let steps =
                 match encode_response(&agent, encoder.as_ref(), accept, option, text.as_deref()) {
@@ -474,14 +448,13 @@ async fn handle_client_message(
                     }
                 };
             drop(agent);
-            let _delivery = state.nudge_mutex.lock().await;
             let _ = deliver_steps(&state.channels.input_tx, steps).await;
             None
         }
 
         ClientMessage::Signal { name } => {
-            if let Err(e) = require_write(*authed, state, client_id) {
-                return Some(e);
+            if !*authed {
+                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
             }
             match PtySignal::from_name(&name) {
                 Some(sig) => {
@@ -495,18 +468,6 @@ async fn handle_client_message(
             }
         }
     }
-}
-
-/// Verify the client is authenticated and holds the write lock.
-fn require_write(authed: bool, state: &AppState, client_id: &str) -> Result<(), ServerMessage> {
-    if !authed {
-        return Err(ws_error(ErrorCode::Unauthorized, "not authenticated"));
-    }
-    state
-        .lifecycle
-        .write_lock
-        .check_ws(client_id)
-        .map_err(|code| ws_error(code, "write lock not held"))
 }
 
 /// Build a WebSocket error message.

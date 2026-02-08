@@ -25,7 +25,7 @@ use coop::screen::Screen;
 use coop::session::Session;
 use coop::transport::grpc::CoopGrpc;
 use coop::transport::state::{
-    DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels, WriteLock,
+    DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels,
 };
 use coop::transport::{build_health_router, build_router, AppState};
 
@@ -194,7 +194,6 @@ async fn run(config: Config) -> anyhow::Result<coop::driver::ExitStatus> {
         },
         lifecycle: LifecycleState {
             shutdown: shutdown.clone(),
-            write_lock: Arc::new(WriteLock::new()),
             ws_client_count: AtomicI32::new(0),
             bytes_written: AtomicU64::new(0),
         },

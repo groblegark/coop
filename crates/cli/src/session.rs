@@ -197,7 +197,7 @@ impl Session {
                             }
                             // Send resize to backend task which calls TIOCSWINSZ on the
                             // PTY fd (the ioctl also delivers SIGWINCH to the child).
-                            let _ = self.resize_tx.send((cols, rows)).await;
+                            let _ = self.resize_tx.try_send((cols, rows));
                         }
                         Some(InputEvent::Signal(sig)) => {
                             let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
@@ -303,12 +303,33 @@ impl Session {
             }
         }
 
+        // Drain any pending output so final bytes are captured.
+        while let Ok(bytes) = self.backend_output_rx.try_recv() {
+            {
+                let mut ring = self.app_state.terminal.ring.write().await;
+                ring.write(&bytes);
+                self.app_state
+                    .terminal
+                    .ring_total_written
+                    .store(ring.total_written(), std::sync::atomic::Ordering::Relaxed);
+            }
+            {
+                let mut screen = self.app_state.terminal.screen.write().await;
+                screen.feed(&bytes);
+            }
+            let _ = self
+                .app_state
+                .channels
+                .output_tx
+                .send(OutputEvent::Raw(bytes));
+        }
+
         // Drop the input sender to signal the backend to stop
         drop(self.backend_input_tx);
 
         // Wait for backend with timeout
         let status = tokio::select! {
-            result = self.backend_handle => {
+            result = &mut self.backend_handle => {
                 match result {
                     Ok(Ok(status)) => status,
                     Ok(Err(e)) => {
@@ -328,6 +349,8 @@ impl Session {
                     // Signal the process group to also kill grandchildren.
                     let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGKILL);
                 }
+                // Abort the backend task to release the PTY master FD.
+                self.backend_handle.abort();
                 ExitStatus { code: Some(137), signal: Some(9) }
             }
         };
