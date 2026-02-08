@@ -17,12 +17,18 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
     json!({
         "hooks": {
             "PostToolUse": [{
-                "type": "command",
-                "command": "echo '{\"event\":\"post_tool_use\",\"tool\":\"'\"$TOOL_NAME\"'\"}' > \"$COOP_HOOK_PIPE\""
+                "matcher": "",
+                "hooks": [{
+                    "type": "command",
+                    "command": "echo '{\"event\":\"post_tool_use\",\"tool\":\"'\"$TOOL_NAME\"'\"}' > \"$COOP_HOOK_PIPE\""
+                }]
             }],
             "Stop": [{
-                "type": "command",
-                "command": "echo '{\"event\":\"stop\"}' > \"$COOP_HOOK_PIPE\""
+                "matcher": "",
+                "hooks": [{
+                    "type": "command",
+                    "command": "echo '{\"event\":\"stop\"}' > \"$COOP_HOOK_PIPE\""
+                }]
             }]
         }
     })

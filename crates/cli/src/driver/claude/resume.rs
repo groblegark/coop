@@ -135,14 +135,16 @@ pub fn parse_resume_state(log_path: &Path) -> anyhow::Result<ResumeState> {
     })
 }
 
-/// Build additional CLI arguments for Claude's `--continue` mode.
+/// Build additional CLI arguments for resuming a Claude session.
+///
+/// With a conversation ID: `--resume <id>` (loads specific conversation).
+/// Without: `--continue` (fallback, loads most recent conversation).
 pub fn resume_args(state: &ResumeState) -> Vec<String> {
-    let mut args = vec!["--continue".to_owned()];
     if let Some(ref id) = state.conversation_id {
-        args.push("--session-id".to_owned());
-        args.push(id.clone());
+        vec!["--resume".to_owned(), id.clone()]
+    } else {
+        vec!["--continue".to_owned()]
     }
-    args
 }
 
 /// Open a log file and seek to a specific byte offset for tailing.

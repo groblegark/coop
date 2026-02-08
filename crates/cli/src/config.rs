@@ -79,11 +79,6 @@ pub struct Config {
     #[arg(long, env = "COOP_LOG_LEVEL", default_value = "info")]
     pub log_level: String,
 
-    /// Auto-handle startup prompts (trust, permissions).
-    /// Default: true for --agent claude, false otherwise.
-    #[arg(long, env = "COOP_SKIP_STARTUP_PROMPTS")]
-    pub skip_startup_prompts: Option<bool>,
-
     /// Resume a previous session from a log path or workspace ID.
     #[arg(long, env = "COOP_RESUME")]
     pub resume: Option<String>,
@@ -137,16 +132,6 @@ impl Config {
             "unknown" => Ok(AgentType::Unknown),
             other => anyhow::bail!("invalid agent type: {other}"),
         }
-    }
-
-    /// Resolve whether startup prompts should be auto-handled.
-    /// Defaults to `true` for Claude, `false` otherwise.
-    pub fn effective_skip_startup_prompts(&self) -> bool {
-        self.skip_startup_prompts.unwrap_or_else(|| {
-            self.agent_enum()
-                .map(|t| t == AgentType::Claude)
-                .unwrap_or(false)
-        })
     }
 }
 

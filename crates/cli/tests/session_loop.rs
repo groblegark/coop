@@ -30,7 +30,7 @@ async fn session_echo_captures_output_and_exits_zero() -> anyhow::Result<()> {
         .ring_size(65536)
         .build_with_sender(input_tx);
 
-    let backend = NativePty::spawn(&["echo".into(), "integration".into()], 80, 24)?;
+    let backend = NativePty::spawn(&["echo".into(), "integration".into()], 80, 24, &[])?;
     let session = Session::new(SessionConfig::test_default(
         Box::new(backend),
         Arc::clone(&app_state),
@@ -65,7 +65,7 @@ async fn session_input_roundtrip() -> anyhow::Result<()> {
         .ring_size(65536)
         .build_with_sender(input_tx.clone());
 
-    let backend = NativePty::spawn(&["/bin/cat".into()], 80, 24)?;
+    let backend = NativePty::spawn(&["/bin/cat".into()], 80, 24, &[])?;
     let session = Session::new(SessionConfig::test_default(
         Box::new(backend),
         Arc::clone(&app_state),
@@ -109,7 +109,12 @@ async fn session_shutdown_terminates_child() -> anyhow::Result<()> {
         .build_with_sender(input_tx);
     let shutdown = CancellationToken::new();
 
-    let backend = NativePty::spawn(&["/bin/sh".into(), "-c".into(), "sleep 60".into()], 80, 24)?;
+    let backend = NativePty::spawn(
+        &["/bin/sh".into(), "-c".into(), "sleep 60".into()],
+        80,
+        24,
+        &[],
+    )?;
     let mut config = SessionConfig::test_default(Box::new(backend), app_state, consumer_input_rx);
     config.shutdown = shutdown.clone();
     let session = Session::new(config);
@@ -135,7 +140,7 @@ async fn session_exited_state_broadcast() -> anyhow::Result<()> {
         .ring_size(65536)
         .build_with_sender(input_tx);
 
-    let backend = NativePty::spawn(&["true".into()], 80, 24)?;
+    let backend = NativePty::spawn(&["true".into()], 80, 24, &[])?;
     let session = Session::new(SessionConfig::test_default(
         Box::new(backend),
         Arc::clone(&app_state),
@@ -352,7 +357,7 @@ async fn full_stack_echo_screen_via_http() -> anyhow::Result<()> {
         .ring_size(65536)
         .build_with_sender(input_tx);
 
-    let backend = NativePty::spawn(&["echo".into(), "fullstack".into()], 80, 24)?;
+    let backend = NativePty::spawn(&["echo".into(), "fullstack".into()], 80, 24, &[])?;
     let session = Session::new(SessionConfig::test_default(
         Box::new(backend),
         Arc::clone(&app_state),

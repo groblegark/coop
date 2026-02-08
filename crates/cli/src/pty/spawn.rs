@@ -32,9 +32,15 @@ impl NativePty {
     /// Spawn a child process on a new PTY.
     ///
     /// `command` must have at least one element (the program to run).
+    /// `extra_env` sets additional environment variables in the child.
     // forkpty requires unsafe: post-fork child is partially initialized
     #[allow(unsafe_code)]
-    pub fn spawn(command: &[String], cols: u16, rows: u16) -> anyhow::Result<Self> {
+    pub fn spawn(
+        command: &[String],
+        cols: u16,
+        rows: u16,
+        extra_env: &[(String, String)],
+    ) -> anyhow::Result<Self> {
         let winsize = Winsize {
             ws_col: cols,
             ws_row: rows,
@@ -55,6 +61,9 @@ impl NativePty {
                 // Child process: set env and exec
                 std::env::set_var("TERM", "xterm-256color");
                 std::env::set_var("COOP", "1");
+                for (key, val) in extra_env {
+                    std::env::set_var(key, val);
+                }
 
                 let c_args: Vec<CString> = command
                     .iter()

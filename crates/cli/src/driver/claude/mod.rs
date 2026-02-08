@@ -6,6 +6,7 @@ pub mod encoding;
 pub mod hooks;
 pub mod prompt;
 pub mod resume;
+pub mod setup;
 pub mod startup;
 pub mod state;
 

@@ -13,11 +13,18 @@ fn generated_config_has_required_hooks() {
     assert!(hooks.get("PostToolUse").is_some());
     assert!(hooks.get("Stop").is_some());
 
+    // Verify nested matcher + hooks structure
     let post_tool = &hooks["PostToolUse"];
     assert!(post_tool.is_array());
+    assert_eq!(post_tool[0]["matcher"], "");
+    assert!(post_tool[0]["hooks"].is_array());
+    assert_eq!(post_tool[0]["hooks"][0]["type"], "command");
 
     let stop = &hooks["Stop"];
     assert!(stop.is_array());
+    assert_eq!(stop[0]["matcher"], "");
+    assert!(stop[0]["hooks"].is_array());
+    assert_eq!(stop[0]["hooks"][0]["type"], "command");
 }
 
 #[test]

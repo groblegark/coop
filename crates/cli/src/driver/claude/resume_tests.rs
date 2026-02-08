@@ -63,7 +63,7 @@ fn resume_args_with_session_id() {
         conversation_id: Some("sess-42".to_owned()),
     };
     let args = resume_args(&state);
-    assert_eq!(args, vec!["--continue", "--session-id", "sess-42"]);
+    assert_eq!(args, vec!["--resume", "sess-42"]);
 }
 
 #[test]

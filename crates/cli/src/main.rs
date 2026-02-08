@@ -13,6 +13,7 @@ use tracing::{error, info};
 
 use coop::config::Config;
 use coop::driver::claude::resume;
+use coop::driver::claude::setup::{self as claude_setup, ClaudeSessionSetup};
 use coop::driver::claude::{ClaudeDriver, ClaudeDriverConfig};
 use coop::driver::AgentType;
 use coop::driver::{AgentState, Detector, NudgeEncoder, RespondEncoder};
@@ -68,41 +69,42 @@ fn init_tracing(config: &Config) {
 
 async fn run(config: Config) -> anyhow::Result<coop::driver::ExitStatus> {
     let shutdown = CancellationToken::new();
+    let agent_enum = config.agent_enum()?;
 
-    // Handle --resume: discover session log and build resume state.
-    let resume_state = if let Some(ref resume_hint) = config.resume {
+    // 1. Handle --resume: discover session log and build resume state.
+    let (resume_state, resume_log_path) = if let Some(ref resume_hint) = config.resume {
         let log_path = resume::discover_session_log(resume_hint)?
             .ok_or_else(|| anyhow::anyhow!("no session log found for: {resume_hint}"))?;
         info!("resuming from session log: {}", log_path.display());
-        Some(resume::parse_resume_state(&log_path)?)
+        let state = resume::parse_resume_state(&log_path)?;
+        (Some(state), Some(log_path))
+    } else {
+        (None, None)
+    };
+
+    // 2. Prepare Claude session setup (creates FIFO pipe path, writes settings,
+    //    computes extra args). Must happen BEFORE backend spawn so the child
+    //    finds the FIFO and settings file on startup.
+    let working_dir = std::env::current_dir()?;
+    let claude_setup: Option<ClaudeSessionSetup> = if agent_enum == AgentType::Claude {
+        let setup = if let (Some(ref state), Some(ref log_path)) = (&resume_state, &resume_log_path)
+        {
+            claude_setup::prepare_claude_resume(state, log_path)?
+        } else {
+            claude_setup::prepare_claude_session(&working_dir)?
+        };
+        Some(setup)
     } else {
         None
     };
 
-    // If resuming, append --continue (and optionally --session-id) to the command.
+    // 3. Build the command with extra args from setup.
     let mut command = config.command.clone();
-    if let Some(ref state) = resume_state {
-        let extra = resume::resume_args(state);
-        command.extend(extra);
+    if let Some(ref setup) = claude_setup {
+        command.extend(setup.extra_args.clone());
     }
 
-    // Build backend
-    let backend: Box<dyn Backend> = if let Some(ref attach_spec) = config.attach {
-        let spec: AttachSpec = attach_spec.parse()?;
-        match spec {
-            AttachSpec::Tmux { session } => Box::new(TmuxBackend::new(session)?),
-            AttachSpec::Screen { session: _ } => {
-                anyhow::bail!("screen attach is not yet implemented");
-            }
-        }
-    } else {
-        if command.is_empty() {
-            anyhow::bail!("no command specified");
-        }
-        Box::new(NativePty::spawn(&command, config.cols, config.rows)?)
-    };
-
-    // Build terminal state early so driver closures can reference its atomics.
+    // 4. Build terminal state early so driver closures can reference its atomics.
     let terminal = Arc::new(TerminalState {
         screen: RwLock::new(Screen::new(config.cols, config.rows)),
         ring: RwLock::new(RingBuffer::new(config.ring_size)),
@@ -111,14 +113,15 @@ async fn run(config: Config) -> anyhow::Result<coop::driver::ExitStatus> {
         exit_status: RwLock::new(None),
     });
 
-    // Build driver (detectors + encoders)
-    let agent_enum = config.agent_enum()?;
+    // 5. Build driver (detectors + encoders). For Claude, uses real paths
+    //    from the setup so detectors actually activate.
     let log_start_offset = resume_state.as_ref().map(|s| s.log_offset).unwrap_or(0);
     let pid_terminal = Arc::clone(&terminal);
     let rtw_for_driver = Arc::clone(&terminal.ring_total_written);
     let (nudge_encoder, respond_encoder, detectors) = build_driver(
         &config,
         agent_enum,
+        claude_setup.as_ref(),
         Arc::new(move || {
             let v = pid_terminal
                 .child_pid
@@ -132,6 +135,31 @@ async fn run(config: Config) -> anyhow::Result<coop::driver::ExitStatus> {
         Arc::new(move || rtw_for_driver.load(std::sync::atomic::Ordering::Relaxed)),
         log_start_offset,
     )?;
+
+    // 6. Spawn backend AFTER driver is built (FIFO must exist before child starts).
+    let extra_env = claude_setup
+        .as_ref()
+        .map(|s| s.env_vars.as_slice())
+        .unwrap_or(&[]);
+    let backend: Box<dyn Backend> = if let Some(ref attach_spec) = config.attach {
+        let spec: AttachSpec = attach_spec.parse()?;
+        match spec {
+            AttachSpec::Tmux { session } => Box::new(TmuxBackend::new(session)?),
+            AttachSpec::Screen { session: _ } => {
+                anyhow::bail!("screen attach is not yet implemented");
+            }
+        }
+    } else {
+        if command.is_empty() {
+            anyhow::bail!("no command specified");
+        }
+        Box::new(NativePty::spawn(
+            &command,
+            config.cols,
+            config.rows,
+            extra_env,
+        )?)
+    };
 
     let idle_grace = Duration::from_secs(config.idle_grace);
     let idle_timeout = Duration::from_secs(config.idle_timeout);
@@ -302,7 +330,6 @@ async fn run(config: Config) -> anyhow::Result<coop::driver::ExitStatus> {
         idle_grace,
         idle_timeout,
         shutdown,
-        skip_startup_prompts: config.effective_skip_startup_prompts(),
     });
 
     session.run().await
@@ -317,6 +344,7 @@ type DriverComponents = (
 fn build_driver(
     config: &Config,
     agent: AgentType,
+    claude_setup: Option<&ClaudeSessionSetup>,
     child_pid_fn: Arc<dyn Fn() -> Option<u32> + Send + Sync>,
     ring_total_written_fn: Arc<dyn Fn() -> u64 + Send + Sync>,
     log_start_offset: u64,
@@ -324,8 +352,8 @@ fn build_driver(
     match agent {
         AgentType::Claude => {
             let driver = ClaudeDriver::new(ClaudeDriverConfig {
-                session_log_path: None,
-                hook_pipe_path: None,
+                session_log_path: claude_setup.map(|s| s.session_log_path.clone()),
+                hook_pipe_path: claude_setup.map(|s| s.hook_pipe_path.clone()),
                 stdout_rx: None,
                 log_start_offset,
             })?;

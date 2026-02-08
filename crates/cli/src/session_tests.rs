@@ -17,7 +17,7 @@ async fn echo_exits_with_zero() -> anyhow::Result<()> {
         .ring_size(65536)
         .build_with_sender(input_tx);
 
-    let backend = NativePty::spawn(&["echo".into(), "hello".into()], 80, 24)?;
+    let backend = NativePty::spawn(&["echo".into(), "hello".into()], 80, 24, &[])?;
     let session = Session::new(SessionConfig::test_default(
         Box::new(backend),
         app_state,
@@ -36,7 +36,7 @@ async fn output_captured_in_ring_and_screen() -> anyhow::Result<()> {
         .ring_size(65536)
         .build_with_sender(input_tx);
 
-    let backend = NativePty::spawn(&["echo".into(), "hello-ring".into()], 80, 24)?;
+    let backend = NativePty::spawn(&["echo".into(), "hello-ring".into()], 80, 24, &[])?;
     let session = Session::new(SessionConfig::test_default(
         Box::new(backend),
         Arc::clone(&app_state),
@@ -72,7 +72,12 @@ async fn shutdown_cancels_session() -> anyhow::Result<()> {
     let shutdown = CancellationToken::new();
 
     // Long-running command
-    let backend = NativePty::spawn(&["/bin/sh".into(), "-c".into(), "sleep 60".into()], 80, 24)?;
+    let backend = NativePty::spawn(
+        &["/bin/sh".into(), "-c".into(), "sleep 60".into()],
+        80,
+        24,
+        &[],
+    )?;
     let mut config = SessionConfig::test_default(Box::new(backend), app_state, consumer_input_rx);
     config.shutdown = shutdown.clone();
     let session = Session::new(config);

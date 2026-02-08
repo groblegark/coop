@@ -15,7 +15,6 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
-use crate::driver::claude::startup::{detect_startup_prompt, encode_startup_response};
 use crate::driver::grace::IdleGraceTimer;
 use crate::driver::{
     classify_error_detail, AgentState, CompositeDetector, DetectedState, Detector, ExitStatus,
@@ -35,8 +34,6 @@ pub struct SessionConfig {
     pub idle_grace: Duration,
     pub idle_timeout: Duration,
     pub shutdown: CancellationToken,
-    /// Auto-handle startup prompts (trust, permissions, etc.).
-    pub skip_startup_prompts: bool,
 }
 
 impl SessionConfig {
@@ -57,7 +54,6 @@ impl SessionConfig {
             idle_grace: Duration::from_secs(60),
             idle_timeout: Duration::ZERO,
             shutdown: CancellationToken::new(),
-            skip_startup_prompts: false,
         }
     }
 }
@@ -73,7 +69,6 @@ pub struct Session {
     idle_timeout: Duration,
     shutdown: CancellationToken,
     backend_handle: JoinHandle<anyhow::Result<ExitStatus>>,
-    skip_startup_prompts: bool,
 }
 
 impl Session {
@@ -95,7 +90,6 @@ impl Session {
             idle_grace,
             idle_timeout,
             shutdown,
-            skip_startup_prompts,
         } = config;
         // Set initial PID (Release so signal-delivery loads with Acquire see it)
         if let Some(pid) = backend.child_pid() {
@@ -144,7 +138,6 @@ impl Session {
             idle_timeout,
             shutdown,
             backend_handle,
-            skip_startup_prompts,
         }
     }
 
@@ -153,7 +146,6 @@ impl Session {
         let mut screen_debounce = tokio::time::interval(Duration::from_millis(50));
         let mut state_seq: u64 = 0;
         let mut idle_since: Option<tokio::time::Instant> = None;
-        let mut startup_complete = false;
 
         loop {
             tokio::select! {
@@ -237,7 +229,6 @@ impl Session {
                             self.app_state
                                 .ready
                                 .store(true, std::sync::atomic::Ordering::Release);
-                            startup_complete = true;
                         }
 
                         // Store error detail + category when entering Error state.
@@ -273,36 +264,14 @@ impl Session {
                     }
                 }
 
-                // 4. Screen debounce timer → broadcast ScreenUpdate if changed,
-                //    and detect startup prompts when auto-handling is enabled.
+                // 4. Screen debounce timer → broadcast ScreenUpdate if changed.
                 _ = screen_debounce.tick() => {
                     let mut screen = self.app_state.terminal.screen.write().await;
                     let changed = screen.changed();
                     if changed {
                         let seq = screen.seq();
                         screen.clear_changed();
-
-                        // Detect and auto-respond to startup prompts while
-                        // the agent is still in the Starting phase.
-                        if self.skip_startup_prompts && !startup_complete {
-                            let snap = screen.snapshot();
-                            drop(screen);
-                            if let Some(prompt) = detect_startup_prompt(&snap.lines) {
-                                debug!(?prompt, "auto-handling startup prompt");
-                                let steps = encode_startup_response(prompt);
-                                for step in &steps {
-                                    let _ = self
-                                        .backend_input_tx
-                                        .send(Bytes::from(step.bytes.clone()))
-                                        .await;
-                                    if let Some(delay) = step.delay_after {
-                                        tokio::time::sleep(delay).await;
-                                    }
-                                }
-                            }
-                        } else {
-                            drop(screen);
-                        }
+                        drop(screen);
 
                         let _ = self.app_state.channels.output_tx.send(OutputEvent::ScreenUpdate { seq });
                     }
