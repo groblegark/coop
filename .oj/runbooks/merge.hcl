@@ -24,7 +24,7 @@ job "merge-check" {
       gh pr list --label merge:auto --json number,mergeable,statusCheckRollup --jq '
         .[] | select(
           .mergeable == "CONFLICTING" or
-          (.statusCheckRollup | length > 0 and (map(select(.conclusion != "")) | length > 0) and all(.conclusion != "SUCCESS" and .conclusion != "NEUTRAL" and .conclusion != "SKIPPED" and .conclusion != ""))
+          (.statusCheckRollup | length > 0 and (map(select(.conclusion != "")) | length > 0) and any(.conclusion != "SUCCESS" and .conclusion != "NEUTRAL" and .conclusion != "SKIPPED" and .conclusion != ""))
         ) | .number
       ' | while read -r num; do
         echo "Escalating PR #$num to cicd"
@@ -108,7 +108,14 @@ job "cicd" {
 
 agent "merge-resolver" {
   run     = "claude --model opus --dangerously-skip-permissions"
-  on_idle = { action = "gate", command = "test ! -d $(git rev-parse --git-dir)/rebase-merge && test ! -f $(git rev-parse --git-dir)/MERGE_HEAD" }
+  on_idle {
+    action  = "nudge"
+    message = <<-MSG
+      CI is still failing or the PR hasn't merged yet.
+      Check `gh pr checks ${var.pr.number}` and fix any remaining failures.
+      Verify locally with `make check` before pushing.
+    MSG
+  }
   on_dead = { action = "escalate" }
 
   session "tmux" {
