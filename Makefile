@@ -56,9 +56,9 @@ try-claudeless:
 try-gemini:
 	@COOP_AGENT=gemini tests/debug/start.sh -- gemini
 
-# Build Docker test image
+# Build Docker claudeless image (for testing)
 docker-test-image:
-	docker build --target test -t coop:test .
+	docker build --target claudeless -t coop:test .
 
 # Launch coop + claudeless in Docker with browser terminal
 # Usage: make try-docker-claudeless SCENARIO=claude_hello.toml

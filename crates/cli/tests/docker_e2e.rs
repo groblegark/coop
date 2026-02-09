@@ -45,7 +45,7 @@ fn ensure_image_built() {
     BUILD_ONCE.call_once(|| {
         let root = workspace_root();
         let status = Command::new("docker")
-            .args(["build", "--target", "test", "-t", "coop:test", "."])
+            .args(["build", "--target", "claudeless", "-t", "coop:test", "."])
             .current_dir(&root)
             .status()
             .expect("failed to run docker build");

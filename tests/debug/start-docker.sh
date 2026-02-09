@@ -37,8 +37,8 @@ done
 # --- Resolve image and command per mode ---
 case "$MODE" in
   claudeless)
-    IMAGE_TARGET="test"
-    IMAGE_TAG="coop:test"
+    IMAGE_TARGET="claudeless"
+    IMAGE_TAG="coop:claudeless"
     DOCKER_RUN_ARGS=(-p "$PORT:7070" "$IMAGE_TAG" \
       --port 7070 --log-format text --agent claude \
       -- claudeless --scenario "/scenarios/$SCENARIO" "hello")

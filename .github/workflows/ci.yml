@@ -91,10 +91,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - name: production
-            target: ""
-            tag: coop:ci
-            scope: docker
+          - name: empty
+            target: empty
+            tag: coop:empty
+            scope: docker-empty
           - name: claude
             target: claude
             tag: coop:claude
@@ -110,7 +110,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          target: ${{ matrix.target || '' }}
+          target: ${{ matrix.target }}
           push: false
           load: true
           tags: ${{ matrix.tag }}
@@ -133,11 +133,11 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          target: test
+          target: claudeless
           push: false
           load: true
           tags: coop:test
-          cache-from: type=gha,scope=docker-test
-          cache-to: type=gha,mode=max,scope=docker-test
+          cache-from: type=gha,scope=docker-claudeless
+          cache-to: type=gha,mode=max,scope=docker-claudeless
       - name: Run Docker E2E tests
         run: COOP_DOCKER_TESTS=1 cargo test --test docker_e2e -- --test-threads=1

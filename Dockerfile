@@ -17,14 +17,17 @@ RUN case "$TARGETARCH" in \
     && strip "target/$RUST_TARGET/release/coop" \
     && cp "target/$RUST_TARGET/release/coop" /coop-bin
 
-FROM gcr.io/distroless/static-debian12:nonroot
+# ---------------------------------------------------------------------------
+# Empty: minimal distroless image with just the coop binary
+# ---------------------------------------------------------------------------
+FROM gcr.io/distroless/static-debian12:nonroot AS empty
 COPY --from=builder /coop-bin /coop
 ENTRYPOINT ["/coop"]
 
 # ---------------------------------------------------------------------------
-# Test stage: debian + claudeless + coop binary + scenario fixtures
+# Claudeless: coop + claudeless simulator + scenario fixtures (for testing)
 # ---------------------------------------------------------------------------
-FROM debian:bookworm-slim AS test
+FROM debian:bookworm-slim AS claudeless
 ARG TARGETARCH
 ARG CLAUDELESS_VERSION=0.3.0
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
