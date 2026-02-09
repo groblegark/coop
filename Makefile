@@ -1,4 +1,4 @@
-.PHONY: check ci fmt install coverage outdated try-claude try-claudeless try-gemini docker-test-image try-docker-claudeless try-docker-claude try-docker-gemini test-docker
+.PHONY: check ci fmt install coverage outdated try-claude try-claudeless try-gemini docker-test-image try-docker-claudeless try-docker-claude try-docker-gemini test-docker capture-claude
 
 # Quick checks
 #
@@ -72,6 +72,13 @@ try-docker-claude:
 # Launch coop + gemini CLI in Docker with browser terminal
 try-docker-gemini:
 	@tests/debug/start-docker.sh gemini
+
+# Capture state changes during claude onboarding (interactive)
+# Usage: make capture-claude CONFIG=empty    (full onboarding)
+#        make capture-claude CONFIG=auth-only (skip login)
+#        make capture-claude CONFIG=trusted   (skip to idle)
+capture-claude:
+	@tests/debug/capture-claude.sh --config $(or $(CONFIG),empty)
 
 # Run Docker e2e tests (builds test image first)
 test-docker: docker-test-image

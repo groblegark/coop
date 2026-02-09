@@ -18,6 +18,9 @@ CLAUDE.local.md
 *.profdata
 coverage/
 
+# Debug captures
+tests/debug/captures/
+
 # Caches
 .quench/
 .wok/
