@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use crate::driver::hook_recv::HookReceiver;
 use crate::driver::jsonl_stdout::JsonlParser;
 use crate::driver::log_watch::LogWatcher;
-use crate::driver::{AgentState, Detector, PromptContext};
+use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
 use crate::event::HookEvent;
 
 use super::prompt::extract_ask_user_from_tool_input;
@@ -25,9 +25,9 @@ use super::state::parse_claude_state;
 /// - `AgentStop` / `SessionEnd` → `WaitingForInput`
 /// - `ToolComplete` → `Working`
 /// - `Notification(idle_prompt)` → `WaitingForInput`
-/// - `Notification(permission_prompt)` → `PermissionPrompt`
-/// - `PreToolUse(AskUserQuestion)` → `Question` with context
-/// - `PreToolUse(ExitPlanMode)` → `PlanPrompt`
+/// - `Notification(permission_prompt)` → `Prompt(Permission)`
+/// - `PreToolUse(AskUserQuestion)` → `Prompt(Question)` with context
+/// - `PreToolUse(ExitPlanMode)` → `Prompt(Plan)`
 /// - `PreToolUse(EnterPlanMode)` → `Working`
 pub struct HookDetector {
     pub receiver: HookReceiver,
@@ -55,9 +55,9 @@ impl Detector for HookDetector {
                             Some(HookEvent::Notification { notification_type }) => {
                                 match notification_type.as_str() {
                                     "idle_prompt" => AgentState::WaitingForInput,
-                                    "permission_prompt" => AgentState::PermissionPrompt {
+                                    "permission_prompt" => AgentState::Prompt {
                                         prompt: PromptContext {
-                                            prompt_type: "permission".to_string(),
+                                            kind: PromptKind::Permission,
                                             tool: None,
                                             input_preview: None,
                                             screen_lines: vec![],
@@ -70,12 +70,12 @@ impl Detector for HookDetector {
                             }
                             Some(HookEvent::PreToolUse { ref tool, ref tool_input }) => {
                                 match tool.as_str() {
-                                    "AskUserQuestion" => AgentState::Question {
+                                    "AskUserQuestion" => AgentState::Prompt {
                                         prompt: extract_ask_user_from_tool_input(tool_input.as_ref()),
                                     },
-                                    "ExitPlanMode" => AgentState::PlanPrompt {
+                                    "ExitPlanMode" => AgentState::Prompt {
                                         prompt: PromptContext {
-                                            prompt_type: "plan".to_string(),
+                                            kind: PromptKind::Plan,
                                             tool: None,
                                             input_preview: None,
                                             screen_lines: vec![],

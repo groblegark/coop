@@ -206,9 +206,9 @@ async fn hook_detector_notification_permission_prompt() -> anyhow::Result<()> {
     .await?;
 
     assert_eq!(states.len(), 1);
-    assert!(matches!(states[0], AgentState::PermissionPrompt { .. }));
-    if let AgentState::PermissionPrompt { prompt } = &states[0] {
-        assert_eq!(prompt.prompt_type, "permission");
+    assert!(matches!(states[0], AgentState::Prompt { .. }));
+    if let AgentState::Prompt { prompt } = &states[0] {
+        assert_eq!(prompt.kind, crate::driver::PromptKind::Permission);
     }
     Ok(())
 }
@@ -221,13 +221,13 @@ async fn hook_detector_pre_tool_use_ask_user() -> anyhow::Result<()> {
     .await?;
 
     assert_eq!(states.len(), 1);
-    if let AgentState::Question { prompt } = &states[0] {
-        assert_eq!(prompt.prompt_type, "question");
+    if let AgentState::Prompt { prompt } = &states[0] {
+        assert_eq!(prompt.kind, crate::driver::PromptKind::Question);
         assert_eq!(prompt.questions.len(), 1);
         assert_eq!(prompt.questions[0].question, "Which DB?");
         assert_eq!(prompt.questions[0].options, vec!["PostgreSQL", "SQLite"]);
     } else {
-        anyhow::bail!("expected Question, got {:?}", states[0]);
+        anyhow::bail!("expected Prompt(Question), got {:?}", states[0]);
     }
     Ok(())
 }
@@ -240,9 +240,9 @@ async fn hook_detector_pre_tool_use_exit_plan_mode() -> anyhow::Result<()> {
     .await?;
 
     assert_eq!(states.len(), 1);
-    assert!(matches!(states[0], AgentState::PlanPrompt { .. }));
-    if let AgentState::PlanPrompt { prompt } = &states[0] {
-        assert_eq!(prompt.prompt_type, "plan");
+    assert!(matches!(states[0], AgentState::Prompt { .. }));
+    if let AgentState::Prompt { prompt } = &states[0] {
+        assert_eq!(prompt.kind, crate::driver::PromptKind::Plan);
     }
     Ok(())
 }

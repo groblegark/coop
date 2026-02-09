@@ -511,7 +511,7 @@ pub async fn agent_respond(
     let _delivery = s.nudge_mutex.lock().await;
 
     let agent = s.driver.agent_state.read().await;
-    let prompt_type = agent.as_str().to_owned();
+    let prompt_type = agent.prompt().map(|p| p.kind.as_str().to_owned());
 
     let (steps, answers_delivered) = match encode_response(
         &agent,
@@ -536,7 +536,7 @@ pub async fn agent_respond(
 
     Json(RespondResponse {
         delivered: true,
-        prompt_type: Some(prompt_type),
+        prompt_type,
         reason: None,
     })
     .into_response()

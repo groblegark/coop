@@ -23,7 +23,7 @@ fn permission_context_extracts_tool_and_preview() {
         }
     });
     let ctx = extract_permission_context(&entry);
-    assert_eq!(ctx.prompt_type, "permission");
+    assert_eq!(ctx.kind, crate::driver::PromptKind::Permission);
     assert_eq!(ctx.tool.as_deref(), Some("Bash"));
     assert!(ctx.input_preview.is_some());
     let preview = ctx.input_preview.as_deref().unwrap_or("");
@@ -66,7 +66,7 @@ fn ask_user_context_extracts_question_and_options() {
         }
     });
     let ctx = extract_ask_user_context(&block);
-    assert_eq!(ctx.prompt_type, "question");
+    assert_eq!(ctx.kind, crate::driver::PromptKind::Question);
     assert_eq!(ctx.questions.len(), 1);
     assert_eq!(ctx.questions[0].question, "Which database should we use?");
     assert_eq!(
@@ -100,7 +100,7 @@ fn ask_user_context_with_empty_input() {
         "input": {}
     });
     let ctx = extract_ask_user_context(&block);
-    assert_eq!(ctx.prompt_type, "question");
+    assert_eq!(ctx.kind, crate::driver::PromptKind::Question);
     assert!(ctx.questions.is_empty());
 }
 
@@ -119,7 +119,7 @@ fn plan_context_captures_screen_lines() {
         sequence: 42,
     };
     let ctx = extract_plan_context(&screen);
-    assert_eq!(ctx.prompt_type, "plan");
+    assert_eq!(ctx.kind, crate::driver::PromptKind::Plan);
     assert_eq!(ctx.screen_lines.len(), 3);
     assert_eq!(ctx.screen_lines[0], "Plan: Implement auth system");
 }
@@ -136,7 +136,7 @@ fn ask_user_from_tool_input_extracts_question_and_options() {
         }]
     });
     let ctx = extract_ask_user_from_tool_input(Some(&tool_input));
-    assert_eq!(ctx.prompt_type, "question");
+    assert_eq!(ctx.kind, crate::driver::PromptKind::Question);
     assert_eq!(ctx.questions.len(), 1);
     assert_eq!(ctx.questions[0].question, "Which framework?");
     assert_eq!(ctx.questions[0].options, vec!["React", "Vue"]);
@@ -145,7 +145,7 @@ fn ask_user_from_tool_input_extracts_question_and_options() {
 #[test]
 fn ask_user_from_tool_input_with_none() {
     let ctx = extract_ask_user_from_tool_input(None);
-    assert_eq!(ctx.prompt_type, "question");
+    assert_eq!(ctx.kind, crate::driver::PromptKind::Question);
     assert!(ctx.questions.is_empty());
 }
 
@@ -203,7 +203,7 @@ fn missing_fields_produce_sensible_defaults() {
     // Permission context with no message field
     let entry = json!({});
     let ctx = extract_permission_context(&entry);
-    assert_eq!(ctx.prompt_type, "permission");
+    assert_eq!(ctx.kind, crate::driver::PromptKind::Permission);
     assert!(ctx.tool.is_none());
     assert!(ctx.input_preview.is_none());
 

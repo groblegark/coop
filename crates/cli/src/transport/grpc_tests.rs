@@ -87,7 +87,7 @@ fn screen_snapshot_to_response_includes_cursor() {
 #[test]
 fn prompt_to_proto_converts_all_fields() {
     let prompt = crate::driver::PromptContext {
-        prompt_type: "permission".to_owned(),
+        kind: crate::driver::PromptKind::Permission,
         tool: Some("bash".to_owned()),
         input_preview: Some("rm -rf /".to_owned()),
         screen_lines: vec!["$ rm -rf /".to_owned()],
@@ -104,7 +104,7 @@ fn prompt_to_proto_converts_all_fields() {
 #[test]
 fn prompt_to_proto_handles_none_fields() {
     let prompt = crate::driver::PromptContext {
-        prompt_type: "question".to_owned(),
+        kind: crate::driver::PromptKind::Question,
         tool: None,
         input_preview: None,
         screen_lines: vec![],
@@ -135,7 +135,7 @@ fn state_change_to_proto_converts_simple_transition() {
 #[test]
 fn state_change_to_proto_includes_prompt() {
     let prompt = crate::driver::PromptContext {
-        prompt_type: "permission".to_owned(),
+        kind: crate::driver::PromptKind::Permission,
         tool: Some("write".to_owned()),
         input_preview: None,
         screen_lines: vec![],
@@ -144,13 +144,13 @@ fn state_change_to_proto_includes_prompt() {
     };
     let event = crate::event::StateChangeEvent {
         prev: AgentState::Working,
-        next: AgentState::PermissionPrompt {
+        next: AgentState::Prompt {
             prompt: prompt.clone(),
         },
         seq: 10,
     };
     let p = state_change_to_proto(&event);
-    assert_eq!(p.next, "permission_prompt");
+    assert_eq!(p.next, "prompt");
     assert!(p.prompt.is_some());
     let pp = p.prompt.as_ref();
     assert!(pp.is_some());

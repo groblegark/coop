@@ -8,7 +8,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::{AgentState, CompositeDetector, DetectedState, ExitStatus, PromptContext};
+use super::{AgentState, CompositeDetector, DetectedState, ExitStatus, PromptContext, PromptKind};
 use crate::driver::grace::IdleGraceTimer;
 use crate::test_support::MockDetector;
 
@@ -280,9 +280,9 @@ async fn dedup_suppresses_identical() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn empty_prompt(prompt_type: &str) -> PromptContext {
+fn empty_prompt(kind: PromptKind) -> PromptContext {
     PromptContext {
-        prompt_type: prompt_type.to_string(),
+        kind,
         tool: None,
         input_preview: None,
         screen_lines: vec![],
@@ -291,27 +291,27 @@ fn empty_prompt(prompt_type: &str) -> PromptContext {
     }
 }
 
-/// Regression: Claude fires both `PreToolUse(ExitPlanMode)` → PlanPrompt and
-/// `Notification(permission_prompt)` → PermissionPrompt for the same user-facing
+/// Regression: Claude fires both `PreToolUse(ExitPlanMode)` → Prompt(Plan) and
+/// `Notification(permission_prompt)` → Prompt(Permission) for the same user-facing
 /// plan approval moment. When the permission notification arrives after the
 /// PreToolUse event, the composite detector must not let the generic
-/// `PermissionPrompt` overwrite the more specific `PlanPrompt`.
+/// Permission prompt overwrite the more specific Plan prompt.
 #[tokio::test]
 async fn plan_prompt_not_overwritten_by_permission_prompt() -> anyhow::Result<()> {
-    // Simulate tier 1 emitting PlanPrompt then PermissionPrompt in quick succession.
+    // Simulate tier 1 emitting Plan prompt then Permission prompt in quick succession.
     let detectors: Vec<Box<dyn super::Detector>> = vec![Box::new(MockDetector::new(
         1,
         vec![
             (
                 Duration::from_millis(50),
-                AgentState::PlanPrompt {
-                    prompt: empty_prompt("plan"),
+                AgentState::Prompt {
+                    prompt: empty_prompt(PromptKind::Plan),
                 },
             ),
             (
                 Duration::from_millis(10),
-                AgentState::PermissionPrompt {
-                    prompt: empty_prompt("permission"),
+                AgentState::Prompt {
+                    prompt: empty_prompt(PromptKind::Permission),
                 },
             ),
         ],
@@ -325,13 +325,21 @@ async fn plan_prompt_not_overwritten_by_permission_prompt() -> anyhow::Result<()
     )
     .await?;
 
-    // The final settled state should be PlanPrompt, not PermissionPrompt.
+    // The final settled state should be Plan prompt, not Permission prompt.
     let last = results
         .last()
         .expect("expected at least one state emission");
     assert!(
-        matches!(last.state, AgentState::PlanPrompt { .. }),
-        "expected final state to be PlanPrompt, got {:?}",
+        matches!(
+            last.state,
+            AgentState::Prompt {
+                prompt: PromptContext {
+                    kind: PromptKind::Plan,
+                    ..
+                }
+            }
+        ),
+        "expected final state to be Plan prompt, got {:?}",
         last.state,
     );
     Ok(())

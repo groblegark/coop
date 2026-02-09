@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::hook_recv::HookReceiver;
 use crate::driver::jsonl_stdout::JsonlParser;
-use crate::driver::{AgentState, Detector, PromptContext};
+use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
 use crate::event::HookEvent;
 
 use super::state::parse_gemini_state;
@@ -20,7 +20,7 @@ use super::state::parse_gemini_state;
 /// Maps hook events to agent states:
 /// - `ToolComplete` -> `Working`
 /// - `SessionEnd` -> `WaitingForInput`
-/// - `Notification("ToolPermission")` -> `PermissionPrompt`
+/// - `Notification("ToolPermission")` -> `Prompt(Permission)`
 pub struct HookDetector {
     pub receiver: HookReceiver,
 }
@@ -46,9 +46,9 @@ impl Detector for HookDetector {
                             }
                             Some(HookEvent::Notification { notification_type }) => {
                                 match notification_type.as_str() {
-                                    "ToolPermission" => AgentState::PermissionPrompt {
+                                    "ToolPermission" => AgentState::Prompt {
                                         prompt: PromptContext {
-                                            prompt_type: "permission".to_string(),
+                                            kind: PromptKind::Permission,
                                             tool: None,
                                             input_preview: None,
                                             screen_lines: vec![],

@@ -75,12 +75,12 @@ fn assistant_with_ask_user_produces_question() {
     });
     let state = parse_claude_state(&entry);
     match state {
-        Some(AgentState::Question { prompt }) => {
-            assert_eq!(prompt.prompt_type, "question");
+        Some(AgentState::Prompt { prompt }) => {
+            assert_eq!(prompt.kind, crate::driver::PromptKind::Question);
             assert_eq!(prompt.questions.len(), 1);
             assert_eq!(prompt.questions[0].question, "Which database?");
             assert_eq!(prompt.questions[0].options, vec!["PostgreSQL", "SQLite"]);
         }
-        other => panic!("expected Question, got {other:?}"),
+        other => panic!("expected Prompt(Question), got {other:?}"),
     }
 }

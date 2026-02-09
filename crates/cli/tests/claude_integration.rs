@@ -121,7 +121,7 @@ async fn claude_ask_user_session_lifecycle() -> anyhow::Result<()> {
     let input_tx = prepared.app_state.channels.input_tx.clone();
     let handle = tokio::spawn(prepared.run());
 
-    wait_for(&mut rx, |s| matches!(s, AgentState::Question { .. })).await?;
+    wait_for(&mut rx, |s| matches!(s, AgentState::Prompt { .. })).await?;
 
     // Emulate user selecting first option in the elicitation dialog.
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -152,7 +152,7 @@ async fn claude_multi_question_session_lifecycle() -> anyhow::Result<()> {
     let handle = tokio::spawn(prepared.run());
 
     // Multi-question is a single dialog with tabs: Q1 → Q2 → Confirm.
-    wait_for(&mut rx, |s| matches!(s, AgentState::Question { .. })).await?;
+    wait_for(&mut rx, |s| matches!(s, AgentState::Prompt { .. })).await?;
 
     // Answer first question (select option 1).
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -191,7 +191,7 @@ async fn claude_ask_user_respond_api() -> anyhow::Result<()> {
     let app = prepared.app_state.clone();
     let handle = tokio::spawn(prepared.run());
 
-    wait_for(&mut rx, |s| matches!(s, AgentState::Question { .. })).await?;
+    wait_for(&mut rx, |s| matches!(s, AgentState::Prompt { .. })).await?;
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Use encode_response with structured answer.
@@ -231,7 +231,7 @@ async fn claude_multi_question_respond_api() -> anyhow::Result<()> {
     let app = prepared.app_state.clone();
     let handle = tokio::spawn(prepared.run());
 
-    wait_for(&mut rx, |s| matches!(s, AgentState::Question { .. })).await?;
+    wait_for(&mut rx, |s| matches!(s, AgentState::Prompt { .. })).await?;
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Use encode_response with structured answers (all-at-once mode).
@@ -277,7 +277,7 @@ async fn claude_plan_mode_session_lifecycle() -> anyhow::Result<()> {
     wait_for(&mut rx, |s| matches!(s, AgentState::Working)).await?;
 
     // ExitPlanMode → PlanPrompt (user must approve).
-    wait_for(&mut rx, |s| matches!(s, AgentState::PlanPrompt { .. })).await?;
+    wait_for(&mut rx, |s| matches!(s, AgentState::Prompt { .. })).await?;
     tokio::time::sleep(Duration::from_millis(100)).await;
     input_tx
         .send(InputEvent::Write(Bytes::from_static(b"1")))

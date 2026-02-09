@@ -161,9 +161,9 @@ async fn hook_detector_notification_tool_permission() -> anyhow::Result<()> {
     .await?;
 
     assert_eq!(states.len(), 1);
-    assert!(matches!(states[0], AgentState::PermissionPrompt { .. }));
-    if let AgentState::PermissionPrompt { prompt } = &states[0] {
-        assert_eq!(prompt.prompt_type, "permission");
+    assert!(matches!(states[0], AgentState::Prompt { .. }));
+    if let AgentState::Prompt { prompt } = &states[0] {
+        assert_eq!(prompt.kind, crate::driver::PromptKind::Permission);
     }
     Ok(())
 }

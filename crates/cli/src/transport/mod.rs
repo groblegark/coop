@@ -20,7 +20,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 
-use crate::driver::{AgentState, NudgeStep, QuestionAnswer, RespondEncoder};
+use crate::driver::{AgentState, NudgeStep, PromptKind, QuestionAnswer, RespondEncoder};
 use crate::error::ErrorCode;
 use crate::event::InputEvent;
 
@@ -103,20 +103,18 @@ pub fn encode_response(
     answers: &[QuestionAnswer],
 ) -> Result<(Vec<NudgeStep>, usize), ErrorCode> {
     match agent {
-        AgentState::PermissionPrompt { .. } => {
-            Ok((encoder.encode_permission(accept.unwrap_or(false)), 0))
-        }
-        AgentState::PlanPrompt { .. } => {
-            Ok((encoder.encode_plan(accept.unwrap_or(false), text), 0))
-        }
-        AgentState::Question { prompt } => {
-            if answers.is_empty() {
-                return Ok((vec![], 0));
+        AgentState::Prompt { prompt } => match prompt.kind {
+            PromptKind::Permission => Ok((encoder.encode_permission(accept.unwrap_or(false)), 0)),
+            PromptKind::Plan => Ok((encoder.encode_plan(accept.unwrap_or(false), text), 0)),
+            PromptKind::Question => {
+                if answers.is_empty() {
+                    return Ok((vec![], 0));
+                }
+                let total_questions = prompt.questions.len();
+                let count = answers.len();
+                Ok((encoder.encode_question(answers, total_questions), count))
             }
-            let total_questions = prompt.questions.len();
-            let count = answers.len();
-            Ok((encoder.encode_question(answers, total_questions), count))
-        }
+        },
         _ => Err(ErrorCode::NoPrompt),
     }
 }
@@ -125,7 +123,10 @@ pub fn encode_response(
 /// have been delivered to the PTY.
 pub async fn update_question_current(state: &AppState, answers_delivered: usize) {
     let mut agent = state.driver.agent_state.write().await;
-    if let AgentState::Question { ref mut prompt } = *agent {
+    if let AgentState::Prompt { ref mut prompt } = *agent {
+        if prompt.kind != PromptKind::Question {
+            return;
+        }
         let prev_aq = prompt.question_current;
         prompt.question_current = prev_aq
             .saturating_add(answers_delivered)

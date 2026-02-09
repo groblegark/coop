@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use crate::driver::{PromptContext, QuestionContext};
+use crate::driver::{PromptContext, PromptKind, QuestionContext};
 use crate::screen::ScreenSnapshot;
 
 /// Extract permission prompt context from a session log entry.
@@ -22,7 +22,7 @@ pub fn extract_permission_context(json: &Value) -> PromptContext {
     };
 
     PromptContext {
-        prompt_type: "permission".to_string(),
+        kind: PromptKind::Permission,
         tool,
         input_preview,
         screen_lines: vec![],
@@ -78,7 +78,7 @@ pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext 
         .unwrap_or_default();
 
     PromptContext {
-        prompt_type: "question".to_string(),
+        kind: PromptKind::Question,
         tool: Some("AskUserQuestion".to_string()),
         input_preview: None,
         screen_lines: vec![],
@@ -93,7 +93,7 @@ pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext 
 /// so context is built from the visible screen lines.
 pub fn extract_plan_context(screen: &ScreenSnapshot) -> PromptContext {
     PromptContext {
-        prompt_type: "plan".to_string(),
+        kind: PromptKind::Plan,
         tool: None,
         input_preview: None,
         screen_lines: screen.lines.clone(),

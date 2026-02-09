@@ -52,19 +52,35 @@ pub enum AgentState {
     Starting,
     Working,
     WaitingForInput,
-    PermissionPrompt { prompt: PromptContext },
-    PlanPrompt { prompt: PromptContext },
-    Question { prompt: PromptContext },
+    Prompt { prompt: PromptContext },
     Error { detail: String },
-    AltScreen,
     Exited { status: ExitStatus },
     Unknown,
+}
+
+/// Distinguishes the type of prompt the agent is presenting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptKind {
+    Permission,
+    Plan,
+    Question,
+}
+
+impl PromptKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Permission => "permission",
+            Self::Plan => "plan",
+            Self::Question => "question",
+        }
+    }
 }
 
 /// Contextual information about a prompt the agent is presenting.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PromptContext {
-    pub prompt_type: String,
+    pub kind: PromptKind,
     pub tool: Option<String>,
     pub input_preview: Option<String>,
     pub screen_lines: Vec<String>,
@@ -156,17 +172,14 @@ pub struct CompositeDetector {
 
 impl AgentState {
     /// Return the wire-format string for this state (e.g. `"working"`,
-    /// `"permission_prompt"`).
+    /// `"prompt"`).
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Starting => "starting",
             Self::Working => "working",
             Self::WaitingForInput => "waiting_for_input",
-            Self::PermissionPrompt { .. } => "permission_prompt",
-            Self::PlanPrompt { .. } => "plan_prompt",
-            Self::Question { .. } => "question",
+            Self::Prompt { .. } => "prompt",
             Self::Error { .. } => "error",
-            Self::AltScreen => "alt_screen",
             Self::Exited { .. } => "exited",
             Self::Unknown => "unknown",
         }
@@ -175,9 +188,7 @@ impl AgentState {
     /// Extract the prompt context from state variants that carry one.
     pub fn prompt(&self) -> Option<&PromptContext> {
         match self {
-            Self::PermissionPrompt { prompt }
-            | Self::PlanPrompt { prompt }
-            | Self::Question { prompt } => Some(prompt),
+            Self::Prompt { prompt } => Some(prompt),
             _ => None,
         }
     }
@@ -260,8 +271,8 @@ impl CompositeDetector {
                     // State changed.
                     if tier <= current_tier {
                         // Same or higher confidence → accept immediately,
-                        // UNLESS a generic PermissionPrompt would overwrite
-                        // a more specific PlanPrompt or Question from the
+                        // UNLESS a generic Permission prompt would overwrite
+                        // a more specific Plan or Question prompt from the
                         // same tier (Claude fires both notification and
                         // pre_tool_use hooks for the same prompt moment).
                         if tier == current_tier
@@ -330,16 +341,18 @@ fn is_idle_state(state: &AgentState) -> bool {
 /// Returns `true` when `current` is a specific prompt state that should not
 /// be overwritten by the more generic `incoming` prompt from the same tier.
 ///
-/// `PlanPrompt` and `Question` carry richer context than `PermissionPrompt`.
+/// Plan and Question prompts carry richer context than Permission prompts.
 /// When the agent fires both a specific pre-tool-use event and a generic
 /// permission notification for the same user-facing moment, the specific
 /// state should stick.
 fn prompt_supersedes(current: &AgentState, incoming: &AgentState) -> bool {
-    matches!(incoming, AgentState::PermissionPrompt { .. })
-        && matches!(
-            current,
-            AgentState::PlanPrompt { .. } | AgentState::Question { .. }
-        )
+    match (current, incoming) {
+        (AgentState::Prompt { prompt: cur }, AgentState::Prompt { prompt: inc }) => {
+            inc.kind == PromptKind::Permission
+                && matches!(cur.kind, PromptKind::Plan | PromptKind::Question)
+        }
+        _ => false,
+    }
 }
 
 fn set_grace_deadline(

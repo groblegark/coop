@@ -73,7 +73,7 @@ pub fn screen_snapshot_to_response(
 /// Convert a domain [`PromptContext`] to proto.
 pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
     proto::PromptContext {
-        r#type: p.prompt_type.clone(),
+        r#type: p.kind.as_str().to_owned(),
         tool: p.tool.clone(),
         input_preview: p.input_preview.clone(),
         screen_lines: p.screen_lines.clone(),
@@ -424,7 +424,10 @@ impl proto::coop_server::Coop for CoopGrpc {
             code.to_grpc_status(format!("agent is {} (no active prompt)", agent.as_str()))
         })?;
 
-        let prompt_type = agent.as_str().to_owned();
+        let prompt_type = agent
+            .prompt()
+            .map(|p| p.kind.as_str().to_owned())
+            .unwrap_or_default();
         drop(agent);
 
         deliver_steps(&self.state.channels.input_tx, steps)

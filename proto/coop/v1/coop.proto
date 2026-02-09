@@ -201,7 +201,7 @@ message QuestionAnswer {
 }
 
 // Contextual information about a prompt the agent is presenting.
-// Present when agent state is permission_prompt, plan_prompt, or question.
+// Present when agent state is "prompt".
 message PromptContext {
   // Prompt type: "permission", "plan", "question".
   string type = 1;
@@ -222,8 +222,7 @@ message GetAgentStateResponse {
   // Agent type.
   string agent = 1;
   // Current agent state: starting, working, waiting_for_input,
-  // permission_prompt, plan_prompt, question, error, alt_screen,
-  // exited, unknown.
+  // prompt, error, exited, unknown.
   string state = 2;
   // Sequence number when this state was entered.
   uint64 since_seq = 3;
