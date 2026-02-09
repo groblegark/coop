@@ -12,7 +12,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
-use crate::driver::{AgentState, QuestionAnswer};
+use crate::driver::{classify_error_detail, AgentState, QuestionAnswer};
 use crate::error::ErrorCode;
 use crate::event::InputEvent;
 use crate::event::PtySignal;
@@ -25,7 +25,7 @@ use crate::transport::{deliver_steps, encode_response, keys_to_bytes, update_que
 
 /// Health check result.
 pub struct HealthInfo {
-    pub status: &'static str,
+    pub status: String,
     pub pid: Option<i32>,
     pub uptime_secs: i64,
     pub agent: String,
@@ -36,8 +36,9 @@ pub struct HealthInfo {
 }
 
 /// Session status result.
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SessionStatus {
-    pub state: &'static str,
+    pub state: String,
     pub pid: Option<i32>,
     pub uptime_secs: i64,
     pub exit_code: Option<i32>,
@@ -48,18 +49,22 @@ pub struct SessionStatus {
 }
 
 /// Nudge delivery result.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct NudgeOutcome {
     pub delivered: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub state_before: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
 
 /// Respond delivery result.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct RespondOutcome {
     pub delivered: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
 
@@ -100,6 +105,28 @@ pub fn session_state_str(agent: &AgentState, child_pid: u32) -> &'static str {
     }
 }
 
+/// Map an error code to a human-readable message for error responses.
+pub fn error_message(code: ErrorCode) -> &'static str {
+    match code {
+        ErrorCode::NotReady => "agent is still starting",
+        ErrorCode::NoDriver => "no agent driver configured",
+        _ => "request failed",
+    }
+}
+
+/// Extract error detail and category fields from an agent state.
+///
+/// Returns `(error_detail, error_category)` — both `None` for non-error states.
+pub fn extract_error_fields(agent: &AgentState) -> (Option<String>, Option<String>) {
+    match agent {
+        AgentState::Error { detail } => {
+            let category = classify_error_detail(detail);
+            (Some(detail.clone()), Some(category.as_str().to_owned()))
+        }
+        _ => (None, None),
+    }
+}
+
 /// Compute health info.
 pub async fn compute_health(state: &AppState) -> HealthInfo {
     let snap = state.terminal.screen.read().await.snapshot();
@@ -108,7 +135,7 @@ pub async fn compute_health(state: &AppState) -> HealthInfo {
     let ready = state.ready.load(Ordering::Acquire);
 
     HealthInfo {
-        status: "running",
+        status: "running".to_owned(),
         pid: if pid == 0 { None } else { Some(pid as i32) },
         uptime_secs: uptime,
         agent: state.config.agent.to_string(),
@@ -129,7 +156,7 @@ pub async fn compute_status(state: &AppState) -> SessionStatus {
     let bw = state.lifecycle.bytes_written.load(Ordering::Relaxed);
 
     SessionStatus {
-        state: session_state_str(&agent, pid),
+        state: session_state_str(&agent, pid).to_owned(),
         pid: if pid == 0 { None } else { Some(pid as i32) },
         uptime_secs: state.config.started_at.elapsed().as_secs() as i64,
         exit_code: exit.as_ref().and_then(|e| e.code),

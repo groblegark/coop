@@ -17,15 +17,16 @@ use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 
-use crate::driver::{classify_error_detail, AgentState, PromptContext};
+use crate::driver::{AgentState, PromptContext};
 use crate::error::ErrorCode;
 use crate::event::{OutputEvent, StateChangeEvent};
-use crate::screen::CursorPosition;
+use crate::screen::{CursorPosition, ScreenSnapshot};
 use crate::stop::StopEvent;
 use crate::transport::auth;
 use crate::transport::handler::{
-    compute_status, handle_input, handle_input_raw, handle_keys, handle_nudge, handle_resize,
-    handle_respond, handle_signal, TransportQuestionAnswer,
+    compute_status, error_message, extract_error_fields, handle_input, handle_input_raw,
+    handle_keys, handle_nudge, handle_resize, handle_respond, handle_signal, NudgeOutcome,
+    RespondOutcome, SessionStatus, TransportQuestionAnswer,
 };
 use crate::transport::read_ring_combined;
 use crate::transport::state::AppState;
@@ -172,6 +173,70 @@ pub struct WsQuery {
 }
 
 // ---------------------------------------------------------------------------
+// Handler-type → ServerMessage conversions
+// ---------------------------------------------------------------------------
+
+impl From<SessionStatus> for ServerMessage {
+    fn from(st: SessionStatus) -> Self {
+        ServerMessage::Status {
+            state: st.state,
+            pid: st.pid,
+            uptime_secs: st.uptime_secs,
+            exit_code: st.exit_code,
+            screen_seq: st.screen_seq,
+            bytes_read: st.bytes_read,
+            bytes_written: st.bytes_written,
+            ws_clients: st.ws_clients,
+        }
+    }
+}
+
+impl From<NudgeOutcome> for ServerMessage {
+    fn from(o: NudgeOutcome) -> Self {
+        ServerMessage::NudgeResult {
+            delivered: o.delivered,
+            state_before: o.state_before,
+            reason: o.reason,
+        }
+    }
+}
+
+impl From<RespondOutcome> for ServerMessage {
+    fn from(o: RespondOutcome) -> Self {
+        ServerMessage::RespondResult {
+            delivered: o.delivered,
+            prompt_type: o.prompt_type,
+            reason: o.reason,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Build a `ServerMessage::Screen` from a screen snapshot.
+fn snapshot_to_msg(snap: ScreenSnapshot, seq: u64) -> ServerMessage {
+    ServerMessage::Screen {
+        lines: snap.lines,
+        cols: snap.cols,
+        rows: snap.rows,
+        alt_screen: snap.alt_screen,
+        cursor: Some(snap.cursor),
+        seq,
+    }
+}
+
+/// Short-circuit: return an auth error if the client has not authenticated.
+macro_rules! require_auth {
+    ($authed:expr) => {
+        if !*$authed {
+            return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
+        }
+    };
+}
+
+// ---------------------------------------------------------------------------
 // WebSocket handler
 // ---------------------------------------------------------------------------
 
@@ -253,15 +318,7 @@ async fn handle_connection(
                     }
                     (OutputEvent::ScreenUpdate { seq }, SubscriptionMode::Screen | SubscriptionMode::All) => {
                         let snap = state.terminal.screen.read().await.snapshot();
-                        let msg = ServerMessage::Screen {
-                            lines: snap.lines,
-                            cols: snap.cols,
-                            rows: snap.rows,
-                            alt_screen: snap.alt_screen,
-                            cursor: Some(snap.cursor),
-                            seq: *seq,
-                        };
-                        if send_json(&mut ws_tx, &msg).await.is_err() {
+                        if send_json(&mut ws_tx, &snapshot_to_msg(snap, *seq)).await.is_err() {
                             break;
                         }
                     }
@@ -344,27 +401,15 @@ async fn handle_client_message(
 
         ClientMessage::ScreenRequest {} => {
             let snap = state.terminal.screen.read().await.snapshot();
-            Some(ServerMessage::Screen {
-                lines: snap.lines,
-                cols: snap.cols,
-                rows: snap.rows,
-                alt_screen: snap.alt_screen,
-                cursor: Some(snap.cursor),
-                seq: snap.sequence,
-            })
+            let seq = snap.sequence;
+            Some(snapshot_to_msg(snap, seq))
         }
 
         ClientMessage::StateRequest {} => {
             let agent = state.driver.agent_state.read().await;
             let screen = state.terminal.screen.read().await;
             let cause = state.driver.detection_cause.read().await.clone();
-            let (error_detail, error_category) = match &*agent {
-                AgentState::Error { detail } => {
-                    let category = classify_error_detail(detail);
-                    (Some(detail.clone()), Some(category.as_str().to_owned()))
-                }
-                _ => (None, None),
-            };
+            let (error_detail, error_category) = extract_error_fields(&agent);
             Some(ServerMessage::StateChange {
                 prev: agent.as_str().to_owned(),
                 next: agent.as_str().to_owned(),
@@ -376,19 +421,7 @@ async fn handle_client_message(
             })
         }
 
-        ClientMessage::StatusRequest {} => {
-            let st = compute_status(state).await;
-            Some(ServerMessage::Status {
-                state: st.state.to_owned(),
-                pid: st.pid,
-                uptime_secs: st.uptime_secs,
-                exit_code: st.exit_code,
-                screen_seq: st.screen_seq,
-                bytes_read: st.bytes_read,
-                bytes_written: st.bytes_written,
-                ws_clients: st.ws_clients,
-            })
-        }
+        ClientMessage::StatusRequest {} => Some(compute_status(state).await.into()),
 
         ClientMessage::Replay { offset } => {
             let ring = state.terminal.ring.read().await;
@@ -399,17 +432,13 @@ async fn handle_client_message(
 
         // Write operations require auth
         ClientMessage::Input { text, enter } => {
-            if !*authed {
-                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
-            }
+            require_auth!(authed);
             let _ = handle_input(state, text, enter).await;
             None
         }
 
         ClientMessage::InputRaw { data } => {
-            if !*authed {
-                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
-            }
+            require_auth!(authed);
             let decoded =
                 base64::engine::general_purpose::STANDARD.decode(&data).unwrap_or_default();
             let _ = handle_input_raw(state, decoded).await;
@@ -417,9 +446,7 @@ async fn handle_client_message(
         }
 
         ClientMessage::Keys { keys } => {
-            if !*authed {
-                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
-            }
+            require_auth!(authed);
             match handle_keys(state, &keys).await {
                 Ok(_) => None,
                 Err(bad_key) => {
@@ -434,37 +461,23 @@ async fn handle_client_message(
         },
 
         ClientMessage::Nudge { message } => {
-            if !*authed {
-                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
-            }
+            require_auth!(authed);
             match handle_nudge(state, &message).await {
-                Ok(outcome) => Some(ServerMessage::NudgeResult {
-                    delivered: outcome.delivered,
-                    state_before: outcome.state_before,
-                    reason: outcome.reason,
-                }),
-                Err(code) => Some(ws_error(code, &error_message(code))),
+                Ok(outcome) => Some(outcome.into()),
+                Err(code) => Some(ws_error(code, error_message(code))),
             }
         }
 
         ClientMessage::Respond { accept, text, answers, option } => {
-            if !*authed {
-                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
-            }
+            require_auth!(authed);
             match handle_respond(state, accept, option, text.as_deref(), &answers).await {
-                Ok(outcome) => Some(ServerMessage::RespondResult {
-                    delivered: outcome.delivered,
-                    prompt_type: outcome.prompt_type,
-                    reason: outcome.reason,
-                }),
-                Err(code) => Some(ws_error(code, &error_message(code))),
+                Ok(outcome) => Some(outcome.into()),
+                Err(code) => Some(ws_error(code, error_message(code))),
             }
         }
 
         ClientMessage::Signal { signal } => {
-            if !*authed {
-                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
-            }
+            require_auth!(authed);
             match handle_signal(state, &signal).await {
                 Ok(()) => None,
                 Err(bad_signal) => {
@@ -474,9 +487,7 @@ async fn handle_client_message(
         }
 
         ClientMessage::Shutdown {} => {
-            if !*authed {
-                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
-            }
+            require_auth!(authed);
             state.lifecycle.shutdown.cancel();
             None // Connection will close as servers shut down
         }
@@ -488,43 +499,20 @@ fn ws_error(code: ErrorCode, message: &str) -> ServerMessage {
     ServerMessage::Error { code: code.as_str().to_owned(), message: message.to_owned() }
 }
 
-/// Map an error code to a human-readable message for WS error responses.
-fn error_message(code: ErrorCode) -> String {
-    match code {
-        ErrorCode::NotReady => "agent is still starting".to_owned(),
-        ErrorCode::NoDriver => "no agent driver configured".to_owned(),
-        _ => "request failed".to_owned(),
-    }
-}
-
 /// Convert a `StateChangeEvent` to a `ServerMessage`.
 fn state_change_to_msg(event: &StateChangeEvent) -> ServerMessage {
-    let prompt = Box::new(event.next.prompt().cloned());
-    match &event.next {
-        AgentState::Exited { status } => {
-            ServerMessage::Exit { code: status.code, signal: status.signal }
-        }
-        AgentState::Error { detail } => {
-            let category = classify_error_detail(detail);
-            ServerMessage::StateChange {
-                prev: event.prev.as_str().to_owned(),
-                next: event.next.as_str().to_owned(),
-                seq: event.seq,
-                prompt,
-                error_detail: Some(detail.clone()),
-                error_category: Some(category.as_str().to_owned()),
-                cause: event.cause.clone(),
-            }
-        }
-        _ => ServerMessage::StateChange {
-            prev: event.prev.as_str().to_owned(),
-            next: event.next.as_str().to_owned(),
-            seq: event.seq,
-            prompt,
-            error_detail: None,
-            error_category: None,
-            cause: event.cause.clone(),
-        },
+    if let AgentState::Exited { status } = &event.next {
+        return ServerMessage::Exit { code: status.code, signal: status.signal };
+    }
+    let (error_detail, error_category) = extract_error_fields(&event.next);
+    ServerMessage::StateChange {
+        prev: event.prev.as_str().to_owned(),
+        next: event.next.as_str().to_owned(),
+        seq: event.seq,
+        prompt: Box::new(event.next.prompt().cloned()),
+        error_detail,
+        error_category,
+        cause: event.cause.clone(),
     }
 }
 

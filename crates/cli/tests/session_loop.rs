@@ -18,7 +18,8 @@ use coop::pty::spawn::NativePty;
 use coop::session::{Session, SessionConfig};
 use coop::test_support::AppStateBuilder;
 use coop::transport::build_router;
-use coop::transport::http::{HealthResponse, InputRequest, ScreenResponse, StatusResponse};
+use coop::transport::handler::SessionStatus;
+use coop::transport::http::{HealthResponse, InputRequest, ScreenResponse};
 
 // ---------------------------------------------------------------------------
 // Session loop tests
@@ -177,7 +178,7 @@ async fn http_status_endpoint() -> anyhow::Result<()> {
 
     let resp = server.get("/api/v1/status").await;
     resp.assert_status(StatusCode::OK);
-    let status: StatusResponse = resp.json();
+    let status: SessionStatus = resp.json();
     assert_eq!(status.state, "starting");
     assert_eq!(status.ws_clients, 0);
     Ok(())
@@ -358,7 +359,7 @@ async fn full_stack_echo_screen_via_http() -> anyhow::Result<()> {
     // Verify status shows exited
     let resp2 = server.get("/api/v1/status").await;
     resp2.assert_status(StatusCode::OK);
-    let status: StatusResponse = resp2.json();
+    let status: SessionStatus = resp2.json();
     assert_eq!(status.state, "exited");
     assert_eq!(status.exit_code, Some(0));
 

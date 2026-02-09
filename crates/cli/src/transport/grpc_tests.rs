@@ -102,6 +102,26 @@ fn prompt_to_proto_converts_all_fields() {
 }
 
 #[test]
+fn prompt_to_proto_maps_subtype() {
+    let prompt = crate::driver::PromptContext {
+        kind: crate::driver::PromptKind::Setup,
+        subtype: Some("theme_picker".to_owned()),
+        tool: None,
+        input_preview: None,
+        screen_lines: vec![],
+        options: vec!["Dark mode".to_owned(), "Light mode".to_owned()],
+        options_fallback: false,
+        questions: vec![],
+        question_current: 0,
+    };
+    let p = prompt_to_proto(&prompt);
+    assert_eq!(p.r#type, "setup");
+    assert_eq!(p.subtype.as_deref(), Some("theme_picker"));
+    assert_eq!(p.options, vec!["Dark mode", "Light mode"]);
+    assert!(p.tool.is_none());
+}
+
+#[test]
 fn prompt_to_proto_handles_none_fields() {
     let prompt = crate::driver::PromptContext {
         kind: crate::driver::PromptKind::Question,

@@ -17,8 +17,8 @@ use crate::error::ErrorCode;
 use crate::screen::CursorPosition;
 use crate::stop::{generate_block_reason, StopConfig, StopMode, StopType};
 use crate::transport::handler::{
-    compute_health, compute_status, handle_input, handle_input_raw, handle_keys, handle_nudge,
-    handle_resize, handle_respond, handle_signal, TransportQuestionAnswer,
+    compute_health, compute_status, error_message, handle_input, handle_input_raw, handle_keys,
+    handle_nudge, handle_resize, handle_respond, handle_signal, TransportQuestionAnswer,
 };
 use crate::transport::read_ring_combined;
 use crate::transport::state::AppState;
@@ -86,18 +86,6 @@ pub struct OutputResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StatusResponse {
-    pub state: String,
-    pub pid: Option<i32>,
-    pub uptime_secs: i64,
-    pub exit_code: Option<i32>,
-    pub screen_seq: u64,
-    pub bytes_read: u64,
-    pub bytes_written: u64,
-    pub ws_clients: i32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputRequest {
     pub text: String,
     #[serde(default)]
@@ -161,26 +149,12 @@ pub struct NudgeRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NudgeResponse {
-    pub delivered: bool,
-    pub state_before: Option<String>,
-    pub reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RespondRequest {
     pub accept: Option<bool>,
     pub text: Option<String>,
     #[serde(default)]
     pub answers: Vec<TransportQuestionAnswer>,
     pub option: Option<i32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RespondResponse {
-    pub delivered: bool,
-    pub prompt_type: Option<String>,
-    pub reason: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +165,7 @@ pub struct RespondResponse {
 pub async fn health(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let h = compute_health(&s).await;
     Json(HealthResponse {
-        status: h.status.to_owned(),
+        status: h.status,
         pid: h.pid,
         uptime_secs: h.uptime_secs,
         agent: h.agent,
@@ -269,17 +243,7 @@ pub async fn output(
 
 /// `GET /api/v1/status`
 pub async fn status(State(s): State<Arc<AppState>>) -> impl IntoResponse {
-    let st = compute_status(&s).await;
-    Json(StatusResponse {
-        state: st.state.to_owned(),
-        pid: st.pid,
-        uptime_secs: st.uptime_secs,
-        exit_code: st.exit_code,
-        screen_seq: st.screen_seq,
-        bytes_read: st.bytes_read,
-        bytes_written: st.bytes_written,
-        ws_clients: st.ws_clients,
-    })
+    Json(compute_status(&s).await)
 }
 
 /// `POST /api/v1/input`
@@ -369,12 +333,7 @@ pub async fn agent_nudge(
     Json(req): Json<NudgeRequest>,
 ) -> impl IntoResponse {
     match handle_nudge(&s, &req.message).await {
-        Ok(outcome) => Json(NudgeResponse {
-            delivered: outcome.delivered,
-            state_before: outcome.state_before,
-            reason: outcome.reason,
-        })
-        .into_response(),
+        Ok(outcome) => Json(outcome).into_response(),
         Err(code) => code.to_http_response(error_message(code)).into_response(),
     }
 }
@@ -385,22 +344,8 @@ pub async fn agent_respond(
     Json(req): Json<RespondRequest>,
 ) -> impl IntoResponse {
     match handle_respond(&s, req.accept, req.option, req.text.as_deref(), &req.answers).await {
-        Ok(outcome) => Json(RespondResponse {
-            delivered: outcome.delivered,
-            prompt_type: outcome.prompt_type,
-            reason: outcome.reason,
-        })
-        .into_response(),
+        Ok(outcome) => Json(outcome).into_response(),
         Err(code) => code.to_http_response(error_message(code)).into_response(),
-    }
-}
-
-/// Map an error code to a human-readable message for HTTP error responses.
-fn error_message(code: ErrorCode) -> &'static str {
-    match code {
-        ErrorCode::NotReady => "agent is still starting",
-        ErrorCode::NoDriver => "no agent driver configured",
-        _ => "request failed",
     }
 }
 

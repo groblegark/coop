@@ -112,3 +112,48 @@ fn non_fallback_permission_uses_encoder() {
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].bytes, b"1\r");
 }
+
+// ---------------------------------------------------------------------------
+// encode_response: Setup prompt
+// ---------------------------------------------------------------------------
+
+#[test]
+fn setup_prompt_defaults_to_option_1() {
+    let encoder = ClaudeRespondEncoder::default();
+    let prompt = PromptContext {
+        kind: PromptKind::Setup,
+        subtype: Some("theme_picker".to_owned()),
+        tool: None,
+        input_preview: None,
+        screen_lines: vec![],
+        options: vec!["Dark mode".to_string(), "Light mode".to_string()],
+        options_fallback: false,
+        questions: vec![],
+        question_current: 0,
+    };
+    let state = AgentState::Prompt { prompt };
+    let (steps, count) = encode_response(&state, &encoder, None, None, None, &[]).unwrap();
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].bytes, b"1\r");
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn setup_prompt_respects_explicit_option() {
+    let encoder = ClaudeRespondEncoder::default();
+    let prompt = PromptContext {
+        kind: PromptKind::Setup,
+        subtype: Some("theme_picker".to_owned()),
+        tool: None,
+        input_preview: None,
+        screen_lines: vec![],
+        options: vec!["Dark mode".to_string(), "Light mode".to_string()],
+        options_fallback: false,
+        questions: vec![],
+        question_current: 0,
+    };
+    let state = AgentState::Prompt { prompt };
+    let (steps, _) = encode_response(&state, &encoder, None, Some(2), None, &[]).unwrap();
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].bytes, b"2\r");
+}

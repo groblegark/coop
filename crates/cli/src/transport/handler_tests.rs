@@ -191,6 +191,39 @@ async fn respond_not_ready_returns_error() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn respond_setup_prompt_delivers_option_to_pty() -> anyhow::Result<()> {
+    let setup_state = AgentState::Prompt {
+        prompt: crate::driver::PromptContext {
+            kind: crate::driver::PromptKind::Setup,
+            subtype: Some("theme_picker".to_owned()),
+            tool: None,
+            input_preview: None,
+            screen_lines: vec![],
+            options: vec!["Dark mode".to_owned(), "Light mode".to_owned()],
+            options_fallback: false,
+            questions: vec![],
+            question_current: 0,
+        },
+    };
+    let (state, mut rx) = AppStateBuilder::new()
+        .agent_state(setup_state)
+        .respond_encoder(Arc::new(StubRespondEncoder))
+        .build();
+    state.ready.store(true, std::sync::atomic::Ordering::Release);
+
+    let result = handle_respond(&state, None, Some(2), None, &[])
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    assert!(result.delivered);
+    assert_eq!(result.prompt_type.as_deref(), Some("setup"));
+
+    // Verify PTY received the encoded bytes ("2\r" from StubRespondEncoder).
+    let event = rx.recv().await;
+    assert!(matches!(event, Some(InputEvent::Write(data)) if data == &b"2\r"[..]));
+    Ok(())
+}
+
+#[tokio::test]
 async fn respond_no_prompt_returns_soft_failure() -> anyhow::Result<()> {
     let (state, _rx) = AppStateBuilder::new()
         .agent_state(AgentState::Working)

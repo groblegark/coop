@@ -12,13 +12,13 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use super::read_ring_combined;
-use crate::driver::{classify_error_detail, AgentState, PromptContext};
+use crate::driver::PromptContext;
 use crate::error::ErrorCode;
 use crate::event::{OutputEvent, StateChangeEvent};
 use crate::stop::StopConfig;
 use crate::transport::handler::{
-    compute_health, compute_status, handle_input, handle_keys, handle_nudge, handle_resize,
-    handle_respond, handle_signal, TransportQuestionAnswer,
+    compute_health, compute_status, error_message, extract_error_fields, handle_input, handle_keys,
+    handle_nudge, handle_resize, handle_respond, handle_signal, TransportQuestionAnswer,
 };
 use crate::transport::state::AppState;
 
@@ -88,12 +88,7 @@ pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
 
 /// Convert a domain [`StateChangeEvent`] to proto [`proto::AgentStateEvent`].
 pub fn state_change_to_proto(e: &StateChangeEvent) -> proto::AgentStateEvent {
-    let (error_detail, error_category) = match &e.next {
-        AgentState::Error { detail } => {
-            (Some(detail.clone()), Some(classify_error_detail(detail).as_str().to_owned()))
-        }
-        _ => (None, None),
-    };
+    let (error_detail, error_category) = extract_error_fields(&e.next);
     let cause = if e.cause.is_empty() { None } else { Some(e.cause.clone()) };
     proto::AgentStateEvent {
         prev: e.prev.as_str().to_owned(),
@@ -104,6 +99,38 @@ pub fn state_change_to_proto(e: &StateChangeEvent) -> proto::AgentStateEvent {
         error_category,
         cause,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Broadcast → gRPC stream helper
+// ---------------------------------------------------------------------------
+
+/// Spawn a task that reads from a broadcast receiver, maps each event through
+/// `map_fn`, and forwards the result into a gRPC response stream.
+fn spawn_broadcast_stream<E, T, F>(rx: broadcast::Receiver<E>, map_fn: F) -> GrpcStream<T>
+where
+    E: Clone + Send + 'static,
+    T: Send + 'static,
+    F: Fn(E) -> Option<T> + Send + 'static,
+{
+    let (tx, receiver) = mpsc::channel(16);
+    tokio::spawn(async move {
+        let mut rx = rx;
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    if let Some(item) = map_fn(event) {
+                        if tx.send(Ok(item)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+    Box::pin(ReceiverStream::new(receiver))
 }
 
 // ---------------------------------------------------------------------------
@@ -137,7 +164,7 @@ impl proto::coop_server::Coop for CoopGrpc {
     ) -> Result<Response<proto::GetHealthResponse>, Status> {
         let h = compute_health(&self.state).await;
         Ok(Response::new(proto::GetHealthResponse {
-            status: h.status.to_owned(),
+            status: h.status,
             pid: h.pid,
             uptime_secs: h.uptime_secs,
             agent: h.agent,
@@ -164,7 +191,7 @@ impl proto::coop_server::Coop for CoopGrpc {
     ) -> Result<Response<proto::GetStatusResponse>, Status> {
         let st = compute_status(&self.state).await;
         Ok(Response::new(proto::GetStatusResponse {
-            state: st.state.to_owned(),
+            state: st.state,
             pid: st.pid,
             uptime_secs: st.uptime_secs,
             exit_code: st.exit_code,
@@ -258,7 +285,7 @@ impl proto::coop_server::Coop for CoopGrpc {
                 state_before: outcome.state_before,
                 reason: outcome.reason,
             })),
-            Err(code) => Err(code.to_grpc_status(grpc_error_message(code))),
+            Err(code) => Err(code.to_grpc_status(error_message(code))),
         }
     }
 
@@ -280,7 +307,7 @@ impl proto::coop_server::Coop for CoopGrpc {
                 prompt_type: outcome.prompt_type,
                 reason: outcome.reason,
             })),
-            Err(code) => Err(code.to_grpc_status(grpc_error_message(code))),
+            Err(code) => Err(code.to_grpc_status(error_message(code))),
         }
     }
 
@@ -354,9 +381,7 @@ impl proto::coop_server::Coop for CoopGrpc {
                             break;
                         }
                     }
-                    Ok(OutputEvent::Raw(_)) => {
-                        // Skip raw events in screen stream
-                    }
+                    Ok(OutputEvent::Raw(_)) => {}
                     Err(broadcast::error::RecvError::Lagged(_)) => {}
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
@@ -372,25 +397,9 @@ impl proto::coop_server::Coop for CoopGrpc {
         &self,
         _request: Request<proto::StreamStateRequest>,
     ) -> Result<Response<Self::StreamStateStream>, Status> {
-        let (tx, rx) = mpsc::channel(16);
-        let mut state_rx = self.state.channels.state_tx.subscribe();
-
-        tokio::spawn(async move {
-            loop {
-                match state_rx.recv().await {
-                    Ok(event) => {
-                        let proto_event = state_change_to_proto(&event);
-                        if tx.send(Ok(proto_event)).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(broadcast::error::RecvError::Lagged(_)) => {}
-                    Err(broadcast::error::RecvError::Closed) => break,
-                }
-            }
-        });
-
-        Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
+        let state_rx = self.state.channels.state_tx.subscribe();
+        let stream = spawn_broadcast_stream(state_rx, |event| Some(state_change_to_proto(&event)));
+        Ok(Response::new(stream))
     }
 
     async fn shutdown(
@@ -441,39 +450,16 @@ impl proto::coop_server::Coop for CoopGrpc {
         &self,
         _request: Request<proto::StreamStopEventsRequest>,
     ) -> Result<Response<Self::StreamStopEventsStream>, Status> {
-        let (tx, rx) = mpsc::channel(16);
-        let mut stop_rx = self.state.stop.stop_tx.subscribe();
-
-        tokio::spawn(async move {
-            loop {
-                match stop_rx.recv().await {
-                    Ok(event) => {
-                        let proto_event = proto::StopEvent {
-                            stop_type: event.stop_type.as_str().to_owned(),
-                            signal_json: event.signal.map(|v| v.to_string()),
-                            error_detail: event.error_detail,
-                            seq: event.seq,
-                        };
-                        if tx.send(Ok(proto_event)).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(broadcast::error::RecvError::Lagged(_)) => {}
-                    Err(broadcast::error::RecvError::Closed) => break,
-                }
-            }
+        let stop_rx = self.state.stop.stop_tx.subscribe();
+        let stream = spawn_broadcast_stream(stop_rx, |event| {
+            Some(proto::StopEvent {
+                stop_type: event.stop_type.as_str().to_owned(),
+                signal_json: event.signal.map(|v| v.to_string()),
+                error_detail: event.error_detail,
+                seq: event.seq,
+            })
         });
-
-        Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
-    }
-}
-
-/// Map an error code to a human-readable message for gRPC error responses.
-fn grpc_error_message(code: ErrorCode) -> &'static str {
-    match code {
-        ErrorCode::NotReady => "agent is still starting",
-        ErrorCode::NoDriver => "no agent driver configured",
-        _ => "request failed",
+        Ok(Response::new(stream))
     }
 }
 
