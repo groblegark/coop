@@ -82,6 +82,20 @@
     border-radius: 3px; margin-left: 8px;
   }
   #toggle-btn:hover { border-color: #888; color: #ddd; }
+  #agent-state {
+    font-weight: 600; margin-right: 12px;
+    padding: 1px 8px; border-radius: 3px;
+    border: 1px solid #444; color: #ccc;
+    display: none;
+  }
+  #agent-state.visible { display: inline; }
+  #agent-state.st-working         { border-color: #4e8; color: #4e8; }
+  #agent-state.st-waiting_for_input { border-color: #e8a317; color: #e8a317; }
+  #agent-state.st-permission_prompt,
+  #agent-state.st-plan_prompt,
+  #agent-state.st-ask_user        { border-color: #7cb7ff; color: #7cb7ff; }
+  #agent-state.st-error           { border-color: #e06060; color: #e06060; }
+  #agent-state.st-exited          { border-color: #888; color: #888; }
 </style>
 </head>
 <body>
@@ -121,8 +135,9 @@
     <span id="label">Connecting…</span>
   </span>
   <span>
+    <span id="agent-state"></span>
     <span id="info"></span>
-    <button id="toggle-btn">Inspector</button>
+    <button id="toggle-btn">Hide</button>
   </span>
 </div>
 
@@ -136,9 +151,15 @@ const PORT = params.get('port') || '7070';
 const BASE = `http://localhost:${PORT}`;
 const WS_URL = `ws://localhost:${PORT}/ws?mode=all`;
 
-const dot   = document.getElementById('dot');
-const label = document.getElementById('label');
-const info  = document.getElementById('info');
+const dot        = document.getElementById('dot');
+const label      = document.getElementById('label');
+const info       = document.getElementById('info');
+const agentState = document.getElementById('agent-state');
+
+function setAgentState(state) {
+  agentState.textContent = state;
+  agentState.className = `visible st-${state}`;
+}
 
 function setStatus(state, text) {
   dot.className = `dot dot-${state}`;
@@ -214,7 +235,15 @@ function esc(v) {
   return el.innerHTML;
 }
 
+async function pollAgentState() {
+  try {
+    const agent = await fetch(`${BASE}/api/v1/agent/state`).then(r => r.ok ? r.json() : null);
+    if (agent?.state) setAgentState(agent.state);
+  } catch (_) { /* ignore */ }
+}
+
 async function pollApi() {
+  pollAgentState();
   if (!sidebarVisible) return;
   try {
     const [health, status, agent] = await Promise.all([
@@ -403,9 +432,12 @@ function connect() {
       const bytes = b64decode(msg.data);
       term.write(bytes);
       info.textContent = `offset: ${msg.offset + bytes.length}`;
+    } else if (msg.type === 'state_change') {
+      setAgentState(msg.next);
     } else if (msg.type === 'exit') {
       const desc = msg.signal != null ? `signal ${msg.signal}` : `code ${msg.code ?? '?'}`;
       setStatus('disconnected', `Exited (${desc})`);
+      setAgentState('exited');
     } else if (msg.type === 'error') {
       console.warn('server error:', msg.code, msg.message);
     }
