@@ -67,11 +67,12 @@ fn ask_user_context_extracts_question_and_options() {
     });
     let ctx = extract_ask_user_context(&block);
     assert_eq!(ctx.prompt_type, "question");
+    assert_eq!(ctx.questions.len(), 1);
+    assert_eq!(ctx.questions[0].question, "Which database should we use?");
     assert_eq!(
-        ctx.question.as_deref(),
-        Some("Which database should we use?")
+        ctx.questions[0].options,
+        vec!["PostgreSQL", "SQLite", "MySQL"]
     );
-    assert_eq!(ctx.options, vec!["PostgreSQL", "SQLite", "MySQL"]);
 }
 
 #[test]
@@ -86,8 +87,9 @@ fn ask_user_context_with_no_options() {
         }
     });
     let ctx = extract_ask_user_context(&block);
-    assert_eq!(ctx.question.as_deref(), Some("What do you want to do?"));
-    assert!(ctx.options.is_empty());
+    assert_eq!(ctx.questions.len(), 1);
+    assert_eq!(ctx.questions[0].question, "What do you want to do?");
+    assert!(ctx.questions[0].options.is_empty());
 }
 
 #[test]
@@ -99,8 +101,7 @@ fn ask_user_context_with_empty_input() {
     });
     let ctx = extract_ask_user_context(&block);
     assert_eq!(ctx.prompt_type, "question");
-    assert!(ctx.question.is_none());
-    assert!(ctx.options.is_empty());
+    assert!(ctx.questions.is_empty());
 }
 
 #[test]
@@ -136,16 +137,16 @@ fn ask_user_from_tool_input_extracts_question_and_options() {
     });
     let ctx = extract_ask_user_from_tool_input(Some(&tool_input));
     assert_eq!(ctx.prompt_type, "question");
-    assert_eq!(ctx.question.as_deref(), Some("Which framework?"));
-    assert_eq!(ctx.options, vec!["React", "Vue"]);
+    assert_eq!(ctx.questions.len(), 1);
+    assert_eq!(ctx.questions[0].question, "Which framework?");
+    assert_eq!(ctx.questions[0].options, vec!["React", "Vue"]);
 }
 
 #[test]
 fn ask_user_from_tool_input_with_none() {
     let ctx = extract_ask_user_from_tool_input(None);
     assert_eq!(ctx.prompt_type, "question");
-    assert!(ctx.question.is_none());
-    assert!(ctx.options.is_empty());
+    assert!(ctx.questions.is_empty());
 }
 
 #[test]
@@ -178,10 +179,6 @@ fn ask_user_extracts_all_questions() {
     assert_eq!(ctx.questions[1].question, "Which framework?");
     assert_eq!(ctx.questions[1].options, vec!["Axum", "Actix", "Rocket"]);
 
-    // Backwards compat: top-level fields from first question.
-    assert_eq!(ctx.question.as_deref(), Some("Which database?"));
-    assert_eq!(ctx.options, vec!["PostgreSQL", "SQLite"]);
-
     assert_eq!(ctx.question_current, 0);
 }
 
@@ -199,7 +196,6 @@ fn ask_user_single_question_populates_questions_vec() {
     let ctx = extract_ask_user_from_tool_input(Some(&tool_input));
     assert_eq!(ctx.questions.len(), 1);
     assert_eq!(ctx.questions[0].question, "Which DB?");
-    assert_eq!(ctx.question.as_deref(), Some("Which DB?"));
 }
 
 #[test]
@@ -214,6 +210,5 @@ fn missing_fields_produce_sensible_defaults() {
     // AskUser context with no input field
     let block = json!({ "type": "tool_use", "name": "AskUserQuestion" });
     let ctx = extract_ask_user_context(&block);
-    assert!(ctx.question.is_none());
-    assert!(ctx.options.is_empty());
+    assert!(ctx.questions.is_empty());
 }

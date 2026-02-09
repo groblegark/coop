@@ -180,7 +180,7 @@ async fn claude_multi_question_session_lifecycle() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Test Respond API with single-question backwards compat (option field).
+/// Test Respond API with single-question answer.
 #[tokio::test]
 async fn claude_ask_user_respond_api() -> anyhow::Result<()> {
     expect_claudeless();
@@ -194,10 +194,14 @@ async fn claude_ask_user_respond_api() -> anyhow::Result<()> {
     wait_for(&mut rx, |s| matches!(s, AgentState::Question { .. })).await?;
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // Use encode_response with old-style option field (backwards compat).
+    // Use encode_response with structured answer.
+    let answers = vec![QuestionAnswer {
+        option: Some(1),
+        text: None,
+    }];
     let encoder = app.config.respond_encoder.as_ref().unwrap();
     let agent = app.driver.agent_state.read().await;
-    let (steps, _count) = encode_response(&agent, encoder.as_ref(), None, Some(1), None, &[])
+    let (steps, _count) = encode_response(&agent, encoder.as_ref(), None, None, &answers)
         .map_err(|e| anyhow::anyhow!("encode_response failed: {:?}", e))?;
     drop(agent);
     deliver_steps(&app.channels.input_tx, steps)
@@ -243,7 +247,7 @@ async fn claude_multi_question_respond_api() -> anyhow::Result<()> {
     ];
     let encoder = app.config.respond_encoder.as_ref().unwrap();
     let agent = app.driver.agent_state.read().await;
-    let (steps, count) = encode_response(&agent, encoder.as_ref(), None, None, None, &answers)
+    let (steps, count) = encode_response(&agent, encoder.as_ref(), None, None, &answers)
         .map_err(|e| anyhow::anyhow!("encode_response failed: {:?}", e))?;
     drop(agent);
     assert_eq!(count, 2);

@@ -77,8 +77,9 @@ fn assistant_with_ask_user_produces_question() {
     match state {
         Some(AgentState::Question { prompt }) => {
             assert_eq!(prompt.prompt_type, "question");
-            assert_eq!(prompt.question.as_deref(), Some("Which database?"));
-            assert_eq!(prompt.options, vec!["PostgreSQL", "SQLite"]);
+            assert_eq!(prompt.questions.len(), 1);
+            assert_eq!(prompt.questions[0].question, "Which database?");
+            assert_eq!(prompt.questions[0].options, vec!["PostgreSQL", "SQLite"]);
         }
         other => panic!("expected Question, got {other:?}"),
     }

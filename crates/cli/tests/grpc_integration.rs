@@ -48,7 +48,7 @@ async fn grpc_get_health() -> anyhow::Result<()> {
         .get_health(proto::GetHealthRequest {})
         .await?
         .into_inner();
-    assert_eq!(resp.status, "ok");
+    assert_eq!(resp.status, "running");
     assert_eq!(resp.pid, Some(42));
     assert_eq!(resp.agent, "unknown");
     assert_eq!(resp.ws_clients, 0);

@@ -126,7 +126,7 @@ Rendered terminal screen content.
   "rows": 40,
   "alt_screen": false,
   "cursor": { "row": 2, "col": 0 },
-  "sequence": 42
+  "seq": 42
 }
 ```
 
@@ -137,7 +137,7 @@ Rendered terminal screen content.
 | `rows` | int | Terminal height |
 | `alt_screen` | bool | Whether the alternate screen buffer is active |
 | `cursor` | object or null | Cursor position (only when `cursor=true`) |
-| `sequence` | int | Monotonic screen update sequence number |
+| `seq` | int | Monotonic screen update sequence number |
 
 
 ### `GET /api/v1/screen/text`
@@ -378,9 +378,6 @@ Current agent state and prompt context.
     "prompt_type": "permission",
     "tool": "Bash",
     "input_preview": "{\"command\":\"ls -la\"}",
-    "question": null,
-    "options": [],
-    "summary": null,
     "screen_lines": [],
     "questions": [],
     "question_current": 0
@@ -425,9 +422,6 @@ Current agent state and prompt context.
 | `prompt_type` | string | `"permission"`, `"plan"`, `"question"` |
 | `tool` | string or null | Tool name (permission prompts) |
 | `input_preview` | string or null | Truncated tool input (permission prompts) |
-| `question` | string or null | Question text (single-question compat) |
-| `options` | string[] | Option labels (single-question compat) |
-| `summary` | string or null | Summary text |
 | `screen_lines` | string[] | Raw screen lines (plan prompts) |
 | `questions` | QuestionContext[] | All questions in a multi-question dialog |
 | `question_current` | int | 0-indexed current question; equals `questions.len()` at confirm phase |
@@ -493,7 +487,6 @@ Respond to an active prompt. Behavior depends on the current agent state.
 ```json
 {
   "accept": true,
-  "option": null,
   "text": null,
   "answers": []
 }
@@ -502,8 +495,7 @@ Respond to an active prompt. Behavior depends on the current agent state.
 | Field | Type | Description |
 |-------|------|-------------|
 | `accept` | bool or null | Accept/deny (permission and plan prompts) |
-| `option` | int or null | 1-indexed option number (single question, legacy) |
-| `text` | string or null | Freeform text input (plan feedback, single question, legacy) |
+| `text` | string or null | Freeform text (plan rejection feedback) |
 | `answers` | QuestionAnswer[] | Structured answers for multi-question dialogs |
 
 **QuestionAnswer shape:**
@@ -519,8 +511,7 @@ Respond to an active prompt. Behavior depends on the current agent state.
 |-------------|-------------|--------|
 | `permission_prompt` | `accept` | Accept (`true`) or deny (`false`) the tool call |
 | `plan_prompt` | `accept`, `text` | Accept the plan, or reject with optional feedback in `text` |
-| `question` | `answers` (preferred) | Answer one or more questions in the dialog |
-| `question` | `option`, `text` (legacy) | Answer the current single question |
+| `question` | `answers` | Answer one or more questions in the dialog |
 
 **Multi-question flow:**
 

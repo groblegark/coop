@@ -161,7 +161,7 @@ fn client_message_roundtrip() -> anyhow::Result<()> {
         r#"{"type":"respond","accept":true}"#,
         r#"{"type":"replay","offset":0}"#,
         r#"{"type":"auth","token":"tok"}"#,
-        r#"{"type":"signal","name":"SIGINT"}"#,
+        r#"{"type":"signal","signal":"SIGINT"}"#,
         r#"{"type":"ping"}"#,
     ];
 
@@ -287,7 +287,7 @@ async fn signal_delivers_sigint() -> anyhow::Result<()> {
     let client_id = "test-ws";
 
     let msg = ClientMessage::Signal {
-        name: "SIGINT".to_owned(),
+        signal: "SIGINT".to_owned(),
     };
     let reply = handle_client_message(&state, msg, client_id, &mut true).await;
     assert!(reply.is_none(), "expected None (success), got {reply:?}");
@@ -311,7 +311,7 @@ async fn signal_rejects_unknown() -> anyhow::Result<()> {
     let client_id = "test-ws";
 
     let msg = ClientMessage::Signal {
-        name: "SIGFOO".to_owned(),
+        signal: "SIGFOO".to_owned(),
     };
     let reply = handle_client_message(&state, msg, client_id, &mut true).await;
     match reply {
@@ -348,10 +348,10 @@ async fn keys_rejects_unknown_key() -> anyhow::Result<()> {
 #[test]
 fn signal_message_serialization() -> anyhow::Result<()> {
     let msg = ClientMessage::Signal {
-        name: "SIGTERM".to_owned(),
+        signal: "SIGTERM".to_owned(),
     };
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"signal\""));
-    assert!(json.contains("\"name\":\"SIGTERM\""));
+    assert!(json.contains("\"signal\":\"SIGTERM\""));
     Ok(())
 }

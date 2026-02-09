@@ -45,7 +45,7 @@ pub fn screen_snapshot_to_proto(s: &crate::screen::ScreenSnapshot) -> proto::Scr
         rows: s.rows as i32,
         alt_screen: s.alt_screen,
         cursor: Some(cursor_to_proto(&s.cursor)),
-        sequence: s.sequence,
+        seq: s.sequence,
     }
 }
 
@@ -65,7 +65,7 @@ pub fn screen_snapshot_to_response(
         } else {
             None
         },
-        sequence: s.sequence,
+        seq: s.sequence,
     }
 }
 
@@ -75,9 +75,6 @@ pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
         r#type: p.prompt_type.clone(),
         tool: p.tool.clone(),
         input_preview: p.input_preview.clone(),
-        question: p.question.clone(),
-        options: p.options.clone(),
-        summary: p.summary.clone(),
         screen_lines: p.screen_lines.clone(),
         questions: p
             .questions
@@ -147,7 +144,7 @@ impl proto::coop_server::Coop for CoopGrpc {
         let ws = self.state.lifecycle.ws_client_count.load(Ordering::Relaxed);
 
         Ok(Response::new(proto::GetHealthResponse {
-            status: "ok".to_owned(),
+            status: "running".to_owned(),
             pid: if pid == 0 { None } else { Some(pid as i32) },
             uptime_secs: uptime,
             agent: self.state.config.agent.to_string(),
@@ -190,8 +187,19 @@ impl proto::coop_server::Coop for CoopGrpc {
         let bw = self.state.lifecycle.bytes_written.load(Ordering::Relaxed);
         let ws = self.state.lifecycle.ws_client_count.load(Ordering::Relaxed);
 
+        let state_str = match &*agent {
+            AgentState::Exited { .. } => "exited",
+            _ => {
+                if pid == 0 {
+                    "starting"
+                } else {
+                    "running"
+                }
+            }
+        };
+
         Ok(Response::new(proto::GetStatusResponse {
-            state: agent.as_str().to_owned(),
+            state: state_str.to_owned(),
             pid: if pid == 0 { None } else { Some(pid as i32) },
             uptime_secs: uptime,
             exit_code,
@@ -408,7 +416,6 @@ impl proto::coop_server::Coop for CoopGrpc {
             &agent,
             encoder.as_ref(),
             req.accept,
-            req.option,
             req.text.as_deref(),
             &answers,
         )

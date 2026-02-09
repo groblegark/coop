@@ -46,7 +46,7 @@ fn screen_snapshot_to_proto_converts_all_fields() {
     assert_eq!(p.cols, 80);
     assert_eq!(p.rows, 24);
     assert!(p.alt_screen);
-    assert_eq!(p.sequence, 42);
+    assert_eq!(p.seq, 42);
     let cursor = p.cursor.as_ref();
     assert!(cursor.is_some());
     let c = cursor.ok_or("missing cursor").map_err(|e| e.to_string());
@@ -90,9 +90,6 @@ fn prompt_to_proto_converts_all_fields() {
         prompt_type: "permission".to_owned(),
         tool: Some("bash".to_owned()),
         input_preview: Some("rm -rf /".to_owned()),
-        question: Some("Allow?".to_owned()),
-        options: vec!["yes".to_owned(), "no".to_owned()],
-        summary: Some("dangerous command".to_owned()),
         screen_lines: vec!["$ rm -rf /".to_owned()],
         questions: vec![],
         question_current: 0,
@@ -101,9 +98,6 @@ fn prompt_to_proto_converts_all_fields() {
     assert_eq!(p.r#type, "permission");
     assert_eq!(p.tool.as_deref(), Some("bash"));
     assert_eq!(p.input_preview.as_deref(), Some("rm -rf /"));
-    assert_eq!(p.question.as_deref(), Some("Allow?"));
-    assert_eq!(p.options, vec!["yes", "no"]);
-    assert_eq!(p.summary.as_deref(), Some("dangerous command"));
     assert_eq!(p.screen_lines, vec!["$ rm -rf /"]);
 }
 
@@ -113,9 +107,6 @@ fn prompt_to_proto_handles_none_fields() {
         prompt_type: "question".to_owned(),
         tool: None,
         input_preview: None,
-        question: None,
-        options: vec![],
-        summary: None,
         screen_lines: vec![],
         questions: vec![],
         question_current: 0,
@@ -124,9 +115,6 @@ fn prompt_to_proto_handles_none_fields() {
     assert_eq!(p.r#type, "question");
     assert!(p.tool.is_none());
     assert!(p.input_preview.is_none());
-    assert!(p.question.is_none());
-    assert!(p.options.is_empty());
-    assert!(p.summary.is_none());
     assert!(p.screen_lines.is_empty());
 }
 
@@ -150,9 +138,6 @@ fn state_change_to_proto_includes_prompt() {
         prompt_type: "permission".to_owned(),
         tool: Some("write".to_owned()),
         input_preview: None,
-        question: None,
-        options: vec![],
-        summary: None,
         screen_lines: vec![],
         questions: vec![],
         question_current: 0,

@@ -99,7 +99,6 @@ pub fn encode_response(
     agent: &AgentState,
     encoder: &dyn RespondEncoder,
     accept: Option<bool>,
-    option: Option<i32>,
     text: Option<&str>,
     answers: &[QuestionAnswer],
 ) -> Result<(Vec<NudgeStep>, usize), ErrorCode> {
@@ -111,24 +110,12 @@ pub fn encode_response(
             Ok((encoder.encode_plan(accept.unwrap_or(false), text), 0))
         }
         AgentState::Question { prompt } => {
+            if answers.is_empty() {
+                return Ok((vec![], 0));
+            }
             let total_questions = prompt.questions.len();
-            // If structured answers provided, use them; otherwise bridge old fields.
-            let effective_answers: Vec<QuestionAnswer>;
-            let answers_ref = if answers.is_empty() {
-                if option.is_some() || text.is_some() {
-                    effective_answers = vec![QuestionAnswer {
-                        option: option.map(|o| o as u32),
-                        text: text.map(|t| t.to_string()),
-                    }];
-                    &effective_answers
-                } else {
-                    return Ok((vec![], 0));
-                }
-            } else {
-                answers
-            };
-            let count = answers_ref.len();
-            Ok((encoder.encode_question(answers_ref, total_questions), count))
+            let count = answers.len();
+            Ok((encoder.encode_question(answers, total_questions), count))
         }
         _ => Err(ErrorCode::NoPrompt),
     }

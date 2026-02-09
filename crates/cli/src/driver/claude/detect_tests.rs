@@ -223,8 +223,9 @@ async fn hook_detector_pre_tool_use_ask_user() -> anyhow::Result<()> {
     assert_eq!(states.len(), 1);
     if let AgentState::Question { prompt } = &states[0] {
         assert_eq!(prompt.prompt_type, "question");
-        assert_eq!(prompt.question.as_deref(), Some("Which DB?"));
-        assert_eq!(prompt.options, vec!["PostgreSQL", "SQLite"]);
+        assert_eq!(prompt.questions.len(), 1);
+        assert_eq!(prompt.questions[0].question, "Which DB?");
+        assert_eq!(prompt.questions[0].options, vec!["PostgreSQL", "SQLite"]);
     } else {
         anyhow::bail!("expected Question, got {:?}", states[0]);
     }

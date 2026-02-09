@@ -80,8 +80,8 @@ message GetScreenResponse {
   bool alt_screen = 4;
   // Cursor position (only present when include_cursor is true).
   CursorPosition cursor = 5;
-  // Monotonic screen update sequence number.
-  uint64 sequence = 6;
+  // Monotonic screen update seq number.
+  uint64 seq = 6;
 }
 
 // 0-indexed cursor position within the terminal grid.
@@ -100,7 +100,7 @@ message GetStatusResponse {
   int64 uptime_secs = 3;
   // Exit code if the process has exited.
   optional int32 exit_code = 4;
-  // Current screen sequence number.
+  // Current screen seq number.
   uint64 screen_seq = 5;
   // Total bytes read from PTY.
   uint64 bytes_read = 6;
@@ -168,7 +168,7 @@ message ScreenSnapshot {
   int32 rows = 3;
   bool alt_screen = 4;
   CursorPosition cursor = 5;
-  uint64 sequence = 6;
+  uint64 seq = 6;
 }
 
 // --- Agent messages ---
@@ -198,12 +198,6 @@ message PromptContext {
   optional string tool = 2;
   // Truncated tool input JSON (permission prompts).
   optional string input_preview = 3;
-  // Question text (single-question compat).
-  optional string question = 4;
-  // Option labels (single-question compat).
-  repeated string options = 5;
-  // Summary text.
-  optional string summary = 6;
   // Raw screen lines (plan prompts).
   repeated string screen_lines = 7;
   // All questions in a multi-question dialog.
@@ -252,13 +246,11 @@ message NudgeResponse {
 // Respond to an active prompt. Fields used depend on the current agent state:
 //   permission_prompt: accept
 //   plan_prompt: accept, text (feedback on reject)
-//   question: answers (preferred), or option + text (legacy single-question)
+//   question: answers
 message RespondRequest {
   // Accept/deny (permission and plan prompts).
   optional bool accept = 1;
-  // 1-indexed option number (single question, legacy).
-  optional int32 option = 2;
-  // Freeform text (plan feedback, single question, legacy).
+  // Freeform text (plan rejection feedback).
   optional string text = 3;
   // Structured answers for multi-question dialogs.
   repeated QuestionAnswer answers = 4;

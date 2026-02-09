@@ -25,9 +25,6 @@ pub fn extract_permission_context(json: &Value) -> PromptContext {
         prompt_type: "permission".to_string(),
         tool,
         input_preview,
-        question: None,
-        options: vec![],
-        summary: None,
         screen_lines: vec![],
         questions: vec![],
         question_current: 0,
@@ -80,20 +77,10 @@ pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext 
         })
         .unwrap_or_default();
 
-    // Backwards compat: top-level fields from first question.
-    let question = questions.first().map(|q| q.question.clone());
-    let options = questions
-        .first()
-        .map(|q| q.options.clone())
-        .unwrap_or_default();
-
     PromptContext {
         prompt_type: "question".to_string(),
         tool: Some("AskUserQuestion".to_string()),
         input_preview: None,
-        question,
-        options,
-        summary: None,
         screen_lines: vec![],
         questions,
         question_current: 0,
@@ -109,9 +96,6 @@ pub fn extract_plan_context(screen: &ScreenSnapshot) -> PromptContext {
         prompt_type: "plan".to_string(),
         tool: None,
         input_preview: None,
-        question: None,
-        options: vec![],
-        summary: None,
         screen_lines: screen.lines.clone(),
         questions: vec![],
         question_current: 0,

@@ -67,7 +67,7 @@ pub struct ScreenResponse {
     pub rows: u16,
     pub alt_screen: bool,
     pub cursor: Option<CursorPosition>,
-    pub sequence: u64,
+    pub seq: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -165,7 +165,6 @@ pub struct NudgeResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RespondRequest {
     pub accept: Option<bool>,
-    pub option: Option<i32>,
     pub text: Option<String>,
     #[serde(default)]
     pub answers: Vec<HttpQuestionAnswer>,
@@ -240,7 +239,7 @@ pub async fn screen(
         rows: snap.rows,
         alt_screen: snap.alt_screen,
         cursor: if q.cursor { Some(snap.cursor) } else { None },
-        sequence: snap.sequence,
+        seq: snap.sequence,
     })
 }
 
@@ -517,7 +516,6 @@ pub async fn agent_respond(
         &agent,
         encoder.as_ref(),
         req.accept,
-        req.option,
         req.text.as_deref(),
         &answers,
     ) {

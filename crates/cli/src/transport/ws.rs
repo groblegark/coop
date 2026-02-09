@@ -99,7 +99,6 @@ pub enum ClientMessage {
     },
     Respond {
         accept: Option<bool>,
-        option: Option<i32>,
         text: Option<String>,
         #[serde(default)]
         answers: Vec<WsQuestionAnswer>,
@@ -111,7 +110,7 @@ pub enum ClientMessage {
         token: String,
     },
     Signal {
-        name: String,
+        signal: String,
     },
     Ping {},
 }
@@ -436,7 +435,6 @@ async fn handle_client_message(
 
         ClientMessage::Respond {
             accept,
-            option,
             text,
             answers,
         } => {
@@ -463,7 +461,6 @@ async fn handle_client_message(
                 &agent,
                 encoder.as_ref(),
                 accept,
-                option,
                 text.as_deref(),
                 &domain_answers,
             ) {
@@ -480,18 +477,18 @@ async fn handle_client_message(
             None
         }
 
-        ClientMessage::Signal { name } => {
+        ClientMessage::Signal { signal } => {
             if !*authed {
                 return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
             }
-            match PtySignal::from_name(&name) {
+            match PtySignal::from_name(&signal) {
                 Some(sig) => {
                     let _ = state.channels.input_tx.send(InputEvent::Signal(sig)).await;
                     None
                 }
                 None => Some(ws_error(
                     ErrorCode::BadRequest,
-                    &format!("unknown signal: {name}"),
+                    &format!("unknown signal: {signal}"),
                 )),
             }
         }

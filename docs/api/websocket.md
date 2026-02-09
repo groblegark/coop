@@ -113,9 +113,6 @@ to a `state_request`.
     "prompt_type": "permission",
     "tool": "Bash",
     "input_preview": "{\"command\":\"rm -rf /tmp/test\"}",
-    "question": null,
-    "options": [],
-    "summary": null,
     "screen_lines": [],
     "questions": [],
     "question_current": 0
@@ -375,7 +372,6 @@ agent state.
 {
   "type": "respond",
   "accept": true,
-  "option": null,
   "text": null,
   "answers": []
 }
@@ -384,8 +380,7 @@ agent state.
 | Field | Type | Description |
 |-------|------|-------------|
 | `accept` | bool or null | Accept/deny (permission and plan prompts) |
-| `option` | int or null | 1-indexed option (single question, legacy) |
-| `text` | string or null | Freeform text (plan feedback, single question, legacy) |
+| `text` | string or null | Freeform text (plan rejection feedback) |
 | `answers` | QuestionAnswer[] | Structured answers for multi-question dialogs |
 
 See the HTTP API `POST /api/v1/agent/respond` documentation for per-prompt
@@ -401,13 +396,13 @@ Send a signal to the child process. **Requires auth.**
 ```json
 {
   "type": "signal",
-  "name": "SIGINT"
+  "signal": "SIGINT"
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `name` | string | Signal name or number (see HTTP API signal table) |
+| `signal` | string | Signal name or number (see HTTP API signal table) |
 
 No response on success. Error with `BAD_REQUEST` if the signal is unrecognized.
 
@@ -437,9 +432,6 @@ No response on success. Error with `BAD_REQUEST` if the signal is unrecognized.
   "prompt_type": "permission",
   "tool": "Bash",
   "input_preview": "{\"command\":\"ls\"}",
-  "question": null,
-  "options": [],
-  "summary": null,
   "screen_lines": [],
   "questions": [],
   "question_current": 0
@@ -451,9 +443,6 @@ No response on success. Error with `BAD_REQUEST` if the signal is unrecognized.
 | `prompt_type` | string | `"permission"`, `"plan"`, `"question"` |
 | `tool` | string or null | Tool name (permission prompts) |
 | `input_preview` | string or null | Truncated tool input (permission prompts) |
-| `question` | string or null | Question text (single-question compat) |
-| `options` | string[] | Option labels (single-question compat) |
-| `summary` | string or null | Summary text |
 | `screen_lines` | string[] | Raw screen lines (plan prompts) |
 | `questions` | QuestionContext[] | All questions in a multi-question dialog |
 | `question_current` | int | 0-indexed current question; equals `questions.len()` at confirm phase |

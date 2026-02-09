@@ -66,9 +66,6 @@ pub struct PromptContext {
     pub prompt_type: String,
     pub tool: Option<String>,
     pub input_preview: Option<String>,
-    pub question: Option<String>,
-    pub options: Vec<String>,
-    pub summary: Option<String>,
     pub screen_lines: Vec<String>,
     /// All questions in a multi-question dialog.
     #[serde(default)]
