@@ -38,6 +38,7 @@ tokio-stream.workspace = true
 tonic.workspace = true
 tonic-prost.workspace = true
 futures-util.workspace = true
+tokio-tungstenite.workspace = true
 parking_lot = "0.12.5"
 tempfile.workspace = true
 uuid.workspace = true
