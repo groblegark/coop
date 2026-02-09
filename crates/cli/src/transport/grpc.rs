@@ -569,12 +569,12 @@ impl proto::coop_server::Coop for CoopGrpc {
     }
 
     // -----------------------------------------------------------------------
-    // 14. AgentSignal
+    // 14. ResolveStop
     // -----------------------------------------------------------------------
-    async fn agent_signal(
+    async fn resolve_stop(
         &self,
-        request: Request<proto::AgentSignalRequest>,
-    ) -> Result<Response<proto::AgentSignalResponse>, Status> {
+        request: Request<proto::ResolveStopRequest>,
+    ) -> Result<Response<proto::ResolveStopResponse>, Status> {
         let req = request.into_inner();
         let body: serde_json::Value = serde_json::from_str(&req.body_json)
             .map_err(|e| Status::invalid_argument(format!("invalid JSON: {e}")))?;
@@ -582,34 +582,38 @@ impl proto::coop_server::Coop for CoopGrpc {
         *stop.signal_body.write().await = Some(body);
         stop.signaled
             .store(true, std::sync::atomic::Ordering::Release);
-        Ok(Response::new(proto::AgentSignalResponse { accepted: true }))
+        Ok(Response::new(proto::ResolveStopResponse { accepted: true }))
     }
 
     // -----------------------------------------------------------------------
-    // 15. PutStop
+    // 15. PutStopConfig
     // -----------------------------------------------------------------------
-    async fn put_stop(
+    async fn put_stop_config(
         &self,
-        request: Request<proto::PutStopRequest>,
-    ) -> Result<Response<proto::PutStopResponse>, Status> {
+        request: Request<proto::PutStopConfigRequest>,
+    ) -> Result<Response<proto::PutStopConfigResponse>, Status> {
         let req = request.into_inner();
         let new_config: StopConfig = serde_json::from_str(&req.config_json)
             .map_err(|e| Status::invalid_argument(format!("invalid config JSON: {e}")))?;
         *self.state.stop.config.write().await = new_config;
-        Ok(Response::new(proto::PutStopResponse { updated: true }))
+        Ok(Response::new(proto::PutStopConfigResponse {
+            updated: true,
+        }))
     }
 
     // -----------------------------------------------------------------------
-    // 16. GetStop
+    // 16. GetStopConfig
     // -----------------------------------------------------------------------
-    async fn get_stop(
+    async fn get_stop_config(
         &self,
-        _request: Request<proto::GetStopRequest>,
-    ) -> Result<Response<proto::GetStopResponse>, Status> {
+        _request: Request<proto::GetStopConfigRequest>,
+    ) -> Result<Response<proto::GetStopConfigResponse>, Status> {
         let config = self.state.stop.config.read().await;
         let json = serde_json::to_string(&*config)
             .map_err(|e| Status::internal(format!("serialize error: {e}")))?;
-        Ok(Response::new(proto::GetStopResponse { config_json: json }))
+        Ok(Response::new(proto::GetStopConfigResponse {
+            config_json: json,
+        }))
     }
 
     // -----------------------------------------------------------------------

@@ -84,9 +84,9 @@ fn generate_block_reason_default_prompt() {
         prompt: None,
         schema: None,
     };
-    let reason = generate_block_reason(&config, "http://127.0.0.1:8080/api/v1/agent/signal");
+    let reason = generate_block_reason(&config, "http://127.0.0.1:8080/api/v1/hooks/stop/resolve");
     assert!(reason.contains("Do not stop yet"));
-    assert!(reason.contains("http://127.0.0.1:8080/api/v1/agent/signal"));
+    assert!(reason.contains("http://127.0.0.1:8080/api/v1/hooks/stop/resolve"));
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn generate_block_reason_custom_prompt() {
         prompt: Some("Finish your work first.".to_owned()),
         schema: None,
     };
-    let reason = generate_block_reason(&config, "http://localhost:3000/api/v1/agent/signal");
+    let reason = generate_block_reason(&config, "http://localhost:3000/api/v1/hooks/stop/resolve");
     assert!(reason.contains("Finish your work first."));
     assert!(!reason.contains("Do not stop yet"));
 }
@@ -123,7 +123,7 @@ fn generate_block_reason_with_schema() {
         prompt: Some("Signal when ready.".to_owned()),
         schema: Some(StopSchema { fields }),
     };
-    let reason = generate_block_reason(&config, "http://127.0.0.1:9000/api/v1/agent/signal");
+    let reason = generate_block_reason(&config, "http://127.0.0.1:9000/api/v1/hooks/stop/resolve");
     assert!(reason.contains("Signal when ready."));
     assert!(reason.contains("status (required): Task outcome"));
     assert!(reason.contains("\"done\": Work completed"));

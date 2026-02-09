@@ -634,7 +634,7 @@ pub async fn hooks_stop(
     }
 
     // 5. Block: generate reason and return block verdict.
-    let reason = generate_block_reason(&config, &stop.signal_url);
+    let reason = generate_block_reason(&config, &stop.resolve_url);
     drop(config);
     stop.emit(StopType::Blocked, None, None);
     Json(StopHookVerdict {
@@ -645,11 +645,11 @@ pub async fn hooks_stop(
 }
 
 // ---------------------------------------------------------------------------
-// Signal endpoint
+// Resolve endpoint
 // ---------------------------------------------------------------------------
 
-/// `POST /api/v1/agent/signal` — store signal body, set flag.
-pub async fn agent_signal(
+/// `POST /api/v1/hooks/stop/resolve` — store signal body, set flag.
+pub async fn resolve_stop(
     State(s): State<Arc<AppState>>,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
@@ -664,13 +664,13 @@ pub async fn agent_signal(
 // Stop config endpoints
 // ---------------------------------------------------------------------------
 
-/// `GET /api/v1/stop` — read current stop config.
+/// `GET /api/v1/config/stop` — read current stop config.
 pub async fn get_stop_config(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let config = s.stop.config.read().await;
     Json(config.clone())
 }
 
-/// `PUT /api/v1/stop` — update stop config.
+/// `PUT /api/v1/config/stop` — update stop config.
 pub async fn put_stop_config(
     State(s): State<Arc<AppState>>,
     Json(new_config): Json<StopConfig>,

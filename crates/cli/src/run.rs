@@ -203,8 +203,8 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let (output_tx, _) = broadcast::channel(256);
     let (state_tx, _) = broadcast::channel(64);
 
-    let signal_url = format!("{coop_url_for_setup}/api/v1/agent/signal");
-    let stop_state = Arc::new(StopState::new(stop_config, signal_url));
+    let resolve_url = format!("{coop_url_for_setup}/api/v1/hooks/stop/resolve");
+    let stop_state = Arc::new(StopState::new(stop_config, resolve_url));
 
     let app_state = Arc::new(AppState {
         terminal,

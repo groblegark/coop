@@ -133,7 +133,7 @@ impl AppStateBuilder {
             nudge_mutex: Arc::new(tokio::sync::Mutex::new(())),
             stop: Arc::new(StopState::new(
                 StopConfig::default(),
-                "http://127.0.0.1:0/api/v1/agent/signal".to_owned(),
+                "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
             )),
         })
     }

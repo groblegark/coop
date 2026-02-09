@@ -450,7 +450,7 @@ fn test_state_with_stop(
         nudge_mutex: Arc::new(tokio::sync::Mutex::new(())),
         stop: Arc::new(StopState::new(
             config,
-            "http://127.0.0.1:0/api/v1/agent/signal".to_owned(),
+            "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
         )),
     });
     (state, input_rx)
@@ -511,7 +511,7 @@ async fn hooks_stop_signal_mode_allows_after_signal() -> anyhow::Result<()> {
 
     // Send a signal first.
     let resp = server
-        .post("/api/v1/agent/signal")
+        .post("/api/v1/hooks/stop/resolve")
         .json(&serde_json::json!({"status": "done"}))
         .await;
     resp.assert_status(StatusCode::OK);
@@ -578,13 +578,13 @@ async fn hooks_stop_unrecoverable_error_allows() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn agent_signal_stores_body() -> anyhow::Result<()> {
+async fn resolve_stop_stores_body() -> anyhow::Result<()> {
     let (state, _rx) = test_state_with_stop(StopConfig::default());
     let app = build_router(state.clone());
     let server = axum_test::TestServer::new(app).anyhow()?;
 
     let resp = server
-        .post("/api/v1/agent/signal")
+        .post("/api/v1/hooks/stop/resolve")
         .json(&serde_json::json!({"status": "complete", "notes": "all good"}))
         .await;
     resp.assert_status(StatusCode::OK);
@@ -614,7 +614,7 @@ async fn get_stop_config_returns_current() -> anyhow::Result<()> {
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
-    let resp = server.get("/api/v1/stop").await;
+    let resp = server.get("/api/v1/config/stop").await;
     resp.assert_status(StatusCode::OK);
     let body: serde_json::Value = serde_json::from_str(&resp.text())?;
     assert_eq!(body["mode"], "signal");
@@ -629,13 +629,13 @@ async fn put_stop_config_updates() -> anyhow::Result<()> {
     let server = axum_test::TestServer::new(app).anyhow()?;
 
     // Default is allow mode.
-    let resp = server.get("/api/v1/stop").await;
+    let resp = server.get("/api/v1/config/stop").await;
     let body: serde_json::Value = serde_json::from_str(&resp.text())?;
     assert_eq!(body["mode"], "allow");
 
     // Update to signal mode.
     let resp = server
-        .put("/api/v1/stop")
+        .put("/api/v1/config/stop")
         .json(&serde_json::json!({"mode": "signal", "prompt": "Wait for signal"}))
         .await;
     resp.assert_status(StatusCode::OK);
@@ -643,7 +643,7 @@ async fn put_stop_config_updates() -> anyhow::Result<()> {
     assert!(body.contains("\"updated\":true"));
 
     // Verify the update.
-    let resp = server.get("/api/v1/stop").await;
+    let resp = server.get("/api/v1/config/stop").await;
     let body: serde_json::Value = serde_json::from_str(&resp.text())?;
     assert_eq!(body["mode"], "signal");
     assert_eq!(body["prompt"], "Wait for signal");
@@ -688,7 +688,7 @@ async fn signal_consumed_after_stop_check() -> anyhow::Result<()> {
 
     // Signal, then check stop — should allow.
     server
-        .post("/api/v1/agent/signal")
+        .post("/api/v1/hooks/stop/resolve")
         .json(&serde_json::json!({"ok": true}))
         .await;
     let resp = server
@@ -715,7 +715,7 @@ async fn signal_consumed_after_stop_check() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn auth_exempt_for_hooks_stop_and_signal() -> anyhow::Result<()> {
+async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
     let config = StopConfig::default();
     // Build state with auth token.
     let (input_tx, input_rx) = tokio::sync::mpsc::channel(16);
@@ -759,7 +759,7 @@ async fn auth_exempt_for_hooks_stop_and_signal() -> anyhow::Result<()> {
         nudge_mutex: Arc::new(tokio::sync::Mutex::new(())),
         stop: Arc::new(StopState::new(
             config,
-            "http://127.0.0.1:0/api/v1/agent/signal".to_owned(),
+            "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
         )),
     });
     let _input_rx = input_rx;
@@ -774,9 +774,9 @@ async fn auth_exempt_for_hooks_stop_and_signal() -> anyhow::Result<()> {
         .await;
     resp.assert_status(StatusCode::OK);
 
-    // Agent signal should work without auth.
+    // Resolve stop should work without auth.
     let resp = server
-        .post("/api/v1/agent/signal")
+        .post("/api/v1/hooks/stop/resolve")
         .json(&serde_json::json!({"ok": true}))
         .await;
     resp.assert_status(StatusCode::OK);

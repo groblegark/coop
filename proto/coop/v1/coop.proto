@@ -42,12 +42,12 @@ service Coop {
 
   // Stop hook management
 
-  // Send a signal to unblock the next stop hook check.
-  rpc AgentSignal(AgentSignalRequest) returns (AgentSignalResponse);
+  // Resolve a pending stop gate so the agent is allowed to stop.
+  rpc ResolveStop(ResolveStopRequest) returns (ResolveStopResponse);
   // Update the stop hook configuration at runtime.
-  rpc PutStop(PutStopRequest) returns (PutStopResponse);
+  rpc PutStopConfig(PutStopConfigRequest) returns (PutStopConfigResponse);
   // Read the current stop hook configuration.
-  rpc GetStop(GetStopRequest) returns (GetStopResponse);
+  rpc GetStopConfig(GetStopConfigRequest) returns (GetStopConfigResponse);
   // Stream stop hook verdict events in real time.
   rpc StreamStopEvents(StreamStopEventsRequest) returns (stream StopEvent);
 }
@@ -279,24 +279,24 @@ message StreamStateRequest {}
 
 // --- Stop hook messages ---
 
-message AgentSignalRequest {
+message ResolveStopRequest {
   // JSON body of the signal (freeform).
   string body_json = 1;
 }
-message AgentSignalResponse {
+message ResolveStopResponse {
   bool accepted = 1;
 }
 
-message PutStopRequest {
+message PutStopConfigRequest {
   // StopConfig as JSON.
   string config_json = 1;
 }
-message PutStopResponse {
+message PutStopConfigResponse {
   bool updated = 1;
 }
 
-message GetStopRequest {}
-message GetStopResponse {
+message GetStopConfigRequest {}
+message GetStopConfigResponse {
   // Current StopConfig as JSON.
   string config_json = 1;
 }

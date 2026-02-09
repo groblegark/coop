@@ -145,22 +145,22 @@ pub struct StopState {
     pub signal_body: RwLock<Option<Value>>,
     /// Broadcast channel for stop events.
     pub stop_tx: broadcast::Sender<StopEvent>,
-    /// Precomputed signal URL for block reason generation.
-    pub signal_url: String,
+    /// Precomputed resolve URL for block reason generation.
+    pub resolve_url: String,
     /// Monotonic sequence counter for stop events.
     pub stop_seq: std::sync::atomic::AtomicU64,
 }
 
 impl StopState {
-    /// Create a new `StopState` with the given initial config and signal URL.
-    pub fn new(config: StopConfig, signal_url: String) -> Self {
+    /// Create a new `StopState` with the given initial config and resolve URL.
+    pub fn new(config: StopConfig, resolve_url: String) -> Self {
         let (stop_tx, _) = broadcast::channel(64);
         Self {
             config: RwLock::new(config),
             signaled: AtomicBool::new(false),
             signal_body: RwLock::new(None),
             stop_tx,
-            signal_url,
+            resolve_url,
             stop_seq: std::sync::atomic::AtomicU64::new(0),
         }
     }
@@ -194,7 +194,7 @@ impl std::fmt::Debug for StopState {
                 "signaled",
                 &self.signaled.load(std::sync::atomic::Ordering::Relaxed),
             )
-            .field("signal_url", &self.signal_url)
+            .field("resolve_url", &self.resolve_url)
             .finish()
     }
 }
@@ -203,11 +203,11 @@ impl std::fmt::Debug for StopState {
 // Block reason generation
 // ---------------------------------------------------------------------------
 
-/// Assemble the block reason text from the stop config and signal URL.
+/// Assemble the block reason text from the stop config and resolve URL.
 ///
 /// This is the `reason` field returned in `{"decision":"block","reason":"..."}`.
-/// It tells the agent what to do: call the signal endpoint with the right body.
-pub fn generate_block_reason(config: &StopConfig, signal_url: &str) -> String {
+/// It tells the agent what to do: call the resolve endpoint with the right body.
+pub fn generate_block_reason(config: &StopConfig, resolve_url: &str) -> String {
     let mut parts = Vec::new();
 
     // Custom prompt
@@ -247,7 +247,7 @@ pub fn generate_block_reason(config: &StopConfig, signal_url: &str) -> String {
     // Curl instruction
     parts.push(String::new());
     parts.push(format!(
-        "To signal, run: curl -sf -X POST -H 'Content-Type: application/json' -d '{{\"your\":\"json\"}}' {signal_url}"
+        "To signal, run: curl -sf -X POST -H 'Content-Type: application/json' -d '{{\"your\":\"json\"}}' {resolve_url}"
     ));
 
     parts.join("\n")
