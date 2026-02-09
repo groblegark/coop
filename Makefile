@@ -1,4 +1,4 @@
-.PHONY: check ci fmt install coverage outdated try-claude try-gemini
+.PHONY: check ci fmt install coverage outdated try-claude try-claudeless try-gemini
 
 # Quick checks
 #
@@ -46,6 +46,11 @@ outdated:
 # Launch coop wrapping claude with browser terminal
 try-claude:
 	@COOP_AGENT=claude tests/debug/start.sh -- claude
+
+# Launch coop wrapping claudeless with browser terminal
+# Usage: make try-claudeless SCENARIO=crates/cli/tests/scenarios/claude_hello.toml
+try-claudeless:
+	@COOP_AGENT=claude tests/debug/start.sh -- claudeless --scenario $(SCENARIO)
 
 # Launch coop wrapping gemini with browser terminal
 try-gemini:

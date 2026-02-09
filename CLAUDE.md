@@ -10,12 +10,35 @@ make ci       # full pre-release (adds audit + deny)
 cargo test    # unit tests only
 ```
 
+### Manual testing with claudeless
+
+```bash
+make try-claudeless SCENARIO=crates/cli/tests/scenarios/claude_hello.toml
+make try-claudeless SCENARIO=crates/cli/tests/scenarios/claude_tool_use.toml
+make try-claudeless SCENARIO=crates/cli/tests/scenarios/claude_ask_user.toml
+```
+
+Opens a browser terminal running coop → claudeless with the given scenario. Useful for debugging hook detection, state transitions, and TUI rendering.
+
 ## Code Conventions
 
 - License: BUSL-1.1; every source file needs the SPDX header
 - Clippy: `unwrap_used`, `expect_used`, `panic` are denied; use `?`, `anyhow::bail!`, or `.ok()`
 - Unsafe: forbidden workspace-wide
 - Tests: use `-> anyhow::Result<()>` return type instead of unwrap
+
+## Architecture
+
+- `run::prepare()` sets up the full session (driver, backend, servers) and returns a `PreparedSession` with access to `AppState` before the session loop starts. `run::run()` is the simple wrapper that calls `prepare().run()`.
+- Claude driver detection has three tiers: Tier 1 (hook FIFO), Tier 2 (session log), Tier 3 (stdout JSONL). Hooks are the primary detection path.
+- Session artifacts (FIFO pipe, settings) live at `$XDG_STATE_HOME/coop/sessions/<session-id>/` for debugging and recovery.
+- Integration tests use claudeless (scenario-driven Claude CLI simulator). Tests call `run::prepare()`, subscribe to state broadcasts, spawn the session, `wait_for` expected states, then cancel shutdown.
+
+## Working Style
+
+- Use `AskUserQuestion` frequently — ask before making architectural choices, when multiple approaches exist, or when unsure about intent. A quick question is cheaper than rework.
+- Prefer end-to-end testing through the real `run()` codepath over manual library wiring. Tests should be trivial to read.
+- Keep agent-specific code (Claude, Gemini) in `driver/<agent>/`; `run.rs` and `session.rs` should stay agent-agnostic.
 
 ## Directory Structure
 
@@ -24,6 +47,7 @@ crates/cli/               # Single crate (binary + lib)
 ├── src/
 │   ├── main.rs            # CLI, startup
 │   ├── lib.rs             # Library root (re-exports modules)
+│   ├── run.rs             # prepare() + run() session entrypoint
 │   ├── error.rs           # ErrorCode enum
 │   ├── event.rs           # OutputEvent, StateChangeEvent, InputEvent, HookEvent
 │   ├── screen.rs          # Screen, ScreenSnapshot
@@ -37,7 +61,9 @@ crates/cli/               # Single crate (binary + lib)
 │       ├── grace.rs        # IdleGraceTimer
 │       └── jsonl_stdout.rs # JsonlParser
 └── tests/
-    └── pty_backend.rs      # Integration tests for PTY backend
+    ├── pty_backend.rs           # Integration tests for PTY backend
+    ├── claude_integration.rs    # E2E tests via claudeless
+    └── scenarios/               # Claudeless scenario fixtures
 DESIGN.md                   # Full design spec
 ROADMAP.md                  # Phased dependency graph
 ```

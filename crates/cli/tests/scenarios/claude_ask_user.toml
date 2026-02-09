@@ -17,9 +17,3 @@ response = "Great choice."
 
 [tool_execution]
 mode = "live"
-
-[tool_execution.tools.AskUserQuestion]
-auto_approve = true
-
-[tool_execution.tools.AskUserQuestion.answers]
-"Which DB?" = "PostgreSQL"

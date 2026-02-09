@@ -10,9 +10,10 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
+use bytes::Bytes;
 use coop::config::Config;
 use coop::driver::AgentState;
-use coop::event::StateChangeEvent;
+use coop::event::{InputEvent, StateChangeEvent};
 use coop::run;
 use tokio::sync::broadcast;
 
@@ -116,9 +117,17 @@ async fn claude_ask_user_session_lifecycle() -> anyhow::Result<()> {
     let prepared = run::prepare(claude_config("claude_ask_user.toml", "help me choose")).await?;
     let mut rx = prepared.app_state.channels.state_tx.subscribe();
     let shutdown = prepared.app_state.lifecycle.shutdown.clone();
+    let input_tx = prepared.app_state.channels.input_tx.clone();
     let handle = tokio::spawn(prepared.run());
 
     wait_for(&mut rx, |s| matches!(s, AgentState::AskUser { .. })).await?;
+
+    // Emulate user selecting first option in the elicitation dialog.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    input_tx
+        .send(InputEvent::Write(Bytes::from_static(b"1")))
+        .await?;
+
     wait_for(&mut rx, |s| matches!(s, AgentState::WaitingForInput)).await?;
 
     shutdown.cancel();
