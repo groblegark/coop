@@ -7,6 +7,7 @@ pub mod error;
 pub mod event;
 pub mod pty;
 pub mod ring;
+pub mod run;
 pub mod screen;
 pub mod session;
 pub mod test_support;

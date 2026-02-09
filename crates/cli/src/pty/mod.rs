@@ -34,7 +34,7 @@ pub trait Boxed {
     fn boxed(self) -> Box<dyn Backend>;
 }
 
-impl Boxed for T {
+impl<T: Backend> Boxed for T {
     fn boxed(self) -> Box<dyn Backend> {
         Box::new(self)
     }

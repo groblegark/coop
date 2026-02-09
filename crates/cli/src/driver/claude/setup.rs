@@ -22,8 +22,8 @@ pub struct ClaudeSessionSetup {
     pub env_vars: Vec<(String, String)>,
     /// Extra CLI arguments to append to the Claude command.
     pub extra_args: Vec<String>,
-    /// Keeps the temp directory (pipe + settings) alive for the session.
-    _temp_dir: tempfile::TempDir,
+    /// Session directory containing the FIFO pipe and settings file.
+    pub session_dir: PathBuf,
 }
 
 /// Prepare a fresh Claude session.
@@ -34,9 +34,9 @@ pub fn prepare_claude_session(working_dir: &Path) -> anyhow::Result<ClaudeSessio
     let session_id = uuid::Uuid::new_v4().to_string();
     let log_path = session_log_path(working_dir, &session_id);
 
-    let temp_dir = tempfile::tempdir()?;
-    let hook_pipe_path = temp_dir.path().join("hook.pipe");
-    let settings_path = write_settings_file(temp_dir.path(), &hook_pipe_path)?;
+    let session_dir = coop_session_dir(&session_id)?;
+    let hook_pipe_path = session_dir.join("hook.pipe");
+    let settings_path = write_settings_file(&session_dir, &hook_pipe_path)?;
 
     let env_vars = super::hooks::hook_env_vars(&hook_pipe_path);
     let extra_args = vec![
@@ -51,7 +51,7 @@ pub fn prepare_claude_session(working_dir: &Path) -> anyhow::Result<ClaudeSessio
         hook_pipe_path,
         env_vars,
         extra_args,
-        _temp_dir: temp_dir,
+        session_dir,
     })
 }
 
@@ -63,9 +63,10 @@ pub fn prepare_claude_resume(
     resume_state: &ResumeState,
     existing_log_path: &Path,
 ) -> anyhow::Result<ClaudeSessionSetup> {
-    let temp_dir = tempfile::tempdir()?;
-    let hook_pipe_path = temp_dir.path().join("hook.pipe");
-    let settings_path = write_settings_file(temp_dir.path(), &hook_pipe_path)?;
+    let resume_id = resume_state.conversation_id.as_deref().unwrap_or("unknown");
+    let session_dir = coop_session_dir(resume_id)?;
+    let hook_pipe_path = session_dir.join("hook.pipe");
+    let settings_path = write_settings_file(&session_dir, &hook_pipe_path)?;
 
     let env_vars = super::hooks::hook_env_vars(&hook_pipe_path);
 
@@ -78,7 +79,7 @@ pub fn prepare_claude_resume(
         hook_pipe_path,
         env_vars,
         extra_args,
-        _temp_dir: temp_dir,
+        session_dir,
     })
 }
 
@@ -91,6 +92,25 @@ fn write_settings_file(dir: &Path, pipe_path: &Path) -> anyhow::Result<PathBuf> 
     let contents = serde_json::to_string_pretty(&config)?;
     std::fs::write(&path, contents)?;
     Ok(path)
+}
+
+/// Create and return the coop session directory for the given session ID.
+///
+/// Session artifacts (FIFO pipe, settings file) live at
+/// `$XDG_STATE_HOME/coop/sessions/<session-id>/` (defaulting to
+/// `~/.local/state/coop/sessions/<session-id>/`) so they survive for
+/// debugging and session recovery.
+fn coop_session_dir(session_id: &str) -> anyhow::Result<PathBuf> {
+    let state_home = std::env::var("XDG_STATE_HOME").unwrap_or_else(|_| {
+        let home = std::env::var("HOME").unwrap_or_default();
+        format!("{home}/.local/state")
+    });
+    let dir = Path::new(&state_home)
+        .join("coop")
+        .join("sessions")
+        .join(session_id);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
 }
 
 /// Compute the expected session log path for a given working directory

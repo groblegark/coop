@@ -53,10 +53,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install system deps (Ubuntu)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler tmux
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler tmux && curl -fsSL https://github.com/alfredjeanlab/claudeless/releases/latest/download/install.sh | bash
       - name: Install system deps (macOS)
         if: runner.os == 'macOS'
-        run: brew install protobuf tmux
+        run: brew install protobuf tmux alfredjeanlab/tap/claudeless
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --all
       - run: cargo test --all

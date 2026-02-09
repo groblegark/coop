@@ -177,6 +177,7 @@ impl Config {
     }
 
     /// Build a minimal `Config` for tests (port 0, `echo` command).
+    #[doc(hidden)]
     pub fn test() -> Self {
         Self {
             port: Some(0),
@@ -195,7 +196,7 @@ impl Config {
             health_port: None,
             idle_timeout: 0,
             log_format: "json".into(),
-            log_level: "info".into(),
+            log_level: "debug".into(),
             resume: None,
             command: vec!["echo".into()],
         }

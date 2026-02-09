@@ -1,0 +1,23 @@
+name = "tool-use"
+
+[[responses]]
+pattern = { type = "any" }
+max_matches = 1
+
+[responses.response]
+text = "Let me read that file."
+
+[[responses.response.tool_calls]]
+tool = "Read"
+input = { file_path = "/tmp/nonexistent" }
+
+[[responses]]
+pattern = { type = "any" }
+response = "The file contains mock content."
+
+[tool_execution]
+mode = "live"
+
+[tool_execution.tools.Read]
+auto_approve = true
+result = "mock file content"
