@@ -8,20 +8,27 @@ use crate::driver::{NudgeEncoder, QuestionAnswer, RespondEncoder};
 use super::{ClaudeNudgeEncoder, ClaudeRespondEncoder};
 
 #[test]
-fn nudge_encodes_message_with_cr() {
-    let encoder = ClaudeNudgeEncoder;
+fn nudge_encodes_message_then_enter() {
+    let encoder = ClaudeNudgeEncoder {
+        keyboard_delay: Duration::from_millis(100),
+    };
     let steps = encoder.encode("Fix the bug");
-    assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"Fix the bug\r");
-    assert!(steps[0].delay_after.is_none());
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0].bytes, b"Fix the bug");
+    assert_eq!(steps[0].delay_after, Some(Duration::from_millis(100)));
+    assert_eq!(steps[1].bytes, b"\r");
+    assert!(steps[1].delay_after.is_none());
 }
 
 #[test]
 fn nudge_with_multiline_message() {
-    let encoder = ClaudeNudgeEncoder;
+    let encoder = ClaudeNudgeEncoder {
+        keyboard_delay: Duration::from_millis(100),
+    };
     let steps = encoder.encode("line1\nline2");
-    assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"line1\nline2\r");
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0].bytes, b"line1\nline2");
+    assert_eq!(steps[1].bytes, b"\r");
 }
 
 #[yare::parameterized(
