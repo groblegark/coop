@@ -291,6 +291,76 @@ fn empty_prompt(kind: PromptKind) -> PromptContext {
     }
 }
 
+#[tokio::test]
+async fn tier1_supersedes_tier5_screen_idle() -> anyhow::Result<()> {
+    let detectors: Vec<Box<dyn super::Detector>> = vec![
+        Box::new(MockDetector::new(
+            1,
+            vec![(Duration::from_millis(50), AgentState::Working)],
+        )),
+        Box::new(MockDetector::new(
+            5,
+            vec![(Duration::from_millis(100), AgentState::WaitingForInput)],
+        )),
+    ];
+
+    let results = run_composite(
+        detectors,
+        Duration::from_secs(60),
+        Arc::new(AtomicU64::new(0)),
+        Duration::from_millis(500),
+    )
+    .await?;
+
+    assert!(!results.is_empty(), "expected at least one state emission");
+    assert_eq!(results[0].state, AgentState::Working);
+    assert_eq!(results[0].tier, 1);
+
+    let has_waiting = results
+        .iter()
+        .any(|s| s.state == AgentState::WaitingForInput);
+    assert!(
+        !has_waiting,
+        "tier 5 WaitingForInput should be gated by grace when tier 1 is active"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn tier2_supersedes_tier5_screen_idle() -> anyhow::Result<()> {
+    let detectors: Vec<Box<dyn super::Detector>> = vec![
+        Box::new(MockDetector::new(
+            2,
+            vec![(Duration::from_millis(50), AgentState::Working)],
+        )),
+        Box::new(MockDetector::new(
+            5,
+            vec![(Duration::from_millis(100), AgentState::WaitingForInput)],
+        )),
+    ];
+
+    let results = run_composite(
+        detectors,
+        Duration::from_secs(60),
+        Arc::new(AtomicU64::new(0)),
+        Duration::from_millis(500),
+    )
+    .await?;
+
+    assert!(!results.is_empty(), "expected at least one state emission");
+    assert_eq!(results[0].state, AgentState::Working);
+    assert_eq!(results[0].tier, 2);
+
+    let has_waiting = results
+        .iter()
+        .any(|s| s.state == AgentState::WaitingForInput);
+    assert!(
+        !has_waiting,
+        "tier 5 WaitingForInput should be gated by grace when tier 2 is active"
+    );
+    Ok(())
+}
+
 /// Regression: Claude fires both `PreToolUse(ExitPlanMode)` → Prompt(Plan) and
 /// `Notification(permission_prompt)` → Prompt(Permission) for the same user-facing
 /// plan approval moment. When the permission notification arrives after the
