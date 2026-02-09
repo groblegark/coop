@@ -20,6 +20,7 @@ use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
 use crate::pty::Backend;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
+use crate::stop::{StopConfig, StopState};
 use crate::transport::state::{
     AppState, DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels,
 };
@@ -106,22 +107,17 @@ impl AppStateBuilder {
                 agent_state: RwLock::new(self.agent_state),
                 state_seq: AtomicU64::new(0),
                 detection_tier: AtomicU8::new(u8::MAX),
-                idle_grace_deadline: Arc::new(parking_lot::Mutex::new(None)),
+                detection_cause: RwLock::new(String::new()),
                 error_detail: RwLock::new(None),
                 error_category: RwLock::new(None),
             }),
-            channels: TransportChannels {
-                input_tx,
-                output_tx,
-                state_tx,
-            },
+            channels: TransportChannels { input_tx, output_tx, state_tx },
             config: SessionSettings {
                 started_at: Instant::now(),
                 agent: AgentType::Unknown,
                 auth_token: self.auth_token,
                 nudge_encoder: self.nudge_encoder,
                 respond_encoder: self.respond_encoder,
-                idle_grace_duration: Duration::from_secs(60),
             },
             lifecycle: LifecycleState {
                 shutdown: CancellationToken::new(),
@@ -130,6 +126,10 @@ impl AppStateBuilder {
             },
             ready: Arc::new(AtomicBool::new(false)),
             nudge_mutex: Arc::new(tokio::sync::Mutex::new(())),
+            stop: Arc::new(StopState::new(
+                StopConfig::default(),
+                "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
+            )),
         })
     }
 }
@@ -154,20 +154,14 @@ impl MockPty {
         Self {
             output: Vec::new(),
             chunk_delay: Duration::ZERO,
-            exit_status: ExitStatus {
-                code: Some(0),
-                signal: None,
-            },
+            exit_status: ExitStatus { code: Some(0), signal: None },
             drain_input: false,
             captured_input: Arc::new(parking_lot::Mutex::new(Vec::new())),
         }
     }
 
     pub fn with_output(chunks: Vec<Bytes>) -> Self {
-        Self {
-            output: chunks,
-            ..Self::new()
-        }
+        Self { output: chunks, ..Self::new() }
     }
 
     pub fn exit_status(mut self, s: ExitStatus) -> Self {
@@ -246,10 +240,7 @@ impl<T, E: std::fmt::Display> AnyhowExt<T> for Result<T, E> {
 pub struct StubNudgeEncoder;
 impl NudgeEncoder for StubNudgeEncoder {
     fn encode(&self, message: &str) -> Vec<NudgeStep> {
-        vec![NudgeStep {
-            bytes: message.as_bytes().to_vec(),
-            delay_after: None,
-        }]
+        vec![NudgeStep { bytes: message.as_bytes().to_vec(), delay_after: None }]
     }
 }
 
@@ -261,11 +252,7 @@ macro_rules! assert_err_contains {
         let result = $expr;
         let err = result.expect_err(concat!("expected Err for: ", stringify!($expr)));
         let msg = err.to_string();
-        assert!(
-            msg.contains($substr),
-            "expected error containing {:?}, got: {msg:?}",
-            $substr
-        );
+        assert!(msg.contains($substr), "expected error containing {:?}, got: {msg:?}", $substr);
     }};
 }
 
@@ -279,17 +266,14 @@ pub struct MockDetector {
 
 impl MockDetector {
     pub fn new(tier: u8, states: Vec<(Duration, AgentState)>) -> Self {
-        Self {
-            tier_val: tier,
-            states,
-        }
+        Self { tier_val: tier, states }
     }
 }
 
 impl Detector for MockDetector {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<AgentState>,
+        state_tx: mpsc::Sender<(AgentState, String)>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -297,7 +281,7 @@ impl Detector for MockDetector {
                 tokio::select! {
                     _ = shutdown.cancelled() => return,
                     _ = tokio::time::sleep(delay) => {
-                        if state_tx.send(state).await.is_err() {
+                        if state_tx.send((state, String::new())).await.is_err() {
                             return;
                         }
                     }

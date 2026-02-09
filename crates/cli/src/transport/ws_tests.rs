@@ -29,10 +29,7 @@ fn screen_request_serialization() -> anyhow::Result<()> {
 
 #[test]
 fn output_message_serialization() -> anyhow::Result<()> {
-    let msg = ServerMessage::Output {
-        data: "aGVsbG8=".to_owned(),
-        offset: 0,
-    };
+    let msg = ServerMessage::Output { data: "aGVsbG8=".to_owned(), offset: 0 };
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"output\""));
     assert!(json.contains("\"data\":\"aGVsbG8=\""));
@@ -48,6 +45,7 @@ fn state_change_serialization() -> anyhow::Result<()> {
         prompt: Box::new(None),
         error_detail: None,
         error_category: None,
+        cause: String::new(),
     };
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"state_change\""));
@@ -56,6 +54,8 @@ fn state_change_serialization() -> anyhow::Result<()> {
     // Error fields should be absent (skip_serializing_if = None)
     assert!(!json.contains("error_detail"), "json: {json}");
     assert!(!json.contains("error_category"), "json: {json}");
+    // Cause should be absent when empty (skip_serializing_if)
+    assert!(!json.contains("cause"), "json: {json}");
     Ok(())
 }
 
@@ -68,18 +68,13 @@ fn state_change_with_error_serialization() -> anyhow::Result<()> {
         prompt: Box::new(None),
         error_detail: Some("rate_limit_error".to_owned()),
         error_category: Some("rate_limited".to_owned()),
+        cause: "log:error".to_owned(),
     };
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"state_change\""));
     assert!(json.contains("\"next\":\"error\""));
-    assert!(
-        json.contains("\"error_detail\":\"rate_limit_error\""),
-        "json: {json}"
-    );
-    assert!(
-        json.contains("\"error_category\":\"rate_limited\""),
-        "json: {json}"
-    );
+    assert!(json.contains("\"error_detail\":\"rate_limit_error\""), "json: {json}");
+    assert!(json.contains("\"error_category\":\"rate_limited\""), "json: {json}");
     Ok(())
 }
 
@@ -118,10 +113,7 @@ fn error_message_serialization() -> anyhow::Result<()> {
 
 #[test]
 fn exit_message_serialization() -> anyhow::Result<()> {
-    let msg = ServerMessage::Exit {
-        code: Some(0),
-        signal: None,
-    };
+    let msg = ServerMessage::Exit { code: Some(0), signal: None };
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"exit\""));
     assert!(json.contains("\"code\":0"));
@@ -139,9 +131,7 @@ fn replay_message_serialization() -> anyhow::Result<()> {
 
 #[test]
 fn auth_message_serialization() -> anyhow::Result<()> {
-    let msg = ClientMessage::Auth {
-        token: "secret123".to_owned(),
-    };
+    let msg = ClientMessage::Auth { token: "secret123".to_owned() };
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"auth\""));
     assert!(json.contains("\"token\":\"secret123\""));
@@ -161,7 +151,7 @@ fn client_message_roundtrip() -> anyhow::Result<()> {
         r#"{"type":"respond","accept":true}"#,
         r#"{"type":"replay","offset":0}"#,
         r#"{"type":"auth","token":"tok"}"#,
-        r#"{"type":"signal","name":"SIGINT"}"#,
+        r#"{"type":"signal","signal":"SIGINT"}"#,
         r#"{"type":"ping"}"#,
     ];
 
@@ -178,10 +168,8 @@ fn client_message_roundtrip() -> anyhow::Result<()> {
 
 fn ws_test_state(
     agent: AgentState,
-) -> (
-    Arc<crate::transport::state::AppState>,
-    tokio::sync::mpsc::Receiver<crate::event::InputEvent>,
-) {
+) -> (Arc<crate::transport::state::AppState>, tokio::sync::mpsc::Receiver<crate::event::InputEvent>)
+{
     AppStateBuilder::new()
         .child_pid(1234)
         .agent_state(agent)
@@ -193,20 +181,13 @@ fn ws_test_state(
 async fn state_request_returns_error_fields() -> anyhow::Result<()> {
     let (state, _rx) = AppStateBuilder::new()
         .child_pid(1234)
-        .agent_state(AgentState::Error {
-            detail: "authentication_error".to_owned(),
-        })
+        .agent_state(AgentState::Error { detail: "authentication_error".to_owned() })
         .build();
 
     let msg = ClientMessage::StateRequest {};
     let reply = handle_client_message(&state, msg, "test-client", &mut true).await;
     match reply {
-        Some(ServerMessage::StateChange {
-            next,
-            error_detail,
-            error_category,
-            ..
-        }) => {
+        Some(ServerMessage::StateChange { next, error_detail, error_category, .. }) => {
             assert_eq!(next, "error");
             assert_eq!(error_detail.as_deref(), Some("authentication_error"));
             assert_eq!(error_category.as_deref(), Some("unauthorized"));
@@ -247,14 +228,10 @@ async fn resize_zero_rows_returns_error() -> anyhow::Result<()> {
 #[tokio::test]
 async fn nudge_rejected_when_agent_working() -> anyhow::Result<()> {
     let (state, _rx) = ws_test_state(AgentState::Working);
-    state
-        .ready
-        .store(true, std::sync::atomic::Ordering::Release);
+    state.ready.store(true, std::sync::atomic::Ordering::Release);
     let client_id = "test-ws";
 
-    let msg = ClientMessage::Nudge {
-        message: "hello".to_owned(),
-    };
+    let msg = ClientMessage::Nudge { message: "hello".to_owned() };
     let reply = handle_client_message(&state, msg, client_id, &mut true).await;
     match reply {
         Some(ServerMessage::Error { code, .. }) => {
@@ -268,14 +245,10 @@ async fn nudge_rejected_when_agent_working() -> anyhow::Result<()> {
 #[tokio::test]
 async fn nudge_accepted_when_agent_waiting() -> anyhow::Result<()> {
     let (state, _rx) = ws_test_state(AgentState::WaitingForInput);
-    state
-        .ready
-        .store(true, std::sync::atomic::Ordering::Release);
+    state.ready.store(true, std::sync::atomic::Ordering::Release);
     let client_id = "test-ws";
 
-    let msg = ClientMessage::Nudge {
-        message: "hello".to_owned(),
-    };
+    let msg = ClientMessage::Nudge { message: "hello".to_owned() };
     let reply = handle_client_message(&state, msg, client_id, &mut true).await;
     assert!(reply.is_none(), "expected None (success), got {reply:?}");
     Ok(())
@@ -286,20 +259,13 @@ async fn signal_delivers_sigint() -> anyhow::Result<()> {
     let (state, mut rx) = ws_test_state(AgentState::Working);
     let client_id = "test-ws";
 
-    let msg = ClientMessage::Signal {
-        name: "SIGINT".to_owned(),
-    };
+    let msg = ClientMessage::Signal { signal: "SIGINT".to_owned() };
     let reply = handle_client_message(&state, msg, client_id, &mut true).await;
     assert!(reply.is_none(), "expected None (success), got {reply:?}");
 
     let event = rx.recv().await;
     assert!(
-        matches!(
-            event,
-            Some(crate::event::InputEvent::Signal(
-                crate::event::PtySignal::Int
-            ))
-        ),
+        matches!(event, Some(crate::event::InputEvent::Signal(crate::event::PtySignal::Int))),
         "expected Signal(Int), got {event:?}"
     );
     Ok(())
@@ -310,9 +276,7 @@ async fn signal_rejects_unknown() -> anyhow::Result<()> {
     let (state, _rx) = ws_test_state(AgentState::Working);
     let client_id = "test-ws";
 
-    let msg = ClientMessage::Signal {
-        name: "SIGFOO".to_owned(),
-    };
+    let msg = ClientMessage::Signal { signal: "SIGFOO".to_owned() };
     let reply = handle_client_message(&state, msg, client_id, &mut true).await;
     match reply {
         Some(ServerMessage::Error { code, .. }) => {
@@ -328,17 +292,12 @@ async fn keys_rejects_unknown_key() -> anyhow::Result<()> {
     let (state, _rx) = ws_test_state(AgentState::Working);
     let client_id = "test-ws";
 
-    let msg = ClientMessage::Keys {
-        keys: vec!["Enter".to_owned(), "SuperKey".to_owned()],
-    };
+    let msg = ClientMessage::Keys { keys: vec!["Enter".to_owned(), "SuperKey".to_owned()] };
     let reply = handle_client_message(&state, msg, client_id, &mut true).await;
     match reply {
         Some(ServerMessage::Error { code, message }) => {
             assert_eq!(code, "BAD_REQUEST");
-            assert!(
-                message.contains("SuperKey"),
-                "message should mention the bad key: {message}"
-            );
+            assert!(message.contains("SuperKey"), "message should mention the bad key: {message}");
         }
         other => anyhow::bail!("expected BadRequest error, got {other:?}"),
     }
@@ -347,11 +306,9 @@ async fn keys_rejects_unknown_key() -> anyhow::Result<()> {
 
 #[test]
 fn signal_message_serialization() -> anyhow::Result<()> {
-    let msg = ClientMessage::Signal {
-        name: "SIGTERM".to_owned(),
-    };
+    let msg = ClientMessage::Signal { signal: "SIGTERM".to_owned() };
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"signal\""));
-    assert!(json.contains("\"name\":\"SIGTERM\""));
+    assert!(json.contains("\"signal\":\"SIGTERM\""));
     Ok(())
 }

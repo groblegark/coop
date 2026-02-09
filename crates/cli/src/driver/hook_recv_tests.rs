@@ -10,12 +10,15 @@ fn parses_tool_complete_event() {
     let event = parse_hook_line(
         r#"{"event":"post_tool_use","data":{"tool_name":"Bash","tool_input":{"command":"ls"}}}"#,
     );
-    assert_eq!(
-        event,
-        Some(HookEvent::ToolComplete {
-            tool: "Bash".to_string()
-        })
+    assert_eq!(event, Some(HookEvent::ToolComplete { tool: "Bash".to_string() }));
+}
+
+#[test]
+fn parses_before_agent_event() {
+    let event = parse_hook_line(
+        r#"{"event":"before_agent","data":{"prompt":"Fix the bug","hook_event_name":"BeforeAgent"}}"#,
     );
+    assert_eq!(event, Some(HookEvent::AgentStart));
 }
 
 #[test]
@@ -38,9 +41,7 @@ fn parses_notification_idle_prompt() {
         parse_hook_line(r#"{"event":"notification","data":{"notification_type":"idle_prompt"}}"#);
     assert_eq!(
         event,
-        Some(HookEvent::Notification {
-            notification_type: "idle_prompt".to_string()
-        })
+        Some(HookEvent::Notification { notification_type: "idle_prompt".to_string() })
     );
 }
 
@@ -51,9 +52,7 @@ fn parses_notification_permission_prompt() {
     );
     assert_eq!(
         event,
-        Some(HookEvent::Notification {
-            notification_type: "permission_prompt".to_string()
-        })
+        Some(HookEvent::Notification { notification_type: "permission_prompt".to_string() })
     );
 }
 
@@ -106,9 +105,23 @@ fn notification_missing_type_returns_none() {
 }
 
 #[test]
-fn pre_tool_use_missing_tool_name_returns_none() {
+fn pre_tool_use_missing_tool_name_returns_empty() {
     let event = parse_hook_line(r#"{"event":"pre_tool_use","data":{}}"#);
-    assert_eq!(event, None);
+    assert_eq!(event, Some(HookEvent::PreToolUse { tool: "".to_string(), tool_input: None }));
+}
+
+#[test]
+fn parses_after_tool_event() {
+    let event = parse_hook_line(
+        r#"{"event":"after_tool","data":{"tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":{"llmContent":"output"}}}"#,
+    );
+    assert_eq!(event, Some(HookEvent::ToolComplete { tool: "Bash".to_string() }));
+}
+
+#[test]
+fn after_tool_missing_tool_name_returns_empty() {
+    let event = parse_hook_line(r#"{"event":"after_tool","data":{}}"#);
+    assert_eq!(event, Some(HookEvent::ToolComplete { tool: "".to_string() }));
 }
 
 #[test]

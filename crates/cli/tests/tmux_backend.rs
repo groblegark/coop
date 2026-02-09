@@ -37,11 +37,7 @@ impl TmuxSession {
             .status()?;
         anyhow::ensure!(status.success(), "failed to create tmux session");
 
-        Ok(Self {
-            name: name.to_string(),
-            socket,
-            _tmpdir: tmpdir,
-        })
+        Ok(Self { name: name.to_string(), socket, _tmpdir: tmpdir })
     }
 
     fn backend(&self) -> anyhow::Result<TmuxBackend> {
@@ -95,10 +91,7 @@ async fn send_command_and_capture_output() -> anyhow::Result<()> {
 
     drop(input_tx);
     let result = tokio::time::timeout(std::time::Duration::from_secs(3), run_handle).await;
-    assert!(
-        result.is_ok(),
-        "run future should resolve after input closes"
-    );
+    assert!(result.is_ok(), "run future should resolve after input closes");
 
     Ok(())
 }
@@ -138,19 +131,10 @@ async fn session_kill_resolves_run() -> anyhow::Result<()> {
     drop(session);
 
     let result = tokio::time::timeout(std::time::Duration::from_secs(5), run_handle).await;
-    assert!(
-        result.is_ok(),
-        "run future should resolve after session kill"
-    );
+    assert!(result.is_ok(), "run future should resolve after session kill");
 
     if let Ok(Ok(Ok(exit_status))) = result {
-        assert_eq!(
-            exit_status,
-            ExitStatus {
-                code: None,
-                signal: None,
-            }
-        );
+        assert_eq!(exit_status, ExitStatus { code: None, signal: None });
     }
     Ok(())
 }

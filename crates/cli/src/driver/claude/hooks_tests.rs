@@ -36,10 +36,7 @@ fn generated_config_has_required_hooks() {
 
     let pre_tool = &hooks["PreToolUse"];
     assert!(pre_tool.is_array());
-    assert_eq!(
-        pre_tool[0]["matcher"],
-        "ExitPlanMode|AskUserQuestion|EnterPlanMode"
-    );
+    assert_eq!(pre_tool[0]["matcher"], "ExitPlanMode|AskUserQuestion|EnterPlanMode");
     assert!(pre_tool[0]["hooks"].is_array());
     assert_eq!(pre_tool[0]["hooks"][0]["type"], "command");
 }
@@ -51,14 +48,18 @@ fn config_references_env_var() {
 
     // Config should use $COOP_HOOK_PIPE, not a hardcoded path
     assert!(config_str.contains("COOP_HOOK_PIPE"));
+    // Stop hook should reference $COOP_URL for the gating endpoint
+    assert!(config_str.contains("COOP_URL"));
 }
 
 #[test]
-fn env_vars_include_pipe_path() {
-    let vars = hook_env_vars(Path::new("/tmp/coop.pipe"));
-    assert_eq!(vars.len(), 1);
+fn env_vars_include_pipe_path_and_url() {
+    let vars = hook_env_vars(Path::new("/tmp/coop.pipe"), "http://127.0.0.1:8080");
+    assert_eq!(vars.len(), 2);
     assert_eq!(vars[0].0, "COOP_HOOK_PIPE");
     assert_eq!(vars[0].1, "/tmp/coop.pipe");
+    assert_eq!(vars[1].0, "COOP_URL");
+    assert_eq!(vars[1].1, "http://127.0.0.1:8080");
 }
 
 #[test]

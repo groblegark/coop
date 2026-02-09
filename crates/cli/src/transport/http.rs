@@ -13,14 +13,15 @@ use base64::Engine;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
-use crate::driver::{AgentState, PromptContext, QuestionAnswer};
+use crate::driver::{AgentState, ErrorCategory, PromptContext, QuestionAnswer};
 use crate::error::ErrorCode;
 use crate::event::InputEvent;
 use crate::event::PtySignal;
 use crate::screen::CursorPosition;
+use crate::stop::{generate_block_reason, StopConfig, StopMode, StopType};
 use crate::transport::state::AppState;
 use crate::transport::{
-    deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_active_question,
+    deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_question_current,
 };
 
 // ---------------------------------------------------------------------------
@@ -67,7 +68,7 @@ pub struct ScreenResponse {
     pub rows: u16,
     pub alt_screen: bool,
     pub cursor: Option<CursorPosition>,
-    pub sequence: u64,
+    pub seq: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -143,7 +144,6 @@ pub struct AgentStateResponse {
     pub screen_seq: u64,
     pub detection_tier: String,
     pub prompt: Option<PromptContext>,
-    pub idle_grace_remaining_secs: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -165,7 +165,6 @@ pub struct NudgeResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RespondRequest {
     pub accept: Option<bool>,
-    pub option: Option<i32>,
     pub text: Option<String>,
     #[serde(default)]
     pub answers: Vec<HttpQuestionAnswer>,
@@ -201,10 +200,7 @@ pub async fn health(State(s): State<Arc<AppState>>) -> impl IntoResponse {
         pid: if pid == 0 { None } else { Some(pid as i32) },
         uptime_secs: uptime,
         agent: s.config.agent.to_string(),
-        terminal: TerminalSize {
-            cols: snap.cols,
-            rows: snap.rows,
-        },
+        terminal: TerminalSize { cols: snap.cols, rows: snap.rows },
         ws_clients: s.lifecycle.ws_client_count.load(Ordering::Relaxed),
         ready,
     })
@@ -240,7 +236,7 @@ pub async fn screen(
         rows: snap.rows,
         alt_screen: snap.alt_screen,
         cursor: if q.cursor { Some(snap.cursor) } else { None },
-        sequence: snap.sequence,
+        seq: snap.sequence,
     })
 }
 
@@ -248,13 +244,7 @@ pub async fn screen(
 pub async fn screen_text(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let snap = s.terminal.screen.read().await.snapshot();
     let text = snap.lines.join("\n");
-    (
-        [(
-            axum::http::header::CONTENT_TYPE,
-            "text/plain; charset=utf-8",
-        )],
-        text,
-    )
+    ([(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")], text)
 }
 
 /// `GET /api/v1/output`
@@ -323,11 +313,7 @@ pub async fn input(
         data.push(b'\r');
     }
     let len = data.len() as i32;
-    let _ = s
-        .channels
-        .input_tx
-        .send(InputEvent::Write(Bytes::from(data)))
-        .await;
+    let _ = s.channels.input_tx.send(InputEvent::Write(Bytes::from(data))).await;
 
     Json(InputResponse { bytes_written: len }).into_response()
 }
@@ -346,11 +332,7 @@ pub async fn input_keys(
         }
     };
     let len = data.len() as i32;
-    let _ = s
-        .channels
-        .input_tx
-        .send(InputEvent::Write(Bytes::from(data)))
-        .await;
+    let _ = s.channels.input_tx.send(InputEvent::Write(Bytes::from(data))).await;
 
     Json(InputResponse { bytes_written: len }).into_response()
 }
@@ -366,20 +348,9 @@ pub async fn resize(
             .into_response();
     }
 
-    let _ = s
-        .channels
-        .input_tx
-        .send(InputEvent::Resize {
-            cols: req.cols,
-            rows: req.rows,
-        })
-        .await;
+    let _ = s.channels.input_tx.send(InputEvent::Resize { cols: req.cols, rows: req.rows }).await;
 
-    Json(ResizeResponse {
-        cols: req.cols,
-        rows: req.rows,
-    })
-    .into_response()
+    Json(ResizeResponse { cols: req.cols, rows: req.rows }).into_response()
 }
 
 /// `POST /api/v1/signal`
@@ -403,9 +374,7 @@ pub async fn signal(
 /// `GET /api/v1/agent/state`
 pub async fn agent_state(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     if s.config.nudge_encoder.is_none() && s.config.respond_encoder.is_none() {
-        return ErrorCode::NoDriver
-            .to_http_response("no agent driver configured")
-            .into_response();
+        return ErrorCode::NoDriver.to_http_response("no agent driver configured").into_response();
     }
 
     let state = s.driver.agent_state.read().await;
@@ -418,14 +387,8 @@ pub async fn agent_state(State(s): State<Arc<AppState>>) -> impl IntoResponse {
         screen_seq: screen.seq(),
         detection_tier: s.driver.detection_tier_str(),
         prompt: state.prompt().cloned(),
-        idle_grace_remaining_secs: s.driver.idle_grace_remaining_secs(),
         error_detail: s.driver.error_detail.read().await.clone(),
-        error_category: s
-            .driver
-            .error_category
-            .read()
-            .await
-            .map(|c| c.as_str().to_owned()),
+        error_category: s.driver.error_category.read().await.map(|c| c.as_str().to_owned()),
     })
     .into_response()
 }
@@ -436,9 +399,7 @@ pub async fn agent_nudge(
     Json(req): Json<NudgeRequest>,
 ) -> impl IntoResponse {
     if !s.ready.load(Ordering::Acquire) {
-        return ErrorCode::NotReady
-            .to_http_response("agent is still starting")
-            .into_response();
+        return ErrorCode::NotReady.to_http_response("agent is still starting").into_response();
     }
 
     let encoder = match &s.config.nudge_encoder {
@@ -471,12 +432,8 @@ pub async fn agent_nudge(
     let steps = encoder.encode(&req.message);
     let _ = deliver_steps(&s.channels.input_tx, steps).await;
 
-    Json(NudgeResponse {
-        delivered: true,
-        state_before: Some(state_before),
-        reason: None,
-    })
-    .into_response()
+    Json(NudgeResponse { delivered: true, state_before: Some(state_before), reason: None })
+        .into_response()
 }
 
 /// `POST /api/v1/agent/respond`
@@ -485,9 +442,7 @@ pub async fn agent_respond(
     Json(req): Json<RespondRequest>,
 ) -> impl IntoResponse {
     if !s.ready.load(Ordering::Acquire) {
-        return ErrorCode::NotReady
-            .to_http_response("agent is still starting")
-            .into_response();
+        return ErrorCode::NotReady.to_http_response("agent is still starting").into_response();
     }
 
     let encoder = match &s.config.respond_encoder {
@@ -502,22 +457,18 @@ pub async fn agent_respond(
     let answers: Vec<QuestionAnswer> = req
         .answers
         .iter()
-        .map(|a| QuestionAnswer {
-            option: a.option.map(|o| o as u32),
-            text: a.text.clone(),
-        })
+        .map(|a| QuestionAnswer { option: a.option.map(|o| o as u32), text: a.text.clone() })
         .collect();
 
     let _delivery = s.nudge_mutex.lock().await;
 
     let agent = s.driver.agent_state.read().await;
-    let prompt_type = agent.as_str().to_owned();
+    let prompt_type = agent.prompt().map(|p| p.kind.as_str().to_owned());
 
     let (steps, answers_delivered) = match encode_response(
         &agent,
         encoder.as_ref(),
         req.accept,
-        req.option,
         req.text.as_deref(),
         &answers,
     ) {
@@ -530,17 +481,124 @@ pub async fn agent_respond(
     drop(agent);
     let _ = deliver_steps(&s.channels.input_tx, steps).await;
 
-    // Update active_question tracking for multi-question dialogs.
+    // Update question_current tracking for multi-question dialogs.
     if answers_delivered > 0 {
-        update_active_question(&s, answers_delivered).await;
+        update_question_current(&s, answers_delivered).await;
     }
 
-    Json(RespondResponse {
-        delivered: true,
-        prompt_type: Some(prompt_type),
-        reason: None,
-    })
-    .into_response()
+    Json(RespondResponse { delivered: true, prompt_type, reason: None }).into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Stop hook gating
+// ---------------------------------------------------------------------------
+
+/// Input from the Claude Code Stop hook (piped from stdin via curl).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StopHookInput {
+    /// When `true`, this is a safety-valve invocation that must be allowed.
+    #[serde(default)]
+    pub stop_hook_active: bool,
+}
+
+/// Verdict returned to the hook script.
+///
+/// Empty object `{}` means "allow" (no `decision` field).
+/// `{"decision":"block","reason":"..."}` means "block".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StopHookVerdict {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decision: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// `POST /api/v1/hooks/stop` — called by the hook script, returns verdict.
+pub async fn hooks_stop(
+    State(s): State<Arc<AppState>>,
+    Json(input): Json<StopHookInput>,
+) -> impl IntoResponse {
+    let stop = &s.stop;
+    let config = stop.config.read().await;
+
+    // 1. Mode = Allow → always allow.
+    if config.mode == StopMode::Allow {
+        drop(config);
+        stop.emit(StopType::Allowed, None, None);
+        return Json(StopHookVerdict { decision: None, reason: None }).into_response();
+    }
+
+    // 2. Safety valve: stop_hook_active = true → must allow.
+    if input.stop_hook_active {
+        drop(config);
+        stop.emit(StopType::SafetyValve, None, None);
+        return Json(StopHookVerdict { decision: None, reason: None }).into_response();
+    }
+
+    // 3. Unrecoverable error → allow.
+    {
+        let error_cat = s.driver.error_category.read().await;
+        if let Some(cat) = &*error_cat {
+            let is_unrecoverable =
+                matches!(cat, ErrorCategory::Unauthorized | ErrorCategory::OutOfCredits);
+            if is_unrecoverable {
+                let detail = s.driver.error_detail.read().await.clone();
+                drop(error_cat);
+                drop(config);
+                stop.emit(StopType::Error, None, detail);
+                return Json(StopHookVerdict { decision: None, reason: None }).into_response();
+            }
+        }
+    }
+
+    // 4. Signal received → allow and reset.
+    if stop.signaled.swap(false, std::sync::atomic::Ordering::AcqRel) {
+        let body = stop.signal_body.write().await.take();
+        drop(config);
+        stop.emit(StopType::Signaled, body, None);
+        return Json(StopHookVerdict { decision: None, reason: None }).into_response();
+    }
+
+    // 5. Block: generate reason and return block verdict.
+    let reason = generate_block_reason(&config);
+    drop(config);
+    stop.emit(StopType::Blocked, None, None);
+    Json(StopHookVerdict { decision: Some("block".to_owned()), reason: Some(reason) })
+        .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Resolve endpoint
+// ---------------------------------------------------------------------------
+
+/// `POST /api/v1/hooks/stop/resolve` — store signal body, set flag.
+pub async fn resolve_stop(
+    State(s): State<Arc<AppState>>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let stop = &s.stop;
+    *stop.signal_body.write().await = Some(body);
+    stop.signaled.store(true, std::sync::atomic::Ordering::Release);
+    Json(serde_json::json!({ "accepted": true }))
+}
+
+// ---------------------------------------------------------------------------
+// Stop config endpoints
+// ---------------------------------------------------------------------------
+
+/// `GET /api/v1/config/stop` — read current stop config.
+pub async fn get_stop_config(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+    let config = s.stop.config.read().await;
+    Json(config.clone())
+}
+
+/// `PUT /api/v1/config/stop` — update stop config.
+pub async fn put_stop_config(
+    State(s): State<Arc<AppState>>,
+    Json(new_config): Json<StopConfig>,
+) -> impl IntoResponse {
+    *s.stop.config.write().await = new_config;
+    Json(serde_json::json!({ "updated": true }))
 }
 
 #[cfg(test)]

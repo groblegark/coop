@@ -16,7 +16,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use crate::config::Config;
-use crate::driver::grace::IdleGraceTimer;
 use crate::driver::{
     classify_error_detail, AgentState, CompositeDetector, DetectedState, Detector, ExitStatus,
 };
@@ -80,23 +79,12 @@ impl Session {
     /// 3. Spawns backend.run() on a separate task
     /// 4. Spawns all detectors
     pub fn new(config: &Config, session: SessionConfig) -> Self {
-        let SessionConfig {
-            mut backend,
-            detectors,
-            app_state,
-            consumer_input_rx,
-            shutdown,
-        } = session;
-
-        let idle_grace = Duration::from_secs(config.idle_grace);
-        let idle_grace_poll = config.idle_grace_poll();
+        let SessionConfig { mut backend, detectors, app_state, consumer_input_rx, shutdown } =
+            session;
 
         // Set initial PID (Release so signal-delivery loads with Acquire see it)
         if let Some(pid) = backend.child_pid() {
-            app_state
-                .terminal
-                .child_pid
-                .store(pid, std::sync::atomic::Ordering::Release);
+            app_state.terminal.child_pid.store(pid, std::sync::atomic::Ordering::Release);
         }
 
         // Set initial terminal size
@@ -109,25 +97,14 @@ impl Session {
 
         // Spawn backend task
         let backend_handle = tokio::spawn(async move {
-            backend
-                .run(backend_output_tx, backend_input_rx, resize_rx)
-                .await
+            backend.run(backend_output_tx, backend_input_rx, resize_rx).await
         });
 
         // Build and spawn the composite detector (tier resolution + dedup).
         let (detector_tx, detector_rx) = mpsc::channel(64);
-        let grace_timer = IdleGraceTimer::new(idle_grace);
-        let composite = CompositeDetector {
-            tiers: detectors,
-            grace_timer,
-            grace_tick_interval: idle_grace_poll,
-        };
-        let ring_total = Arc::clone(&app_state.terminal.ring_total_written);
-        let activity_fn: Arc<dyn Fn() -> u64 + Send + Sync> =
-            Arc::new(move || ring_total.load(std::sync::atomic::Ordering::Relaxed));
-        let grace_deadline = Arc::clone(&app_state.driver.idle_grace_deadline);
+        let composite = CompositeDetector { tiers: detectors };
         let detector_shutdown = shutdown.clone();
-        tokio::spawn(composite.run(detector_tx, activity_fn, grace_deadline, detector_shutdown));
+        tokio::spawn(composite.run(detector_tx, detector_shutdown));
 
         Self {
             app_state,
@@ -143,7 +120,7 @@ impl Session {
 
     /// Run the session loop until the backend exits or shutdown is triggered.
     pub async fn run(mut self, config: &Config) -> anyhow::Result<ExitStatus> {
-        let idle_timeout = config.idle_timeout_duration();
+        let idle_timeout = config.idle_timeout();
         let shutdown_timeout = config.shutdown_timeout();
         let mut screen_debounce = tokio::time::interval(config.screen_debounce());
         let mut state_seq: u64 = 0;
@@ -246,11 +223,13 @@ impl Session {
                         // Store metadata for the HTTP/gRPC API.
                         self.app_state.driver.state_seq.store(state_seq, std::sync::atomic::Ordering::Relaxed);
                         self.app_state.driver.detection_tier.store(detected.tier, std::sync::atomic::Ordering::Relaxed);
+                        *self.app_state.driver.detection_cause.write().await = detected.cause.clone();
 
                         let _ = self.app_state.channels.state_tx.send(StateChangeEvent {
                             prev,
                             next: detected.state.clone(),
                             seq: state_seq,
+                            cause: detected.cause,
                         });
 
                         // Track idle time for idle_timeout.
@@ -319,11 +298,7 @@ impl Session {
                 let mut screen = self.app_state.terminal.screen.write().await;
                 screen.feed(&bytes);
             }
-            let _ = self
-                .app_state
-                .channels
-                .output_tx
-                .send(OutputEvent::Raw(bytes));
+            let _ = self.app_state.channels.output_tx.send(OutputEvent::Raw(bytes));
         }
 
         // Drop the input sender to signal the backend to stop
@@ -374,6 +349,7 @@ impl Session {
             prev,
             next: AgentState::Exited { status },
             seq: state_seq,
+            cause: String::new(),
         });
 
         Ok(status)

@@ -6,43 +6,23 @@ pub mod encoding;
 pub mod hooks;
 pub mod prompt;
 pub mod resume;
+pub mod screen_detect;
 pub mod setup;
 pub mod startup;
 pub mod state;
 
-use std::path::PathBuf;
-use std::time::Duration;
+use std::path::{Path, PathBuf};
 
 use bytes::Bytes;
 use tokio::sync::mpsc;
+
+use crate::config::Config;
 
 use super::hook_recv::HookReceiver;
 use super::nats_recv::{NatsConfig, NatsReceiver};
 use super::Detector;
 use detect::{HookDetector, LogDetector, NatsDetector, StdoutDetector};
 use encoding::{ClaudeNudgeEncoder, ClaudeRespondEncoder};
-
-/// Configuration for building a [`ClaudeDriver`].
-pub struct ClaudeDriverConfig {
-    /// Path to Claude's session log file (Tier 2).
-    pub session_log_path: Option<PathBuf>,
-    /// Path for the hook named pipe (Tier 1).
-    pub hook_pipe_path: Option<PathBuf>,
-    /// Channel for raw stdout JSONL bytes (Tier 3).
-    /// Used when Claude runs with `--print --output-format stream-json`.
-    pub stdout_rx: Option<mpsc::Receiver<Bytes>>,
-    /// Byte offset to start reading the session log from (for resume).
-    pub log_start_offset: u64,
-    /// Log watcher fallback poll interval.
-    pub log_poll: Duration,
-    /// Delay between plan rejection keystroke and feedback text.
-    pub feedback_delay: Duration,
-    /// Delay between keystrokes in multi-question sequences.
-    pub input_delay: Duration,
-    /// NATS configuration for Tier 1 event bus detection.
-    /// When set, a NatsDetector is created alongside other detectors.
-    pub nats_config: Option<NatsConfig>,
-}
 
 /// Claude Code agent driver.
 ///
@@ -52,44 +32,61 @@ pub struct ClaudeDriver {
     pub nudge: ClaudeNudgeEncoder,
     pub respond: ClaudeRespondEncoder,
     pub detectors: Vec<Box<dyn Detector>>,
-    /// Stored for `env_vars()`; the pipe path must stay available.
-    hook_pipe_path: Option<PathBuf>,
 }
 
 impl ClaudeDriver {
-    /// Build a new driver from the given configuration.
+    /// Build a new driver from config and runtime paths.
     ///
     /// Constructs detectors based on available tiers:
     /// - Tier 1 (HookDetector): if `hook_pipe_path` is set
     /// - Tier 2 (LogDetector): if `session_log_path` is set
     /// - Tier 3 (StdoutDetector): if `stdout_rx` is provided
-    pub fn new(config: ClaudeDriverConfig) -> anyhow::Result<Self> {
+    pub fn new(
+        config: &Config,
+        hook_pipe_path: Option<&Path>,
+        session_log_path: Option<PathBuf>,
+        stdout_rx: Option<mpsc::Receiver<Bytes>>,
+        log_start_offset: u64,
+    ) -> anyhow::Result<Self> {
         let mut detectors: Vec<Box<dyn Detector>> = Vec::new();
-        let hook_pipe_path = config.hook_pipe_path.clone();
 
         // Tier 1: Hook events (highest confidence)
-        if let Some(pipe_path) = config.hook_pipe_path {
-            let receiver = HookReceiver::new(&pipe_path)?;
+        if let Some(pipe_path) = hook_pipe_path {
+            let receiver = HookReceiver::new(pipe_path)?;
             detectors.push(Box::new(HookDetector { receiver }));
         }
 
         // Tier 2: Session log watching
-        if let Some(log_path) = config.session_log_path {
+        if let Some(log_path) = session_log_path {
             detectors.push(Box::new(LogDetector {
                 log_path,
-                start_offset: config.log_start_offset,
-                poll_interval: config.log_poll,
+                start_offset: log_start_offset,
+                poll_interval: config.log_poll(),
             }));
         }
 
         // Tier 1 (NATS): Event bus from bd daemon JetStream
-        if let Some(nats_config) = config.nats_config {
+        let nats_config = config
+            .nats_url
+            .as_ref()
+            .map(|url| NatsConfig {
+                url: url.clone(),
+                token: config.nats_token.clone(),
+                stream: std::env::var("COOP_NATS_STREAM")
+                    .unwrap_or_else(|_| "HOOK_EVENTS".to_string()),
+                subject: std::env::var("COOP_NATS_SUBJECT")
+                    .unwrap_or_else(|_| "hooks.>".to_string()),
+                consumer: std::env::var("COOP_NATS_CONSUMER")
+                    .unwrap_or_else(|_| format!("coop-{}", uuid::Uuid::new_v4())),
+            })
+            .or_else(NatsConfig::from_env);
+        if let Some(nats_config) = nats_config {
             let receiver = NatsReceiver::new(nats_config);
             detectors.push(Box::new(NatsDetector { receiver }));
         }
 
         // Tier 3: Structured stdout JSONL
-        if let Some(stdout_rx) = config.stdout_rx {
+        if let Some(stdout_rx) = stdout_rx {
             detectors.push(Box::new(StdoutDetector { stdout_rx }));
         }
 
@@ -97,26 +94,17 @@ impl ClaudeDriver {
         detectors.sort_by_key(|d| d.tier());
 
         Ok(Self {
-            nudge: ClaudeNudgeEncoder,
+            nudge: ClaudeNudgeEncoder { keyboard_delay: config.keyboard_delay() },
             respond: ClaudeRespondEncoder {
-                feedback_delay: config.feedback_delay,
-                input_delay: config.input_delay,
+                feedback_delay: config.feedback_delay(),
+                input_delay: config.keyboard_delay(),
             },
             detectors,
-            hook_pipe_path,
         })
     }
 
     /// Consume the driver and return its detectors.
     pub fn into_detectors(self) -> Vec<Box<dyn Detector>> {
         self.detectors
-    }
-
-    /// Return environment variables needed by the Claude child process.
-    pub fn env_vars(&self) -> Vec<(String, String)> {
-        match &self.hook_pipe_path {
-            Some(path) => hooks::hook_env_vars(path),
-            None => vec![],
-        }
     }
 }

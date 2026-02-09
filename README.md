@@ -85,12 +85,12 @@ gRPC is also available when `--grpc-port` is set, mirroring the HTTP endpoints w
 
 Coop uses structured data sources (not screen scraping) to classify agent state:
 
-| Agent | Hooks | Session log | Stdout JSONL | Process |
-|-------|-------|-------------|--------------|---------|
-| `claude` | PostToolUse, Stop | `~/.claude/sessions/` | `--print --output-format stream-json` | Yes |
-| `codex` | -- | -- | `--json` | Yes |
-| `gemini` | AfterTool, SessionEnd | `~/.gemini/tmp/` | `stream-json` | Yes |
-| `unknown` | -- | -- | -- | Yes |
+| Agent | Maturity | Hooks | Session log | Stdout JSONL | Process |
+|-------|----------|-------|-------------|--------------|---------|
+| `claude` | Beta | PostToolUse, Stop | `~/.claude/sessions/` | `--print --output-format stream-json` | Yes |
+| `codex` | TODO | -- | -- | `--json` | Yes |
+| `gemini` | Pre-alpha | AfterTool, SessionEnd | `~/.gemini/tmp/` | `stream-json` | Yes |
+| `unknown` | Experimental | -- | -- | -- | Yes |
 
 Agent states: `starting`, `working`, `waiting_for_input`, `permission_prompt`, `plan_prompt`, `ask_user`, `error`, `alt_screen`, `exited`, `unknown`.
 

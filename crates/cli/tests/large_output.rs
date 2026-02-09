@@ -28,9 +28,7 @@ async fn large_output_ring_buffer_integrity() -> anyhow::Result<()> {
     assert_eq!(ring.total_written(), pattern.len() as u64);
 
     // Read from offset 0 — should get all data
-    let (a, b) = ring
-        .read_from(0)
-        .ok_or_else(|| anyhow::anyhow!("no data"))?;
+    let (a, b) = ring.read_from(0).ok_or_else(|| anyhow::anyhow!("no data"))?;
     let mut data = a.to_vec();
     data.extend_from_slice(b);
 
@@ -58,10 +56,7 @@ async fn ring_buffer_wrap_preserves_recent() -> anyhow::Result<()> {
     assert_eq!(ring.total_written(), 2 * capacity as u64);
 
     // Reading from offset 0 should fail (overwritten)
-    assert!(
-        ring.read_from(0).is_none(),
-        "offset 0 should be overwritten"
-    );
+    assert!(ring.read_from(0).is_none(), "offset 0 should be overwritten");
 
     // Reading from offset = capacity should succeed and return block2
     let (a, b) = ring
@@ -156,16 +151,8 @@ async fn ws_replay_large_offset() -> anyhow::Result<()> {
     };
 
     let parsed: serde_json::Value = serde_json::from_str(&text)?;
-    assert_eq!(
-        parsed.get("type").and_then(|t| t.as_str()),
-        Some("output"),
-        "response: {text}"
-    );
-    assert_eq!(
-        parsed.get("offset").and_then(|o| o.as_u64()),
-        Some(128000),
-        "response: {text}"
-    );
+    assert_eq!(parsed.get("type").and_then(|t| t.as_str()), Some("output"), "response: {text}");
+    assert_eq!(parsed.get("offset").and_then(|o| o.as_u64()), Some(128000), "response: {text}");
 
     // Decode and verify content matches
     let b64_data = parsed

@@ -26,22 +26,15 @@ pub enum StartupPrompt {
 /// Scans the last non-empty lines of the screen for known prompt patterns.
 pub fn detect_startup_prompt(screen_lines: &[String]) -> Option<StartupPrompt> {
     // Work backwards through lines to find the last non-empty content.
-    let trimmed: Vec<&str> = screen_lines
-        .iter()
-        .map(|l| l.trim())
-        .filter(|l| !l.is_empty())
-        .collect();
+    let trimmed: Vec<&str> =
+        screen_lines.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
 
     if trimmed.is_empty() {
         return None;
     }
 
     // Check the last few lines for known patterns.
-    let tail = if trimmed.len() >= 5 {
-        &trimmed[trimmed.len() - 5..]
-    } else {
-        &trimmed
-    };
+    let tail = if trimmed.len() >= 5 { &trimmed[trimmed.len() - 5..] } else { &trimmed };
     let combined = tail.join(" ");
     let lower = combined.to_lowercase();
 
@@ -81,17 +74,11 @@ pub fn encode_startup_response(prompt: StartupPrompt) -> Vec<NudgeStep> {
     match prompt {
         StartupPrompt::WorkspaceTrust => {
             // Accept trust: press 'y' + enter
-            vec![NudgeStep {
-                bytes: b"y\r".to_vec(),
-                delay_after: None,
-            }]
+            vec![NudgeStep { bytes: b"y\r".to_vec(), delay_after: None }]
         }
         StartupPrompt::BypassPermissions => {
             // Accept permission bypass: press 'y' + enter
-            vec![NudgeStep {
-                bytes: b"y\r".to_vec(),
-                delay_after: None,
-            }]
+            vec![NudgeStep { bytes: b"y\r".to_vec(), delay_after: None }]
         }
         StartupPrompt::LoginRequired => {
             // Nothing we can auto-handle for login; return empty to let it

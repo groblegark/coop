@@ -109,10 +109,8 @@ impl HookReceiver {
     /// through [`AsyncFd`].
     fn ensure_fd(&mut self) -> anyhow::Result<()> {
         if self.async_fd.is_none() {
-            let std_file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&self.pipe_path)?;
+            let std_file =
+                std::fs::OpenOptions::new().read(true).write(true).open(&self.pipe_path)?;
             crate::pty::nbio::set_nonblocking(&std_file)?;
             let owned: OwnedFd = std_file.into();
             let fifo_fd = FifoFd(owned);
@@ -133,7 +131,7 @@ impl Drop for HookReceiver {
 fn parse_hook_line(line: &str) -> Option<HookEvent> {
     let raw: RawHookEvent = serde_json::from_str(line).ok()?;
     match raw.event.as_str() {
-        "post_tool_use" => {
+        "post_tool_use" | "after_tool" => {
             let tool = raw
                 .data
                 .as_ref()
@@ -143,19 +141,19 @@ fn parse_hook_line(line: &str) -> Option<HookEvent> {
                 .to_string();
             Some(HookEvent::ToolComplete { tool })
         }
+        "before_agent" => Some(HookEvent::AgentStart),
         "stop" => Some(HookEvent::AgentStop),
         "session_end" => Some(HookEvent::SessionEnd),
         "notification" => {
             let data = raw.data?;
-            let notification_type = data
-                .get("notification_type")
-                .and_then(|v| v.as_str())?
-                .to_string();
+            let notification_type =
+                data.get("notification_type").and_then(|v| v.as_str())?.to_string();
             Some(HookEvent::Notification { notification_type })
         }
         "pre_tool_use" => {
             let data = raw.data?;
-            let tool = data.get("tool_name").and_then(|v| v.as_str())?.to_string();
+            let tool =
+                data.get("tool_name").and_then(|v| v.as_str()).unwrap_or_default().to_string();
             let tool_input = data.get("tool_input").cloned();
             Some(HookEvent::PreToolUse { tool, tool_input })
         }

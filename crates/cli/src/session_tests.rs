@@ -15,15 +15,10 @@ use crate::test_support::AppStateBuilder;
 async fn echo_exits_with_zero() -> anyhow::Result<()> {
     let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = AppStateBuilder::new()
-        .ring_size(65536)
-        .build_with_sender(input_tx);
+    let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
 
     let backend = NativePty::spawn(&["echo".into(), "hello".into()], 80, 24, &[])?;
-    let session = Session::new(
-        &config,
-        SessionConfig::new(app_state, backend, consumer_input_rx),
-    );
+    let session = Session::new(&config, SessionConfig::new(app_state, backend, consumer_input_rx));
 
     let status = session.run(&config).await?;
     assert_eq!(status.code, Some(0));
@@ -34,9 +29,7 @@ async fn echo_exits_with_zero() -> anyhow::Result<()> {
 async fn output_captured_in_ring_and_screen() -> anyhow::Result<()> {
     let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = AppStateBuilder::new()
-        .ring_size(65536)
-        .build_with_sender(input_tx);
+    let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
 
     let backend = NativePty::spawn(&["echo".into(), "hello-ring".into()], 80, 24, &[])?;
     let session = Session::new(
@@ -68,18 +61,12 @@ async fn output_captured_in_ring_and_screen() -> anyhow::Result<()> {
 async fn shutdown_cancels_session() -> anyhow::Result<()> {
     let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = AppStateBuilder::new()
-        .ring_size(65536)
-        .build_with_sender(input_tx);
+    let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
     let shutdown = CancellationToken::new();
 
     // Long-running command
-    let backend = NativePty::spawn(
-        &["/bin/sh".into(), "-c".into(), "sleep 60".into()],
-        80,
-        24,
-        &[],
-    )?;
+    let backend =
+        NativePty::spawn(&["/bin/sh".into(), "-c".into(), "sleep 60".into()], 80, 24, &[])?;
     let session = Session::new(
         &config,
         SessionConfig::new(app_state, backend, consumer_input_rx).with_shutdown(shutdown.clone()),
@@ -93,9 +80,6 @@ async fn shutdown_cancels_session() -> anyhow::Result<()> {
 
     let status = session.run(&config).await?;
     // Should have exited (signal or timeout)
-    assert!(
-        status.code.is_some() || status.signal.is_some(),
-        "expected exit: {status:?}"
-    );
+    assert!(status.code.is_some() || status.signal.is_some(), "expected exit: {status:?}");
     Ok(())
 }

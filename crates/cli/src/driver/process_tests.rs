@@ -37,7 +37,7 @@ async fn emits_exited_when_pid_dead() -> anyhow::Result<()> {
     let handle = tokio::spawn(Box::new(monitor).run(tx, shutdown.clone()));
 
     let state = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await?;
-    assert!(matches!(state, Some(AgentState::Exited { .. })));
+    assert!(matches!(state, Some((AgentState::Exited { .. }, _))));
 
     handle.await?;
     Ok(())

@@ -20,7 +20,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 
-use crate::driver::{AgentState, NudgeStep, QuestionAnswer, RespondEncoder};
+use crate::driver::{AgentState, NudgeStep, PromptKind, QuestionAnswer, RespondEncoder};
 use crate::error::ErrorCode;
 use crate::event::InputEvent;
 
@@ -94,71 +94,53 @@ pub async fn deliver_steps(
 /// Match the current agent state to the appropriate encoder call.
 ///
 /// Returns `(steps, answers_delivered)` where `answers_delivered` is the
-/// number of question answers that were encoded (for active_question tracking).
+/// number of question answers that were encoded (for question_current tracking).
 pub fn encode_response(
     agent: &AgentState,
     encoder: &dyn RespondEncoder,
     accept: Option<bool>,
-    option: Option<i32>,
     text: Option<&str>,
     answers: &[QuestionAnswer],
 ) -> Result<(Vec<NudgeStep>, usize), ErrorCode> {
     match agent {
-        AgentState::PermissionPrompt { .. } => {
-            Ok((encoder.encode_permission(accept.unwrap_or(false)), 0))
-        }
-        AgentState::PlanPrompt { .. } => {
-            Ok((encoder.encode_plan(accept.unwrap_or(false), text), 0))
-        }
-        AgentState::Question { prompt } => {
-            let total_questions = prompt.questions.len();
-            // If structured answers provided, use them; otherwise bridge old fields.
-            let effective_answers: Vec<QuestionAnswer>;
-            let answers_ref = if answers.is_empty() {
-                if option.is_some() || text.is_some() {
-                    effective_answers = vec![QuestionAnswer {
-                        option: option.map(|o| o as u32),
-                        text: text.map(|t| t.to_string()),
-                    }];
-                    &effective_answers
-                } else {
+        AgentState::Prompt { prompt } => match prompt.kind {
+            PromptKind::Permission => Ok((encoder.encode_permission(accept.unwrap_or(false)), 0)),
+            PromptKind::Plan => Ok((encoder.encode_plan(accept.unwrap_or(false), text), 0)),
+            PromptKind::Question => {
+                if answers.is_empty() {
                     return Ok((vec![], 0));
                 }
-            } else {
-                answers
-            };
-            let count = answers_ref.len();
-            Ok((encoder.encode_question(answers_ref, total_questions), count))
-        }
+                let total_questions = prompt.questions.len();
+                let count = answers.len();
+                Ok((encoder.encode_question(answers, total_questions), count))
+            }
+        },
         _ => Err(ErrorCode::NoPrompt),
     }
 }
 
-/// Advance `active_question` on the current `Question` state after answers
+/// Advance `question_current` on the current `Question` state after answers
 /// have been delivered to the PTY.
-pub async fn update_active_question(state: &AppState, answers_delivered: usize) {
+pub async fn update_question_current(state: &AppState, answers_delivered: usize) {
     let mut agent = state.driver.agent_state.write().await;
-    if let AgentState::Question { ref mut prompt } = *agent {
-        let prev_aq = prompt.active_question;
-        prompt.active_question = prev_aq
-            .saturating_add(answers_delivered)
-            .min(prompt.questions.len());
-        if prompt.active_question != prev_aq {
+    if let AgentState::Prompt { ref mut prompt } = *agent {
+        if prompt.kind != PromptKind::Question {
+            return;
+        }
+        let prev_aq = prompt.question_current;
+        prompt.question_current =
+            prev_aq.saturating_add(answers_delivered).min(prompt.questions.len());
+        if prompt.question_current != prev_aq {
             let next = agent.clone();
             drop(agent);
-            let seq = state
-                .driver
-                .state_seq
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            // Broadcast updated state so clients see active_question progress.
-            let _ = state
-                .channels
-                .state_tx
-                .send(crate::event::StateChangeEvent {
-                    prev: next.clone(),
-                    next,
-                    seq,
-                });
+            let seq = state.driver.state_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            // Broadcast updated state so clients see question_current progress.
+            let _ = state.channels.state_tx.send(crate::event::StateChangeEvent {
+                prev: next.clone(),
+                next,
+                seq,
+                cause: String::new(),
+            });
         }
     }
 }
@@ -190,10 +172,7 @@ pub struct ErrorBody {
 impl ErrorCode {
     /// Convert this error code into a transport [`ErrorBody`].
     pub fn to_error_body(&self, message: impl Into<String>) -> ErrorBody {
-        ErrorBody {
-            code: self.as_str().to_owned(),
-            message: message.into(),
-        }
+        ErrorBody { code: self.as_str().to_owned(), message: message.into() }
     }
 
     /// Convert this error code into an axum JSON error response.
@@ -203,9 +182,7 @@ impl ErrorCode {
     ) -> (StatusCode, Json<ErrorResponse>) {
         let status =
             StatusCode::from_u16(self.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        let body = ErrorResponse {
-            error: self.to_error_body(message),
-        };
+        let body = ErrorResponse { error: self.to_error_body(message) };
         (status, Json(body))
     }
 }
@@ -249,16 +226,16 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/agent/state", get(http::agent_state))
         .route("/api/v1/agent/nudge", post(http::agent_nudge))
         .route("/api/v1/agent/respond", post(http::agent_respond))
+        .route("/api/v1/hooks/stop", post(http::hooks_stop))
+        .route("/api/v1/hooks/stop/resolve", post(http::resolve_stop))
+        .route("/api/v1/config/stop", get(http::get_stop_config).put(http::put_stop_config))
         .route("/ws", get(ws::ws_handler))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            auth::auth_layer,
-        ))
+        .layer(middleware::from_fn_with_state(state.clone(), auth::auth_layer))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
 
-/// Build a minimal health-only router (for `--health-port`).
+/// Build a minimal health-only router (for `--port-health`).
 pub fn build_health_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/api/v1/health", get(http::health))

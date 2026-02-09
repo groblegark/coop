@@ -22,10 +22,7 @@ fn cursor_to_proto_converts_u16_to_i32() {
 
 #[test]
 fn cursor_to_proto_handles_max_u16() {
-    let cursor = CursorPosition {
-        row: u16::MAX,
-        col: u16::MAX,
-    };
+    let cursor = CursorPosition { row: u16::MAX, col: u16::MAX };
     let p = cursor_to_proto(&cursor);
     assert_eq!(p.row, u16::MAX as i32);
     assert_eq!(p.col, u16::MAX as i32);
@@ -46,7 +43,7 @@ fn screen_snapshot_to_proto_converts_all_fields() {
     assert_eq!(p.cols, 80);
     assert_eq!(p.rows, 24);
     assert!(p.alt_screen);
-    assert_eq!(p.sequence, 42);
+    assert_eq!(p.seq, 42);
     let cursor = p.cursor.as_ref();
     assert!(cursor.is_some());
     let c = cursor.ok_or("missing cursor").map_err(|e| e.to_string());
@@ -87,46 +84,34 @@ fn screen_snapshot_to_response_includes_cursor() {
 #[test]
 fn prompt_to_proto_converts_all_fields() {
     let prompt = crate::driver::PromptContext {
-        prompt_type: "permission".to_owned(),
+        kind: crate::driver::PromptKind::Permission,
         tool: Some("bash".to_owned()),
         input_preview: Some("rm -rf /".to_owned()),
-        question: Some("Allow?".to_owned()),
-        options: vec!["yes".to_owned(), "no".to_owned()],
-        summary: Some("dangerous command".to_owned()),
         screen_lines: vec!["$ rm -rf /".to_owned()],
         questions: vec![],
-        active_question: 0,
+        question_current: 0,
     };
     let p = prompt_to_proto(&prompt);
     assert_eq!(p.r#type, "permission");
     assert_eq!(p.tool.as_deref(), Some("bash"));
     assert_eq!(p.input_preview.as_deref(), Some("rm -rf /"));
-    assert_eq!(p.question.as_deref(), Some("Allow?"));
-    assert_eq!(p.options, vec!["yes", "no"]);
-    assert_eq!(p.summary.as_deref(), Some("dangerous command"));
     assert_eq!(p.screen_lines, vec!["$ rm -rf /"]);
 }
 
 #[test]
 fn prompt_to_proto_handles_none_fields() {
     let prompt = crate::driver::PromptContext {
-        prompt_type: "question".to_owned(),
+        kind: crate::driver::PromptKind::Question,
         tool: None,
         input_preview: None,
-        question: None,
-        options: vec![],
-        summary: None,
         screen_lines: vec![],
         questions: vec![],
-        active_question: 0,
+        question_current: 0,
     };
     let p = prompt_to_proto(&prompt);
     assert_eq!(p.r#type, "question");
     assert!(p.tool.is_none());
     assert!(p.input_preview.is_none());
-    assert!(p.question.is_none());
-    assert!(p.options.is_empty());
-    assert!(p.summary.is_none());
     assert!(p.screen_lines.is_empty());
 }
 
@@ -136,6 +121,7 @@ fn state_change_to_proto_converts_simple_transition() {
         prev: AgentState::Starting,
         next: AgentState::Working,
         seq: 7,
+        cause: String::new(),
     };
     let p = state_change_to_proto(&event);
     assert_eq!(p.prev, "starting");
@@ -147,25 +133,21 @@ fn state_change_to_proto_converts_simple_transition() {
 #[test]
 fn state_change_to_proto_includes_prompt() {
     let prompt = crate::driver::PromptContext {
-        prompt_type: "permission".to_owned(),
+        kind: crate::driver::PromptKind::Permission,
         tool: Some("write".to_owned()),
         input_preview: None,
-        question: None,
-        options: vec![],
-        summary: None,
         screen_lines: vec![],
         questions: vec![],
-        active_question: 0,
+        question_current: 0,
     };
     let event = crate::event::StateChangeEvent {
         prev: AgentState::Working,
-        next: AgentState::PermissionPrompt {
-            prompt: prompt.clone(),
-        },
+        next: AgentState::Prompt { prompt: prompt.clone() },
         seq: 10,
+        cause: String::new(),
     };
     let p = state_change_to_proto(&event);
-    assert_eq!(p.next, "permission_prompt");
+    assert_eq!(p.next, "prompt");
     assert!(p.prompt.is_some());
     let pp = p.prompt.as_ref();
     assert!(pp.is_some());
@@ -179,10 +161,9 @@ fn state_change_to_proto_includes_prompt() {
 fn state_change_to_proto_includes_error_fields() {
     let event = crate::event::StateChangeEvent {
         prev: AgentState::Working,
-        next: AgentState::Error {
-            detail: "rate_limit_error".to_owned(),
-        },
+        next: AgentState::Error { detail: "rate_limit_error".to_owned() },
         seq: 5,
+        cause: String::new(),
     };
     let p = state_change_to_proto(&event);
     assert_eq!(p.next, "error");
@@ -196,6 +177,7 @@ fn state_change_to_proto_omits_error_fields_for_non_error() {
         prev: AgentState::Starting,
         next: AgentState::Working,
         seq: 1,
+        cause: String::new(),
     };
     let p = state_change_to_proto(&event);
     assert!(p.error_detail.is_none());

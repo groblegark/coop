@@ -39,7 +39,7 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
     // Wait for states to arrive
     let mut states = Vec::new();
     let timeout = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        while let Some(state) = state_rx.recv().await {
+        while let Some((state, _cause)) = state_rx.recv().await {
             states.push(state.clone());
             if matches!(state, AgentState::WaitingForInput) {
                 break;
@@ -54,9 +54,7 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
     // Should have received at least Working (system) and WaitingForInput (assistant text-only)
     assert!(timeout.is_ok(), "timed out waiting for states");
     assert!(states.iter().any(|s| matches!(s, AgentState::Working)));
-    assert!(states
-        .iter()
-        .any(|s| matches!(s, AgentState::WaitingForInput)));
+    assert!(states.iter().any(|s| matches!(s, AgentState::WaitingForInput)));
     Ok(())
 }
 
@@ -64,10 +62,7 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
 async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let log_path = dir.path().join("session.jsonl");
-    std::fs::write(
-        &log_path,
-        "{\"type\":\"user\",\"message\":{\"content\":[]}}\n",
-    )?;
+    std::fs::write(&log_path, "{\"type\":\"user\",\"message\":{\"content\":[]}}\n")?;
 
     let detector = Box::new(LogDetector {
         log_path: log_path.clone(),
@@ -83,15 +78,14 @@ async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
     });
 
     // User messages produce Working (not WaitingForInput)
-    let timeout = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        state_rx.recv().await
-    })
-    .await;
+    let timeout =
+        tokio::time::timeout(std::time::Duration::from_secs(10), async { state_rx.recv().await })
+            .await;
 
     shutdown.cancel();
     let _ = handle.await;
 
-    if let Ok(Some(state)) = timeout {
+    if let Ok(Some((state, _cause))) = timeout {
         assert!(matches!(state, AgentState::Working));
     }
     Ok(())
@@ -100,9 +94,7 @@ async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
 #[tokio::test]
 async fn stdout_detector_parses_jsonl_bytes() -> anyhow::Result<()> {
     let (bytes_tx, bytes_rx) = mpsc::channel(32);
-    let detector = Box::new(StdoutDetector {
-        stdout_rx: bytes_rx,
-    });
+    let detector = Box::new(StdoutDetector { stdout_rx: bytes_rx });
     assert_eq!(detector.tier(), 3);
 
     let (state_tx, mut state_rx) = mpsc::channel(32);
@@ -126,7 +118,7 @@ async fn stdout_detector_parses_jsonl_bytes() -> anyhow::Result<()> {
     let _ = handle.await;
 
     match state {
-        Ok(Some(AgentState::Working)) => {} // tool_use → Working
+        Ok(Some((AgentState::Working, _cause))) => {} // tool_use → Working
         other => anyhow::bail!("expected Working, got {other:?}"),
     }
     Ok(())
@@ -168,7 +160,7 @@ async fn run_hook_detector(events: Vec<&str>) -> anyhow::Result<Vec<AgentState>>
 
     let mut states = Vec::new();
     let timeout = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        while let Some(state) = state_rx.recv().await {
+        while let Some((state, _cause)) = state_rx.recv().await {
             states.push(state);
             if states.len() >= events.len() {
                 break;
@@ -206,9 +198,9 @@ async fn hook_detector_notification_permission_prompt() -> anyhow::Result<()> {
     .await?;
 
     assert_eq!(states.len(), 1);
-    assert!(matches!(states[0], AgentState::PermissionPrompt { .. }));
-    if let AgentState::PermissionPrompt { prompt } = &states[0] {
-        assert_eq!(prompt.prompt_type, "permission");
+    assert!(matches!(states[0], AgentState::Prompt { .. }));
+    if let AgentState::Prompt { prompt } = &states[0] {
+        assert_eq!(prompt.kind, crate::driver::PromptKind::Permission);
     }
     Ok(())
 }
@@ -221,12 +213,13 @@ async fn hook_detector_pre_tool_use_ask_user() -> anyhow::Result<()> {
     .await?;
 
     assert_eq!(states.len(), 1);
-    if let AgentState::Question { prompt } = &states[0] {
-        assert_eq!(prompt.prompt_type, "question");
-        assert_eq!(prompt.question.as_deref(), Some("Which DB?"));
-        assert_eq!(prompt.options, vec!["PostgreSQL", "SQLite"]);
+    if let AgentState::Prompt { prompt } = &states[0] {
+        assert_eq!(prompt.kind, crate::driver::PromptKind::Question);
+        assert_eq!(prompt.questions.len(), 1);
+        assert_eq!(prompt.questions[0].question, "Which DB?");
+        assert_eq!(prompt.questions[0].options, vec!["PostgreSQL", "SQLite"]);
     } else {
-        anyhow::bail!("expected Question, got {:?}", states[0]);
+        anyhow::bail!("expected Prompt(Question), got {:?}", states[0]);
     }
     Ok(())
 }
@@ -239,9 +232,9 @@ async fn hook_detector_pre_tool_use_exit_plan_mode() -> anyhow::Result<()> {
     .await?;
 
     assert_eq!(states.len(), 1);
-    assert!(matches!(states[0], AgentState::PlanPrompt { .. }));
-    if let AgentState::PlanPrompt { prompt } = &states[0] {
-        assert_eq!(prompt.prompt_type, "plan");
+    assert!(matches!(states[0], AgentState::Prompt { .. }));
+    if let AgentState::Prompt { prompt } = &states[0] {
+        assert_eq!(prompt.kind, crate::driver::PromptKind::Plan);
     }
     Ok(())
 }
@@ -272,10 +265,8 @@ async fn hook_detector_tool_complete() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn hook_detector_stop() -> anyhow::Result<()> {
-    let states = run_hook_detector(vec![
-        r#"{"event":"stop","data":{"stop_hook_active":false}}"#,
-    ])
-    .await?;
+    let states =
+        run_hook_detector(vec![r#"{"event":"stop","data":{"stop_hook_active":false}}"#]).await?;
 
     assert_eq!(states.len(), 1);
     assert!(matches!(states[0], AgentState::WaitingForInput));

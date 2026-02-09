@@ -41,9 +41,7 @@ pub fn validate_bearer(headers: &HeaderMap, expected: Option<&str>) -> Result<()
         .and_then(|v| v.to_str().ok())
         .ok_or(ErrorCode::Unauthorized)?;
 
-    let token = header
-        .strip_prefix("Bearer ")
-        .ok_or(ErrorCode::Unauthorized)?;
+    let token = header.strip_prefix("Bearer ").ok_or(ErrorCode::Unauthorized)?;
     if constant_time_eq(token, expected) {
         Ok(())
     } else {
@@ -92,16 +90,19 @@ pub async fn auth_layer(
 ) -> Response {
     let path = req.uri().path();
 
-    // Health and WebSocket endpoints skip HTTP auth.
+    // Health, WebSocket, and hook endpoints skip HTTP auth.
     // WebSocket auth is handled in the WS handler via query param or Auth message.
-    if path == "/api/v1/health" || path == "/ws" {
+    // Hook endpoints are called from inside the PTY (same machine, no token).
+    if path == "/api/v1/health"
+        || path == "/ws"
+        || path == "/api/v1/hooks/stop"
+        || path == "/api/v1/hooks/stop/resolve"
+    {
         return next.run(req).await;
     }
 
     if let Err(code) = validate_bearer(req.headers(), state.config.auth_token.as_deref()) {
-        let body = ErrorResponse {
-            error: code.to_error_body("unauthorized"),
-        };
+        let body = ErrorResponse { error: code.to_error_body("unauthorized") };
         return (
             StatusCode::from_u16(code.http_status()).unwrap_or(StatusCode::UNAUTHORIZED),
             axum::Json(body),

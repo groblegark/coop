@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, RwLock};
@@ -14,10 +14,13 @@ use tracing::{error, info};
 
 use tracing_subscriber::EnvFilter;
 
-use crate::config::Config;
+use crate::config::{self, Config};
 use crate::driver::claude::resume;
 use crate::driver::claude::setup::{self as claude_setup, ClaudeSessionSetup};
-use crate::driver::claude::{ClaudeDriver, ClaudeDriverConfig};
+use crate::driver::claude::ClaudeDriver;
+use crate::driver::gemini::setup::{self as gemini_setup, GeminiSessionSetup};
+use crate::driver::gemini::GeminiDriver;
+use crate::driver::process::ProcessMonitor;
 use crate::driver::AgentType;
 use crate::driver::{AgentState, Detector, NudgeEncoder, RespondEncoder};
 use crate::pty::attach::{AttachSpec, TmuxBackend};
@@ -26,6 +29,7 @@ use crate::pty::Backend;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::session::Session;
+use crate::stop::StopState;
 use crate::transport::grpc::CoopGrpc;
 use crate::transport::state::{
     DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels,
@@ -53,10 +57,7 @@ impl PreparedSession {
     /// Run the session loop to completion.
     pub async fn run(self) -> anyhow::Result<RunResult> {
         let status = self.session.run(&self.config).await?;
-        Ok(RunResult {
-            status,
-            app_state: self.app_state,
-        })
+        Ok(RunResult { status, app_state: self.app_state })
     }
 }
 
@@ -93,6 +94,13 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let shutdown = CancellationToken::new();
     let agent_enum = config.agent_enum()?;
 
+    // 0. Load agent config file if provided.
+    let agent_file_config = match config.agent_config {
+        Some(ref path) => Some(config::load_agent_config(path)?),
+        None => None,
+    };
+    let stop_config = agent_file_config.as_ref().and_then(|c| c.stop.clone()).unwrap_or_default();
+
     // 1. Handle --resume: discover session log and build resume state.
     let (resume_state, resume_log_path) = if let Some(ref resume_hint) = config.resume {
         let log_path = resume::discover_session_log(resume_hint)?
@@ -108,14 +116,25 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     //    computes extra args). Must happen BEFORE backend spawn so the child
     //    finds the FIFO and settings file on startup.
     let working_dir = std::env::current_dir()?;
+    // Compute coop_url early so it's available for Claude setup.
+    // Uses port 0 as placeholder if no HTTP port configured.
+    let coop_url_for_setup = format!("http://127.0.0.1:{}", config.port.unwrap_or(0));
+
     let claude_setup: Option<ClaudeSessionSetup> = if agent_enum == AgentType::Claude {
         let setup = if let (Some(ref state), Some(ref log_path)) = (&resume_state, &resume_log_path)
         {
-            claude_setup::prepare_claude_resume(state, log_path)?
+            claude_setup::prepare_claude_resume(state, log_path, &coop_url_for_setup)?
         } else {
-            claude_setup::prepare_claude_session(&working_dir)?
+            claude_setup::prepare_claude_session(&working_dir, &coop_url_for_setup)?
         };
         Some(setup)
+    } else {
+        None
+    };
+
+    // 2b. Prepare Gemini session setup (creates FIFO pipe path, writes settings).
+    let gemini_setup: Option<GeminiSessionSetup> = if agent_enum == AgentType::Gemini {
+        Some(gemini_setup::prepare_gemini_session(&working_dir, &coop_url_for_setup)?)
     } else {
         None
     };
@@ -123,6 +142,9 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     // 3. Build the command with extra args from setup.
     let mut command = config.command.clone();
     if let Some(ref setup) = claude_setup {
+        command.extend(setup.extra_args.clone());
+    }
+    if let Some(ref setup) = gemini_setup {
         command.extend(setup.extra_args.clone());
     }
 
@@ -140,14 +162,13 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let log_start_offset = resume_state.as_ref().map(|s| s.log_offset).unwrap_or(0);
     let pid_terminal = Arc::clone(&terminal);
     let rtw_for_driver = Arc::clone(&terminal.ring_total_written);
-    let (nudge_encoder, respond_encoder, detectors) = build_driver(
+    let (nudge_encoder, respond_encoder, mut detectors) = build_driver(
         &config,
         agent_enum,
         claude_setup.as_ref(),
+        gemini_setup.as_ref(),
         Arc::new(move || {
-            let v = pid_terminal
-                .child_pid
-                .load(std::sync::atomic::Ordering::Relaxed);
+            let v = pid_terminal.child_pid.load(std::sync::atomic::Ordering::Relaxed);
             if v == 0 {
                 None
             } else {
@@ -158,11 +179,36 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         log_start_offset,
     )?;
 
+    // Tier 5: Claude screen detector for idle prompt detection.
+    if agent_enum == AgentType::Claude {
+        let screen_terminal = Arc::clone(&terminal);
+        let snapshot_fn: Arc<dyn Fn() -> crate::screen::ScreenSnapshot + Send + Sync> =
+            Arc::new(move || {
+                screen_terminal.screen.try_read().map(|s| s.snapshot()).unwrap_or_else(|_| {
+                    crate::screen::ScreenSnapshot {
+                        lines: vec![],
+                        cols: 0,
+                        rows: 0,
+                        alt_screen: false,
+                        cursor: crate::screen::CursorPosition { row: 0, col: 0 },
+                        sequence: 0,
+                    }
+                })
+            });
+        detectors.push(Box::new(crate::driver::claude::screen_detect::ClaudeScreenDetector::new(
+            &config,
+            snapshot_fn,
+        )));
+        detectors.sort_by_key(|d| d.tier());
+    }
+
     // 6. Spawn backend AFTER driver is built (FIFO must exist before child starts).
-    let extra_env = claude_setup
+    let extra_env: Vec<(String, String)> = claude_setup
         .as_ref()
-        .map(|s| s.env_vars.as_slice())
-        .unwrap_or(&[]);
+        .map(|s| s.env_vars.clone())
+        .or_else(|| gemini_setup.as_ref().map(|s| s.env_vars.clone()))
+        .unwrap_or_default();
+    let extra_env = extra_env.as_slice();
     let backend: Box<dyn Backend> = if let Some(ref attach_spec) = config.attach {
         let spec: AttachSpec = attach_spec.parse()?;
         match spec {
@@ -188,28 +234,26 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let (output_tx, _) = broadcast::channel(256);
     let (state_tx, _) = broadcast::channel(64);
 
+    let resolve_url = format!("{coop_url_for_setup}/api/v1/hooks/stop/resolve");
+    let stop_state = Arc::new(StopState::new(stop_config, resolve_url));
+
     let app_state = Arc::new(AppState {
         terminal,
         driver: Arc::new(DriverState {
             agent_state: RwLock::new(AgentState::Starting),
             state_seq: AtomicU64::new(0),
             detection_tier: AtomicU8::new(u8::MAX),
-            idle_grace_deadline: Arc::new(parking_lot::Mutex::new(None)),
+            detection_cause: RwLock::new(String::new()),
             error_detail: RwLock::new(None),
             error_category: RwLock::new(None),
         }),
-        channels: TransportChannels {
-            input_tx,
-            output_tx,
-            state_tx,
-        },
+        channels: TransportChannels { input_tx, output_tx, state_tx },
         config: SessionSettings {
             started_at: Instant::now(),
             agent: agent_enum,
             auth_token: config.auth_token.clone(),
             nudge_encoder,
             respond_encoder,
-            idle_grace_duration: Duration::from_secs(config.idle_grace),
         },
         lifecycle: LifecycleState {
             shutdown: shutdown.clone(),
@@ -218,6 +262,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         },
         ready: Arc::new(AtomicBool::new(false)),
         nudge_mutex: Arc::new(tokio::sync::Mutex::new(())),
+        stop: stop_state,
     });
 
     // Spawn HTTP server
@@ -228,9 +273,8 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         info!("HTTP listening on {addr}");
         let sd = shutdown.clone();
         tokio::spawn(async move {
-            let result = axum::serve(listener, router)
-                .with_graceful_shutdown(sd.cancelled_owned())
-                .await;
+            let result =
+                axum::serve(listener, router).with_graceful_shutdown(sd.cancelled_owned()).await;
             if let Err(e) = result {
                 error!("HTTP server error: {e}");
             }
@@ -278,16 +322,13 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     }
 
     // Spawn gRPC server
-    if let Some(grpc_port) = config.grpc_port {
+    if let Some(grpc_port) = config.port_grpc {
         let grpc = CoopGrpc::new(Arc::clone(&app_state));
         let addr = format!("{}:{}", config.host, grpc_port).parse()?;
         info!("gRPC listening on {addr}");
         let sd = shutdown.clone();
         tokio::spawn(async move {
-            let result = grpc
-                .into_router()
-                .serve_with_shutdown(addr, sd.cancelled_owned())
-                .await;
+            let result = grpc.into_router().serve_with_shutdown(addr, sd.cancelled_owned()).await;
             if let Err(e) = result {
                 error!("gRPC server error: {e}");
             }
@@ -295,7 +336,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     }
 
     // Spawn health probe
-    if let Some(health_port) = config.health_port {
+    if let Some(health_port) = config.port_health {
         let health_router = build_health_router(Arc::clone(&app_state));
         let addr = format!("{}:{}", config.host, health_port);
         let listener = TcpListener::bind(&addr).await?;
@@ -345,60 +386,47 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             .with_shutdown(shutdown),
     );
 
-    Ok(PreparedSession {
-        app_state,
-        session,
-        config,
-    })
+    Ok(PreparedSession { app_state, session, config })
 }
 
-type DriverComponents = (
-    Option<Arc<dyn NudgeEncoder>>,
-    Option<Arc<dyn RespondEncoder>>,
-    Vec<Box<dyn Detector>>,
-);
+type DriverComponents =
+    (Option<Arc<dyn NudgeEncoder>>, Option<Arc<dyn RespondEncoder>>, Vec<Box<dyn Detector>>);
 
 fn build_driver(
     config: &Config,
     agent: AgentType,
     claude_setup: Option<&ClaudeSessionSetup>,
+    gemini_setup: Option<&GeminiSessionSetup>,
     child_pid_fn: Arc<dyn Fn() -> Option<u32> + Send + Sync>,
     ring_total_written_fn: Arc<dyn Fn() -> u64 + Send + Sync>,
     log_start_offset: u64,
 ) -> anyhow::Result<DriverComponents> {
     match agent {
         AgentType::Claude => {
-            // Build NATS config from CLI flags, env vars, or auto-discovery.
-            let nats_config = config
-                .nats_url
-                .as_ref()
-                .map(|url| {
-                    crate::driver::nats_recv::NatsConfig {
-                        url: url.clone(),
-                        token: config.nats_token.clone(),
-                        stream: std::env::var("COOP_NATS_STREAM")
-                            .unwrap_or_else(|_| "HOOK_EVENTS".to_string()),
-                        subject: std::env::var("COOP_NATS_SUBJECT")
-                            .unwrap_or_else(|_| "hooks.>".to_string()),
-                        consumer: std::env::var("COOP_NATS_CONSUMER")
-                            .unwrap_or_else(|_| format!("coop-{}", uuid::Uuid::new_v4())),
-                    }
-                })
-                .or_else(crate::driver::nats_recv::NatsConfig::from_env);
-
-            let driver = ClaudeDriver::new(ClaudeDriverConfig {
-                session_log_path: claude_setup.map(|s| s.session_log_path.clone()),
-                hook_pipe_path: claude_setup.map(|s| s.hook_pipe_path.clone()),
-                stdout_rx: None,
+            let driver = ClaudeDriver::new(
+                config,
+                claude_setup.map(|s| s.hook_pipe_path.as_path()),
+                claude_setup.map(|s| s.session_log_path.clone()),
+                None,
                 log_start_offset,
-                log_poll: config.log_poll(),
-                feedback_delay: config.feedback_delay(),
-                input_delay: config.keyboard_delay(),
-                nats_config,
-            })?;
+            )?;
             let nudge: Arc<dyn NudgeEncoder> = Arc::new(driver.nudge);
             let respond: Arc<dyn RespondEncoder> = Arc::new(driver.respond);
             let detectors = driver.detectors;
+            Ok((Some(nudge), Some(respond), detectors))
+        }
+        AgentType::Gemini => {
+            let driver =
+                GeminiDriver::new(config, gemini_setup.map(|s| s.hook_pipe_path.as_path()), None)?;
+            let nudge: Arc<dyn NudgeEncoder> = Arc::new(driver.nudge);
+            let respond: Arc<dyn RespondEncoder> = Arc::new(driver.respond);
+            let mut detectors = driver.detectors;
+            // Tier 4: ProcessMonitor fallback for basic Working/Exited detection
+            detectors.push(Box::new(
+                ProcessMonitor::new(child_pid_fn, ring_total_written_fn)
+                    .with_poll_interval(config.process_poll()),
+            ));
+            detectors.sort_by_key(|d| d.tier());
             Ok((Some(nudge), Some(respond), detectors))
         }
         AgentType::Unknown => {
@@ -410,7 +438,7 @@ fn build_driver(
             )?;
             Ok((None, None, detectors))
         }
-        AgentType::Codex | AgentType::Gemini => {
+        AgentType::Codex => {
             anyhow::bail!("{agent:?} driver is not yet implemented");
         }
     }

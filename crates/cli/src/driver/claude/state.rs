@@ -7,6 +7,39 @@ use crate::driver::AgentState;
 
 use super::prompt::extract_ask_user_context;
 
+/// Extract a semantic cause string from a Claude session log JSONL entry.
+///
+/// Uses the given `prefix` ("log" or "stdout") to build the cause.
+pub fn format_claude_cause(json: &Value, prefix: &str) -> String {
+    if json.get("error").is_some() {
+        return format!("{prefix}:error");
+    }
+
+    if json.get("type").and_then(|v| v.as_str()) != Some("assistant") {
+        return format!("{prefix}:working");
+    }
+
+    let Some(content) =
+        json.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array())
+    else {
+        return format!("{prefix}:idle");
+    };
+
+    for block in content {
+        let block_type = block.get("type").and_then(|v| v.as_str());
+        match block_type {
+            Some("tool_use") => {
+                let tool = block.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                return format!("{prefix}:tool({tool})");
+            }
+            Some("thinking") => return format!("{prefix}:thinking"),
+            _ => {}
+        }
+    }
+
+    format!("{prefix}:idle")
+}
+
 /// Parse a Claude session log JSONL entry into an [`AgentState`].
 ///
 /// Returns `None` if the entry cannot be meaningfully classified (e.g.
@@ -14,9 +47,7 @@ use super::prompt::extract_ask_user_context;
 pub fn parse_claude_state(json: &Value) -> Option<AgentState> {
     // Error field takes priority
     if let Some(error) = json.get("error") {
-        return Some(AgentState::Error {
-            detail: error.as_str().unwrap_or("unknown").to_string(),
-        });
+        return Some(AgentState::Error { detail: error.as_str().unwrap_or("unknown").to_string() });
     }
 
     // Only assistant messages carry meaningful state transitions
@@ -30,14 +61,11 @@ pub fn parse_claude_state(json: &Value) -> Option<AgentState> {
         let block_type = block.get("type").and_then(|v| v.as_str());
         match block_type {
             Some("tool_use") => {
-                let tool = block
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
+                let tool = block.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
                 return match tool {
-                    "AskUserQuestion" => Some(AgentState::Question {
-                        prompt: extract_ask_user_context(block),
-                    }),
+                    "AskUserQuestion" => {
+                        Some(AgentState::Prompt { prompt: extract_ask_user_context(block) })
+                    }
                     _ => Some(AgentState::Working),
                 };
             }

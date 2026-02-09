@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use crate::driver::{PromptContext, QuestionContext};
+use crate::driver::{PromptContext, PromptKind, QuestionContext};
 use crate::screen::ScreenSnapshot;
 
 /// Extract permission prompt context from a session log entry.
@@ -22,15 +22,12 @@ pub fn extract_permission_context(json: &Value) -> PromptContext {
     };
 
     PromptContext {
-        prompt_type: "permission".to_string(),
+        kind: PromptKind::Permission,
         tool,
         input_preview,
-        question: None,
-        options: vec![],
-        summary: None,
         screen_lines: vec![],
         questions: vec![],
-        active_question: 0,
+        question_current: 0,
     }
 }
 
@@ -51,9 +48,7 @@ pub fn extract_ask_user_context(block: &Value) -> PromptContext {
 /// Top-level `question`/`options` fields are populated from `questions[0]`
 /// for backwards compatibility.
 pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext {
-    let questions_arr = input
-        .and_then(|i| i.get("questions"))
-        .and_then(|q| q.as_array());
+    let questions_arr = input.and_then(|i| i.get("questions")).and_then(|q| q.as_array());
 
     let questions: Vec<QuestionContext> = questions_arr
         .map(|arr| {
@@ -80,23 +75,13 @@ pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext 
         })
         .unwrap_or_default();
 
-    // Backwards compat: top-level fields from first question.
-    let question = questions.first().map(|q| q.question.clone());
-    let options = questions
-        .first()
-        .map(|q| q.options.clone())
-        .unwrap_or_default();
-
     PromptContext {
-        prompt_type: "question".to_string(),
+        kind: PromptKind::Question,
         tool: Some("AskUserQuestion".to_string()),
         input_preview: None,
-        question,
-        options,
-        summary: None,
         screen_lines: vec![],
         questions,
-        active_question: 0,
+        question_current: 0,
     }
 }
 
@@ -106,15 +91,12 @@ pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext 
 /// so context is built from the visible screen lines.
 pub fn extract_plan_context(screen: &ScreenSnapshot) -> PromptContext {
     PromptContext {
-        prompt_type: "plan".to_string(),
+        kind: PromptKind::Plan,
         tool: None,
         input_preview: None,
-        question: None,
-        options: vec![],
-        summary: None,
         screen_lines: screen.lines.clone(),
         questions: vec![],
-        active_question: 0,
+        question_current: 0,
     }
 }
 

@@ -3,7 +3,7 @@
 
 pub mod claude;
 pub mod error_category;
-pub mod grace;
+pub mod gemini;
 pub mod hook_recv;
 pub mod jsonl_stdout;
 pub mod log_watch;
@@ -14,12 +14,10 @@ pub mod unknown;
 
 pub use error_category::{classify_error_detail, ErrorCategory};
 
-use grace::{GraceCheck, IdleGraceTimer};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -52,31 +50,44 @@ pub enum AgentState {
     Starting,
     Working,
     WaitingForInput,
-    PermissionPrompt { prompt: PromptContext },
-    PlanPrompt { prompt: PromptContext },
-    Question { prompt: PromptContext },
+    Prompt { prompt: PromptContext },
     Error { detail: String },
-    AltScreen,
     Exited { status: ExitStatus },
     Unknown,
+}
+
+/// Distinguishes the type of prompt the agent is presenting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptKind {
+    Permission,
+    Plan,
+    Question,
+}
+
+impl PromptKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Permission => "permission",
+            Self::Plan => "plan",
+            Self::Question => "question",
+        }
+    }
 }
 
 /// Contextual information about a prompt the agent is presenting.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PromptContext {
-    pub prompt_type: String,
+    pub kind: PromptKind,
     pub tool: Option<String>,
     pub input_preview: Option<String>,
-    pub question: Option<String>,
-    pub options: Vec<String>,
-    pub summary: Option<String>,
     pub screen_lines: Vec<String>,
     /// All questions in a multi-question dialog.
     #[serde(default)]
     pub questions: Vec<QuestionContext>,
     /// 0-indexed active question; == questions.len() means confirm phase.
     #[serde(default)]
-    pub active_question: usize,
+    pub question_current: usize,
 }
 
 /// A single question within a multi-question dialog.
@@ -114,7 +125,7 @@ pub struct NudgeStep {
 pub trait Detector: Send + 'static {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<AgentState>,
+        state_tx: mpsc::Sender<(AgentState, String)>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 
@@ -140,47 +151,64 @@ pub trait RespondEncoder: Send + Sync {
 pub struct DetectedState {
     pub state: AgentState,
     pub tier: u8,
+    pub cause: String,
 }
 
-/// Combines multiple [`Detector`] tiers with a grace timer to produce
-/// a unified agent state stream.
+/// Combines multiple [`Detector`] tiers to produce a unified agent state
+/// stream.
 ///
 /// Tier resolution rules:
 /// - Lower tier number = higher confidence.
 /// - States from equal-or-higher confidence tiers are accepted immediately.
-/// - Idle transitions from lower confidence tiers go through the grace timer.
-/// - Non-idle transitions are accepted from any tier.
+/// - Lower confidence tiers may only *escalate* state priority; downgrades
+///   are silently rejected.
 /// - Duplicate states (prev == next) are suppressed.
 pub struct CompositeDetector {
     pub tiers: Vec<Box<dyn Detector>>,
-    pub grace_timer: IdleGraceTimer,
-    pub grace_tick_interval: Duration,
 }
 
 impl AgentState {
     /// Return the wire-format string for this state (e.g. `"working"`,
-    /// `"permission_prompt"`).
+    /// `"prompt"`).
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Starting => "starting",
             Self::Working => "working",
             Self::WaitingForInput => "waiting_for_input",
-            Self::PermissionPrompt { .. } => "permission_prompt",
-            Self::PlanPrompt { .. } => "plan_prompt",
-            Self::Question { .. } => "question",
+            Self::Prompt { .. } => "prompt",
             Self::Error { .. } => "error",
-            Self::AltScreen => "alt_screen",
             Self::Exited { .. } => "exited",
             Self::Unknown => "unknown",
+        }
+    }
+
+    /// Relative priority for tier-based state resolution.
+    ///
+    /// Lower-confidence tiers may only *escalate* state (move to a higher
+    /// priority); they are never allowed to downgrade it.  Same-or-higher
+    /// confidence tiers may transition in any direction.
+    ///
+    /// ```text
+    /// Starting(0) < WaitingForInput(1) < Error(2) < Working(3) < Prompt(4)
+    /// ```
+    ///
+    /// `Unknown` is treated the same as `Starting` (lowest).
+    /// `Exited` is handled separately (always accepted) and never compared.
+    pub fn state_priority(&self) -> u8 {
+        match self {
+            Self::Starting | Self::Unknown => 0,
+            Self::WaitingForInput => 1,
+            Self::Error { .. } => 2,
+            Self::Working => 3,
+            Self::Prompt { .. } => 4,
+            Self::Exited { .. } => 5,
         }
     }
 
     /// Extract the prompt context from state variants that carry one.
     pub fn prompt(&self) -> Option<&PromptContext> {
         match self {
-            Self::PermissionPrompt { prompt }
-            | Self::PlanPrompt { prompt }
-            | Self::Question { prompt } => Some(prompt),
+            Self::Prompt { prompt } => Some(prompt),
             _ => None,
         }
     }
@@ -194,34 +222,28 @@ impl std::fmt::Display for AgentState {
 
 impl CompositeDetector {
     /// Run the composite detector, spawning all tier detectors and
-    /// multiplexing their outputs with tier priority + dedup + grace timer.
+    /// multiplexing their outputs with tier priority + dedup.
     ///
     /// - `output_tx`: deduplicated state emissions sent to the session loop.
-    /// - `activity_fn`: lock-free function returning total bytes written
-    ///   (used by the grace timer to detect ongoing output).
-    /// - `grace_deadline`: shared deadline for the HTTP/gRPC API to report
-    ///   `idle_grace_remaining_secs`.
     pub async fn run(
         mut self,
         output_tx: mpsc::Sender<DetectedState>,
-        activity_fn: Arc<dyn Fn() -> u64 + Send + Sync>,
-        grace_deadline: Arc<parking_lot::Mutex<Option<std::time::Instant>>>,
         shutdown: CancellationToken,
     ) {
-        // Internal channel where each detector sends (tier, state).
-        let (tag_tx, mut tag_rx) = mpsc::channel::<(u8, AgentState)>(64);
+        // Internal channel where each detector sends (tier, state, cause).
+        let (tag_tx, mut tag_rx) = mpsc::channel::<(u8, AgentState, String)>(64);
 
         // Spawn each detector with a forwarding task that tags with tier.
         for detector in self.tiers.drain(..) {
             let tier = detector.tier();
             let inner_tx = tag_tx.clone();
             let sd = shutdown.clone();
-            let (det_tx, mut det_rx) = mpsc::channel::<AgentState>(16);
+            let (det_tx, mut det_rx) = mpsc::channel::<(AgentState, String)>(16);
 
             tokio::spawn(detector.run(det_tx, sd));
             tokio::spawn(async move {
-                while let Some(state) = det_rx.recv().await {
-                    if inner_tx.send((tier, state)).await.is_err() {
+                while let Some((state, cause)) = det_rx.recv().await {
+                    if inner_tx.send((tier, state, cause)).await.is_err() {
                         break;
                     }
                 }
@@ -231,24 +253,19 @@ impl CompositeDetector {
 
         let mut current_state = AgentState::Starting;
         let mut current_tier: u8 = u8::MAX;
-        let mut grace_proposed: Option<(u8, AgentState)> = None;
-        let mut grace_check_interval = tokio::time::interval(self.grace_tick_interval);
 
         loop {
             tokio::select! {
                 biased;
                 _ = shutdown.cancelled() => break,
                 tagged = tag_rx.recv() => {
-                    let Some((tier, new_state)) = tagged else { break };
+                    let Some((tier, new_state, cause)) = tagged else { break };
 
                     // Terminal states always accepted immediately.
                     if matches!(new_state, AgentState::Exited { .. }) {
-                        self.grace_timer.cancel();
-                        grace_proposed = None;
-                        set_grace_deadline(&grace_deadline, None);
                         current_state = new_state.clone();
                         current_tier = tier;
-                        let _ = output_tx.send(DetectedState { state: new_state, tier }).await;
+                        let _ = output_tx.send(DetectedState { state: new_state, tier, cause }).await;
                         continue;
                     }
 
@@ -262,53 +279,33 @@ impl CompositeDetector {
 
                     // State changed.
                     if tier <= current_tier {
-                        // Same or higher confidence → accept immediately.
-                        self.grace_timer.cancel();
-                        grace_proposed = None;
-                        set_grace_deadline(&grace_deadline, None);
+                        // Same or higher confidence → accept immediately,
+                        // UNLESS a generic Permission prompt would overwrite
+                        // a more specific Plan or Question prompt from the
+                        // same tier (Claude fires both notification and
+                        // pre_tool_use hooks for the same prompt moment).
+                        if tier == current_tier
+                            && prompt_supersedes(&current_state, &new_state)
+                        {
+                            continue;
+                        }
                         current_state = new_state.clone();
                         current_tier = tier;
-                        let _ = output_tx.send(DetectedState { state: new_state, tier }).await;
-                    } else if is_idle_state(&new_state) && !is_idle_state(&current_state) {
-                        // Lower confidence tier reporting idle: start grace timer.
-                        let activity = (activity_fn)();
-                        self.grace_timer.trigger(activity);
-                        let deadline = std::time::Instant::now() + self.grace_timer.duration;
-                        set_grace_deadline(&grace_deadline, Some(deadline));
-                        grace_proposed = Some((tier, new_state));
-                        debug!(tier, "grace timer started for idle transition");
+                        let _ = output_tx.send(DetectedState { state: new_state, tier, cause }).await;
+                    } else if new_state.state_priority() > current_state.state_priority() {
+                        // Lower confidence tier escalating state → accept.
+                        current_state = new_state.clone();
+                        current_tier = tier;
+                        let _ = output_tx.send(DetectedState { state: new_state, tier, cause }).await;
                     } else {
-                        // Lower confidence tier reporting non-idle change.
-                        self.grace_timer.cancel();
-                        grace_proposed = None;
-                        set_grace_deadline(&grace_deadline, None);
-                        current_state = new_state.clone();
-                        current_tier = tier;
-                        let _ = output_tx.send(DetectedState { state: new_state, tier }).await;
-                    }
-                }
-                _ = grace_check_interval.tick(), if self.grace_timer.is_pending() => {
-                    let activity = (activity_fn)();
-                    match self.grace_timer.check(activity) {
-                        GraceCheck::Confirmed => {
-                            self.grace_timer.cancel();
-                            set_grace_deadline(&grace_deadline, None);
-                            if let Some((tier, state)) = grace_proposed.take() {
-                                if state != current_state {
-                                    debug!(tier, "grace timer confirmed idle");
-                                    current_state = state.clone();
-                                    current_tier = tier;
-                                    let _ = output_tx.send(DetectedState { state, tier }).await;
-                                }
-                            }
-                        }
-                        GraceCheck::Invalidated => {
-                            debug!("grace timer invalidated (activity detected)");
-                            self.grace_timer.cancel();
-                            grace_proposed = None;
-                            set_grace_deadline(&grace_deadline, None);
-                        }
-                        GraceCheck::Waiting | GraceCheck::NotPending => {}
+                        // Lower confidence tier attempting to downgrade or
+                        // maintain state priority → reject silently.
+                        debug!(
+                            tier,
+                            new = new_state.as_str(),
+                            current = current_state.as_str(),
+                            "rejected state downgrade from lower confidence tier"
+                        );
                     }
                 }
             }
@@ -316,24 +313,26 @@ impl CompositeDetector {
     }
 }
 
-/// Returns `true` for states that represent an idle / waiting agent.
-fn is_idle_state(state: &AgentState) -> bool {
-    matches!(state, AgentState::WaitingForInput)
-}
-
-fn set_grace_deadline(
-    deadline: &parking_lot::Mutex<Option<std::time::Instant>>,
-    value: Option<std::time::Instant>,
-) {
-    *deadline.lock() = value;
+/// Returns `true` when `current` is a specific prompt state that should not
+/// be overwritten by the more generic `incoming` prompt from the same tier.
+///
+/// Plan and Question prompts carry richer context than Permission prompts.
+/// When the agent fires both a specific pre-tool-use event and a generic
+/// permission notification for the same user-facing moment, the specific
+/// state should stick.
+fn prompt_supersedes(current: &AgentState, incoming: &AgentState) -> bool {
+    match (current, incoming) {
+        (AgentState::Prompt { prompt: cur }, AgentState::Prompt { prompt: inc }) => {
+            inc.kind == PromptKind::Permission
+                && matches!(cur.kind, PromptKind::Plan | PromptKind::Question)
+        }
+        _ => false,
+    }
 }
 
 impl std::fmt::Debug for CompositeDetector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CompositeDetector")
-            .field("tiers", &self.tiers.len())
-            .field("grace_timer", &self.grace_timer)
-            .finish()
+        f.debug_struct("CompositeDetector").field("tiers", &self.tiers.len()).finish()
     }
 }
 

@@ -3,9 +3,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-use parking_lot::Mutex;
+use std::time::Instant;
 
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -16,6 +14,7 @@ use crate::driver::{
 use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
+use crate::stop::StopState;
 
 /// Shared application state passed to all handlers via axum `State` extractor.
 ///
@@ -37,6 +36,8 @@ pub struct AppState {
     /// Serializes multi-step nudge/respond delivery sequences.
     /// The mutex covers state check + delivery to prevent double-nudge races.
     pub nudge_mutex: Arc<tokio::sync::Mutex<()>>,
+    /// Stop hook gating state. Always present (defaults to mode=allow).
+    pub stop: Arc<StopState>,
 }
 
 /// Terminal I/O: screen, ring buffer, child process.
@@ -60,10 +61,8 @@ pub struct DriverState {
     pub agent_state: RwLock<AgentState>,
     pub state_seq: AtomicU64,
     pub detection_tier: AtomicU8,
-    /// Arc-wrapped so the session loop can pass a cheap clone to
-    /// [`CompositeDetector::run`] without holding a reference to the
-    /// entire `DriverState`.
-    pub idle_grace_deadline: Arc<Mutex<Option<Instant>>>,
+    /// Freeform cause string from the detector that produced the current state.
+    pub detection_cause: RwLock<String>,
     /// Error detail string when agent is in `Error` state, `None` otherwise.
     pub error_detail: RwLock<Option<String>>,
     /// Classified error category when agent is in `Error` state, `None` otherwise.
@@ -73,27 +72,12 @@ pub struct DriverState {
 impl DriverState {
     /// Format the current detection tier as a display string.
     pub fn detection_tier_str(&self) -> String {
-        let tier = self
-            .detection_tier
-            .load(std::sync::atomic::Ordering::Relaxed);
+        let tier = self.detection_tier.load(std::sync::atomic::Ordering::Relaxed);
         if tier == u8::MAX {
             "none".to_owned()
         } else {
             tier.to_string()
         }
-    }
-
-    /// Compute the remaining seconds on the idle grace timer, if any.
-    pub fn idle_grace_remaining_secs(&self) -> Option<f32> {
-        let deadline = self.idle_grace_deadline.lock();
-        deadline.map(|dl| {
-            let now = Instant::now();
-            if now < dl {
-                (dl - now).as_secs_f32()
-            } else {
-                0.0
-            }
-        })
     }
 }
 
@@ -111,7 +95,6 @@ pub struct SessionSettings {
     pub auth_token: Option<String>,
     pub nudge_encoder: Option<Arc<dyn NudgeEncoder>>,
     pub respond_encoder: Option<Arc<dyn RespondEncoder>>,
-    pub idle_grace_duration: Duration,
 }
 
 /// Runtime lifecycle primitives.

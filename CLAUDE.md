@@ -60,13 +60,11 @@ crates/cli/               # Single crate (binary + lib)
 │   │   └── spawn.rs       # NativePty backend (forkpty + exec)
 │   └── driver/
 │       ├── mod.rs          # AgentState, Detector, NudgeEncoder traits
-│       ├── grace.rs        # IdleGraceTimer
 │       └── jsonl_stdout.rs # JsonlParser
 └── tests/
     ├── pty_backend.rs           # Integration tests for PTY backend
     ├── claude_integration.rs    # E2E tests via claudeless
     └── scenarios/               # Claudeless scenario fixtures
-DESIGN.md                   # Full design spec
 ROADMAP.md                  # Phased dependency graph
 ```
 

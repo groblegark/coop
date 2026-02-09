@@ -52,29 +52,15 @@ pub fn load_agent_config(path: &Path) -> anyhow::Result<ScreenPatterns> {
 
 /// Compile a `ScreenPatternConfig` into `ScreenPatterns`.
 pub fn compile_config(config: &ScreenPatternConfig) -> anyhow::Result<ScreenPatterns> {
-    let prompt = config
-        .prompt_pattern
-        .as_deref()
-        .map(Regex::new)
-        .transpose()?;
+    let prompt = config.prompt_pattern.as_deref().map(Regex::new).transpose()?;
 
-    let working = config
-        .working_patterns
-        .iter()
-        .map(|p| Regex::new(p))
-        .collect::<Result<Vec<_>, _>>()?;
+    let working =
+        config.working_patterns.iter().map(|p| Regex::new(p)).collect::<Result<Vec<_>, _>>()?;
 
-    let error = config
-        .error_patterns
-        .iter()
-        .map(|p| Regex::new(p))
-        .collect::<Result<Vec<_>, _>>()?;
+    let error =
+        config.error_patterns.iter().map(|p| Regex::new(p)).collect::<Result<Vec<_>, _>>()?;
 
-    Ok(ScreenPatterns {
-        prompt,
-        working,
-        error,
-    })
+    Ok(ScreenPatterns { prompt, working, error })
 }
 
 /// Classify the current screen state based on pattern matches.
@@ -86,9 +72,7 @@ pub fn classify(patterns: &ScreenPatterns, snapshot: &ScreenSnapshot) -> Option<
     for line in &snapshot.lines {
         for pat in &patterns.error {
             if pat.is_match(line) {
-                return Some(AgentState::Error {
-                    detail: line.clone(),
-                });
+                return Some(AgentState::Error { detail: line.clone() });
             }
         }
     }
@@ -128,11 +112,7 @@ impl ScreenParser {
         patterns: ScreenPatterns,
         snapshot_fn: Arc<dyn Fn() -> ScreenSnapshot + Send + Sync>,
     ) -> Self {
-        Self {
-            patterns,
-            snapshot_fn,
-            poll_interval: Duration::from_secs(2),
-        }
+        Self { patterns, snapshot_fn, poll_interval: Duration::from_secs(2) }
     }
 
     pub fn with_poll_interval(mut self, interval: Duration) -> Self {
@@ -144,7 +124,7 @@ impl ScreenParser {
 impl Detector for ScreenParser {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<AgentState>,
+        state_tx: mpsc::Sender<(AgentState, String)>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -162,7 +142,13 @@ impl Detector for ScreenParser {
 
                 if let Some(ref state) = new_state {
                     if last_state.as_ref() != Some(state) {
-                        let _ = state_tx.send(state.clone()).await;
+                        let cause = match state {
+                            AgentState::WaitingForInput => "screen:idle",
+                            AgentState::Working => "screen:working",
+                            AgentState::Error { .. } => "screen:error",
+                            _ => "screen:idle",
+                        };
+                        let _ = state_tx.send((state.clone(), cause.to_owned())).await;
                         last_state = new_state;
                     }
                 } else if last_state.is_some() {
