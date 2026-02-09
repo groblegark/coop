@@ -20,6 +20,12 @@ pub fn run(body_arg: Option<&str>) -> i32 {
         }
     };
 
+    send(&coop_url, body_arg)
+}
+
+/// Inner implementation: resolve the stop hook given a base URL and optional
+/// JSON body argument.
+fn send(coop_url: &str, body_arg: Option<&str>) -> i32 {
     let url = format!(
         "{}/api/v1/hooks/stop/resolve",
         coop_url.trim_end_matches('/')
@@ -56,3 +62,7 @@ pub fn run(body_arg: Option<&str>) -> i32 {
         1
     }
 }
+
+#[cfg(test)]
+#[path = "send_tests.rs"]
+mod tests;

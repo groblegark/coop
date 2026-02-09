@@ -235,30 +235,55 @@ pub fn generate_block_reason(config: &StopConfig) -> String {
         }
 
         // Expand into one `coop send` per enum value.
-        parts.push(
-            "Do not exit yet \u{2014} continue working. Signal before stopping. Run one of:"
-                .to_owned(),
-        );
+        parts.push("Please confirm by running one of:".to_owned());
         let values = enum_field.r#enum.as_deref().unwrap_or_default();
         let descs = enum_field.descriptions.as_ref();
-        for v in values {
+        for (i, v) in values.iter().enumerate() {
             let body = generate_example_body(config.schema.as_ref(), Some((&enum_name, v)));
-            let mut line = format!("coop send '{body}'");
             if let Some(vd) = descs.and_then(|d| d.get(v)) {
-                line.push_str(&format!("  \u{2014} {vd}"));
+                parts.push(format!("{}. {vd}", i + 1));
+            } else {
+                parts.push(format!("{}. {v}", i + 1));
             }
-            parts.push(line);
+            parts.push(format!("    coop send '{body}'"));
         }
-    } else if let Some(ref prompt) = config.prompt {
-        // No enum schema, custom prompt.
-        parts.push(prompt.clone());
-        parts.push("When ready to stop, run: coop send".to_owned());
     } else {
-        // No schema, no prompt — plain default.
-        parts.push(
-            "Do not exit yet \u{2014} continue working. When ready to stop, run: coop send"
-                .to_owned(),
-        );
+        // No enum to expand — custom prompt, schema example, or defaults.
+        if let Some(ref prompt) = config.prompt {
+            parts.push(prompt.clone());
+        }
+
+        let has_schema = config
+            .schema
+            .as_ref()
+            .map(|s| !s.fields.is_empty())
+            .unwrap_or(false);
+        let prompt_has_json = config
+            .prompt
+            .as_ref()
+            .map(|p| p.contains('{') && p.contains('}'))
+            .unwrap_or(false);
+
+        if has_schema {
+            // User defined a schema — show a single example from it.
+            let body = generate_example_body(config.schema.as_ref(), None);
+            parts.push(format!("When ready to stop, run: coop send '{body}'"));
+        } else if prompt_has_json {
+            // Prompt already contains inline JSON examples.
+            parts.push("When ready to stop, run: coop send '<json>'".to_owned());
+        } else {
+            // No schema, no inline JSON — provide sensible defaults.
+            parts.push("Please confirm by running one of:".to_owned());
+            parts.push("1. You are done".to_owned());
+            parts
+                .push("    coop send '{\"status\":\"done\",\"message\":\"<summary>\"}'".to_owned());
+            parts.push("2. You are still working".to_owned());
+            parts.push(
+                "    coop send '{\"status\":\"continue\",\"message\":\"<what remains>\"}'"
+                    .to_owned(),
+            );
+            parts.push("3. You need clarification: Use the AskUserQuestion tool".to_owned());
+        }
     }
 
     parts.join("\n")

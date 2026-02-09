@@ -84,10 +84,17 @@ fn generate_block_reason_default_no_schema() {
         prompt: None,
         schema: None,
     };
-    let reason = generate_block_reason(&config);
-    assert!(reason.contains("Do not exit yet"));
-    assert!(reason.contains("continue working"));
-    assert!(reason.contains("coop send"));
+    assert_eq!(
+        generate_block_reason(&config),
+        concat!(
+            "Please confirm by running one of:\n",
+            "1. You are done\n",
+            "    coop send '{\"status\":\"done\",\"message\":\"<summary>\"}'\n",
+            "2. You are still working\n",
+            "    coop send '{\"status\":\"continue\",\"message\":\"<what remains>\"}'\n",
+            "3. You need clarification: Use the AskUserQuestion tool",
+        )
+    );
 }
 
 #[test]
@@ -97,9 +104,34 @@ fn generate_block_reason_custom_prompt_no_schema() {
         prompt: Some("Finish your work first.".to_owned()),
         schema: None,
     };
-    let reason = generate_block_reason(&config);
-    assert!(reason.contains("Finish your work first."));
-    assert!(reason.contains("When ready to stop, run: coop send"));
+    assert_eq!(
+        generate_block_reason(&config),
+        concat!(
+            "Finish your work first.\n",
+            "Please confirm by running one of:\n",
+            "1. You are done\n",
+            "    coop send '{\"status\":\"done\",\"message\":\"<summary>\"}'\n",
+            "2. You are still working\n",
+            "    coop send '{\"status\":\"continue\",\"message\":\"<what remains>\"}'\n",
+            "3. You need clarification: Use the AskUserQuestion tool",
+        )
+    );
+}
+
+#[test]
+fn generate_block_reason_prompt_with_inline_json() {
+    let config = StopConfig {
+        mode: StopMode::Signal,
+        prompt: Some(r#"Send {"result":"ok"} when done."#.to_owned()),
+        schema: None,
+    };
+    assert_eq!(
+        generate_block_reason(&config),
+        concat!(
+            "Send {\"result\":\"ok\"} when done.\n",
+            "When ready to stop, run: coop send '<json>'",
+        )
+    );
 }
 
 #[test]
@@ -124,20 +156,22 @@ fn generate_block_reason_with_enum_schema_expands_commands() {
         prompt: Some("Signal when ready.".to_owned()),
         schema: Some(StopSchema { fields }),
     };
-    let reason = generate_block_reason(&config);
-
-    // Should have one `coop send` per enum value
-    assert!(reason.contains("Run one of:"));
-    assert!(reason.contains(r#"coop send '{"status":"done"}'"#));
-    assert!(reason.contains("Work completed"));
-    assert!(reason.contains(r#"coop send '{"status":"error"}'"#));
-    assert!(reason.contains("Something went wrong"));
-    // Custom prompt preserved
-    assert!(reason.contains("Signal when ready."));
+    assert_eq!(
+        generate_block_reason(&config),
+        concat!(
+            "Signal when ready.\n",
+            "Please confirm by running one of:\n",
+            "1. Work completed\n",
+            "    coop send '{\"status\":\"done\"}'\n",
+            "2. Something went wrong\n",
+            "    coop send '{\"status\":\"error\"}'",
+        )
+    );
 }
 
 #[test]
 fn generate_block_reason_enum_with_extra_fields() {
+    // BTreeMap iterates alphabetically: "notes" < "status"
     let mut fields = BTreeMap::new();
     fields.insert(
         "notes".to_owned(),
@@ -173,14 +207,16 @@ fn generate_block_reason_enum_with_extra_fields() {
         prompt: None,
         schema: Some(StopSchema { fields }),
     };
-    let reason = generate_block_reason(&config);
-
-    // Single enum field → expanded with extra fields filled in
-    assert!(reason.contains("Run one of:"));
-    assert!(reason.contains(r#""status":"success""#));
-    assert!(reason.contains(r#""status":"failure""#));
-    // Non-enum field should use placeholder
-    assert!(reason.contains(r#""notes":"<notes>""#));
+    assert_eq!(
+        generate_block_reason(&config),
+        concat!(
+            "Please confirm by running one of:\n",
+            "1. Task completed successfully\n",
+            "    coop send '{\"notes\":\"<notes>\",\"status\":\"success\"}'\n",
+            "2. Task could not be completed\n",
+            "    coop send '{\"notes\":\"<notes>\",\"status\":\"failure\"}'",
+        )
+    );
 }
 
 #[test]
@@ -200,12 +236,11 @@ fn generate_block_reason_non_enum_schema() {
         prompt: None,
         schema: Some(StopSchema { fields }),
     };
-    let reason = generate_block_reason(&config);
-
-    // No enum → plain default with coop send
-    assert!(reason.contains("Do not exit yet"));
-    assert!(reason.contains("coop send"));
-    assert!(!reason.contains("Run one of:"));
+    // No enum field → single example from the schema
+    assert_eq!(
+        generate_block_reason(&config),
+        "When ready to stop, run: coop send '{\"message\":\"<message>\"}'"
+    );
 }
 
 #[test]
