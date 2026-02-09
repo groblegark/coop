@@ -62,6 +62,7 @@ fn plan_both_none_defaults_to_4() {
 fn fallback_prompt(kind: PromptKind) -> PromptContext {
     PromptContext {
         kind,
+        subtype: None,
         tool: None,
         input_preview: None,
         screen_lines: vec![],
@@ -96,6 +97,7 @@ fn non_fallback_permission_uses_encoder() {
     let encoder = ClaudeRespondEncoder::default();
     let prompt = PromptContext {
         kind: PromptKind::Permission,
+        subtype: None,
         tool: None,
         input_preview: None,
         screen_lines: vec![],

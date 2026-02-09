@@ -153,6 +153,7 @@ async fn dedup_suppresses_identical() -> anyhow::Result<()> {
 fn empty_prompt(kind: PromptKind) -> PromptContext {
     PromptContext {
         kind,
+        subtype: None,
         tool: None,
         input_preview: None,
         screen_lines: vec![],

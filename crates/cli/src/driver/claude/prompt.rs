@@ -23,6 +23,7 @@ pub fn extract_permission_context(json: &Value) -> PromptContext {
 
     PromptContext {
         kind: PromptKind::Permission,
+        subtype: None,
         tool,
         input_preview,
         screen_lines: vec![],
@@ -79,6 +80,7 @@ pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext 
 
     PromptContext {
         kind: PromptKind::Question,
+        subtype: None,
         tool: Some("AskUserQuestion".to_string()),
         input_preview: None,
         screen_lines: vec![],
@@ -96,6 +98,7 @@ pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext 
 pub fn extract_plan_context(screen: &ScreenSnapshot) -> PromptContext {
     PromptContext {
         kind: PromptKind::Plan,
+        subtype: None,
         tool: None,
         input_preview: None,
         screen_lines: screen.lines.clone(),

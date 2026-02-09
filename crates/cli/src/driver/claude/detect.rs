@@ -58,6 +58,7 @@ impl Detector for HookDetector {
                                     "permission_prompt" => (AgentState::Prompt {
                                         prompt: PromptContext {
                                             kind: PromptKind::Permission,
+                                            subtype: None,
                                             tool: None,
                                             input_preview: None,
                                             screen_lines: vec![],
@@ -78,6 +79,7 @@ impl Detector for HookDetector {
                                     "ExitPlanMode" => (AgentState::Prompt {
                                         prompt: PromptContext {
                                             kind: PromptKind::Plan,
+                                            subtype: None,
                                             tool: None,
                                             input_preview: None,
                                             screen_lines: vec![],

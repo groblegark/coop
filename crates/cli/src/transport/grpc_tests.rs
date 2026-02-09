@@ -85,6 +85,7 @@ fn screen_snapshot_to_response_includes_cursor() {
 fn prompt_to_proto_converts_all_fields() {
     let prompt = crate::driver::PromptContext {
         kind: crate::driver::PromptKind::Permission,
+        subtype: None,
         tool: Some("bash".to_owned()),
         input_preview: Some("rm -rf /".to_owned()),
         screen_lines: vec!["$ rm -rf /".to_owned()],
@@ -104,6 +105,7 @@ fn prompt_to_proto_converts_all_fields() {
 fn prompt_to_proto_handles_none_fields() {
     let prompt = crate::driver::PromptContext {
         kind: crate::driver::PromptKind::Question,
+        subtype: None,
         tool: None,
         input_preview: None,
         screen_lines: vec![],
@@ -138,6 +140,7 @@ fn state_change_to_proto_converts_simple_transition() {
 fn state_change_to_proto_includes_prompt() {
     let prompt = crate::driver::PromptContext {
         kind: crate::driver::PromptKind::Permission,
+        subtype: None,
         tool: Some("write".to_owned()),
         input_preview: None,
         screen_lines: vec![],

@@ -10,9 +10,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
-use crate::driver::{AgentState, Detector};
+use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
 use crate::screen::ScreenSnapshot;
 
+use super::prompt::parse_options_from_screen;
 use super::startup::detect_startup_prompt;
 
 /// Tier 5 detector: classifies Claude's rendered terminal screen.
@@ -70,12 +71,12 @@ impl Detector for ClaudeScreenDetector {
                 }
 
                 let snapshot = (self.snapshot_fn)();
-                let new_state = classify_claude_screen(&snapshot);
+                let classified = classify_claude_screen(&snapshot);
 
-                if let Some(ref state) = new_state {
+                if let Some((ref state, ref cause)) = classified {
                     if last_state.as_ref() != Some(state) {
-                        let _ = state_tx.send((state.clone(), "screen:idle".to_owned())).await;
-                        last_state = new_state;
+                        let _ = state_tx.send((state.clone(), cause.clone())).await;
+                        last_state = Some(state.clone());
                     }
                 } else if last_state.is_some() {
                     last_state = None;
@@ -89,18 +90,74 @@ impl Detector for ClaudeScreenDetector {
     }
 }
 
-/// Classify Claude's screen as idle when the prompt indicator is visible
-/// and no startup/interactive prompt is blocking.
-fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<AgentState> {
-    // Skip if a known startup prompt is present — those are handled
-    // separately and should not appear as WaitingForInput.
-    if detect_startup_prompt(&snapshot.lines).is_some() {
-        return None;
+/// Classification of an interactive dialog screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DialogKind {
+    /// Tool permission dialog — suppressed (handled by Tier 1 hooks).
+    ToolPermission,
+    /// Workspace trust — emitted as `Prompt(Permission)` with subtype `"trust"`.
+    Permission,
+    /// Onboarding/setup dialog — emitted as `Prompt(Setup)` with a subtype string.
+    Setup(&'static str),
+}
+
+/// Classify Claude's screen, returning the state and a cause string.
+///
+/// Emits `Prompt(Setup)` for onboarding dialogs, `Prompt(Permission)` for
+/// workspace trust, and `WaitingForInput` for the idle prompt. Tool
+/// permission dialogs and startup text prompts are suppressed (`None`).
+fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<(AgentState, String)> {
+    // Classify interactive dialogs first — they take priority over the
+    // simple startup text prompts which match more broadly.
+    match classify_interactive_dialog(&snapshot.lines) {
+        Some(DialogKind::ToolPermission) => return None,
+        Some(DialogKind::Permission) => {
+            let options = parse_options_from_screen(&snapshot.lines);
+            return Some((
+                AgentState::Prompt {
+                    prompt: PromptContext {
+                        kind: PromptKind::Permission,
+                        subtype: Some("trust".to_owned()),
+                        tool: None,
+                        input_preview: None,
+                        screen_lines: vec![],
+                        options,
+                        options_fallback: false,
+                        questions: vec![],
+                        question_current: 0,
+                    },
+                },
+                "screen:permission".to_owned(),
+            ));
+        }
+        Some(DialogKind::Setup(subtype)) => {
+            let options = parse_options_from_screen(&snapshot.lines);
+            return Some((
+                AgentState::Prompt {
+                    prompt: PromptContext {
+                        kind: PromptKind::Setup,
+                        subtype: Some(subtype.to_owned()),
+                        tool: None,
+                        input_preview: None,
+                        screen_lines: vec![],
+                        options,
+                        options_fallback: false,
+                        questions: vec![],
+                        question_current: 0,
+                    },
+                },
+                "screen:setup".to_owned(),
+            ));
+        }
+        None => {}
     }
 
-    // Skip interactive dialogs (workspace trust, permission bypass, etc.)
-    // where `❯` is used as a selection cursor rather than the idle prompt.
-    if is_interactive_dialog(&snapshot.lines) {
+    // Skip if a known startup text prompt is present — those are handled
+    // separately by the session auto-responder and should not appear as
+    // WaitingForInput. Checked after dialog classification because the
+    // startup detector matches broadly (e.g. "trust this folder" appears in
+    // both the simple y/n prompt and the interactive Accessing workspace dialog).
+    if detect_startup_prompt(&snapshot.lines).is_some() {
         return None;
     }
 
@@ -111,71 +168,93 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<AgentState> {
     for line in snapshot.lines.iter().rev() {
         let trimmed = line.trim();
         if !trimmed.is_empty() && trimmed.starts_with('\u{276f}') {
-            return Some(AgentState::WaitingForInput);
+            return Some((AgentState::WaitingForInput, "screen:idle".to_owned()));
         }
     }
 
     None
 }
 
-/// A screen that should block idle detection. Each screen defines 2-3
-/// signal phrases; a match requires 2+ signals present on screen.
-/// Signal fields: (phrase, case_insensitive).
+/// Signal phrases for a dialog screen, paired with its classification.
+/// Each screen defines 2-3 signal phrases; a match requires 2+ signals.
 /// Signals are `(phrase, case_insensitive)`.
-type DialogScreen = &'static [(&'static str, bool)];
+type DialogScreen = (DialogKind, &'static [(&'static str, bool)]);
 
 const DIALOG_SCREENS: &[DialogScreen] = &[
-    // Security notes: "Security notes" + "Claude can make mistakes" + "Press Enter to continue…"
-    &[
-        ("Security notes:", false),
-        ("Claude can make mistakes", false),
-        ("Press Enter to continue", false),
-    ],
-    // Login success: "Logged in as …" + "Login successful. Press Enter to continue…"
-    &[("Login successful", false), ("Logged in as", false), ("Press Enter to continue", false)],
-    // OAuth login: "Browser didn't open?" + "Paste code here if prompted >"
-    &[("Paste code here if prompted", false), ("oauth/authorize", false)],
-    // Login method picker: "Select login method:" + "Claude account with subscription"
-    &[
-        ("Select login method:", false),
-        ("Claude account with subscription", false),
-        ("Anthropic Console account", false),
-    ],
-    // Workspace trust: "Accessing workspace:" + "1. Yes, I trust this folder" + "Enter to confirm"
-    &[
-        ("Accessing workspace:", false),
-        ("Yes, I trust this folder", false),
-        ("enter to confirm", true),
-    ],
-    // Terminal setup: "terminal setup?" + "recommended settings" + "Enter to confirm"
-    &[
-        ("Use Claude Code's terminal setup?", false),
-        ("Yes, use recommended settings", false),
-        ("enter to confirm", true),
-    ],
-    // Theme picker: "Choose the text style" + "1. Dark mode" + "Enter to confirm"
-    &[("Choose the text style", false), ("Dark mode", false), ("enter to confirm", true)],
-    // Tool permission: "Do you want to proceed?" + "Yes, and don't ask again" + "Esc to cancel"
-    &[
-        ("Do you want to proceed?", false),
-        ("Yes, and don't ask again", false),
-        ("Esc to cancel", false),
-    ],
+    // Security notes
+    (
+        DialogKind::Setup("security_notes"),
+        &[
+            ("Security notes:", false),
+            ("Claude can make mistakes", false),
+            ("Press Enter to continue", false),
+        ],
+    ),
+    // Login success
+    (
+        DialogKind::Setup("login_success"),
+        &[("Login successful", false), ("Logged in as", false), ("Press Enter to continue", false)],
+    ),
+    // OAuth login
+    (
+        DialogKind::Setup("oauth_login"),
+        &[("Paste code here if prompted", false), ("oauth/authorize", false)],
+    ),
+    // Login method picker
+    (
+        DialogKind::Setup("login_method"),
+        &[
+            ("Select login method:", false),
+            ("Claude account with subscription", false),
+            ("Anthropic Console account", false),
+        ],
+    ),
+    // Workspace trust
+    (
+        DialogKind::Permission,
+        &[
+            ("Accessing workspace:", false),
+            ("Yes, I trust this folder", false),
+            ("enter to confirm", true),
+        ],
+    ),
+    // Terminal setup
+    (
+        DialogKind::Setup("terminal_setup"),
+        &[
+            ("Use Claude Code's terminal setup?", false),
+            ("Yes, use recommended settings", false),
+            ("enter to confirm", true),
+        ],
+    ),
+    // Theme picker
+    (
+        DialogKind::Setup("theme_picker"),
+        &[("Choose the text style", false), ("Dark mode", false), ("enter to confirm", true)],
+    ),
+    // Tool permission
+    (
+        DialogKind::ToolPermission,
+        &[
+            ("Do you want to proceed?", false),
+            ("Yes, and don't ask again", false),
+            ("Esc to cancel", false),
+        ],
+    ),
 ];
 
 /// Minimum number of signals that must match to identify a dialog screen.
 const DIALOG_SIGNAL_THRESHOLD: usize = 2;
 
-/// Returns `true` when the screen shows an interactive selection dialog
-/// (e.g. workspace trust, login, theme picker) where `❯` is used as a
-/// list-item cursor rather than the idle input prompt.
+/// Classify the screen as an interactive dialog, returning the dialog kind
+/// if recognized, or `None` if no dialog is detected.
 ///
 /// Each known dialog screen defines 2-3 signal phrases; a match requires
 /// at least [`DIALOG_SIGNAL_THRESHOLD`] signals present on screen.
-fn is_interactive_dialog(lines: &[String]) -> bool {
-    for screen in DIALOG_SCREENS {
+fn classify_interactive_dialog(lines: &[String]) -> Option<DialogKind> {
+    for (kind, signals) in DIALOG_SCREENS {
         let mut hits = 0;
-        for &(phrase, ci) in *screen {
+        for &(phrase, ci) in *signals {
             let found = lines.iter().any(|line| {
                 let trimmed = line.trim();
                 if ci {
@@ -187,12 +266,12 @@ fn is_interactive_dialog(lines: &[String]) -> bool {
             if found {
                 hits += 1;
                 if hits >= DIALOG_SIGNAL_THRESHOLD {
-                    return true;
+                    return Some(*kind);
                 }
             }
         }
     }
-    false
+    None
 }
 
 #[cfg(test)]

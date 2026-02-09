@@ -214,7 +214,7 @@ message QuestionAnswer {
 // Contextual information about a prompt the agent is presenting.
 // Present when agent state is "prompt".
 message PromptContext {
-  // Prompt type: "permission", "plan", "question".
+  // Prompt type: "permission", "plan", "question", "setup".
   string type = 1;
   // Tool name (permission prompts).
   optional string tool = 2;
@@ -230,6 +230,12 @@ message PromptContext {
   repeated string options = 10;
   // True when options contains fallback labels (parser couldn't find real options).
   bool options_fallback = 11;
+  // Prompt subtype for further classification within a type.
+  // Known subtypes by type:
+  //   permission: "trust", "tool"
+  //   setup: "theme_picker", "terminal_setup", "security_notes",
+  //          "login_success", "login_method", "oauth_login"
+  optional string subtype = 12;
 }
 
 message GetAgentStateRequest {}

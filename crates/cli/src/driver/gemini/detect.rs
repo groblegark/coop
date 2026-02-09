@@ -52,6 +52,7 @@ impl Detector for HookDetector {
                                     "ToolPermission" => (AgentState::Prompt {
                                         prompt: PromptContext {
                                             kind: PromptKind::Permission,
+                                            subtype: Some("tool".to_owned()),
                                             tool: None,
                                             input_preview: None,
                                             screen_lines: vec![],

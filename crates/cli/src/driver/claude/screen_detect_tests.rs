@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use crate::driver::AgentState;
+use crate::driver::{AgentState, PromptKind};
 use crate::screen::{CursorPosition, ScreenSnapshot};
 
 use super::classify_claude_screen;
@@ -17,10 +17,21 @@ fn snapshot(lines: &[&str]) -> ScreenSnapshot {
     }
 }
 
+/// Extract just the state from the classify result for simple assertions.
+fn state(snap: &ScreenSnapshot) -> Option<AgentState> {
+    classify_claude_screen(snap).map(|(s, _)| s)
+}
+
+/// Extract the cause string from the classify result.
+fn cause(snap: &ScreenSnapshot) -> Option<String> {
+    classify_claude_screen(snap).map(|(_, c)| c)
+}
+
 #[test]
 fn detects_idle_prompt() {
     let snap = snapshot(&["Claude Code v2.1.37", "", "\u{276f} Try \"fix lint errors\"", ""]);
-    assert_eq!(classify_claude_screen(&snap), Some(AgentState::WaitingForInput));
+    assert_eq!(state(&snap), Some(AgentState::WaitingForInput));
+    assert_eq!(cause(&snap).as_deref(), Some("screen:idle"));
 }
 
 #[test]
@@ -44,11 +55,11 @@ fn no_idle_on_startup_prompt() {
 #[test]
 fn detects_bare_prompt() {
     let snap = snapshot(&["\u{276f} ", ""]);
-    assert_eq!(classify_claude_screen(&snap), Some(AgentState::WaitingForInput));
+    assert_eq!(state(&snap), Some(AgentState::WaitingForInput));
 }
 
 #[test]
-fn no_idle_on_workspace_trust_dialog() {
+fn workspace_trust_dialog_emits_permission() {
     let snap = snapshot(&[
         " Accessing workspace:",
         " /Users/kestred/Developer/foo",
@@ -58,11 +69,16 @@ fn no_idle_on_workspace_trust_dialog() {
         "",
         " Enter to confirm \u{00b7} Esc to cancel",
     ]);
-    assert_eq!(classify_claude_screen(&snap), None);
+    let (s, c) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.kind, PromptKind::Permission);
+    assert_eq!(prompt.subtype.as_deref(), Some("trust"));
+    assert!(!prompt.options.is_empty(), "should parse options");
+    assert_eq!(c, "screen:permission");
 }
 
 #[test]
-fn no_idle_on_theme_picker() {
+fn theme_picker_emits_setup() {
     let snap = snapshot(&[
         " Choose the text style that looks best with your terminal",
         "",
@@ -71,11 +87,16 @@ fn no_idle_on_theme_picker() {
         "",
         " Enter to confirm",
     ]);
-    assert_eq!(classify_claude_screen(&snap), None);
+    let (s, c) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.kind, PromptKind::Setup);
+    assert_eq!(prompt.subtype.as_deref(), Some("theme_picker"));
+    assert!(!prompt.options.is_empty(), "should parse options");
+    assert_eq!(c, "screen:setup");
 }
 
 #[test]
-fn no_idle_on_tool_permission_dialog() {
+fn tool_permission_dialog_still_suppressed() {
     let snap = snapshot(&[
         " Bash command",
         "",
@@ -93,6 +114,35 @@ fn no_idle_on_tool_permission_dialog() {
 }
 
 #[test]
+fn security_notes_emits_setup() {
+    let snap = snapshot(&[
+        " Security notes:",
+        "",
+        " Claude can make mistakes. Review tool use requests carefully.",
+        "",
+        " Press Enter to continue...",
+    ]);
+    let (s, c) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.kind, PromptKind::Setup);
+    assert_eq!(prompt.subtype.as_deref(), Some("security_notes"));
+    assert_eq!(c, "screen:setup");
+}
+
+#[test]
+fn login_success_emits_setup() {
+    let snap = snapshot(&[
+        " Login successful. Press Enter to continue...",
+        "",
+        " Logged in as user@example.com",
+    ]);
+    let (s, _) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.kind, PromptKind::Setup);
+    assert_eq!(prompt.subtype.as_deref(), Some("login_success"));
+}
+
+#[test]
 fn detects_prompt_with_status_text_below() {
     let snap = snapshot(&[
         "Claude Code v2.1.37",
@@ -101,5 +151,5 @@ fn detects_prompt_with_status_text_below() {
         "────────────────────────────────",
         "  ctrl+t to hide tasks",
     ]);
-    assert_eq!(classify_claude_screen(&snap), Some(AgentState::WaitingForInput));
+    assert_eq!(state(&snap), Some(AgentState::WaitingForInput));
 }

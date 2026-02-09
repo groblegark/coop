@@ -80,6 +80,10 @@ impl RespondEncoder for GeminiRespondEncoder {
 
         vec![]
     }
+
+    fn encode_setup(&self, option: u32) -> Vec<NudgeStep> {
+        vec![NudgeStep { bytes: format!("{option}\r").into_bytes(), delay_after: None }]
+    }
 }
 
 #[cfg(test)]

@@ -62,6 +62,7 @@ pub enum PromptKind {
     Permission,
     Plan,
     Question,
+    Setup,
 }
 
 impl PromptKind {
@@ -70,6 +71,7 @@ impl PromptKind {
             Self::Permission => "permission",
             Self::Plan => "plan",
             Self::Question => "question",
+            Self::Setup => "setup",
         }
     }
 }
@@ -77,7 +79,18 @@ impl PromptKind {
 /// Contextual information about a prompt the agent is presenting.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PromptContext {
+    /// Prompt type: permission, plan, question, setup.
+    #[serde(rename = "type")]
     pub kind: PromptKind,
+    /// Prompt subtype for further classification within a kind.
+    ///
+    /// Known subtypes by kind:
+    /// - **permission**: `"trust"` (workspace trust), `"tool"` (tool permission)
+    /// - **setup**: `"theme_picker"`, `"terminal_setup"`, `"security_notes"`,
+    ///   `"login_success"`, `"login_method"`, `"oauth_login"`
+    /// - **plan**, **question**: (none currently)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtype: Option<String>,
     pub tool: Option<String>,
     pub input_preview: Option<String>,
     pub screen_lines: Vec<String>,
@@ -148,6 +161,7 @@ pub trait RespondEncoder: Send + Sync {
     fn encode_plan(&self, option: u32, feedback: Option<&str>) -> Vec<NudgeStep>;
     fn encode_question(&self, answers: &[QuestionAnswer], total_questions: usize)
         -> Vec<NudgeStep>;
+    fn encode_setup(&self, option: u32) -> Vec<NudgeStep>;
 }
 
 /// A state emission from the composite detector, including the tier that
@@ -329,7 +343,7 @@ fn prompt_supersedes(current: &AgentState, incoming: &AgentState) -> bool {
     match (current, incoming) {
         (AgentState::Prompt { prompt: cur }, AgentState::Prompt { prompt: inc }) => {
             inc.kind == PromptKind::Permission
-                && matches!(cur.kind, PromptKind::Plan | PromptKind::Question)
+                && matches!(cur.kind, PromptKind::Plan | PromptKind::Question | PromptKind::Setup)
         }
         _ => false,
     }

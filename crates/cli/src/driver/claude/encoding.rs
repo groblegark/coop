@@ -95,6 +95,10 @@ impl RespondEncoder for ClaudeRespondEncoder {
         let bytes = self.encode_single_answer(answer);
         vec![NudgeStep { bytes: [&bytes[..], b"\r"].concat(), delay_after: None }]
     }
+
+    fn encode_setup(&self, option: u32) -> Vec<NudgeStep> {
+        vec![NudgeStep { bytes: format!("{option}\r").into_bytes(), delay_after: None }]
+    }
 }
 
 impl ClaudeRespondEncoder {

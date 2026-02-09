@@ -164,6 +164,10 @@ pub fn encode_response(
                 let count = answers.len();
                 Ok((encoder.encode_question(answers, total_questions), count))
             }
+            PromptKind::Setup => {
+                let opt = option.unwrap_or(1);
+                Ok((encoder.encode_setup(opt), 0))
+            }
         },
         _ => Err(ErrorCode::NoPrompt),
     }

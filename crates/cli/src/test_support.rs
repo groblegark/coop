@@ -260,6 +260,9 @@ impl RespondEncoder for StubRespondEncoder {
     ) -> Vec<NudgeStep> {
         vec![NudgeStep { bytes: b"q\r".to_vec(), delay_after: None }]
     }
+    fn encode_setup(&self, option: u32) -> Vec<NudgeStep> {
+        vec![NudgeStep { bytes: format!("{option}\r").into_bytes(), delay_after: None }]
+    }
 }
 
 /// Assert that an expression evaluates to `Err` whose Display output
