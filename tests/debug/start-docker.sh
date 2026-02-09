@@ -4,13 +4,19 @@
 # Debug helper: build coop test image, run in Docker, open browser terminal.
 #
 # Usage:
-#   tests/debug/start-docker.sh                                    # default scenario
-#   tests/debug/start-docker.sh --scenario claude_tool_use.toml    # specific scenario
-#   tests/debug/start-docker.sh --port 8080 --no-build             # custom port, skip build
+#   tests/debug/start-docker.sh claudeless                             # default scenario
+#   tests/debug/start-docker.sh claudeless --scenario claude_tool_use.toml
+#   tests/debug/start-docker.sh claude                                 # coop + claude CLI
+#   tests/debug/start-docker.sh gemini                                 # coop + gemini CLI
+#   tests/debug/start-docker.sh claude --port 8080 --no-build
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+
+# First positional arg is the mode
+MODE="${1:-claudeless}"
+shift || true
 
 PORT=7070
 BUILD=1
@@ -28,10 +34,42 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# --- Resolve image and command per mode ---
+case "$MODE" in
+  claudeless)
+    IMAGE_TARGET="test"
+    IMAGE_TAG="coop:test"
+    DOCKER_RUN_ARGS=(-p "$PORT:7070" "$IMAGE_TAG" \
+      --port 7070 --log-format text --agent claude \
+      -- claudeless --scenario "/scenarios/$SCENARIO" "hello")
+    LABEL="scenario $SCENARIO"
+    ;;
+  claude)
+    IMAGE_TARGET="claude"
+    IMAGE_TAG="coop:claude"
+    DOCKER_RUN_ARGS=(-p "$PORT:7070" "$IMAGE_TAG" \
+      --port 7070 --log-format text --agent claude \
+      -- claude)
+    LABEL="claude CLI"
+    ;;
+  gemini)
+    IMAGE_TARGET="gemini"
+    IMAGE_TAG="coop:gemini"
+    DOCKER_RUN_ARGS=(-p "$PORT:7070" "$IMAGE_TAG" \
+      --port 7070 --log-format text --agent gemini \
+      -- gemini)
+    LABEL="gemini CLI"
+    ;;
+  *)
+    echo "Unknown mode: $MODE (expected 'claudeless', 'claude', or 'gemini')" >&2
+    exit 1
+    ;;
+esac
+
 # --- Build Docker image ---
 if [[ "$BUILD" -eq 1 ]]; then
-  echo "Building coop test image…"
-  docker build --target test -t coop:test "$ROOT_DIR"
+  echo "Building $IMAGE_TAG (target: $IMAGE_TARGET)…"
+  docker build --target "$IMAGE_TARGET" -t "$IMAGE_TAG" "$ROOT_DIR"
 fi
 
 # --- Run container ---
@@ -45,10 +83,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Starting coop in Docker on port $PORT with scenario $SCENARIO"
-CONTAINER_ID=$(docker run -d -p "$PORT:7070" coop:test \
-  --port 7070 --log-format text --agent claude \
-  -- claudeless --scenario "/scenarios/$SCENARIO" "hello")
+echo "Starting coop in Docker on port $PORT with $LABEL"
+CONTAINER_ID=$(docker run -d "${DOCKER_RUN_ARGS[@]}")
 
 # --- Wait for health ---
 echo -n "Waiting for coop to be ready"
