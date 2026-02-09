@@ -5,31 +5,31 @@ use super::*;
 
 // ===== Entry-point tests ====================================================
 
-#[test]
-fn missing_coop_url_returns_2() {
+#[tokio::test]
+async fn missing_coop_url_returns_2() {
     std::env::remove_var("COOP_URL");
-    assert_eq!(run(&[]), 2);
+    assert_eq!(run(&[]).await, 2);
 }
 
-#[test]
-fn help_flag_returns_0() {
-    assert_eq!(run(&["--help".to_string()]), 0);
+#[tokio::test]
+async fn help_flag_returns_0() {
+    assert_eq!(run(&["--help".to_string()]).await, 0);
 }
 
-#[test]
-fn help_short_flag_returns_0() {
-    assert_eq!(run(&["-h".to_string()]), 0);
+#[tokio::test]
+async fn help_short_flag_returns_0() {
+    assert_eq!(run(&["-h".to_string()]).await, 0);
 }
 
-#[test]
-fn connection_refused_returns_1() {
-    assert_eq!(run(&["http://127.0.0.1:1".to_string()]), 1);
+#[tokio::test]
+async fn connection_refused_returns_1() {
+    assert_eq!(run(&["http://127.0.0.1:1".to_string()]).await, 1);
 }
 
-#[test]
-fn no_statusline_still_returns_error_without_url() {
+#[tokio::test]
+async fn no_statusline_still_returns_error_without_url() {
     std::env::remove_var("COOP_URL");
-    assert_eq!(run(&["--no-statusline".to_string()]), 2);
+    assert_eq!(run(&["--no-statusline".to_string()]).await, 2);
 }
 
 // ===== StatuslineConfig tests ===============================================

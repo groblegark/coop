@@ -273,7 +273,11 @@ fn run_statusline_cmd(cmd: &str, state: &AttachState) -> String {
 /// Run the `coop attach` subcommand. Returns a process exit code.
 ///
 /// `args` contains everything after "attach" on the command line.
-pub fn run(args: &[String]) -> i32 {
+///
+/// This is async because the attach loop uses tokio for WebSocket I/O,
+/// signal handling, and timers. It must be called from within a tokio
+/// runtime (e.g. from `#[tokio::main]` in main.rs).
+pub async fn run(args: &[String]) -> i32 {
     // Parse a simple --help flag.
     if args.iter().any(|a| a == "--help" || a == "-h") {
         eprintln!("Usage: coop attach [URL] [OPTIONS]");
@@ -309,16 +313,7 @@ pub fn run(args: &[String]) -> i32 {
 
     let auth_token = std::env::var("COOP_AUTH_TOKEN").ok();
 
-    // Build a single-threaded tokio runtime.
-    let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-        Ok(rt) => rt,
-        Err(e) => {
-            eprintln!("error: failed to create runtime: {e}");
-            return 1;
-        }
-    };
-
-    rt.block_on(attach_inner(&coop_url, auth_token.as_deref(), &statusline_cfg))
+    attach_inner(&coop_url, auth_token.as_deref(), &statusline_cfg).await
 }
 
 // ---------------------------------------------------------------------------
