@@ -96,10 +96,43 @@ Agent states: `starting`, `working`, `waiting_for_input`, `permission_prompt`, `
 
 ## Development
 
+### Requirements
+
+- **Rust 1.92+** — install via [rustup](https://rustup.rs/)
+- **protoc** — Protocol Buffers compiler (used by `prost-build` for gRPC codegen)
+  - macOS: `brew install protobuf`
+  - Debian/Ubuntu: `apt install protobuf-compiler`
+
+Optional:
+
+- **[quench](https://github.com/nicholasgasior/quench)** — lint ratcheting tool, used by `make check`
+- **[claudeless](../claudeless)** — Claude CLI simulator, used for integration tests and manual testing
+- **Docker** — used for `make test-docker` and `try-docker-*` targets
+- **Claude CLI** / **Gemini CLI** — only needed for `make try-claude` / `make try-gemini` manual testing
+
+### Commands
+
 ```bash
 make check    # fmt + clippy + quench + build + test
 make ci       # full pre-release (adds audit + deny)
 cargo test    # unit tests only
+```
+
+### Manual testing
+
+```bash
+# Launch coop + claudeless in a browser terminal (requires claudeless)
+make try-claudeless SCENARIO=crates/cli/tests/scenarios/claude_hello.toml
+
+# Launch coop + real agent CLI in a browser terminal
+make try-claude     # requires claude CLI
+make try-gemini     # requires gemini CLI
+
+# Docker variants (requires Docker)
+make try-docker-claudeless SCENARIO=claude_hello.toml
+make try-docker-claude
+make try-docker-gemini
+make test-docker    # run Docker e2e tests
 ```
 
 ## License

@@ -65,7 +65,6 @@ crates/cli/               # Single crate (binary + lib)
     ├── pty_backend.rs           # Integration tests for PTY backend
     ├── claude_integration.rs    # E2E tests via claudeless
     └── scenarios/               # Claudeless scenario fixtures
-ROADMAP.md                  # Phased dependency graph
 ```
 
 ## Development
