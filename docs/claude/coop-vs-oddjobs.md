@@ -49,21 +49,19 @@ process that owns the PTY, renders the terminal, and classifies agent state.
 
 | Mechanism | Oddjobs | Coop |
 |-----------|---------|------|
-| Notification hook (`idle_prompt`, `permission_prompt`) | Primary (instant via `oj agent hook notify`) | Not used |
-| PreToolUse hook (`AskUserQuestion`, `ExitPlanMode`) | Primary (instant via `oj agent hook pretooluse`) | Not used |
+| Notification hook (`idle_prompt`, `permission_prompt`) | Primary (instant via `oj agent hook notify`) | Tier 1 (writes to FIFO pipe) |
+| PreToolUse hook (`AskUserQuestion`, `ExitPlanMode`, `EnterPlanMode`) | Primary (instant via `oj agent hook pretooluse`) | Tier 1 (writes to FIFO pipe) |
 | PostToolUse hook | Not used | Tier 1 (tool name to FIFO pipe) |
-| Stop hook event | Not used for detection (used to gate exit) | Tier 1 (stop event to FIFO pipe) |
+| Stop hook event | Not used for detection (used to gate exit) | Tier 1 (stop event to FIFO pipe) + stop gating via HTTP |
 | Session log watcher | Fallback (5s poll via file notifications) | Tier 2 (file watcher, incremental) |
 | Stdout JSONL | Not supported | Tier 3 (`--print --output-format stream-json`) |
 | Process monitor | `ps`/`pgrep` in watcher loop | Tier 4 (universal fallback) |
-| Screen parsing | Not used for Claude | Not used for Claude (Tier 5, `unknown` only) |
+| Screen parsing | Not used for Claude | Tier 5 (setup dialogs, workspace trust, idle prompt) |
 
-Oddjobs relies on Claude's built-in Notification and PreToolUse hooks for
-instant state detection, with the session log watcher as a polling fallback.
-
-Coop uses its own PostToolUse and Stop hooks (written to a FIFO pipe) as
-Tier 1, the session log as Tier 2, and combines them through a composite
-detector with tier-priority resolution.
+Both systems now use Notification and PreToolUse hooks for instant state
+detection. Oddjobs routes them through CLI callbacks (`oj agent hook ...`);
+coop writes them to a FIFO pipe for the composite detector. Coop additionally
+uses PostToolUse hooks and the session log as fallback tiers.
 
 ### Idle detection
 
@@ -89,21 +87,23 @@ the confirmed idle state.
 
 | Prompt | Oddjobs response | Coop response |
 |--------|------------------|---------------|
-| Bypass permissions | Sends `"2"` (accept numbered option) | Reported as permission prompt; orchestrator responds via API |
-| Workspace trust | Sends `"1"` (trust numbered option) | Reported as permission prompt; orchestrator responds via API |
-| Login/onboarding | Kills session, returns `SpawnFailed` | Reported as permission prompt; orchestrator decides |
+| Bypass permissions | Sends `"2"` (accept numbered option) | Auto-responds `y\r` (accept) |
+| Workspace trust (text) | Sends `"1"` (trust numbered option) | Auto-responds `y\r` (accept) |
+| Workspace trust (dialog) | Sends `"1"` (trust numbered option) | Reported as `Prompt(Permission, subtype="trust")`; orchestrator responds |
+| Login/onboarding | Kills session, returns `SpawnFailed` | Reported as `Prompt(Setup)`; orchestrator decides |
 
-Coop does not auto-handle startup prompts. It reports them as permission
-prompts through the state detection pipeline. The orchestrator is responsible
-for responding.
+Coop auto-handles simple text-based startup prompts (workspace trust y/n,
+permission bypass y/n). Interactive dialogs (workspace trust picker, login
+method, OAuth flow) are reported as `Prompt` states for the orchestrator to
+handle.
 
 ### Prompt handling
 
 | Prompt type | Oddjobs | Coop |
 |-------------|---------|------|
-| Permission | Detected via Notification hook → decision created → human resolves → `y`/`n` sent | Detected via log/hooks → `PermissionPrompt` state + context → consumer responds via API |
-| AskUser | Detected via PreToolUse hook → decision created → human picks option → number sent | Detected via log → `AskUser` state + context → consumer responds via API |
-| Plan | Detected via PreToolUse hook → decision created → human accepts/revises | Detected via screen → `PlanPrompt` state + context → consumer responds via API |
+| Permission | Detected via Notification hook → decision created → human resolves → option number sent | Detected via Notification hook (T1) + screen (T5) → `Prompt(Permission)` + context → consumer responds via API |
+| AskUser | Detected via PreToolUse hook → decision created → human picks option → number sent | Detected via PreToolUse hook (T1) + log (T2) → `Prompt(Question)` + context → consumer responds via API |
+| Plan | Detected via PreToolUse hook → decision created → human accepts/revises | Detected via PreToolUse hook (T1) → `Prompt(Plan)` + context → consumer responds via API |
 
 Oddjobs creates **decisions** (human-in-the-loop records with numbered options,
 context messages, and resolution actions). Coop emits **state changes** with
@@ -139,11 +139,11 @@ state change events from the coop API.
 | Action | Oddjobs | Coop |
 |--------|---------|------|
 | Nudge | `session.send_literal(text)` + `session.send_enter()` with Esc clearing | `{message}\r` via PTY write |
-| Permission accept | `session.send("y")` | `y\r` |
-| Permission deny | `session.send("n")` | `n\r` |
-| AskUser option | `session.send("{n}")` | `{n}\r` |
-| Plan accept | Arrow key navigation + Enter | `y\r` |
-| Plan reject | Arrow key navigation + Enter + feedback | `n\r` + 100ms delay + `{feedback}\r` |
+| Permission respond | `session.send("{n}")` (numbered option) | `{n}\r` (numbered option) |
+| AskUser option | `session.send("{n}")` | `{n}\r` (single question) or `{n}` (multi-question, TUI auto-advances) |
+| Plan accept | Arrow key navigation + Enter | `{n}\r` (numbered option) |
+| Plan reject | Arrow key navigation + Enter + feedback | `{n}\r` + 100ms delay + `{feedback}\r` |
+| Setup respond | N/A (auto-handled or killed) | `{n}\r` (numbered option) |
 | Input clearing | Esc → 50ms pause → Esc (clear any partial input) | N/A (consumer's responsibility) |
 
 Oddjobs clears partial input before sending (Esc + pause + Esc) to handle
@@ -153,20 +153,21 @@ should ensure the agent is in the expected state before sending.
 
 ## Hooks
 
-Oddjobs and coop use different Claude hooks for different purposes. Both sets
-can coexist in the same hook configuration.
+Oddjobs and coop both use Claude's Notification and PreToolUse hooks for
+state detection, but with different transports. Both sets can coexist if
+matchers don't conflict.
 
 | Hook | Oddjobs | Coop |
 |------|---------|------|
-| **Stop** | Gates exit: blocks until agent signals completion via `oj emit agent:signal` | Detection: writes `{"event":"stop"}` to FIFO → Tier 1 idle signal |
-| **Notification** | `idle_prompt`/`permission_prompt` → `oj agent hook notify` → instant state detection | Not used |
-| **PreToolUse** | `AskUserQuestion`/`ExitPlanMode`/`EnterPlanMode` → `oj agent hook pretooluse` → decision creation | Not used |
-| **PostToolUse** | Not used | Writes `{"event":"post_tool_use","tool":"..."}` to FIFO → Tier 1 working signal |
+| **Stop** | Gates exit: blocks until agent signals completion via `oj emit agent:signal` | Dual: writes to FIFO (detection) + curls `$COOP_URL/api/v1/hooks/stop` (gating) |
+| **Notification** | `idle_prompt`/`permission_prompt` → `oj agent hook notify` → instant state detection | `idle_prompt`/`permission_prompt` → writes to FIFO → Tier 1 detection |
+| **PreToolUse** | `AskUserQuestion`/`ExitPlanMode`/`EnterPlanMode` → `oj agent hook pretooluse` → decision creation | Same tools → writes to FIFO → Tier 1 detection |
+| **PostToolUse** | Not used | Writes `{"event":"post_tool_use","data":...}` to FIFO → Tier 1 working signal |
 | **SessionStart** | Runs prime scripts (per-source) | Not used |
 
 The Stop hook serves fundamentally different purposes: oddjobs uses it to
 **prevent** Claude from exiting until the orchestrator is satisfied; coop uses
-it to **detect** that Claude has stopped.
+it for both **detection** (FIFO write) and optional **gating** (HTTP verdict).
 
 
 ## What coop replaces
@@ -175,7 +176,7 @@ it to **detect** that Claude has stopped.
 |--------------------|-------------|
 | `TmuxAdapter` (spawn, send, kill, capture, configure) | Coop PTY + VTE + HTTP API |
 | `Watcher` (session log file monitoring) | Coop Tier 2 log detector |
-| Startup prompt polling via `capture_output()` | Coop screen-based startup prompt detection |
+| Startup prompt polling via `capture_output()` | Coop screen-based startup prompt detection + auto-response |
 | `ps`/`pgrep` liveness checks | Coop Tier 4 process monitor |
 | `tmux capture-pane` for screen content | `GET /api/v1/screen` |
 | `tmux send-keys` for input | `POST /api/v1/input` |
@@ -188,8 +189,6 @@ it to **detect** that Claude has stopped.
 | Job lifecycle | Orchestrator-level: multi-step workflows, suspend/resume/cancel |
 | Workspace management | Orchestrator-level: git worktrees, directory setup, cleanup |
 | Stop hook (exit gate) | Orchestrator-level: requires agent signaling protocol (`oj emit agent:signal`) |
-| PreToolUse hooks | Orchestrator-level: intercepts tools for decision creation |
-| Notification hooks | Orchestrator-level: instant detection via CLI callback |
 | Agent signaling | Orchestrator-level: `complete`/`escalate`/`continue` signals |
 | Settings injection | Orchestrator-level: per-agent `claude-settings.json` with hooks and permissions |
 | Stuck recovery policy | Orchestrator-level: nudge attempts, escalation thresholds, retry limits |

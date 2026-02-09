@@ -1,8 +1,8 @@
 # Claude Code Support
 
 Coop provides first-class support for Claude Code via the `--agent claude` flag.
-The Claude driver activates three structured detection tiers, hook-based event
-ingestion, prompt response encoding, startup prompt handling, and session resume.
+The Claude driver activates five detection tiers, hook-based event ingestion,
+prompt response encoding, startup prompt handling, and session resume.
 
 ```
 coop --agent claude --port 8080 -- claude --dangerously-skip-permissions
@@ -11,7 +11,7 @@ coop --agent claude --port 8080 -- claude --dangerously-skip-permissions
 
 ## Detection Tiers
 
-When `--agent claude` is set, coop activates up to four detection tiers. Lower
+When `--agent claude` is set, coop activates up to five detection tiers. Lower
 tier numbers are higher confidence; the composite detector always prefers the
 most-confident source.
 
@@ -21,19 +21,23 @@ most-confident source.
 | 2 | Session log | High | File watcher tails `~/.claude/projects/<hash>/*.jsonl` |
 | 3 | Stdout JSONL | Medium | Parses JSONL when Claude runs with `--print --output-format stream-json` |
 | 4 | Process monitor | Low | Universal fallback: process alive, PTY activity, exit status |
+| 5 | Screen parsing | Lowest | Terminal screen heuristics: setup dialogs, workspace trust, idle prompt |
 
-Tier 5 (screen parsing) is **not** used for Claude since the structured tiers
-provide reliable state classification.
+Tier 5 detects interactive dialogs (onboarding, workspace trust, OAuth login)
+and the idle prompt (`❯`). Tool permission dialogs are suppressed at this tier
+since Tier 1 hooks handle them with higher confidence.
 
 ### Tier 1: Hook Events
 
 Coop creates a named FIFO pipe before spawning Claude and writes a settings
 file containing the hook configuration. Claude loads this via `--settings`.
 
-Two hooks are registered:
+Four hooks are registered:
 
-- **PostToolUse** -- fires after each tool call, writes the tool name
-- **Stop** -- fires when the agent stops
+- **PostToolUse** (matcher: `""`) -- fires after each tool call, writes the tool name and payload
+- **Stop** (matcher: `""`) -- fires when the agent stops; writes to FIFO then curls `$COOP_URL/api/v1/hooks/stop` for stop gating
+- **Notification** (matcher: `"idle_prompt|permission_prompt"`) -- fires on idle and permission notifications
+- **PreToolUse** (matcher: `"ExitPlanMode|AskUserQuestion|EnterPlanMode"`) -- fires before specific prompt-related tools
 
 The hooks execute shell commands that write JSON to `$COOP_HOOK_PIPE`:
 
@@ -44,14 +48,28 @@ The hooks execute shell commands that write JSON to `$COOP_HOOK_PIPE`:
       "matcher": "",
       "hooks": [{
         "type": "command",
-        "command": "echo '{\"event\":\"post_tool_use\",\"tool\":\"'\"$TOOL_NAME\"'\"}' > \"$COOP_HOOK_PIPE\""
+        "command": "input=$(cat); printf '{\"event\":\"post_tool_use\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
       }]
     }],
     "Stop": [{
       "matcher": "",
       "hooks": [{
         "type": "command",
-        "command": "echo '{\"event\":\"stop\"}' > \"$COOP_HOOK_PIPE\""
+        "command": "input=$(cat); printf ... > \"$COOP_HOOK_PIPE\"; curl -sf $COOP_URL/api/v1/hooks/stop ..."
+      }]
+    }],
+    "Notification": [{
+      "matcher": "idle_prompt|permission_prompt",
+      "hooks": [{
+        "type": "command",
+        "command": "input=$(cat); printf '{\"event\":\"notification\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
+      }]
+    }],
+    "PreToolUse": [{
+      "matcher": "ExitPlanMode|AskUserQuestion|EnterPlanMode",
+      "hooks": [{
+        "type": "command",
+        "command": "input=$(cat); printf '{\"event\":\"pre_tool_use\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
       }]
     }]
   }
@@ -64,6 +82,11 @@ State mapping:
 |------------|-------------|
 | `AgentStop` / `SessionEnd` | `WaitingForInput` |
 | `ToolComplete` | `Working` |
+| `Notification("idle_prompt")` | `WaitingForInput` |
+| `Notification("permission_prompt")` | `Prompt(Permission)` |
+| `PreToolUse("AskUserQuestion")` | `Prompt(Question)` with extracted context |
+| `PreToolUse("ExitPlanMode")` | `Prompt(Plan)` |
+| `PreToolUse("EnterPlanMode")` | `Working` |
 
 ### Tier 2: Session Log Watching
 
@@ -93,17 +116,45 @@ Universal fallback with no Claude-specific knowledge. Detects whether the
 process is alive, whether the PTY has recent activity, and reports the exit
 status. Provides coarse working-vs-idle detection.
 
+### Tier 5: Screen Parsing
+
+Polls the rendered terminal screen to detect interactive dialogs and the idle
+prompt. Uses signal-phrase matching (2+ phrases must match) to classify known
+dialog types:
+
+| Dialog | Subtype | Classification |
+|--------|---------|----------------|
+| Workspace trust | `"trust"` | `Prompt(Permission)` |
+| Theme picker | `"theme_picker"` | `Prompt(Setup)` |
+| Terminal setup | `"terminal_setup"` | `Prompt(Setup)` |
+| Security notes | `"security_notes"` | `Prompt(Setup)` |
+| Login success | `"login_success"` | `Prompt(Setup)` |
+| Login method | `"login_method"` | `Prompt(Setup)` |
+| OAuth login | `"oauth_login"` | `Prompt(Setup)` |
+| Tool permission | -- | Suppressed (Tier 1 handles) |
+
+The idle prompt is detected by scanning for the `❯` (U+276F) character at the
+start of a non-empty line. Polls fast during startup, then backs off to a
+slower steady-state cadence.
+
 
 ### Composite Detector
 
 The `CompositeDetector` runs all active tiers concurrently and resolves
 conflicts with these rules:
 
-- **Same or higher confidence tier**: state accepted immediately
-- **Lower confidence tier, non-idle**: accepted immediately
-- **Lower confidence tier, idle**: routed through the grace timer
-- **Terminal state (`Exited`)**: accepted immediately from any tier, cancels grace timer
+- **Terminal state (`Exited`)**: accepted immediately from any tier
 - **Duplicate state**: suppressed (updates tier tracking only)
+- **Same or higher confidence tier**: accepted immediately
+- **Prompt supersedes**: Plan/Question/Setup prompts are not overwritten by a Permission prompt from the same tier (Claude fires both specific and generic hooks for the same moment)
+- **Lower confidence tier, escalation**: accepted only if the new state has higher priority than the current state
+- **Lower confidence tier, downgrade**: silently rejected
+
+State priority (lowest to highest):
+
+```
+Starting/Unknown(0) < WaitingForInput(1) < Error(2) < Working(3) < Prompt(4) < Exited(5)
+```
 
 
 ## State Classification
@@ -116,7 +167,7 @@ parse_claude_state(json) ->
   error field present          => Error { detail }
   non-assistant message type   => Working
   assistant message with:
-    tool_use "AskUserQuestion" => AskUser { prompt }
+    tool_use "AskUserQuestion" => Prompt { Question + context }
     other tool_use             => Working
     thinking block             => Working
     text-only content          => WaitingForInput
@@ -130,29 +181,56 @@ The full set of agent states:
 | `Starting` | `starting` | Initial state before first detection |
 | `Working` | `working` | Executing tool calls or thinking |
 | `WaitingForInput` | `waiting_for_input` | Idle, ready for a nudge |
-| `PermissionPrompt` | `permission_prompt` | Requesting tool permission |
-| `PlanPrompt` | `plan_prompt` | Presenting a plan for approval |
-| `AskUser` | `ask_user` | Invoked `AskUserQuestion` tool |
+| `Prompt` | `prompt` | Presenting a prompt (permission, plan, question, or setup) |
 | `Error` | `error` | Error occurred (rate limit, auth, etc.) |
-| `AltScreen` | `alt_screen` | Terminal switched to alternate screen |
 | `Exited` | `exited` | Child process exited |
+| `Unknown` | `unknown` | State cannot be determined |
+
+The `Prompt` state carries a `PromptContext` with a `kind` field:
+
+| PromptKind | Meaning |
+|------------|---------|
+| `permission` | Tool permission or workspace trust |
+| `plan` | Plan mode exit dialog |
+| `question` | `AskUserQuestion` multi-question dialog |
+| `setup` | Onboarding/setup dialog |
 
 
 ## Prompt Context
 
-When the agent enters a prompt state (`PermissionPrompt`, `PlanPrompt`,
-`AskUser`), coop extracts structured context from the session log or screen.
+When the agent enters a `Prompt` state, coop extracts structured context from
+the session log, hooks, or screen.
 
-**Permission prompts** -- extracted from the last `tool_use` block:
-- `tool`: tool name (e.g. `"Bash"`, `"Edit"`)
-- `input`: truncated JSON of the tool input (~200 chars)
+`PromptContext` fields:
 
-**AskUser questions** -- extracted from the `AskUserQuestion` tool input:
-- `question`: the question text
-- `options`: array of option labels
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `PromptKind` | Prompt kind: permission, plan, question, setup |
+| `subtype` | `string?` | Further classification (e.g. `"trust"`, `"oauth_login"`) |
+| `tool` | `string?` | Tool name (e.g. `"Bash"`, `"AskUserQuestion"`) |
+| `input` | `string?` | Truncated tool input preview (~200 chars) |
+| `auth_url` | `string?` | OAuth authorization URL (setup `oauth_login` only) |
+| `options` | `string[]` | Numbered option labels parsed from the screen |
+| `options_fallback` | `bool` | True when options are fallback labels |
+| `questions` | `QuestionContext[]` | All questions in a multi-question dialog |
+| `question_current` | `int` | 0-indexed active question; `== questions.len()` means confirm phase |
+| `ready` | `bool` | True when async enrichment (option parsing) is complete |
 
-**Setup prompts** -- extracted from the terminal screen:
-- `auth_url`: OAuth authorization URL (present for `oauth_login` subtype)
+**Permission prompts** start with `ready: false`; enriched asynchronously from
+the terminal screen to populate `options`. Subtype `"trust"` for workspace
+trust (detected via screen); no subtype for tool permissions (detected via
+Notification hook).
+
+**Question prompts** are `ready: true` immediately. Context is extracted from
+the `AskUserQuestion` tool input (via PreToolUse hook or session log), which
+provides the `questions` array with question text and option labels.
+
+**Plan prompts** start with `ready: false`; enriched from the screen to
+populate `options`.
+
+**Setup prompts** are `ready: true` immediately. Detected entirely via Tier 5
+screen classification. Subtypes: `theme_picker`, `terminal_setup`,
+`security_notes`, `login_success`, `login_method`, `oauth_login`.
 
 
 ## Encoding
@@ -174,26 +252,30 @@ Only succeeds when the agent is in `WaitingForInput`.
 
 | Prompt type | Action | Bytes |
 |-------------|--------|-------|
-| Permission | Accept | `y\r` |
-| Permission | Deny | `n\r` |
-| Plan | Accept | `y\r` |
-| Plan | Reject | `n\r` + 100ms delay + `{feedback}\r` |
-| AskUser | Option N (1-indexed) | `{n}\r` |
-| AskUser | Freeform text | `{text}\r` |
+| Permission | Select option N | `{n}\r` |
+| Plan | Select option 1-3 | `{n}\r` |
+| Plan | Option 4 (feedback) | `{n}\r` + 100ms delay + `{feedback}\r` |
+| Question | Single question, one answer | `{n}\r` |
+| Question | Multi-question, single answer | `{n}` (TUI auto-advances, no Enter) |
+| Question | Multi-question, all answers | `{n1}` + 100ms + `{n2}` + 100ms + ... + `\r` |
+| Question | Freeform text | `{text}\r` |
+| Setup | Select option N | `{n}\r` |
 
 
 ## Startup Prompts
 
-Claude may present blocking prompts during startup before reaching the idle
-state. Coop reports these as permission prompts through the normal state
-detection pipeline. The orchestrator (consumer) is responsible for responding
-via the API, just like any other permission prompt.
+Claude may present blocking text prompts during startup (workspace trust,
+permission bypass, login). Coop auto-responds to these where possible:
 
-| Prompt | Detection pattern |
-|--------|-------------------|
-| Workspace trust | "Do you trust the files in this folder?" |
-| Permission bypass | "Allow tool use without prompting?" |
-| Login required | "Please sign in" |
+| Prompt | Detection pattern | Auto-response |
+|--------|-------------------|---------------|
+| Workspace trust | "trust the files", "do you trust" | `y\r` (accept) |
+| Permission bypass | "skip permissions", "allow tool use without prompting" | `y\r` (accept) |
+| Login required | "please sign in", "login required" | None (operator must handle) |
+
+Interactive setup dialogs (theme picker, terminal setup, OAuth login, etc.) are
+detected by Tier 5 and reported as `Prompt(Setup)` states with subtypes. The
+orchestrator responds via the API.
 
 
 ## Session Resume
@@ -213,32 +295,24 @@ conversation ID is extracted from the `sessionId` or `conversationId` field in
 the log's first entry.
 
 
-## Idle Grace Timer
+## Stop Hook Gating
 
-Between tool calls, Claude briefly enters a text-only state that looks like
-`WaitingForInput` before starting the next tool. The grace timer prevents
-these false idle transitions.
+The Stop hook serves dual purposes: detection and gating.
 
-When a lower-confidence tier reports `WaitingForInput`:
+1. **Detection**: writes `{"event":"stop","data":...}` to the FIFO pipe → Tier 1 idle signal
+2. **Gating**: curls `$COOP_URL/api/v1/hooks/stop` for a verdict
 
-1. **Trigger**: record the current session log byte offset
-2. **Wait**: default 60 seconds (configurable via `--idle-grace`)
-3. **Confirm**: verify the log hasn't grown and state is still idle
-4. **Emit**: if confirmed, emit `WaitingForInput` to consumers
-5. **Cancel**: if activity detected, discard the idle signal
+The gating endpoint returns either an empty response (allow) or a block
+verdict with a reason message. When blocked, the hook outputs the reason to
+Claude, which continues working. When allowed, the hook exits normally and
+Claude stops.
 
-States from equal-or-higher confidence tiers bypass the grace timer entirely.
-Terminal states (`Exited`) are always accepted immediately.
+Stop gating is configured via `StopConfig`:
+- **Mode `allow`** (default): always allow the agent to stop
+- **Mode `signal`**: block until the orchestrator sends a signal via the resolve endpoint
 
-Activity that cancels the timer:
-
-| Activity | Why it cancels |
-|----------|----------------|
-| Tool calls | `tool_use` block appears in log |
-| Extended thinking | `thinking` block appears in log |
-| Subagent execution | `tool_use` for Task persists throughout |
-| Long Bash commands | `tool_use` block persists until result |
-| Streaming text | Log grows as response is written |
+Both `/api/v1/hooks/stop` and `/api/v1/hooks/stop/resolve` are auth-exempt
+since they are called from inside the PTY.
 
 
 ## Environment Variables
@@ -249,6 +323,7 @@ Coop sets the following environment variables on the Claude child process:
 |----------|---------|
 | `COOP=1` | Marker that the process is running under coop |
 | `COOP_HOOK_PIPE` | Path to the named FIFO for hook events |
+| `COOP_URL` | Base URL of coop's HTTP server (used by stop hook) |
 | `TERM=xterm-256color` | Terminal type for the child PTY |
 
 
@@ -267,13 +342,14 @@ Flags relevant to Claude sessions:
 
 ```
 crates/cli/src/driver/claude/
-├── mod.rs         # ClaudeDriver: wires up detectors and encoders
-├── detect.rs      # HookDetector (T1), LogDetector (T2), StdoutDetector (T3)
-├── state.rs       # parse_claude_state() — JSONL → AgentState
-├── hooks.rs       # Hook config generation, environment setup
-├── setup.rs       # Pre-spawn session preparation (FIFO, settings, args)
-├── prompt.rs      # PromptContext extraction (permission, question, plan)
-├── encoding.rs    # ClaudeNudgeEncoder, ClaudeRespondEncoder
-├── startup.rs     # Startup prompt detection patterns
-└── resume.rs      # Session log discovery, state recovery, --resume args
+├── mod.rs           # ClaudeDriver: wires up detectors and encoders
+├── detect.rs        # HookDetector (T1), LogDetector (T2), StdoutDetector (T3)
+├── screen_detect.rs # ClaudeScreenDetector (T5): dialog classification, idle prompt
+├── state.rs         # parse_claude_state() — JSONL → AgentState
+├── hooks.rs         # Hook config generation, environment setup
+├── setup.rs         # Pre-spawn session preparation (FIFO, settings, args)
+├── prompt.rs        # PromptContext extraction, option parsing from screen
+├── encoding.rs      # ClaudeNudgeEncoder, ClaudeRespondEncoder
+├── startup.rs       # Startup prompt detection and auto-response
+└── resume.rs        # Session log discovery, state recovery, --resume args
 ```
