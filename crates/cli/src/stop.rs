@@ -273,7 +273,7 @@ pub fn generate_block_reason(config: &StopConfig) -> String {
             parts.push("When ready to stop, run: `coop send '<json>'`".to_owned());
         } else {
             // No schema, no inline JSON — provide sensible defaults.
-            parts.push("Follow the instructions provided in the stop hook above.".to_owned());
+            parts.push("Follow the instructions provided in the stop hook above, then:".to_owned());
             parts.push("1. If you are done, use the Bash tool:".to_owned());
             parts.push(
                 "    `coop send '{\"status\":\"done\",\"message\":\"<summary>\"}'`".to_owned(),

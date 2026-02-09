@@ -87,7 +87,7 @@ fn generate_block_reason_default_no_schema() {
     assert_eq!(
         generate_block_reason(&config),
         concat!(
-            "Follow the instructions provided in the stop hook above.\n",
+            "Follow the instructions provided in the stop hook above, then:\n",
             "1. If you are done, use the Bash tool:\n",
             "    `coop send '{\"status\":\"done\",\"message\":\"<summary>\"}'`\n",
             "2. If you are still working, use the Bash tool:\n",
@@ -108,7 +108,7 @@ fn generate_block_reason_custom_prompt_no_schema() {
         generate_block_reason(&config),
         concat!(
             "Finish your work first.\n",
-            "Follow the instructions provided in the stop hook above.\n",
+            "Follow the instructions provided in the stop hook above, then:\n",
             "1. If you are done, use the Bash tool:\n",
             "    `coop send '{\"status\":\"done\",\"message\":\"<summary>\"}'`\n",
             "2. If you are still working, use the Bash tool:\n",
