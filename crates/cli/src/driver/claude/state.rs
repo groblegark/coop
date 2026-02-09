@@ -14,9 +14,7 @@ use super::prompt::extract_ask_user_context;
 pub fn parse_claude_state(json: &Value) -> Option<AgentState> {
     // Error field takes priority
     if let Some(error) = json.get("error") {
-        return Some(AgentState::Error {
-            detail: error.as_str().unwrap_or("unknown").to_string(),
-        });
+        return Some(AgentState::Error { detail: error.as_str().unwrap_or("unknown").to_string() });
     }
 
     // Only assistant messages carry meaningful state transitions
@@ -30,14 +28,11 @@ pub fn parse_claude_state(json: &Value) -> Option<AgentState> {
         let block_type = block.get("type").and_then(|v| v.as_str());
         match block_type {
             Some("tool_use") => {
-                let tool = block
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
+                let tool = block.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
                 return match tool {
-                    "AskUserQuestion" => Some(AgentState::Prompt {
-                        prompt: extract_ask_user_context(block),
-                    }),
+                    "AskUserQuestion" => {
+                        Some(AgentState::Prompt { prompt: extract_ask_user_context(block) })
+                    }
                     _ => Some(AgentState::Working),
                 };
             }

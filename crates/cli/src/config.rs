@@ -243,18 +243,12 @@ pub fn load_agent_config(path: &Path) -> anyhow::Result<AgentFileConfig> {
 }
 
 fn env_duration_secs(var: &str, default: u64) -> Duration {
-    let secs = std::env::var(var)
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(default);
+    let secs = std::env::var(var).ok().and_then(|v| v.parse().ok()).unwrap_or(default);
     Duration::from_secs(secs)
 }
 
 fn env_duration_ms(var: &str, default: u64) -> Duration {
-    let ms = std::env::var(var)
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(default);
+    let ms = std::env::var(var).ok().and_then(|v| v.parse().ok()).unwrap_or(default);
     Duration::from_millis(ms)
 }
 

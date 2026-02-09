@@ -22,10 +22,7 @@ fn cursor_to_proto_converts_u16_to_i32() {
 
 #[test]
 fn cursor_to_proto_handles_max_u16() {
-    let cursor = CursorPosition {
-        row: u16::MAX,
-        col: u16::MAX,
-    };
+    let cursor = CursorPosition { row: u16::MAX, col: u16::MAX };
     let p = cursor_to_proto(&cursor);
     assert_eq!(p.row, u16::MAX as i32);
     assert_eq!(p.col, u16::MAX as i32);
@@ -144,9 +141,7 @@ fn state_change_to_proto_includes_prompt() {
     };
     let event = crate::event::StateChangeEvent {
         prev: AgentState::Working,
-        next: AgentState::Prompt {
-            prompt: prompt.clone(),
-        },
+        next: AgentState::Prompt { prompt: prompt.clone() },
         seq: 10,
     };
     let p = state_change_to_proto(&event);
@@ -164,9 +159,7 @@ fn state_change_to_proto_includes_prompt() {
 fn state_change_to_proto_includes_error_fields() {
     let event = crate::event::StateChangeEvent {
         prev: AgentState::Working,
-        next: AgentState::Error {
-            detail: "rate_limit_error".to_owned(),
-        },
+        next: AgentState::Error { detail: "rate_limit_error".to_owned() },
         seq: 5,
     };
     let p = state_change_to_proto(&event);

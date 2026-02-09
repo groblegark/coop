@@ -84,10 +84,7 @@ fn alt_screen_toggle_split_across_chunks() {
         let mut s = Screen::new(80, 24);
         s.feed(&seq[..split]);
         s.feed(&seq[split..]);
-        assert!(
-            s.is_alt_screen(),
-            "split at byte {split}: expected alt screen ON"
-        );
+        assert!(s.is_alt_screen(), "split at byte {split}: expected alt screen ON");
     }
 
     // Now test disable split: "\x1b[?1049l"
@@ -99,10 +96,7 @@ fn alt_screen_toggle_split_across_chunks() {
 
         s.feed(&seq_off[..split]);
         s.feed(&seq_off[split..]);
-        assert!(
-            !s.is_alt_screen(),
-            "split at byte {split}: expected alt screen OFF"
-        );
+        assert!(!s.is_alt_screen(), "split at byte {split}: expected alt screen OFF");
     }
 }
 
@@ -125,11 +119,7 @@ fn feed_split_utf8_two_byte() -> anyhow::Result<()> {
     screen.feed(&[0xC3]);
     screen.feed(&[0xA9]);
     let snap = screen.snapshot();
-    assert!(
-        snap.lines[0].contains('é'),
-        "expected é, got: {}",
-        snap.lines[0]
-    );
+    assert!(snap.lines[0].contains('é'), "expected é, got: {}", snap.lines[0]);
     Ok(())
 }
 
@@ -140,11 +130,7 @@ fn feed_split_utf8_three_byte() -> anyhow::Result<()> {
     screen.feed(&[0xE2]);
     screen.feed(&[0x98, 0x85]);
     let snap = screen.snapshot();
-    assert!(
-        snap.lines[0].contains('★'),
-        "expected ★, got: {}",
-        snap.lines[0]
-    );
+    assert!(snap.lines[0].contains('★'), "expected ★, got: {}", snap.lines[0]);
     Ok(())
 }
 
@@ -155,11 +141,7 @@ fn feed_split_utf8_four_byte() -> anyhow::Result<()> {
     screen.feed(&[0xF0, 0x9F]);
     screen.feed(&[0x98, 0x80]);
     let snap = screen.snapshot();
-    assert!(
-        snap.lines[0].contains('😀'),
-        "expected 😀, got: {}",
-        snap.lines[0]
-    );
+    assert!(snap.lines[0].contains('😀'), "expected 😀, got: {}", snap.lines[0]);
     Ok(())
 }
 
@@ -171,10 +153,6 @@ fn feed_split_utf8_with_surrounding_ascii() -> anyhow::Result<()> {
     // second byte of é + "def"
     screen.feed(b"\xA9def");
     let snap = screen.snapshot();
-    assert!(
-        snap.lines[0].contains("abcédef"),
-        "expected abcédef, got: {}",
-        snap.lines[0]
-    );
+    assert!(snap.lines[0].contains("abcédef"), "expected abcédef, got: {}", snap.lines[0]);
     Ok(())
 }

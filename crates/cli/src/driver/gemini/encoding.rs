@@ -18,10 +18,7 @@ impl NudgeEncoder for GeminiNudgeEncoder {
                 bytes: message.as_bytes().to_vec(),
                 delay_after: Some(self.keyboard_delay),
             },
-            NudgeStep {
-                bytes: b"\r".to_vec(),
-                delay_after: None,
-            },
+            NudgeStep { bytes: b"\r".to_vec(), delay_after: None },
         ]
     }
 }
@@ -33,27 +30,19 @@ pub struct GeminiRespondEncoder {
 
 impl Default for GeminiRespondEncoder {
     fn default() -> Self {
-        Self {
-            feedback_delay: Duration::from_millis(100),
-        }
+        Self { feedback_delay: Duration::from_millis(100) }
     }
 }
 
 impl RespondEncoder for GeminiRespondEncoder {
     fn encode_permission(&self, accept: bool) -> Vec<NudgeStep> {
         let key = if accept { "y" } else { "n" };
-        vec![NudgeStep {
-            bytes: format!("{key}\r").into_bytes(),
-            delay_after: None,
-        }]
+        vec![NudgeStep { bytes: format!("{key}\r").into_bytes(), delay_after: None }]
     }
 
     fn encode_plan(&self, accept: bool, feedback: Option<&str>) -> Vec<NudgeStep> {
         if accept {
-            return vec![NudgeStep {
-                bytes: b"y\r".to_vec(),
-                delay_after: None,
-            }];
+            return vec![NudgeStep { bytes: b"y\r".to_vec(), delay_after: None }];
         }
 
         let mut steps = vec![NudgeStep {
@@ -62,10 +51,7 @@ impl RespondEncoder for GeminiRespondEncoder {
         }];
 
         if let Some(text) = feedback {
-            steps.push(NudgeStep {
-                bytes: format!("{text}\r").into_bytes(),
-                delay_after: None,
-            });
+            steps.push(NudgeStep { bytes: format!("{text}\r").into_bytes(), delay_after: None });
         }
 
         steps
@@ -83,17 +69,11 @@ impl RespondEncoder for GeminiRespondEncoder {
         };
 
         if let Some(n) = answer.option {
-            return vec![NudgeStep {
-                bytes: format!("{n}\r").into_bytes(),
-                delay_after: None,
-            }];
+            return vec![NudgeStep { bytes: format!("{n}\r").into_bytes(), delay_after: None }];
         }
 
         if let Some(ref text) = answer.text {
-            return vec![NudgeStep {
-                bytes: format!("{text}\r").into_bytes(),
-                delay_after: None,
-            }];
+            return vec![NudgeStep { bytes: format!("{text}\r").into_bytes(), delay_after: None }];
         }
 
         vec![]

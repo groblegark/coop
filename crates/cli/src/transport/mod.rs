@@ -128,25 +128,18 @@ pub async fn update_question_current(state: &AppState, answers_delivered: usize)
             return;
         }
         let prev_aq = prompt.question_current;
-        prompt.question_current = prev_aq
-            .saturating_add(answers_delivered)
-            .min(prompt.questions.len());
+        prompt.question_current =
+            prev_aq.saturating_add(answers_delivered).min(prompt.questions.len());
         if prompt.question_current != prev_aq {
             let next = agent.clone();
             drop(agent);
-            let seq = state
-                .driver
-                .state_seq
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let seq = state.driver.state_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             // Broadcast updated state so clients see question_current progress.
-            let _ = state
-                .channels
-                .state_tx
-                .send(crate::event::StateChangeEvent {
-                    prev: next.clone(),
-                    next,
-                    seq,
-                });
+            let _ = state.channels.state_tx.send(crate::event::StateChangeEvent {
+                prev: next.clone(),
+                next,
+                seq,
+            });
         }
     }
 }
@@ -178,10 +171,7 @@ pub struct ErrorBody {
 impl ErrorCode {
     /// Convert this error code into a transport [`ErrorBody`].
     pub fn to_error_body(&self, message: impl Into<String>) -> ErrorBody {
-        ErrorBody {
-            code: self.as_str().to_owned(),
-            message: message.into(),
-        }
+        ErrorBody { code: self.as_str().to_owned(), message: message.into() }
     }
 
     /// Convert this error code into an axum JSON error response.
@@ -191,9 +181,7 @@ impl ErrorCode {
     ) -> (StatusCode, Json<ErrorResponse>) {
         let status =
             StatusCode::from_u16(self.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        let body = ErrorResponse {
-            error: self.to_error_body(message),
-        };
+        let body = ErrorResponse { error: self.to_error_body(message) };
         (status, Json(body))
     }
 }
@@ -239,15 +227,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/agent/respond", post(http::agent_respond))
         .route("/api/v1/hooks/stop", post(http::hooks_stop))
         .route("/api/v1/hooks/stop/resolve", post(http::resolve_stop))
-        .route(
-            "/api/v1/config/stop",
-            get(http::get_stop_config).put(http::put_stop_config),
-        )
+        .route("/api/v1/config/stop", get(http::get_stop_config).put(http::put_stop_config))
         .route("/ws", get(ws::ws_handler))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            auth::auth_layer,
-        ))
+        .layer(middleware::from_fn_with_state(state.clone(), auth::auth_layer))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }

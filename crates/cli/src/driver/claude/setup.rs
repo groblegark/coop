@@ -109,10 +109,7 @@ fn coop_session_dir(session_id: &str) -> anyhow::Result<PathBuf> {
         let home = std::env::var("HOME").unwrap_or_default();
         format!("{home}/.local/state")
     });
-    let dir = Path::new(&state_home)
-        .join("coop")
-        .join("sessions")
-        .join(session_id);
+    let dir = Path::new(&state_home).join("coop").join("sessions").join(session_id);
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }

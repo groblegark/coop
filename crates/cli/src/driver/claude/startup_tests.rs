@@ -12,19 +12,13 @@ fn detect_workspace_trust_prompt() {
         "  Do you trust the files in this folder?".to_owned(),
         "  (y/n)".to_owned(),
     ];
-    assert_eq!(
-        detect_startup_prompt(&lines),
-        Some(StartupPrompt::WorkspaceTrust)
-    );
+    assert_eq!(detect_startup_prompt(&lines), Some(StartupPrompt::WorkspaceTrust));
 }
 
 #[test]
 fn detect_trust_this_workspace() {
     let lines = vec!["Do you trust this workspace? [y/N]".to_owned()];
-    assert_eq!(
-        detect_startup_prompt(&lines),
-        Some(StartupPrompt::WorkspaceTrust)
-    );
+    assert_eq!(detect_startup_prompt(&lines), Some(StartupPrompt::WorkspaceTrust));
 }
 
 #[test]
@@ -34,23 +28,14 @@ fn detect_bypass_permissions_prompt() {
         "  --dangerously-skip-permissions detected".to_owned(),
         "  Allow tool use without prompting? (y/n)".to_owned(),
     ];
-    assert_eq!(
-        detect_startup_prompt(&lines),
-        Some(StartupPrompt::BypassPermissions)
-    );
+    assert_eq!(detect_startup_prompt(&lines), Some(StartupPrompt::BypassPermissions));
 }
 
 #[test]
 fn detect_login_required() {
-    let lines = vec![
-        "Claude Code".to_owned(),
-        "".to_owned(),
-        "Please sign in to continue.".to_owned(),
-    ];
-    assert_eq!(
-        detect_startup_prompt(&lines),
-        Some(StartupPrompt::LoginRequired)
-    );
+    let lines =
+        vec!["Claude Code".to_owned(), "".to_owned(), "Please sign in to continue.".to_owned()];
+    assert_eq!(detect_startup_prompt(&lines), Some(StartupPrompt::LoginRequired));
 }
 
 #[test]

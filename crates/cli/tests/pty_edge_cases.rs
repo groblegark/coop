@@ -49,9 +49,7 @@ async fn child_killed_produces_signal() -> anyhow::Result<()> {
     let (_resize_tx, resize_rx) = mpsc::channel(4);
 
     let mut pty = NativePty::spawn(&["/bin/sleep".into(), "60".into()], 80, 24, &[])?;
-    let pid = pty
-        .child_pid()
-        .ok_or_else(|| anyhow::anyhow!("no child pid"))?;
+    let pid = pty.child_pid().ok_or_else(|| anyhow::anyhow!("no child pid"))?;
 
     let handle = tokio::spawn(async move { pty.run(output_tx, input_rx, resize_rx).await });
 
@@ -65,11 +63,7 @@ async fn child_killed_produces_signal() -> anyhow::Result<()> {
     )?;
 
     let status = handle.await??;
-    assert_eq!(
-        status.signal,
-        Some(9),
-        "expected SIGKILL (9), got {status:?}"
-    );
+    assert_eq!(status.signal, Some(9), "expected SIGKILL (9), got {status:?}");
     Ok(())
 }
 
@@ -83,12 +77,8 @@ async fn eio_on_child_death() -> anyhow::Result<()> {
     let (_input_tx, input_rx) = mpsc::channel(64);
     let (_resize_tx, resize_rx) = mpsc::channel(4);
 
-    let mut pty = NativePty::spawn(
-        &["/bin/sh".into(), "-c".into(), "echo hi; exit 1".into()],
-        80,
-        24,
-        &[],
-    )?;
+    let mut pty =
+        NativePty::spawn(&["/bin/sh".into(), "-c".into(), "echo hi; exit 1".into()], 80, 24, &[])?;
 
     let status = pty.run(output_tx, input_rx, resize_rx).await?;
     assert_eq!(status.code, Some(1), "expected exit code 1, got {status:?}");
@@ -121,10 +111,7 @@ async fn resize_reflected_in_stty() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     // Drain initial shell prompt output
-    while tokio::time::timeout(Duration::from_millis(100), output_rx.recv())
-        .await
-        .is_ok()
-    {}
+    while tokio::time::timeout(Duration::from_millis(100), output_rx.recv()).await.is_ok() {}
 
     // Test multiple resize values — send resize then query stty size
     let sizes: [(u16, u16); 3] = [(100, 30), (120, 40), (60, 20)];
@@ -182,12 +169,8 @@ async fn large_output_through_session() -> anyhow::Result<()> {
         .ring_size(1_048_576) // 1MB
         .build_with_sender(input_tx);
 
-    let backend = NativePty::spawn(
-        &["/bin/sh".into(), "-c".into(), "seq 1 10000".into()],
-        80,
-        24,
-        &[],
-    )?;
+    let backend =
+        NativePty::spawn(&["/bin/sh".into(), "-c".into(), "seq 1 10000".into()], 80, 24, &[])?;
     let session = Session::new(
         &config,
         SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
@@ -224,11 +207,7 @@ async fn binary_output_no_panic() -> anyhow::Result<()> {
     let (_resize_tx, resize_rx) = mpsc::channel(4);
 
     let mut pty = NativePty::spawn(
-        &[
-            "/bin/sh".into(),
-            "-c".into(),
-            "head -c 1024 /dev/urandom".into(),
-        ],
+        &["/bin/sh".into(), "-c".into(), "head -c 1024 /dev/urandom".into()],
         80,
         24,
         &[],
@@ -295,9 +274,7 @@ async fn rapid_input_output() -> anyhow::Result<()> {
 async fn signal_delivery_sigint() -> anyhow::Result<()> {
     let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = AppStateBuilder::new()
-        .ring_size(65536)
-        .build_with_sender(input_tx.clone());
+    let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx.clone());
 
     let backend = NativePty::spawn(&["/bin/cat".into()], 80, 24, &[])?;
     let session = Session::new(
@@ -314,16 +291,11 @@ async fn signal_delivery_sigint() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Send SIGINT via InputEvent
-    input_tx
-        .send(coop::event::InputEvent::Signal(coop::event::PtySignal::Int))
-        .await?;
+    input_tx.send(coop::event::InputEvent::Signal(coop::event::PtySignal::Int)).await?;
     drop(input_tx);
 
     let status = session_handle.await??;
     // cat should terminate with signal or non-zero code
-    assert!(
-        status.signal.is_some() || status.code.is_some(),
-        "expected termination: {status:?}"
-    );
+    assert!(status.signal.is_some() || status.code.is_some(), "expected termination: {status:?}");
     Ok(())
 }

@@ -92,16 +92,9 @@ impl PtySignal {
 /// Lifecycle events for hook integrations.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum HookEvent {
-    ToolComplete {
-        tool: String,
-    },
+    ToolComplete { tool: String },
     AgentStop,
     SessionEnd,
-    Notification {
-        notification_type: String,
-    },
-    PreToolUse {
-        tool: String,
-        tool_input: Option<serde_json::Value>,
-    },
+    Notification { notification_type: String },
+    PreToolUse { tool: String, tool_input: Option<serde_json::Value> },
 }

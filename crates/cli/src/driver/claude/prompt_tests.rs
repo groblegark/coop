@@ -69,10 +69,7 @@ fn ask_user_context_extracts_question_and_options() {
     assert_eq!(ctx.kind, crate::driver::PromptKind::Question);
     assert_eq!(ctx.questions.len(), 1);
     assert_eq!(ctx.questions[0].question, "Which database should we use?");
-    assert_eq!(
-        ctx.questions[0].options,
-        vec!["PostgreSQL", "SQLite", "MySQL"]
-    );
+    assert_eq!(ctx.questions[0].options, vec!["PostgreSQL", "SQLite", "MySQL"]);
 }
 
 #[test]

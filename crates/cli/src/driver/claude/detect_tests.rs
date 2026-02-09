@@ -54,9 +54,7 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
     // Should have received at least Working (system) and WaitingForInput (assistant text-only)
     assert!(timeout.is_ok(), "timed out waiting for states");
     assert!(states.iter().any(|s| matches!(s, AgentState::Working)));
-    assert!(states
-        .iter()
-        .any(|s| matches!(s, AgentState::WaitingForInput)));
+    assert!(states.iter().any(|s| matches!(s, AgentState::WaitingForInput)));
     Ok(())
 }
 
@@ -64,10 +62,7 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
 async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let log_path = dir.path().join("session.jsonl");
-    std::fs::write(
-        &log_path,
-        "{\"type\":\"user\",\"message\":{\"content\":[]}}\n",
-    )?;
+    std::fs::write(&log_path, "{\"type\":\"user\",\"message\":{\"content\":[]}}\n")?;
 
     let detector = Box::new(LogDetector {
         log_path: log_path.clone(),
@@ -83,10 +78,9 @@ async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
     });
 
     // User messages produce Working (not WaitingForInput)
-    let timeout = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        state_rx.recv().await
-    })
-    .await;
+    let timeout =
+        tokio::time::timeout(std::time::Duration::from_secs(10), async { state_rx.recv().await })
+            .await;
 
     shutdown.cancel();
     let _ = handle.await;
@@ -100,9 +94,7 @@ async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
 #[tokio::test]
 async fn stdout_detector_parses_jsonl_bytes() -> anyhow::Result<()> {
     let (bytes_tx, bytes_rx) = mpsc::channel(32);
-    let detector = Box::new(StdoutDetector {
-        stdout_rx: bytes_rx,
-    });
+    let detector = Box::new(StdoutDetector { stdout_rx: bytes_rx });
     assert_eq!(detector.tier(), 3);
 
     let (state_tx, mut state_rx) = mpsc::channel(32);
@@ -273,10 +265,8 @@ async fn hook_detector_tool_complete() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn hook_detector_stop() -> anyhow::Result<()> {
-    let states = run_hook_detector(vec![
-        r#"{"event":"stop","data":{"stop_hook_active":false}}"#,
-    ])
-    .await?;
+    let states =
+        run_hook_detector(vec![r#"{"event":"stop","data":{"stop_hook_active":false}}"#]).await?;
 
     assert_eq!(states.len(), 1);
     assert!(matches!(states[0], AgentState::WaitingForInput));

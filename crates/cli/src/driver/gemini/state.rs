@@ -17,11 +17,8 @@ pub fn parse_gemini_state(json: &Value) -> Option<AgentState> {
     match json.get("type").and_then(|v| v.as_str()) {
         Some("result") => Some(AgentState::WaitingForInput),
         Some("error") => {
-            let detail = json
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
-                .to_string();
+            let detail =
+                json.get("message").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
             Some(AgentState::Error { detail })
         }
         Some("init" | "message" | "tool_use" | "tool_result") => Some(AgentState::Working),

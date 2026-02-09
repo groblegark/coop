@@ -68,11 +68,8 @@ fn resume_args_with_session_id() {
 
 #[test]
 fn resume_args_without_session_id() {
-    let state = ResumeState {
-        last_state: AgentState::Working,
-        log_offset: 0,
-        conversation_id: None,
-    };
+    let state =
+        ResumeState { last_state: AgentState::Working, log_offset: 0, conversation_id: None };
     let args = resume_args(&state);
     assert_eq!(args, vec!["--continue"]);
 }

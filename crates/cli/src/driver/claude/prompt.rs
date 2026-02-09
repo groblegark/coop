@@ -48,9 +48,7 @@ pub fn extract_ask_user_context(block: &Value) -> PromptContext {
 /// Top-level `question`/`options` fields are populated from `questions[0]`
 /// for backwards compatibility.
 pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext {
-    let questions_arr = input
-        .and_then(|i| i.get("questions"))
-        .and_then(|q| q.as_array());
+    let questions_arr = input.and_then(|i| i.get("questions")).and_then(|q| q.as_array());
 
     let questions: Vec<QuestionContext> = questions_arr
         .map(|arr| {

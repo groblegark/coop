@@ -110,11 +110,7 @@ impl AppStateBuilder {
                 error_detail: RwLock::new(None),
                 error_category: RwLock::new(None),
             }),
-            channels: TransportChannels {
-                input_tx,
-                output_tx,
-                state_tx,
-            },
+            channels: TransportChannels { input_tx, output_tx, state_tx },
             config: SessionSettings {
                 started_at: Instant::now(),
                 agent: AgentType::Unknown,
@@ -157,20 +153,14 @@ impl MockPty {
         Self {
             output: Vec::new(),
             chunk_delay: Duration::ZERO,
-            exit_status: ExitStatus {
-                code: Some(0),
-                signal: None,
-            },
+            exit_status: ExitStatus { code: Some(0), signal: None },
             drain_input: false,
             captured_input: Arc::new(parking_lot::Mutex::new(Vec::new())),
         }
     }
 
     pub fn with_output(chunks: Vec<Bytes>) -> Self {
-        Self {
-            output: chunks,
-            ..Self::new()
-        }
+        Self { output: chunks, ..Self::new() }
     }
 
     pub fn exit_status(mut self, s: ExitStatus) -> Self {
@@ -249,10 +239,7 @@ impl<T, E: std::fmt::Display> AnyhowExt<T> for Result<T, E> {
 pub struct StubNudgeEncoder;
 impl NudgeEncoder for StubNudgeEncoder {
     fn encode(&self, message: &str) -> Vec<NudgeStep> {
-        vec![NudgeStep {
-            bytes: message.as_bytes().to_vec(),
-            delay_after: None,
-        }]
+        vec![NudgeStep { bytes: message.as_bytes().to_vec(), delay_after: None }]
     }
 }
 
@@ -264,11 +251,7 @@ macro_rules! assert_err_contains {
         let result = $expr;
         let err = result.expect_err(concat!("expected Err for: ", stringify!($expr)));
         let msg = err.to_string();
-        assert!(
-            msg.contains($substr),
-            "expected error containing {:?}, got: {msg:?}",
-            $substr
-        );
+        assert!(msg.contains($substr), "expected error containing {:?}, got: {msg:?}", $substr);
     }};
 }
 
@@ -282,10 +265,7 @@ pub struct MockDetector {
 
 impl MockDetector {
     pub fn new(tier: u8, states: Vec<(Duration, AgentState)>) -> Self {
-        Self {
-            tier_val: tier,
-            states,
-        }
+        Self { tier_val: tier, states }
     }
 }
 

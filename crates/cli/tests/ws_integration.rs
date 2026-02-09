@@ -26,10 +26,7 @@ type WsRx = futures_util::stream::SplitStream<WsStream>;
 /// Send a JSON message over the WebSocket.
 async fn ws_send(stream: &mut WsTx, value: &serde_json::Value) -> anyhow::Result<()> {
     let text = serde_json::to_string(value)?;
-    stream
-        .send(WsMessage::Text(text.into()))
-        .await
-        .map_err(|e| anyhow::anyhow!("ws send: {e}"))?;
+    stream.send(WsMessage::Text(text.into())).await.map_err(|e| anyhow::anyhow!("ws send: {e}"))?;
     Ok(())
 }
 
@@ -81,11 +78,7 @@ async fn ws_connect_and_receive_pong() -> anyhow::Result<()> {
 
     // Should receive Pong
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
-    assert_eq!(
-        resp.get("type").and_then(|t| t.as_str()),
-        Some("pong"),
-        "response: {resp}"
-    );
+    assert_eq!(resp.get("type").and_then(|t| t.as_str()), Some("pong"), "response: {resp}");
 
     Ok(())
 }
@@ -126,24 +119,12 @@ async fn ws_auth_message() -> anyhow::Result<()> {
     let (mut tx, mut rx) = ws_connect(&addr, "").await?;
 
     // Send wrong auth — should get error
-    ws_send(
-        &mut tx,
-        &serde_json::json!({"type": "auth", "token": "wrong"}),
-    )
-    .await?;
+    ws_send(&mut tx, &serde_json::json!({"type": "auth", "token": "wrong"})).await?;
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
-    assert_eq!(
-        resp.get("type").and_then(|t| t.as_str()),
-        Some("error"),
-        "wrong auth: {resp}"
-    );
+    assert_eq!(resp.get("type").and_then(|t| t.as_str()), Some("error"), "wrong auth: {resp}");
 
     // Send correct auth — should succeed (no error response)
-    ws_send(
-        &mut tx,
-        &serde_json::json!({"type": "auth", "token": "auth-secret"}),
-    )
-    .await?;
+    ws_send(&mut tx, &serde_json::json!({"type": "auth", "token": "auth-secret"})).await?;
 
     // Verify subsequent operations work (ping/pong)
     ws_send(&mut tx, &serde_json::json!({"type": "ping"})).await?;
@@ -181,18 +162,12 @@ async fn ws_subscription_mode_raw() -> anyhow::Result<()> {
     );
 
     // Push a ScreenUpdate — should NOT be forwarded in raw mode
-    let _ = app_state
-        .channels
-        .output_tx
-        .send(OutputEvent::ScreenUpdate { seq: 1 });
+    let _ = app_state.channels.output_tx.send(OutputEvent::ScreenUpdate { seq: 1 });
 
     // Try to read — should timeout (no message)
     let result =
         tokio::time::timeout(Duration::from_millis(200), ws_recv(&mut rx, RECV_TIMEOUT)).await;
-    assert!(
-        result.is_err(),
-        "raw mode should not receive screen updates"
-    );
+    assert!(result.is_err(), "raw mode should not receive screen updates");
 
     Ok(())
 }
@@ -225,10 +200,7 @@ async fn ws_subscription_mode_state() -> anyhow::Result<()> {
     assert_eq!(resp.get("next").and_then(|n| n.as_str()), Some("working"));
 
     // Push raw output — should NOT be forwarded in state mode
-    let _ = app_state
-        .channels
-        .output_tx
-        .send(OutputEvent::Raw(bytes::Bytes::from("ignored")));
+    let _ = app_state.channels.output_tx.send(OutputEvent::Raw(bytes::Bytes::from("ignored")));
 
     let result =
         tokio::time::timeout(Duration::from_millis(200), ws_recv(&mut rx, RECV_TIMEOUT)).await;
@@ -249,10 +221,7 @@ async fn ws_subscription_mode_screen() -> anyhow::Result<()> {
     let (mut _tx, mut rx) = ws_connect(&addr, "mode=screen").await?;
 
     // Push screen update
-    let _ = app_state
-        .channels
-        .output_tx
-        .send(OutputEvent::ScreenUpdate { seq: 42 });
+    let _ = app_state.channels.output_tx.send(OutputEvent::ScreenUpdate { seq: 42 });
 
     // Should receive Screen message
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
@@ -290,10 +259,8 @@ async fn ws_replay_from_offset() -> anyhow::Result<()> {
     assert_eq!(resp.get("offset").and_then(|o| o.as_u64()), Some(0));
 
     // Decode data
-    let b64 = resp
-        .get("data")
-        .and_then(|d| d.as_str())
-        .ok_or_else(|| anyhow::anyhow!("missing data"))?;
+    let b64 =
+        resp.get("data").and_then(|d| d.as_str()).ok_or_else(|| anyhow::anyhow!("missing data"))?;
     let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64)?;
     assert_eq!(decoded, b"replay-data-here");
 
@@ -347,11 +314,7 @@ async fn ws_resize_sends_event() -> anyhow::Result<()> {
 
     let (mut tx, _ws_rx) = ws_connect(&addr, "").await?;
 
-    ws_send(
-        &mut tx,
-        &serde_json::json!({"type": "resize", "cols": 120, "rows": 40}),
-    )
-    .await?;
+    ws_send(&mut tx, &serde_json::json!({"type": "resize", "cols": 120, "rows": 40})).await?;
 
     // Verify resize event received
     let event = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await?;

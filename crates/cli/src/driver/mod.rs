@@ -330,9 +330,7 @@ fn prompt_supersedes(current: &AgentState, incoming: &AgentState) -> bool {
 
 impl std::fmt::Debug for CompositeDetector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CompositeDetector")
-            .field("tiers", &self.tiers.len())
-            .finish()
+        f.debug_struct("CompositeDetector").field("tiers", &self.tiers.len()).finish()
     }
 }
 

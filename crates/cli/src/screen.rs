@@ -38,16 +38,10 @@ fn scan_alt_screen(data: &[u8], alt_screen: &mut bool) {
     if data.len() < ALT_SCREEN_ON.len() {
         return;
     }
-    if data
-        .windows(ALT_SCREEN_ON.len())
-        .any(|w| w == ALT_SCREEN_ON)
-    {
+    if data.windows(ALT_SCREEN_ON.len()).any(|w| w == ALT_SCREEN_ON) {
         *alt_screen = true;
     }
-    if data
-        .windows(ALT_SCREEN_OFF.len())
-        .any(|w| w == ALT_SCREEN_OFF)
-    {
+    if data.windows(ALT_SCREEN_OFF.len()).any(|w| w == ALT_SCREEN_OFF) {
         *alt_screen = false;
     }
 }
@@ -169,10 +163,7 @@ impl Screen {
             cols: cols as u16,
             rows: rows as u16,
             alt_screen: self.alt_screen,
-            cursor: CursorPosition {
-                row: cursor.row as u16,
-                col: cursor.col as u16,
-            },
+            cursor: CursorPosition { row: cursor.row as u16, col: cursor.col as u16 },
             sequence: self.seq,
         }
     }

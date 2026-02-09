@@ -18,10 +18,7 @@ impl NudgeEncoder for ClaudeNudgeEncoder {
                 bytes: message.as_bytes().to_vec(),
                 delay_after: Some(self.keyboard_delay),
             },
-            NudgeStep {
-                bytes: b"\r".to_vec(),
-                delay_after: None,
-            },
+            NudgeStep { bytes: b"\r".to_vec(), delay_after: None },
         ]
     }
 }
@@ -35,28 +32,19 @@ pub struct ClaudeRespondEncoder {
 
 impl Default for ClaudeRespondEncoder {
     fn default() -> Self {
-        Self {
-            feedback_delay: Duration::from_millis(100),
-            input_delay: Duration::from_millis(100),
-        }
+        Self { feedback_delay: Duration::from_millis(100), input_delay: Duration::from_millis(100) }
     }
 }
 
 impl RespondEncoder for ClaudeRespondEncoder {
     fn encode_permission(&self, accept: bool) -> Vec<NudgeStep> {
         let key = if accept { "y" } else { "n" };
-        vec![NudgeStep {
-            bytes: format!("{key}\r").into_bytes(),
-            delay_after: None,
-        }]
+        vec![NudgeStep { bytes: format!("{key}\r").into_bytes(), delay_after: None }]
     }
 
     fn encode_plan(&self, accept: bool, feedback: Option<&str>) -> Vec<NudgeStep> {
         if accept {
-            return vec![NudgeStep {
-                bytes: b"y\r".to_vec(),
-                delay_after: None,
-            }];
+            return vec![NudgeStep { bytes: b"y\r".to_vec(), delay_after: None }];
         }
 
         let mut steps = vec![NudgeStep {
@@ -65,10 +53,7 @@ impl RespondEncoder for ClaudeRespondEncoder {
         }];
 
         if let Some(text) = feedback {
-            steps.push(NudgeStep {
-                bytes: format!("{text}\r").into_bytes(),
-                delay_after: None,
-            });
+            steps.push(NudgeStep { bytes: format!("{text}\r").into_bytes(), delay_after: None });
         }
 
         steps
@@ -88,16 +73,10 @@ impl RespondEncoder for ClaudeRespondEncoder {
             let mut steps = Vec::new();
             for answer in answers {
                 let step = self.encode_single_answer(answer);
-                steps.push(NudgeStep {
-                    bytes: step,
-                    delay_after: Some(self.input_delay),
-                });
+                steps.push(NudgeStep { bytes: step, delay_after: Some(self.input_delay) });
             }
             // Final confirm (Enter on the confirm tab).
-            steps.push(NudgeStep {
-                bytes: b"\r".to_vec(),
-                delay_after: None,
-            });
+            steps.push(NudgeStep { bytes: b"\r".to_vec(), delay_after: None });
             return steps;
         }
 
@@ -105,18 +84,12 @@ impl RespondEncoder for ClaudeRespondEncoder {
         let answer = &answers[0];
         if total_questions > 1 {
             let bytes = self.encode_single_answer(answer);
-            return vec![NudgeStep {
-                bytes,
-                delay_after: None,
-            }];
+            return vec![NudgeStep { bytes, delay_after: None }];
         }
 
         // Single-question dialog: emit answer + confirm.
         let bytes = self.encode_single_answer(answer);
-        vec![NudgeStep {
-            bytes: [&bytes[..], b"\r"].concat(),
-            delay_after: None,
-        }]
+        vec![NudgeStep { bytes: [&bytes[..], b"\r"].concat(), delay_after: None }]
     }
 }
 

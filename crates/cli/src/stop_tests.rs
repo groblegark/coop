@@ -26,10 +26,7 @@ fn deserialize_signal_mode_with_prompt() -> anyhow::Result<()> {
     let json = r#"{"mode": "signal", "prompt": "Complete the task before stopping."}"#;
     let config: StopConfig = serde_json::from_str(json)?;
     assert_eq!(config.mode, StopMode::Signal);
-    assert_eq!(
-        config.prompt.as_deref(),
-        Some("Complete the task before stopping.")
-    );
+    assert_eq!(config.prompt.as_deref(), Some("Complete the task before stopping."));
     Ok(())
 }
 
@@ -79,11 +76,7 @@ fn deserialize_empty_object_is_defaults() -> anyhow::Result<()> {
 
 #[test]
 fn generate_block_reason_default_no_schema() {
-    let config = StopConfig {
-        mode: StopMode::Signal,
-        prompt: None,
-        schema: None,
-    };
+    let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
     assert_eq!(
         generate_block_reason(&config),
         concat!(
@@ -189,24 +182,15 @@ fn generate_block_reason_enum_with_extra_fields() {
             r#enum: Some(vec!["success".to_owned(), "failure".to_owned()]),
             descriptions: Some({
                 let mut d = BTreeMap::new();
-                d.insert(
-                    "success".to_owned(),
-                    "Task completed successfully".to_owned(),
-                );
-                d.insert(
-                    "failure".to_owned(),
-                    "Task could not be completed".to_owned(),
-                );
+                d.insert("success".to_owned(), "Task completed successfully".to_owned());
+                d.insert("failure".to_owned(), "Task could not be completed".to_owned());
                 d
             }),
             description: Some("Outcome of the task".to_owned()),
         },
     );
-    let config = StopConfig {
-        mode: StopMode::Signal,
-        prompt: None,
-        schema: Some(StopSchema { fields }),
-    };
+    let config =
+        StopConfig { mode: StopMode::Signal, prompt: None, schema: Some(StopSchema { fields }) };
     assert_eq!(
         generate_block_reason(&config),
         concat!(
@@ -231,11 +215,8 @@ fn generate_block_reason_non_enum_schema() {
             description: Some("A message".to_owned()),
         },
     );
-    let config = StopConfig {
-        mode: StopMode::Signal,
-        prompt: None,
-        schema: Some(StopSchema { fields }),
-    };
+    let config =
+        StopConfig { mode: StopMode::Signal, prompt: None, schema: Some(StopSchema { fields }) };
     // No enum field → single example from the schema
     assert_eq!(
         generate_block_reason(&config),
@@ -254,11 +235,8 @@ fn stop_type_as_str() {
 
 #[test]
 fn stop_config_roundtrip_json() -> anyhow::Result<()> {
-    let config = StopConfig {
-        mode: StopMode::Signal,
-        prompt: Some("test prompt".to_owned()),
-        schema: None,
-    };
+    let config =
+        StopConfig { mode: StopMode::Signal, prompt: Some("test prompt".to_owned()), schema: None };
     let json = serde_json::to_string(&config)?;
     let parsed: StopConfig = serde_json::from_str(&json)?;
     assert_eq!(parsed.mode, StopMode::Signal);

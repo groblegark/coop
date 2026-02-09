@@ -34,11 +34,7 @@ pub struct StopConfig {
 
 impl Default for StopConfig {
     fn default() -> Self {
-        Self {
-            mode: StopMode::Allow,
-            prompt: None,
-            schema: None,
-        }
+        Self { mode: StopMode::Allow, prompt: None, schema: None }
     }
 }
 
@@ -172,15 +168,8 @@ impl StopState {
         signal: Option<Value>,
         error_detail: Option<String>,
     ) -> StopEvent {
-        let seq = self
-            .stop_seq
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let event = StopEvent {
-            stop_type,
-            signal,
-            error_detail,
-            seq,
-        };
+        let seq = self.stop_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let event = StopEvent { stop_type, signal, error_detail, seq };
         // Ignore send errors (no receivers is fine).
         let _ = self.stop_tx.send(event.clone());
         event
@@ -190,10 +179,7 @@ impl StopState {
 impl std::fmt::Debug for StopState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StopState")
-            .field(
-                "signaled",
-                &self.signaled.load(std::sync::atomic::Ordering::Relaxed),
-            )
+            .field("signaled", &self.signaled.load(std::sync::atomic::Ordering::Relaxed))
             .field("resolve_url", &self.resolve_url)
             .finish()
     }
@@ -215,11 +201,8 @@ pub fn generate_block_reason(config: &StopConfig) -> String {
 
     // Find enum fields eligible for command expansion.
     let primary_enum = config.schema.as_ref().and_then(|schema| {
-        let enum_fields: Vec<_> = schema
-            .fields
-            .iter()
-            .filter(|(_, f)| f.r#enum.is_some())
-            .collect();
+        let enum_fields: Vec<_> =
+            schema.fields.iter().filter(|(_, f)| f.r#enum.is_some()).collect();
         if enum_fields.len() == 1 {
             let (name, field) = enum_fields[0];
             Some((name.clone(), field.clone()))
@@ -253,16 +236,9 @@ pub fn generate_block_reason(config: &StopConfig) -> String {
             parts.push(prompt.clone());
         }
 
-        let has_schema = config
-            .schema
-            .as_ref()
-            .map(|s| !s.fields.is_empty())
-            .unwrap_or(false);
-        let prompt_has_json = config
-            .prompt
-            .as_ref()
-            .map(|p| p.contains('{') && p.contains('}'))
-            .unwrap_or(false);
+        let has_schema = config.schema.as_ref().map(|s| !s.fields.is_empty()).unwrap_or(false);
+        let prompt_has_json =
+            config.prompt.as_ref().map(|p| p.contains('{') && p.contains('}')).unwrap_or(false);
 
         if has_schema {
             // User defined a schema — show a single example from it.

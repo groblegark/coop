@@ -32,10 +32,7 @@ pub mod proto {
 
 /// Convert a domain [`crate::screen::CursorPosition`] to proto.
 pub fn cursor_to_proto(c: &crate::screen::CursorPosition) -> proto::CursorPosition {
-    proto::CursorPosition {
-        row: c.row as i32,
-        col: c.col as i32,
-    }
+    proto::CursorPosition { row: c.row as i32, col: c.col as i32 }
 }
 
 /// Convert a domain [`crate::screen::ScreenSnapshot`] to proto [`proto::ScreenSnapshot`].
@@ -61,11 +58,7 @@ pub fn screen_snapshot_to_response(
         cols: s.cols as i32,
         rows: s.rows as i32,
         alt_screen: s.alt_screen,
-        cursor: if include_cursor {
-            Some(cursor_to_proto(&s.cursor))
-        } else {
-            None
-        },
+        cursor: if include_cursor { Some(cursor_to_proto(&s.cursor)) } else { None },
         seq: s.sequence,
     }
 }
@@ -92,10 +85,9 @@ pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
 /// Convert a domain [`StateChangeEvent`] to proto [`proto::AgentStateEvent`].
 pub fn state_change_to_proto(e: &StateChangeEvent) -> proto::AgentStateEvent {
     let (error_detail, error_category) = match &e.next {
-        AgentState::Error { detail } => (
-            Some(detail.clone()),
-            Some(classify_error_detail(detail).as_str().to_owned()),
-        ),
+        AgentState::Error { detail } => {
+            (Some(detail.clone()), Some(classify_error_detail(detail).as_str().to_owned()))
+        }
         _ => (None, None),
     };
     proto::AgentStateEvent {
@@ -163,10 +155,7 @@ impl proto::coop_server::Coop for CoopGrpc {
         let req = request.into_inner();
         let screen = self.state.terminal.screen.read().await;
         let snap = screen.snapshot();
-        Ok(Response::new(screen_snapshot_to_response(
-            &snap,
-            req.include_cursor,
-        )))
+        Ok(Response::new(screen_snapshot_to_response(&snap, req.include_cursor)))
     }
 
     // -----------------------------------------------------------------------
@@ -230,9 +219,7 @@ impl proto::coop_server::Coop for CoopGrpc {
             .send(InputEvent::Write(Bytes::from(payload)))
             .await
             .map_err(|_| ErrorCode::Internal.to_grpc_status("input channel closed"))?;
-        Ok(Response::new(proto::SendInputResponse {
-            bytes_written: len,
-        }))
+        Ok(Response::new(proto::SendInputResponse { bytes_written: len }))
     }
 
     // -----------------------------------------------------------------------
@@ -253,9 +240,7 @@ impl proto::coop_server::Coop for CoopGrpc {
             .send(InputEvent::Write(Bytes::from(data)))
             .await
             .map_err(|_| ErrorCode::Internal.to_grpc_status("input channel closed"))?;
-        Ok(Response::new(proto::SendKeysResponse {
-            bytes_written: len,
-        }))
+        Ok(Response::new(proto::SendKeysResponse { bytes_written: len }))
     }
 
     // -----------------------------------------------------------------------
@@ -277,10 +262,7 @@ impl proto::coop_server::Coop for CoopGrpc {
             .send(InputEvent::Resize { cols, rows })
             .await
             .map_err(|_| ErrorCode::Internal.to_grpc_status("input channel closed"))?;
-        Ok(Response::new(proto::ResizeResponse {
-            cols: cols as i32,
-            rows: rows as i32,
-        }))
+        Ok(Response::new(proto::ResizeResponse { cols: cols as i32, rows: rows as i32 }))
     }
 
     // -----------------------------------------------------------------------
@@ -374,11 +356,7 @@ impl proto::coop_server::Coop for CoopGrpc {
             .await
             .map_err(|code| code.to_grpc_status("input channel closed"))?;
 
-        Ok(Response::new(proto::NudgeResponse {
-            delivered: true,
-            state_before,
-            reason: None,
-        }))
+        Ok(Response::new(proto::NudgeResponse { delivered: true, state_before, reason: None }))
     }
 
     // -----------------------------------------------------------------------
@@ -402,31 +380,20 @@ impl proto::coop_server::Coop for CoopGrpc {
         let answers: Vec<QuestionAnswer> = req
             .answers
             .iter()
-            .map(|a| QuestionAnswer {
-                option: a.option.map(|o| o as u32),
-                text: a.text.clone(),
-            })
+            .map(|a| QuestionAnswer { option: a.option.map(|o| o as u32), text: a.text.clone() })
             .collect();
 
         let _delivery = self.state.nudge_mutex.lock().await;
 
         let agent = self.state.driver.agent_state.read().await;
 
-        let (steps, answers_delivered) = encode_response(
-            &agent,
-            encoder.as_ref(),
-            req.accept,
-            req.text.as_deref(),
-            &answers,
-        )
-        .map_err(|code| {
-            code.to_grpc_status(format!("agent is {} (no active prompt)", agent.as_str()))
-        })?;
+        let (steps, answers_delivered) =
+            encode_response(&agent, encoder.as_ref(), req.accept, req.text.as_deref(), &answers)
+                .map_err(|code| {
+                    code.to_grpc_status(format!("agent is {} (no active prompt)", agent.as_str()))
+                })?;
 
-        let prompt_type = agent
-            .prompt()
-            .map(|p| p.kind.as_str().to_owned())
-            .unwrap_or_default();
+        let prompt_type = agent.prompt().map(|p| p.kind.as_str().to_owned()).unwrap_or_default();
         drop(agent);
 
         deliver_steps(&self.state.channels.input_tx, steps)
@@ -437,11 +404,7 @@ impl proto::coop_server::Coop for CoopGrpc {
             update_question_current(&self.state, answers_delivered).await;
         }
 
-        Ok(Response::new(proto::RespondResponse {
-            delivered: true,
-            prompt_type,
-            reason: None,
-        }))
+        Ok(Response::new(proto::RespondResponse { delivered: true, prompt_type, reason: None }))
     }
 
     // -----------------------------------------------------------------------
@@ -461,12 +424,7 @@ impl proto::coop_server::Coop for CoopGrpc {
             let ring = self.state.terminal.ring.read().await;
             let data = read_ring_combined(&ring, from_offset);
             if !data.is_empty() {
-                let _ = tx
-                    .send(Ok(proto::OutputChunk {
-                        data,
-                        offset: from_offset,
-                    }))
-                    .await;
+                let _ = tx.send(Ok(proto::OutputChunk { data, offset: from_offset })).await;
             }
         }
 
@@ -481,10 +439,7 @@ impl proto::coop_server::Coop for CoopGrpc {
                         let r = terminal.ring.read().await;
                         let offset = r.total_written() - data.len() as u64;
                         drop(r);
-                        let chunk = proto::OutputChunk {
-                            data: data.to_vec(),
-                            offset,
-                        };
+                        let chunk = proto::OutputChunk { data: data.to_vec(), offset };
                         if tx.send(Ok(chunk)).await.is_err() {
                             break;
                         }
@@ -582,8 +537,7 @@ impl proto::coop_server::Coop for CoopGrpc {
             .map_err(|e| Status::invalid_argument(format!("invalid JSON: {e}")))?;
         let stop = &self.state.stop;
         *stop.signal_body.write().await = Some(body);
-        stop.signaled
-            .store(true, std::sync::atomic::Ordering::Release);
+        stop.signaled.store(true, std::sync::atomic::Ordering::Release);
         Ok(Response::new(proto::ResolveStopResponse { accepted: true }))
     }
 
@@ -598,9 +552,7 @@ impl proto::coop_server::Coop for CoopGrpc {
         let new_config: StopConfig = serde_json::from_str(&req.config_json)
             .map_err(|e| Status::invalid_argument(format!("invalid config JSON: {e}")))?;
         *self.state.stop.config.write().await = new_config;
-        Ok(Response::new(proto::PutStopConfigResponse {
-            updated: true,
-        }))
+        Ok(Response::new(proto::PutStopConfigResponse { updated: true }))
     }
 
     // -----------------------------------------------------------------------
@@ -613,9 +565,7 @@ impl proto::coop_server::Coop for CoopGrpc {
         let config = self.state.stop.config.read().await;
         let json = serde_json::to_string(&*config)
             .map_err(|e| Status::internal(format!("serialize error: {e}")))?;
-        Ok(Response::new(proto::GetStopConfigResponse {
-            config_json: json,
-        }))
+        Ok(Response::new(proto::GetStopConfigResponse { config_json: json }))
     }
 
     // -----------------------------------------------------------------------

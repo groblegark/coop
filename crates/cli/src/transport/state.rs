@@ -70,9 +70,7 @@ pub struct DriverState {
 impl DriverState {
     /// Format the current detection tier as a display string.
     pub fn detection_tier_str(&self) -> String {
-        let tier = self
-            .detection_tier
-            .load(std::sync::atomic::Ordering::Relaxed);
+        let tier = self.detection_tier.load(std::sync::atomic::Ordering::Relaxed);
         if tier == u8::MAX {
             "none".to_owned()
         } else {

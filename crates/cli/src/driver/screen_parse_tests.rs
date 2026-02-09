@@ -96,11 +96,7 @@ fn error_takes_priority_over_prompt() -> anyhow::Result<()> {
 fn tier_returns_5() {
     use std::sync::Arc;
 
-    let patterns = ScreenPatterns {
-        prompt: None,
-        working: vec![],
-        error: vec![],
-    };
+    let patterns = ScreenPatterns { prompt: None, working: vec![], error: vec![] };
     let parser = ScreenParser::new(patterns, Arc::new(|| make_snapshot(vec![])));
     assert_eq!(parser.tier(), 5);
 }

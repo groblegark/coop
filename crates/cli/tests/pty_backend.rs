@@ -19,10 +19,7 @@ async fn spawn_and_capture() {
 
     assert!(pty.child_pid().is_some());
 
-    let status = pty
-        .run(output_tx, input_rx, resize_rx)
-        .await
-        .expect("run failed");
+    let status = pty.run(output_tx, input_rx, resize_rx).await.expect("run failed");
     assert_eq!(status.code, Some(0));
     assert_eq!(status.signal, None);
 
@@ -31,10 +28,7 @@ async fn spawn_and_capture() {
         output.extend_from_slice(&chunk);
     }
     let text = String::from_utf8_lossy(&output);
-    assert!(
-        text.contains("hello"),
-        "expected 'hello' in output: {text:?}"
-    );
+    assert!(text.contains("hello"), "expected 'hello' in output: {text:?}");
 }
 
 #[tokio::test]
@@ -48,16 +42,10 @@ async fn input_delivery() {
     let handle = tokio::spawn(async move { pty.run(output_tx, input_rx, resize_rx).await });
 
     // Write data with newline, then Ctrl-D on empty line to signal EOF
-    input_tx
-        .send(Bytes::from_static(b"ping\n"))
-        .await
-        .expect("send failed");
+    input_tx.send(Bytes::from_static(b"ping\n")).await.expect("send failed");
     // Short delay so cat processes the line before we send EOF
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    input_tx
-        .send(Bytes::from_static(b"\x04"))
-        .await
-        .expect("send eof failed");
+    input_tx.send(Bytes::from_static(b"\x04")).await.expect("send eof failed");
     drop(input_tx);
 
     let status = handle.await.expect("join").expect("run");
@@ -73,13 +61,8 @@ async fn input_delivery() {
 
 #[tokio::test]
 async fn resize_no_error() {
-    let pty = NativePty::spawn(
-        &["/bin/sh".into(), "-c".into(), "sleep 0.1".into()],
-        80,
-        24,
-        &[],
-    )
-    .expect("spawn failed");
+    let pty = NativePty::spawn(&["/bin/sh".into(), "-c".into(), "sleep 0.1".into()], 80, 24, &[])
+        .expect("spawn failed");
 
     pty.resize(40, 10).expect("resize failed");
 }
@@ -138,10 +121,7 @@ async fn resize_via_channel() -> anyhow::Result<()> {
     handle.abort();
 
     let text = String::from_utf8_lossy(&output);
-    assert!(
-        text.contains("40 120"),
-        "expected '40 120' (rows cols) in output: {text:?}"
-    );
+    assert!(text.contains("40 120"), "expected '40 120' (rows cols) in output: {text:?}");
     Ok(())
 }
 
@@ -162,10 +142,7 @@ async fn screen_integration() {
 
     let snap = screen.snapshot();
     let joined = snap.lines.join("\n");
-    assert!(
-        joined.contains("hello"),
-        "expected 'hello' in screen: {joined:?}"
-    );
+    assert!(joined.contains("hello"), "expected 'hello' in screen: {joined:?}");
 }
 
 #[tokio::test]
@@ -188,8 +165,5 @@ async fn ring_buffer_integration() {
     let mut data = a.to_vec();
     data.extend_from_slice(b);
     let text = String::from_utf8_lossy(&data);
-    assert!(
-        text.contains("hello"),
-        "expected 'hello' in ring buffer: {text:?}"
-    );
+    assert!(text.contains("hello"), "expected 'hello' in ring buffer: {text:?}");
 }

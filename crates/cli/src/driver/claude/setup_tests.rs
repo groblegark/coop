@@ -71,9 +71,6 @@ fn prepare_session_pipe_path_in_temp_dir() -> anyhow::Result<()> {
     let setup = prepare_claude_session(work_dir.path(), "http://127.0.0.1:0")?;
 
     assert!(setup.hook_pipe_path.file_name().is_some());
-    assert_eq!(
-        setup.hook_pipe_path.file_name().and_then(|n| n.to_str()),
-        Some("hook.pipe")
-    );
+    assert_eq!(setup.hook_pipe_path.file_name().and_then(|n| n.to_str()), Some("hook.pipe"));
     Ok(())
 }

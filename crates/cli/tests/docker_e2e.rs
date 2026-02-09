@@ -136,10 +136,8 @@ async fn docker_health_endpoint() -> anyhow::Result<()> {
     let container = DockerContainer::start("claude_hello.toml")?;
     container.wait_healthy(Duration::from_secs(30)).await?;
 
-    let resp: serde_json::Value = reqwest::get(format!("{}/api/v1/health", container.base_url()))
-        .await?
-        .json()
-        .await?;
+    let resp: serde_json::Value =
+        reqwest::get(format!("{}/api/v1/health", container.base_url())).await?.json().await?;
 
     assert_eq!(resp["status"], "running");
     assert_eq!(resp["agent"], "claude");
@@ -176,10 +174,7 @@ async fn docker_agent_state_transitions() -> anyhow::Result<()> {
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
 
-    assert!(
-        saw_meaningful_state,
-        "never saw a non-initializing agent state"
-    );
+    assert!(saw_meaningful_state, "never saw a non-initializing agent state");
 
     Ok(())
 }
@@ -191,10 +186,8 @@ async fn docker_screen_endpoint() -> anyhow::Result<()> {
     let container = DockerContainer::start("claude_hello.toml")?;
     container.wait_healthy(Duration::from_secs(30)).await?;
 
-    let resp: serde_json::Value = reqwest::get(format!("{}/api/v1/screen", container.base_url()))
-        .await?
-        .json()
-        .await?;
+    let resp: serde_json::Value =
+        reqwest::get(format!("{}/api/v1/screen", container.base_url())).await?.json().await?;
 
     assert!(resp["cols"].is_number());
     assert!(resp["rows"].is_number());
@@ -219,10 +212,7 @@ async fn docker_websocket_connects() -> anyhow::Result<()> {
         .map_err(|_| anyhow::anyhow!("timed out waiting for ws message"))?
         .ok_or_else(|| anyhow::anyhow!("ws stream ended"))??;
 
-    assert!(
-        msg.is_text() || msg.is_binary(),
-        "expected text or binary ws message, got: {msg:?}"
-    );
+    assert!(msg.is_text() || msg.is_binary(), "expected text or binary ws message, got: {msg:?}");
 
     Ok(())
 }

@@ -125,9 +125,7 @@ async fn claude_ask_user_session_lifecycle() -> anyhow::Result<()> {
 
     // Emulate user selecting first option in the elicitation dialog.
     tokio::time::sleep(Duration::from_millis(200)).await;
-    input_tx
-        .send(InputEvent::Write(Bytes::from_static(b"1")))
-        .await?;
+    input_tx.send(InputEvent::Write(Bytes::from_static(b"1"))).await?;
 
     wait_for(&mut rx, |s| matches!(s, AgentState::WaitingForInput)).await?;
 
@@ -141,11 +139,8 @@ async fn claude_ask_user_session_lifecycle() -> anyhow::Result<()> {
 async fn claude_multi_question_session_lifecycle() -> anyhow::Result<()> {
     expect_claudeless();
 
-    let prepared = run::prepare(claude_config(
-        "claude_multi_question.toml",
-        "help me decide",
-    ))
-    .await?;
+    let prepared =
+        run::prepare(claude_config("claude_multi_question.toml", "help me decide")).await?;
     let mut rx = prepared.app_state.channels.state_tx.subscribe();
     let shutdown = prepared.app_state.lifecycle.shutdown.clone();
     let input_tx = prepared.app_state.channels.input_tx.clone();
@@ -156,21 +151,15 @@ async fn claude_multi_question_session_lifecycle() -> anyhow::Result<()> {
 
     // Answer first question (select option 1).
     tokio::time::sleep(Duration::from_millis(100)).await;
-    input_tx
-        .send(InputEvent::Write(Bytes::from_static(b"1")))
-        .await?;
+    input_tx.send(InputEvent::Write(Bytes::from_static(b"1"))).await?;
 
     // Answer second question (select option 2).
     tokio::time::sleep(Duration::from_millis(100)).await;
-    input_tx
-        .send(InputEvent::Write(Bytes::from_static(b"2")))
-        .await?;
+    input_tx.send(InputEvent::Write(Bytes::from_static(b"2"))).await?;
 
     // Confirm.
     tokio::time::sleep(Duration::from_millis(100)).await;
-    input_tx
-        .send(InputEvent::Write(Bytes::from_static(b"\r")))
-        .await?;
+    input_tx.send(InputEvent::Write(Bytes::from_static(b"\r"))).await?;
 
     wait_for(&mut rx, |s| matches!(s, AgentState::WaitingForInput)).await?;
 
@@ -195,10 +184,7 @@ async fn claude_ask_user_respond_api() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Use encode_response with structured answer.
-    let answers = vec![QuestionAnswer {
-        option: Some(1),
-        text: None,
-    }];
+    let answers = vec![QuestionAnswer { option: Some(1), text: None }];
     let encoder = app.config.respond_encoder.as_ref().unwrap();
     let agent = app.driver.agent_state.read().await;
     let (steps, _count) = encode_response(&agent, encoder.as_ref(), None, None, &answers)
@@ -221,11 +207,8 @@ async fn claude_ask_user_respond_api() -> anyhow::Result<()> {
 async fn claude_multi_question_respond_api() -> anyhow::Result<()> {
     expect_claudeless();
 
-    let prepared = run::prepare(claude_config(
-        "claude_multi_question.toml",
-        "help me decide",
-    ))
-    .await?;
+    let prepared =
+        run::prepare(claude_config("claude_multi_question.toml", "help me decide")).await?;
     let mut rx = prepared.app_state.channels.state_tx.subscribe();
     let shutdown = prepared.app_state.lifecycle.shutdown.clone();
     let app = prepared.app_state.clone();
@@ -236,14 +219,8 @@ async fn claude_multi_question_respond_api() -> anyhow::Result<()> {
 
     // Use encode_response with structured answers (all-at-once mode).
     let answers = vec![
-        QuestionAnswer {
-            option: Some(1),
-            text: None,
-        },
-        QuestionAnswer {
-            option: Some(2),
-            text: None,
-        },
+        QuestionAnswer { option: Some(1), text: None },
+        QuestionAnswer { option: Some(2), text: None },
     ];
     let encoder = app.config.respond_encoder.as_ref().unwrap();
     let agent = app.driver.agent_state.read().await;
@@ -279,9 +256,7 @@ async fn claude_plan_mode_session_lifecycle() -> anyhow::Result<()> {
     // ExitPlanMode → PlanPrompt (user must approve).
     wait_for(&mut rx, |s| matches!(s, AgentState::Prompt { .. })).await?;
     tokio::time::sleep(Duration::from_millis(100)).await;
-    input_tx
-        .send(InputEvent::Write(Bytes::from_static(b"1")))
-        .await?;
+    input_tx.send(InputEvent::Write(Bytes::from_static(b"1"))).await?;
 
     wait_for(&mut rx, |s| matches!(s, AgentState::WaitingForInput)).await?;
 

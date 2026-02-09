@@ -53,14 +53,8 @@ fn classify(detail: &str, expected: ErrorCategory) {
 
 #[test]
 fn classify_is_case_insensitive() {
-    assert_eq!(
-        classify_error_detail("AUTHENTICATION_ERROR"),
-        ErrorCategory::Unauthorized
-    );
-    assert_eq!(
-        classify_error_detail("Rate_Limit_Error"),
-        ErrorCategory::RateLimited
-    );
+    assert_eq!(classify_error_detail("AUTHENTICATION_ERROR"), ErrorCategory::Unauthorized);
+    assert_eq!(classify_error_detail("Rate_Limit_Error"), ErrorCategory::RateLimited);
 }
 
 // ---------------------------------------------------------------------------

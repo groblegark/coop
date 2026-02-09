@@ -12,9 +12,7 @@ use super::{HookDetector, StdoutDetector};
 #[tokio::test]
 async fn stdout_detector_parses_gemini_stream_json() -> anyhow::Result<()> {
     let (bytes_tx, bytes_rx) = mpsc::channel(32);
-    let detector = Box::new(StdoutDetector {
-        stdout_rx: bytes_rx,
-    });
+    let detector = Box::new(StdoutDetector { stdout_rx: bytes_rx });
     assert_eq!(detector.tier(), 3);
 
     let (state_tx, mut state_rx) = mpsc::channel(32);
@@ -47,9 +45,7 @@ async fn stdout_detector_parses_gemini_stream_json() -> anyhow::Result<()> {
 #[tokio::test]
 async fn stdout_detector_detects_result_as_idle() -> anyhow::Result<()> {
     let (bytes_tx, bytes_rx) = mpsc::channel(32);
-    let detector = Box::new(StdoutDetector {
-        stdout_rx: bytes_rx,
-    });
+    let detector = Box::new(StdoutDetector { stdout_rx: bytes_rx });
 
     let (state_tx, mut state_rx) = mpsc::channel(32);
     let shutdown = CancellationToken::new();

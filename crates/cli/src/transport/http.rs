@@ -200,10 +200,7 @@ pub async fn health(State(s): State<Arc<AppState>>) -> impl IntoResponse {
         pid: if pid == 0 { None } else { Some(pid as i32) },
         uptime_secs: uptime,
         agent: s.config.agent.to_string(),
-        terminal: TerminalSize {
-            cols: snap.cols,
-            rows: snap.rows,
-        },
+        terminal: TerminalSize { cols: snap.cols, rows: snap.rows },
         ws_clients: s.lifecycle.ws_client_count.load(Ordering::Relaxed),
         ready,
     })
@@ -247,13 +244,7 @@ pub async fn screen(
 pub async fn screen_text(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let snap = s.terminal.screen.read().await.snapshot();
     let text = snap.lines.join("\n");
-    (
-        [(
-            axum::http::header::CONTENT_TYPE,
-            "text/plain; charset=utf-8",
-        )],
-        text,
-    )
+    ([(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")], text)
 }
 
 /// `GET /api/v1/output`
@@ -322,11 +313,7 @@ pub async fn input(
         data.push(b'\r');
     }
     let len = data.len() as i32;
-    let _ = s
-        .channels
-        .input_tx
-        .send(InputEvent::Write(Bytes::from(data)))
-        .await;
+    let _ = s.channels.input_tx.send(InputEvent::Write(Bytes::from(data))).await;
 
     Json(InputResponse { bytes_written: len }).into_response()
 }
@@ -345,11 +332,7 @@ pub async fn input_keys(
         }
     };
     let len = data.len() as i32;
-    let _ = s
-        .channels
-        .input_tx
-        .send(InputEvent::Write(Bytes::from(data)))
-        .await;
+    let _ = s.channels.input_tx.send(InputEvent::Write(Bytes::from(data))).await;
 
     Json(InputResponse { bytes_written: len }).into_response()
 }
@@ -365,20 +348,9 @@ pub async fn resize(
             .into_response();
     }
 
-    let _ = s
-        .channels
-        .input_tx
-        .send(InputEvent::Resize {
-            cols: req.cols,
-            rows: req.rows,
-        })
-        .await;
+    let _ = s.channels.input_tx.send(InputEvent::Resize { cols: req.cols, rows: req.rows }).await;
 
-    Json(ResizeResponse {
-        cols: req.cols,
-        rows: req.rows,
-    })
-    .into_response()
+    Json(ResizeResponse { cols: req.cols, rows: req.rows }).into_response()
 }
 
 /// `POST /api/v1/signal`
@@ -402,9 +374,7 @@ pub async fn signal(
 /// `GET /api/v1/agent/state`
 pub async fn agent_state(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     if s.config.nudge_encoder.is_none() && s.config.respond_encoder.is_none() {
-        return ErrorCode::NoDriver
-            .to_http_response("no agent driver configured")
-            .into_response();
+        return ErrorCode::NoDriver.to_http_response("no agent driver configured").into_response();
     }
 
     let state = s.driver.agent_state.read().await;
@@ -418,12 +388,7 @@ pub async fn agent_state(State(s): State<Arc<AppState>>) -> impl IntoResponse {
         detection_tier: s.driver.detection_tier_str(),
         prompt: state.prompt().cloned(),
         error_detail: s.driver.error_detail.read().await.clone(),
-        error_category: s
-            .driver
-            .error_category
-            .read()
-            .await
-            .map(|c| c.as_str().to_owned()),
+        error_category: s.driver.error_category.read().await.map(|c| c.as_str().to_owned()),
     })
     .into_response()
 }
@@ -434,9 +399,7 @@ pub async fn agent_nudge(
     Json(req): Json<NudgeRequest>,
 ) -> impl IntoResponse {
     if !s.ready.load(Ordering::Acquire) {
-        return ErrorCode::NotReady
-            .to_http_response("agent is still starting")
-            .into_response();
+        return ErrorCode::NotReady.to_http_response("agent is still starting").into_response();
     }
 
     let encoder = match &s.config.nudge_encoder {
@@ -469,12 +432,8 @@ pub async fn agent_nudge(
     let steps = encoder.encode(&req.message);
     let _ = deliver_steps(&s.channels.input_tx, steps).await;
 
-    Json(NudgeResponse {
-        delivered: true,
-        state_before: Some(state_before),
-        reason: None,
-    })
-    .into_response()
+    Json(NudgeResponse { delivered: true, state_before: Some(state_before), reason: None })
+        .into_response()
 }
 
 /// `POST /api/v1/agent/respond`
@@ -483,9 +442,7 @@ pub async fn agent_respond(
     Json(req): Json<RespondRequest>,
 ) -> impl IntoResponse {
     if !s.ready.load(Ordering::Acquire) {
-        return ErrorCode::NotReady
-            .to_http_response("agent is still starting")
-            .into_response();
+        return ErrorCode::NotReady.to_http_response("agent is still starting").into_response();
     }
 
     let encoder = match &s.config.respond_encoder {
@@ -500,10 +457,7 @@ pub async fn agent_respond(
     let answers: Vec<QuestionAnswer> = req
         .answers
         .iter()
-        .map(|a| QuestionAnswer {
-            option: a.option.map(|o| o as u32),
-            text: a.text.clone(),
-        })
+        .map(|a| QuestionAnswer { option: a.option.map(|o| o as u32), text: a.text.clone() })
         .collect();
 
     let _delivery = s.nudge_mutex.lock().await;
@@ -532,12 +486,7 @@ pub async fn agent_respond(
         update_question_current(&s, answers_delivered).await;
     }
 
-    Json(RespondResponse {
-        delivered: true,
-        prompt_type,
-        reason: None,
-    })
-    .into_response()
+    Json(RespondResponse { delivered: true, prompt_type, reason: None }).into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -576,70 +525,46 @@ pub async fn hooks_stop(
     if config.mode == StopMode::Allow {
         drop(config);
         stop.emit(StopType::Allowed, None, None);
-        return Json(StopHookVerdict {
-            decision: None,
-            reason: None,
-        })
-        .into_response();
+        return Json(StopHookVerdict { decision: None, reason: None }).into_response();
     }
 
     // 2. Safety valve: stop_hook_active = true → must allow.
     if input.stop_hook_active {
         drop(config);
         stop.emit(StopType::SafetyValve, None, None);
-        return Json(StopHookVerdict {
-            decision: None,
-            reason: None,
-        })
-        .into_response();
+        return Json(StopHookVerdict { decision: None, reason: None }).into_response();
     }
 
     // 3. Unrecoverable error → allow.
     {
         let error_cat = s.driver.error_category.read().await;
         if let Some(cat) = &*error_cat {
-            let is_unrecoverable = matches!(
-                cat,
-                ErrorCategory::Unauthorized | ErrorCategory::OutOfCredits
-            );
+            let is_unrecoverable =
+                matches!(cat, ErrorCategory::Unauthorized | ErrorCategory::OutOfCredits);
             if is_unrecoverable {
                 let detail = s.driver.error_detail.read().await.clone();
                 drop(error_cat);
                 drop(config);
                 stop.emit(StopType::Error, None, detail);
-                return Json(StopHookVerdict {
-                    decision: None,
-                    reason: None,
-                })
-                .into_response();
+                return Json(StopHookVerdict { decision: None, reason: None }).into_response();
             }
         }
     }
 
     // 4. Signal received → allow and reset.
-    if stop
-        .signaled
-        .swap(false, std::sync::atomic::Ordering::AcqRel)
-    {
+    if stop.signaled.swap(false, std::sync::atomic::Ordering::AcqRel) {
         let body = stop.signal_body.write().await.take();
         drop(config);
         stop.emit(StopType::Signaled, body, None);
-        return Json(StopHookVerdict {
-            decision: None,
-            reason: None,
-        })
-        .into_response();
+        return Json(StopHookVerdict { decision: None, reason: None }).into_response();
     }
 
     // 5. Block: generate reason and return block verdict.
     let reason = generate_block_reason(&config);
     drop(config);
     stop.emit(StopType::Blocked, None, None);
-    Json(StopHookVerdict {
-        decision: Some("block".to_owned()),
-        reason: Some(reason),
-    })
-    .into_response()
+    Json(StopHookVerdict { decision: Some("block".to_owned()), reason: Some(reason) })
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -653,8 +578,7 @@ pub async fn resolve_stop(
 ) -> impl IntoResponse {
     let stop = &s.stop;
     *stop.signal_body.write().await = Some(body);
-    stop.signaled
-        .store(true, std::sync::atomic::Ordering::Release);
+    stop.signaled.store(true, std::sync::atomic::Ordering::Release);
     Json(serde_json::json!({ "accepted": true }))
 }
 

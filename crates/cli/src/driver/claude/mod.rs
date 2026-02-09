@@ -73,9 +73,7 @@ impl ClaudeDriver {
         detectors.sort_by_key(|d| d.tier());
 
         Ok(Self {
-            nudge: ClaudeNudgeEncoder {
-                keyboard_delay: config.keyboard_delay(),
-            },
+            nudge: ClaudeNudgeEncoder { keyboard_delay: config.keyboard_delay() },
             respond: ClaudeRespondEncoder {
                 feedback_delay: config.feedback_delay(),
                 input_delay: config.keyboard_delay(),

@@ -80,10 +80,7 @@ async fn log_watcher_run_receives_batches() -> anyhow::Result<()> {
     // Wait for the batch to arrive
     let batch = tokio::time::timeout(Duration::from_secs(10), line_rx.recv()).await?;
     let batch = batch.ok_or_else(|| anyhow::anyhow!("expected batch"))?;
-    assert!(
-        batch.contains(&"batch_line1".to_string()),
-        "batch: {batch:?}"
-    );
+    assert!(batch.contains(&"batch_line1".to_string()), "batch: {batch:?}");
 
     shutdown.cancel();
     Ok(())
@@ -169,10 +166,7 @@ async fn hook_receiver_reads_events() -> anyhow::Result<()> {
         // Open the FIFO for writing (this will block until reader opens)
         tokio::time::sleep(Duration::from_millis(100)).await;
         if let Ok(mut f) = std::fs::OpenOptions::new().write(true).open(&pp) {
-            let _ = writeln!(
-                f,
-                r#"{{"event":"post_tool_use","data":{{"tool_name":"bash"}}}}"#
-            );
+            let _ = writeln!(f, r#"{{"event":"post_tool_use","data":{{"tool_name":"bash"}}}}"#);
             let _ = writeln!(f, r#"{{"event":"stop"}}"#);
         }
     });
@@ -241,10 +235,7 @@ async fn hook_receiver_cleanup_removes_pipe() -> anyhow::Result<()> {
     }
 
     // After drop, the pipe should be removed
-    assert!(
-        !pipe_path.exists(),
-        "pipe should be removed after receiver drop"
-    );
+    assert!(!pipe_path.exists(), "pipe should be removed after receiver drop");
 
     Ok(())
 }

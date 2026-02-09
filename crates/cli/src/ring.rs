@@ -17,12 +17,7 @@ pub struct RingBuffer {
 impl RingBuffer {
     /// Create a new ring buffer with the given capacity.
     pub fn new(capacity: usize) -> Self {
-        Self {
-            buf: vec![0u8; capacity],
-            capacity,
-            write_pos: 0,
-            total_written: 0,
-        }
+        Self { buf: vec![0u8; capacity], capacity, write_pos: 0, total_written: 0 }
     }
 
     /// Append data into the circular buffer.
@@ -75,10 +70,7 @@ impl RingBuffer {
             Some((&self.buf[start..start + available], &[]))
         } else {
             let first = self.capacity - start;
-            Some((
-                &self.buf[start..self.capacity],
-                &self.buf[..available - first],
-            ))
+            Some((&self.buf[start..self.capacity], &self.buf[..available - first]))
         }
     }
 

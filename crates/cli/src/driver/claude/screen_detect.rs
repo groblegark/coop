@@ -132,16 +132,9 @@ const DIALOG_SCREENS: &[DialogScreen] = &[
         ("Press Enter to continue", false),
     ],
     // Login success: "Logged in as …" + "Login successful. Press Enter to continue…"
-    &[
-        ("Login successful", false),
-        ("Logged in as", false),
-        ("Press Enter to continue", false),
-    ],
+    &[("Login successful", false), ("Logged in as", false), ("Press Enter to continue", false)],
     // OAuth login: "Browser didn't open?" + "Paste code here if prompted >"
-    &[
-        ("Paste code here if prompted", false),
-        ("oauth/authorize", false),
-    ],
+    &[("Paste code here if prompted", false), ("oauth/authorize", false)],
     // Login method picker: "Select login method:" + "Claude account with subscription"
     &[
         ("Select login method:", false),
@@ -161,11 +154,7 @@ const DIALOG_SCREENS: &[DialogScreen] = &[
         ("enter to confirm", true),
     ],
     // Theme picker: "Choose the text style" + "1. Dark mode" + "Enter to confirm"
-    &[
-        ("Choose the text style", false),
-        ("Dark mode", false),
-        ("enter to confirm", true),
-    ],
+    &[("Choose the text style", false), ("Dark mode", false), ("enter to confirm", true)],
     // Tool permission: "Do you want to proceed?" + "Yes, and don't ask again" + "Esc to cancel"
     &[
         ("Do you want to proceed?", false),

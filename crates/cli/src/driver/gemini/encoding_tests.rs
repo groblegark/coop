@@ -9,9 +9,7 @@ use super::{GeminiNudgeEncoder, GeminiRespondEncoder};
 
 #[test]
 fn nudge_encodes_message_then_enter() {
-    let encoder = GeminiNudgeEncoder {
-        keyboard_delay: Duration::from_millis(100),
-    };
+    let encoder = GeminiNudgeEncoder { keyboard_delay: Duration::from_millis(100) };
     let steps = encoder.encode("Fix the bug");
     assert_eq!(steps.len(), 2);
     assert_eq!(steps[0].bytes, b"Fix the bug");
@@ -22,9 +20,7 @@ fn nudge_encodes_message_then_enter() {
 
 #[test]
 fn nudge_with_multiline_message() {
-    let encoder = GeminiNudgeEncoder {
-        keyboard_delay: Duration::from_millis(100),
-    };
+    let encoder = GeminiNudgeEncoder { keyboard_delay: Duration::from_millis(100) };
     let steps = encoder.encode("line1\nline2");
     assert_eq!(steps.len(), 2);
     assert_eq!(steps[0].bytes, b"line1\nline2");
@@ -74,10 +70,7 @@ fn plan_reject_without_feedback() {
 #[test]
 fn question_with_option_number() {
     let encoder = GeminiRespondEncoder::default();
-    let answers = [QuestionAnswer {
-        option: Some(2),
-        text: None,
-    }];
+    let answers = [QuestionAnswer { option: Some(2), text: None }];
     let steps = encoder.encode_question(&answers, 1);
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].bytes, b"2\r");
@@ -86,10 +79,7 @@ fn question_with_option_number() {
 #[test]
 fn question_with_freeform_text() {
     let encoder = GeminiRespondEncoder::default();
-    let answers = [QuestionAnswer {
-        option: None,
-        text: Some("Use Redis instead".to_string()),
-    }];
+    let answers = [QuestionAnswer { option: None, text: Some("Use Redis instead".to_string()) }];
     let steps = encoder.encode_question(&answers, 1);
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].bytes, b"Use Redis instead\r");

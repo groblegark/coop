@@ -29,12 +29,8 @@ impl FromStr for AttachSpec {
             anyhow::bail!("invalid attach spec: session name cannot be empty");
         }
         match prefix {
-            "tmux" => Ok(AttachSpec::Tmux {
-                session: name.to_string(),
-            }),
-            "screen" => Ok(AttachSpec::Screen {
-                session: name.to_string(),
-            }),
+            "tmux" => Ok(AttachSpec::Tmux { session: name.to_string() }),
+            "screen" => Ok(AttachSpec::Screen { session: name.to_string() }),
             other => anyhow::bail!("invalid attach spec: unknown backend '{other}'"),
         }
     }
@@ -82,12 +78,7 @@ impl TmuxBackend {
         }
 
         let target = session.clone();
-        Ok(Self {
-            session,
-            target,
-            socket,
-            poll_interval: Duration::from_secs(1),
-        })
+        Ok(Self { session, target, socket, poll_interval: Duration::from_secs(1) })
     }
 
     pub fn with_poll_interval(mut self, interval: Duration) -> Self {

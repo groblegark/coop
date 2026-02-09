@@ -43,20 +43,12 @@ impl NativePty {
         rows: u16,
         extra_env: &[(String, String)],
     ) -> anyhow::Result<Self> {
-        let winsize = Winsize {
-            ws_col: cols,
-            ws_row: rows,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        };
+        let winsize = Winsize { ws_col: cols, ws_row: rows, ws_xpixel: 0, ws_ypixel: 0 };
 
         // SAFETY: forkpty is unsafe because the child is in a
         // partially-initialized state after fork. We immediately exec.
         let result = unsafe { forkpty(&winsize, None) }.context("forkpty failed")?;
-        let ForkptyResult {
-            master,
-            fork_result,
-        } = result;
+        let ForkptyResult { master, fork_result } = result;
 
         match fork_result {
             ForkResult::Child => {
@@ -191,22 +183,14 @@ impl Backend for NativePty {
         self.cols.store(cols, Ordering::Relaxed);
         self.rows.store(rows, Ordering::Relaxed);
 
-        let ws = Winsize {
-            ws_col: cols,
-            ws_row: rows,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        };
+        let ws = Winsize { ws_col: cols, ws_row: rows, ws_xpixel: 0, ws_ypixel: 0 };
 
         // SAFETY: TIOCSWINSZ is a well-defined ioctl that sets the window
         // size on the PTY master fd. The Winsize struct is properly
         // initialized.
         let ret = unsafe { libc::ioctl(self.master.as_raw_fd(), libc::TIOCSWINSZ, &ws) };
         if ret < 0 {
-            bail!(
-                "TIOCSWINSZ ioctl failed: {}",
-                std::io::Error::last_os_error()
-            );
+            bail!("TIOCSWINSZ ioctl failed: {}", std::io::Error::last_os_error());
         }
 
         Ok(())
@@ -246,16 +230,10 @@ fn wait_for_exit(pid: Pid) -> anyhow::Result<ExitStatus> {
     loop {
         match waitpid(pid, None) {
             Ok(WaitStatus::Exited(_, code)) => {
-                return Ok(ExitStatus {
-                    code: Some(code),
-                    signal: None,
-                });
+                return Ok(ExitStatus { code: Some(code), signal: None });
             }
             Ok(WaitStatus::Signaled(_, sig, _)) => {
-                return Ok(ExitStatus {
-                    code: None,
-                    signal: Some(sig as i32),
-                });
+                return Ok(ExitStatus { code: None, signal: Some(sig as i32) });
             }
             Ok(_) => continue,
             Err(nix::errno::Errno::EINTR) => continue,

@@ -38,17 +38,10 @@ pub fn prepare_gemini_session(
 
     let mut env_vars = super::hooks::hook_env_vars(&hook_pipe_path, coop_url);
     // Inject settings file via system settings path so Gemini loads our hooks
-    env_vars.push((
-        "GEMINI_CLI_SYSTEM_SETTINGS_PATH".to_string(),
-        settings_path.display().to_string(),
-    ));
+    env_vars
+        .push(("GEMINI_CLI_SYSTEM_SETTINGS_PATH".to_string(), settings_path.display().to_string()));
 
-    Ok(GeminiSessionSetup {
-        hook_pipe_path,
-        env_vars,
-        extra_args: vec![],
-        _temp_dir: temp_dir,
-    })
+    Ok(GeminiSessionSetup { hook_pipe_path, env_vars, extra_args: vec![], _temp_dir: temp_dir })
 }
 
 /// Write a Gemini settings JSON file containing the hook configuration.

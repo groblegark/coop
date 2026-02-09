@@ -17,27 +17,12 @@ fn generated_config_has_required_hooks() {
     assert!(hooks.get("Notification").is_some());
 
     // Verify nested matcher + hooks structure
-    for hook_name in [
-        "BeforeTool",
-        "AfterTool",
-        "AfterAgent",
-        "SessionEnd",
-        "Notification",
-    ] {
+    for hook_name in ["BeforeTool", "AfterTool", "AfterAgent", "SessionEnd", "Notification"] {
         let hook = &hooks[hook_name];
         assert!(hook.is_array(), "{hook_name} should be an array");
-        assert_eq!(
-            hook[0]["matcher"], "",
-            "{hook_name} matcher should be empty"
-        );
-        assert!(
-            hook[0]["hooks"].is_array(),
-            "{hook_name} hooks should be array"
-        );
-        assert_eq!(
-            hook[0]["hooks"][0]["type"], "command",
-            "{hook_name} type should be command"
-        );
+        assert_eq!(hook[0]["matcher"], "", "{hook_name} matcher should be empty");
+        assert!(hook[0]["hooks"].is_array(), "{hook_name} hooks should be array");
+        assert_eq!(hook[0]["hooks"][0]["type"], "command", "{hook_name} type should be command");
     }
 }
 

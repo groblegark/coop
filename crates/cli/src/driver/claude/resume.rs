@@ -54,11 +54,7 @@ pub fn discover_session_log(workspace_hint: &str) -> anyhow::Result<Option<PathB
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                let dir_name = path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string();
+                let dir_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
                 // Match if the directory name contains the workspace hint
                 // (Claude uses a hash of the workspace path as directory name).
                 if dir_name.contains(workspace_hint) || workspace_hint.contains(&dir_name) {
@@ -128,11 +124,7 @@ pub fn parse_resume_state(log_path: &Path) -> anyhow::Result<ResumeState> {
         }
     }
 
-    Ok(ResumeState {
-        last_state,
-        log_offset: file_size,
-        conversation_id,
-    })
+    Ok(ResumeState { last_state, log_offset: file_size, conversation_id })
 }
 
 /// Build additional CLI arguments for resuming a Claude session.

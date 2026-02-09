@@ -193,10 +193,7 @@ async fn handle_connection(
     client_id: String,
     needs_auth: bool,
 ) {
-    state
-        .lifecycle
-        .ws_client_count
-        .fetch_add(1, Ordering::Relaxed);
+    state.lifecycle.ws_client_count.fetch_add(1, Ordering::Relaxed);
 
     let (mut ws_tx, mut ws_rx) = socket.split();
     let mut output_rx = state.channels.output_tx.subscribe();
@@ -298,10 +295,7 @@ async fn handle_connection(
     }
 
     // Cleanup
-    state
-        .lifecycle
-        .ws_client_count
-        .fetch_sub(1, Ordering::Relaxed);
+    state.lifecycle.ws_client_count.fetch_sub(1, Ordering::Relaxed);
 }
 
 /// Handle a single client message and optionally return a reply.
@@ -363,10 +357,7 @@ async fn handle_client_message(
             let ring = state.terminal.ring.read().await;
             let combined = read_ring_combined(&ring, offset);
             let encoded = base64::engine::general_purpose::STANDARD.encode(&combined);
-            Some(ServerMessage::Output {
-                data: encoded,
-                offset,
-            })
+            Some(ServerMessage::Output { data: encoded, offset })
         }
 
         // Write operations require auth
@@ -383,14 +374,9 @@ async fn handle_client_message(
             if !*authed {
                 return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
             }
-            let decoded = base64::engine::general_purpose::STANDARD
-                .decode(&data)
-                .unwrap_or_default();
-            let _ = state
-                .channels
-                .input_tx
-                .send(InputEvent::Write(Bytes::from(decoded)))
-                .await;
+            let decoded =
+                base64::engine::general_purpose::STANDARD.decode(&data).unwrap_or_default();
+            let _ = state.channels.input_tx.send(InputEvent::Write(Bytes::from(decoded))).await;
             None
         }
 
@@ -407,26 +393,15 @@ async fn handle_client_message(
                     ));
                 }
             };
-            let _ = state
-                .channels
-                .input_tx
-                .send(InputEvent::Write(Bytes::from(data)))
-                .await;
+            let _ = state.channels.input_tx.send(InputEvent::Write(Bytes::from(data))).await;
             None
         }
 
         ClientMessage::Resize { cols, rows } => {
             if cols == 0 || rows == 0 {
-                return Some(ws_error(
-                    ErrorCode::BadRequest,
-                    "cols and rows must be positive",
-                ));
+                return Some(ws_error(ErrorCode::BadRequest, "cols and rows must be positive"));
             }
-            let _ = state
-                .channels
-                .input_tx
-                .send(InputEvent::Resize { cols, rows })
-                .await;
+            let _ = state.channels.input_tx.send(InputEvent::Resize { cols, rows }).await;
             None
         }
 
@@ -444,10 +419,7 @@ async fn handle_client_message(
             let _delivery = state.nudge_mutex.lock().await;
             let agent = state.driver.agent_state.read().await;
             if !matches!(&*agent, AgentState::WaitingForInput) {
-                return Some(ws_error(
-                    ErrorCode::AgentBusy,
-                    "agent is not waiting for input",
-                ));
+                return Some(ws_error(ErrorCode::AgentBusy, "agent is not waiting for input"));
             }
             drop(agent);
             let steps = encoder.encode(&message);
@@ -455,11 +427,7 @@ async fn handle_client_message(
             None
         }
 
-        ClientMessage::Respond {
-            accept,
-            text,
-            answers,
-        } => {
+        ClientMessage::Respond { accept, text, answers } => {
             if !*authed {
                 return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
             }
@@ -508,10 +476,7 @@ async fn handle_client_message(
                     let _ = state.channels.input_tx.send(InputEvent::Signal(sig)).await;
                     None
                 }
-                None => Some(ws_error(
-                    ErrorCode::BadRequest,
-                    &format!("unknown signal: {signal}"),
-                )),
+                None => Some(ws_error(ErrorCode::BadRequest, &format!("unknown signal: {signal}"))),
             }
         }
     }
@@ -519,20 +484,16 @@ async fn handle_client_message(
 
 /// Build a WebSocket error message.
 fn ws_error(code: ErrorCode, message: &str) -> ServerMessage {
-    ServerMessage::Error {
-        code: code.as_str().to_owned(),
-        message: message.to_owned(),
-    }
+    ServerMessage::Error { code: code.as_str().to_owned(), message: message.to_owned() }
 }
 
 /// Convert a `StateChangeEvent` to a `ServerMessage`.
 fn state_change_to_msg(event: &StateChangeEvent) -> ServerMessage {
     let prompt = Box::new(event.next.prompt().cloned());
     match &event.next {
-        AgentState::Exited { status } => ServerMessage::Exit {
-            code: status.code,
-            signal: status.signal,
-        },
+        AgentState::Exited { status } => {
+            ServerMessage::Exit { code: status.code, signal: status.signal }
+        }
         AgentState::Error { detail } => {
             let category = classify_error_detail(detail);
             ServerMessage::StateChange {

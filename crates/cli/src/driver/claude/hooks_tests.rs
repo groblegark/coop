@@ -36,10 +36,7 @@ fn generated_config_has_required_hooks() {
 
     let pre_tool = &hooks["PreToolUse"];
     assert!(pre_tool.is_array());
-    assert_eq!(
-        pre_tool[0]["matcher"],
-        "ExitPlanMode|AskUserQuestion|EnterPlanMode"
-    );
+    assert_eq!(pre_tool[0]["matcher"], "ExitPlanMode|AskUserQuestion|EnterPlanMode");
     assert!(pre_tool[0]["hooks"].is_array());
     assert_eq!(pre_tool[0]["hooks"][0]["type"], "command");
 }

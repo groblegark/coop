@@ -109,10 +109,8 @@ impl HookReceiver {
     /// through [`AsyncFd`].
     fn ensure_fd(&mut self) -> anyhow::Result<()> {
         if self.async_fd.is_none() {
-            let std_file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&self.pipe_path)?;
+            let std_file =
+                std::fs::OpenOptions::new().read(true).write(true).open(&self.pipe_path)?;
             crate::pty::nbio::set_nonblocking(&std_file)?;
             let owned: OwnedFd = std_file.into();
             let fifo_fd = FifoFd(owned);
@@ -147,10 +145,8 @@ fn parse_hook_line(line: &str) -> Option<HookEvent> {
         "session_end" => Some(HookEvent::SessionEnd),
         "notification" => {
             let data = raw.data?;
-            let notification_type = data
-                .get("notification_type")
-                .and_then(|v| v.as_str())?
-                .to_string();
+            let notification_type =
+                data.get("notification_type").and_then(|v| v.as_str())?.to_string();
             Some(HookEvent::Notification { notification_type })
         }
         "pre_tool_use" => {

@@ -19,16 +19,8 @@ fn snapshot(lines: &[&str]) -> ScreenSnapshot {
 
 #[test]
 fn detects_idle_prompt() {
-    let snap = snapshot(&[
-        "Claude Code v2.1.37",
-        "",
-        "\u{276f} Try \"fix lint errors\"",
-        "",
-    ]);
-    assert_eq!(
-        classify_claude_screen(&snap),
-        Some(AgentState::WaitingForInput)
-    );
+    let snap = snapshot(&["Claude Code v2.1.37", "", "\u{276f} Try \"fix lint errors\"", ""]);
+    assert_eq!(classify_claude_screen(&snap), Some(AgentState::WaitingForInput));
 }
 
 #[test]
@@ -52,10 +44,7 @@ fn no_idle_on_startup_prompt() {
 #[test]
 fn detects_bare_prompt() {
     let snap = snapshot(&["\u{276f} ", ""]);
-    assert_eq!(
-        classify_claude_screen(&snap),
-        Some(AgentState::WaitingForInput)
-    );
+    assert_eq!(classify_claude_screen(&snap), Some(AgentState::WaitingForInput));
 }
 
 #[test]
@@ -112,8 +101,5 @@ fn detects_prompt_with_status_text_below() {
         "────────────────────────────────",
         "  ctrl+t to hide tasks",
     ]);
-    assert_eq!(
-        classify_claude_screen(&snap),
-        Some(AgentState::WaitingForInput)
-    );
+    assert_eq!(classify_claude_screen(&snap), Some(AgentState::WaitingForInput));
 }

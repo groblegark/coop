@@ -57,10 +57,7 @@ impl PreparedSession {
     /// Run the session loop to completion.
     pub async fn run(self) -> anyhow::Result<RunResult> {
         let status = self.session.run(&self.config).await?;
-        Ok(RunResult {
-            status,
-            app_state: self.app_state,
-        })
+        Ok(RunResult { status, app_state: self.app_state })
     }
 }
 
@@ -102,10 +99,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         Some(ref path) => Some(config::load_agent_config(path)?),
         None => None,
     };
-    let stop_config = agent_file_config
-        .as_ref()
-        .and_then(|c| c.stop.clone())
-        .unwrap_or_default();
+    let stop_config = agent_file_config.as_ref().and_then(|c| c.stop.clone()).unwrap_or_default();
 
     // 1. Handle --resume: discover session log and build resume state.
     let (resume_state, resume_log_path) = if let Some(ref resume_hint) = config.resume {
@@ -140,10 +134,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     // 2b. Prepare Gemini session setup (creates FIFO pipe path, writes settings).
     let gemini_setup: Option<GeminiSessionSetup> = if agent_enum == AgentType::Gemini {
-        Some(gemini_setup::prepare_gemini_session(
-            &working_dir,
-            &coop_url_for_setup,
-        )?)
+        Some(gemini_setup::prepare_gemini_session(&working_dir, &coop_url_for_setup)?)
     } else {
         None
     };
@@ -177,9 +168,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         claude_setup.as_ref(),
         gemini_setup.as_ref(),
         Arc::new(move || {
-            let v = pid_terminal
-                .child_pid
-                .load(std::sync::atomic::Ordering::Relaxed);
+            let v = pid_terminal.child_pid.load(std::sync::atomic::Ordering::Relaxed);
             if v == 0 {
                 None
             } else {
@@ -195,22 +184,21 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         let screen_terminal = Arc::clone(&terminal);
         let snapshot_fn: Arc<dyn Fn() -> crate::screen::ScreenSnapshot + Send + Sync> =
             Arc::new(move || {
-                screen_terminal
-                    .screen
-                    .try_read()
-                    .map(|s| s.snapshot())
-                    .unwrap_or_else(|_| crate::screen::ScreenSnapshot {
+                screen_terminal.screen.try_read().map(|s| s.snapshot()).unwrap_or_else(|_| {
+                    crate::screen::ScreenSnapshot {
                         lines: vec![],
                         cols: 0,
                         rows: 0,
                         alt_screen: false,
                         cursor: crate::screen::CursorPosition { row: 0, col: 0 },
                         sequence: 0,
-                    })
+                    }
+                })
             });
-        detectors.push(Box::new(
-            crate::driver::claude::screen_detect::ClaudeScreenDetector::new(&config, snapshot_fn),
-        ));
+        detectors.push(Box::new(crate::driver::claude::screen_detect::ClaudeScreenDetector::new(
+            &config,
+            snapshot_fn,
+        )));
         detectors.sort_by_key(|d| d.tier());
     }
 
@@ -258,11 +246,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             error_detail: RwLock::new(None),
             error_category: RwLock::new(None),
         }),
-        channels: TransportChannels {
-            input_tx,
-            output_tx,
-            state_tx,
-        },
+        channels: TransportChannels { input_tx, output_tx, state_tx },
         config: SessionSettings {
             started_at: Instant::now(),
             agent: agent_enum,
@@ -288,9 +272,8 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         info!("HTTP listening on {addr}");
         let sd = shutdown.clone();
         tokio::spawn(async move {
-            let result = axum::serve(listener, router)
-                .with_graceful_shutdown(sd.cancelled_owned())
-                .await;
+            let result =
+                axum::serve(listener, router).with_graceful_shutdown(sd.cancelled_owned()).await;
             if let Err(e) = result {
                 error!("HTTP server error: {e}");
             }
@@ -344,10 +327,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         info!("gRPC listening on {addr}");
         let sd = shutdown.clone();
         tokio::spawn(async move {
-            let result = grpc
-                .into_router()
-                .serve_with_shutdown(addr, sd.cancelled_owned())
-                .await;
+            let result = grpc.into_router().serve_with_shutdown(addr, sd.cancelled_owned()).await;
             if let Err(e) = result {
                 error!("gRPC server error: {e}");
             }
@@ -405,18 +385,11 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             .with_shutdown(shutdown),
     );
 
-    Ok(PreparedSession {
-        app_state,
-        session,
-        config,
-    })
+    Ok(PreparedSession { app_state, session, config })
 }
 
-type DriverComponents = (
-    Option<Arc<dyn NudgeEncoder>>,
-    Option<Arc<dyn RespondEncoder>>,
-    Vec<Box<dyn Detector>>,
-);
+type DriverComponents =
+    (Option<Arc<dyn NudgeEncoder>>, Option<Arc<dyn RespondEncoder>>, Vec<Box<dyn Detector>>);
 
 fn build_driver(
     config: &Config,
@@ -442,11 +415,8 @@ fn build_driver(
             Ok((Some(nudge), Some(respond), detectors))
         }
         AgentType::Gemini => {
-            let driver = GeminiDriver::new(
-                config,
-                gemini_setup.map(|s| s.hook_pipe_path.as_path()),
-                None,
-            )?;
+            let driver =
+                GeminiDriver::new(config, gemini_setup.map(|s| s.hook_pipe_path.as_path()), None)?;
             let nudge: Arc<dyn NudgeEncoder> = Arc::new(driver.nudge);
             let respond: Arc<dyn RespondEncoder> = Arc::new(driver.respond);
             let mut detectors = driver.detectors;

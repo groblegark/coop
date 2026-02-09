@@ -79,20 +79,12 @@ impl Session {
     /// 3. Spawns backend.run() on a separate task
     /// 4. Spawns all detectors
     pub fn new(config: &Config, session: SessionConfig) -> Self {
-        let SessionConfig {
-            mut backend,
-            detectors,
-            app_state,
-            consumer_input_rx,
-            shutdown,
-        } = session;
+        let SessionConfig { mut backend, detectors, app_state, consumer_input_rx, shutdown } =
+            session;
 
         // Set initial PID (Release so signal-delivery loads with Acquire see it)
         if let Some(pid) = backend.child_pid() {
-            app_state
-                .terminal
-                .child_pid
-                .store(pid, std::sync::atomic::Ordering::Release);
+            app_state.terminal.child_pid.store(pid, std::sync::atomic::Ordering::Release);
         }
 
         // Set initial terminal size
@@ -105,9 +97,7 @@ impl Session {
 
         // Spawn backend task
         let backend_handle = tokio::spawn(async move {
-            backend
-                .run(backend_output_tx, backend_input_rx, resize_rx)
-                .await
+            backend.run(backend_output_tx, backend_input_rx, resize_rx).await
         });
 
         // Build and spawn the composite detector (tier resolution + dedup).
@@ -306,11 +296,7 @@ impl Session {
                 let mut screen = self.app_state.terminal.screen.write().await;
                 screen.feed(&bytes);
             }
-            let _ = self
-                .app_state
-                .channels
-                .output_tx
-                .send(OutputEvent::Raw(bytes));
+            let _ = self.app_state.channels.output_tx.send(OutputEvent::Raw(bytes));
         }
 
         // Drop the input sender to signal the backend to stop

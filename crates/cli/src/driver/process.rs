@@ -34,11 +34,7 @@ impl ProcessMonitor {
         child_pid: Arc<dyn Fn() -> Option<u32> + Send + Sync>,
         ring_total_written: Arc<dyn Fn() -> u64 + Send + Sync>,
     ) -> Self {
-        Self {
-            child_pid,
-            ring_total_written,
-            poll_interval: Duration::from_secs(5),
-        }
+        Self { child_pid, ring_total_written, poll_interval: Duration::from_secs(5) }
     }
 
     pub fn with_poll_interval(mut self, interval: Duration) -> Self {
@@ -78,10 +74,7 @@ impl Detector for ProcessMonitor {
                     if !is_process_alive(pid) {
                         let _ = state_tx
                             .send(AgentState::Exited {
-                                status: ExitStatus {
-                                    code: None,
-                                    signal: None,
-                                },
+                                status: ExitStatus { code: None, signal: None },
                             })
                             .await;
                         break;
