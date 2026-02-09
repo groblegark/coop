@@ -18,6 +18,7 @@ use axum::middleware;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use tower_http::cors::CorsLayer;
 
 use crate::driver::{AgentState, NudgeStep, RespondEncoder};
 use crate::error::ErrorCode;
@@ -199,6 +200,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             state.clone(),
             auth::auth_layer,
         ))
+        .layer(CorsLayer::permissive())
         .with_state(state)
 }
 
