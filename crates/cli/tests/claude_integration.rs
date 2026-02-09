@@ -135,3 +135,73 @@ async fn claude_ask_user_session_lifecycle() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn claude_multi_question_session_lifecycle() -> anyhow::Result<()> {
+    expect_claudeless();
+
+    let prepared =
+        run::prepare(claude_config("claude_multi_question.toml", "help me decide")).await?;
+    let mut rx = prepared.app_state.channels.state_tx.subscribe();
+    let shutdown = prepared.app_state.lifecycle.shutdown.clone();
+    let input_tx = prepared.app_state.channels.input_tx.clone();
+    let handle = tokio::spawn(prepared.run());
+
+    // Multi-question is a single dialog with tabs: Q1 → Q2 → Confirm.
+    wait_for(&mut rx, |s| matches!(s, AgentState::AskUser { .. })).await?;
+
+
+    // Answer first question (select option 1).
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    input_tx
+        .send(InputEvent::Write(Bytes::from_static(b"1")))
+        .await?;
+
+    // Answer second question (select option 2).
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    input_tx
+        .send(InputEvent::Write(Bytes::from_static(b"2")))
+        .await?;
+
+    // Confirm.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    input_tx
+        .send(InputEvent::Write(Bytes::from_static(b"\r")))
+        .await?;
+
+    wait_for(&mut rx, |s| matches!(s, AgentState::WaitingForInput)).await?;
+
+    shutdown.cancel();
+    handle.await??;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn claude_plan_mode_session_lifecycle() -> anyhow::Result<()> {
+    expect_claudeless();
+
+    let prepared =
+        run::prepare(claude_config("claude_plan_mode.toml", "plan a feature")).await?;
+    let mut rx = prepared.app_state.channels.state_tx.subscribe();
+    let shutdown = prepared.app_state.lifecycle.shutdown.clone();
+    let input_tx = prepared.app_state.channels.input_tx.clone();
+    let handle = tokio::spawn(prepared.run());
+
+    // EnterPlanMode → Working.
+    wait_for(&mut rx, |s| matches!(s, AgentState::Working)).await?;
+
+    // ExitPlanMode → PlanPrompt (user must approve).
+    wait_for(&mut rx, |s| matches!(s, AgentState::PlanPrompt { .. })).await?;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    input_tx
+        .send(InputEvent::Write(Bytes::from_static(b"1")))
+        .await?;
+
+    wait_for(&mut rx, |s| matches!(s, AgentState::WaitingForInput)).await?;
+
+    shutdown.cancel();
+    handle.await??;
+
+    Ok(())
+}

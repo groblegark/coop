@@ -20,6 +20,8 @@ make try-claudeless SCENARIO=crates/cli/tests/scenarios/claude_ask_user.toml
 
 Opens a browser terminal running coop → claudeless with the given scenario. Useful for debugging hook detection, state transitions, and TUI rendering.
 
+**Important**: You cannot run `try-claudeless` yourself — it opens a browser terminal. When debugging claudeless scenarios (new or failing), ask the human to run `try-claudeless` and report what they see.
+
 ## Code Conventions
 
 - License: BUSL-1.1; every source file needs the SPDX header
