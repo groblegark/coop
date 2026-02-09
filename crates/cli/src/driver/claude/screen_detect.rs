@@ -98,24 +98,39 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<AgentState> {
         return None;
     }
 
-    // Skip interactive dialogs (workspace trust, permission bypass, etc.)
-    // where `❯` is used as a selection cursor rather than the idle prompt.
-    if is_interactive_dialog(&snapshot.lines) {
-        return None;
-    }
-
     // Look for Claude's idle prompt indicator anywhere in the visible lines.
     // Claude Code renders `❯` (U+276F) at the start of its input line.
     // Status text like "ctrl+t to hide tasks" may appear below the prompt,
     // so we scan all non-empty lines rather than only the last.
+    let mut found_idle_prompt = false;
+    let mut prompt_is_selection_cursor = false;
     for line in snapshot.lines.iter().rev() {
         let trimmed = line.trim();
         if !trimmed.is_empty() && trimmed.starts_with('\u{276f}') {
-            return Some(AgentState::WaitingForInput);
+            found_idle_prompt = true;
+            // In selection dialogs, `❯` is followed by a numbered option like
+            // "❯ 1. Yes, I trust this folder". The real idle prompt has either
+            // bare `❯` or `❯ <hint text>` without a leading digit.
+            let after = trimmed.trim_start_matches('\u{276f}').trim_start();
+            if after.starts_with("1.") || after.starts_with("2.") || after.starts_with("3.") {
+                prompt_is_selection_cursor = true;
+            }
+            break;
         }
     }
 
-    None
+    if !found_idle_prompt {
+        return None;
+    }
+
+    // If the prompt looks like a selection cursor, verify against known dialog
+    // screens. Only block idle when both the cursor pattern AND dialog signals
+    // appear in the bottom half of the screen.
+    if prompt_is_selection_cursor && is_interactive_dialog(&snapshot.lines) {
+        return None;
+    }
+
+    Some(AgentState::WaitingForInput)
 }
 
 /// A screen that should block idle detection. Each screen defines 2-3
@@ -162,6 +177,10 @@ const DIALOG_SCREENS: &[DialogScreen] = &[
         ("Esc to cancel", false),
     ],
     // Bypass permissions acceptance: "Bypass Permissions mode" + "Yes, I accept" + "Enter to confirm"
+    // NOTE: These signals persist in the terminal after the dialog is dismissed
+    // (the WARNING text stays at the top). We rely on the selection-cursor
+    // heuristic (❯ N.) in classify_claude_screen instead of full-screen signal
+    // matching to avoid false positives.
     &[("Bypass Permissions mode", false), ("Yes, I accept", false), ("enter to confirm", true)],
 ];
 

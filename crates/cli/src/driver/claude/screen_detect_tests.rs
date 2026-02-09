@@ -121,6 +121,39 @@ fn idle_with_bypass_permissions_status_bar() {
 }
 
 #[test]
+fn idle_with_dismissed_bypass_dialog_still_visible() {
+    // Full terminal after bypass dialog accepted: warning text persists at top,
+    // welcome screen + idle prompt in the middle, status bar at bottom.
+    let snap = snapshot(&[
+        "────────────────────────────────────────",
+        " WARNING: Claude Code running in Bypass Permissions mode",
+        "",
+        " In Bypass Permissions mode, Claude Code will not ask for your",
+        " approval before running potentially dangerous commands.",
+        "",
+        " https://code.claude.com/docs/en/security",
+        "",
+        "   1. No, exit",
+        " \u{276f} 2. Yes, I accept",
+        "",
+        " Enter to confirm \u{00b7} Esc to cancel",
+        "",
+        "\u{256d}\u{2500}\u{2500}\u{2500} Claude Code v2.1.37 \u{2500}\u{2500}\u{2500}",
+        "\u{2502}     Welcome back Matt!",
+        "\u{2570}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+        "  Welcome to Opus 4.6",
+        "────────────────────────────────────────",
+        "\u{276f} Try \"how does <filepath> work?\"",
+        "────────────────────────────────────────",
+        "  \u{23f5}\u{23f5} bypass permissions on (shift+tab to cycle)",
+        "",
+        "",
+        "",
+    ]);
+    assert_eq!(classify_claude_screen(&snap), Some(AgentState::WaitingForInput));
+}
+
+#[test]
 fn detects_prompt_with_status_text_below() {
     let snap = snapshot(&[
         "Claude Code v2.1.37",
