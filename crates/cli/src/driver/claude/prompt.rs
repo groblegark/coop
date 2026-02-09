@@ -196,7 +196,19 @@ fn parse_numbered_option(trimmed: &str) -> Option<(u32, String)> {
         return None;
     }
 
-    Some((num, rest.to_string()))
+    // Strip trailing selection indicators (e.g. " ✔" or " ✓") that Claude
+    // renders after the currently-active option in picker dialogs.
+    let label = rest
+        .trim_end()
+        .trim_end_matches(['✔', '✓'])
+        .trim_end()
+        .to_string();
+
+    if label.is_empty() {
+        return None;
+    }
+
+    Some((num, label))
 }
 
 /// Separator lines are composed entirely of box-drawing characters.

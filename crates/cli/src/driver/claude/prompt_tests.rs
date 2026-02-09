@@ -281,6 +281,20 @@ fn parse_options_empty_screen() {
     assert!(opts.is_empty());
 }
 
+/// Theme picker with trailing checkmark on selected option
+#[test]
+fn parse_options_strips_trailing_checkmark() {
+    let lines = vec![
+        " Choose the text style".into(),
+        " ❯ 1. Dark mode ✔".into(),
+        "   2. Light mode".into(),
+        "   3. Light mode (high contrast)".into(),
+        " Enter to confirm · Esc to exit".into(),
+    ];
+    let opts = parse_options_from_screen(&lines);
+    assert_eq!(opts, vec!["Dark mode", "Light mode", "Light mode (high contrast)"]);
+}
+
 #[test]
 fn parse_options_no_match() {
     let lines = vec!["Working on your task...".into(), "Reading files".into()];
