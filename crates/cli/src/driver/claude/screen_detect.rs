@@ -166,6 +166,12 @@ const DIALOG_SCREENS: &[DialogScreen] = &[
         ("Dark mode", false),
         ("enter to confirm", true),
     ],
+    // Tool permission: "Do you want to proceed?" + "Yes, and don't ask again" + "Esc to cancel"
+    &[
+        ("Do you want to proceed?", false),
+        ("Yes, and don't ask again", false),
+        ("Esc to cancel", false),
+    ],
 ];
 
 /// Minimum number of signals that must match to identify a dialog screen.

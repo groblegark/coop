@@ -86,6 +86,24 @@ fn no_match_on_theme_picker() {
 }
 
 #[test]
+fn no_match_on_tool_permission_dialog() {
+    let snap = snapshot(&[
+        " Bash command",
+        "",
+        "   coop send '{\"status\":\"done\",\"message\":\"Said goodbye as requested.\"}'",
+        "   Signal done to coop stop hook",
+        "",
+        " Do you want to proceed?",
+        " \u{276f} 1. Yes",
+        "   2. Yes, and don't ask again for coop send commands in /Users/kestred/Developer/coop",
+        "   3. No",
+        "",
+        " Esc to cancel \u{00b7} Tab to amend \u{00b7} ctrl+e to explain",
+    ]);
+    assert_eq!(classify_claude_screen(&snap), None);
+}
+
+#[test]
 fn detects_prompt_with_status_text_below() {
     let snap = snapshot(&[
         "Claude Code v2.1.37",
