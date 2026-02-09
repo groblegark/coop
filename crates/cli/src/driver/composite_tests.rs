@@ -8,7 +8,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::{AgentState, CompositeDetector, DetectedState, ExitStatus};
+use super::{AgentState, CompositeDetector, DetectedState, ExitStatus, PromptContext};
 use crate::driver::grace::IdleGraceTimer;
 use crate::test_support::MockDetector;
 
@@ -276,6 +276,63 @@ async fn dedup_suppresses_identical() -> anyhow::Result<()> {
     assert_eq!(
         working_count, 1,
         "duplicate state should be suppressed: {results:?}"
+    );
+    Ok(())
+}
+
+fn empty_prompt(prompt_type: &str) -> PromptContext {
+    PromptContext {
+        prompt_type: prompt_type.to_string(),
+        tool: None,
+        input_preview: None,
+        screen_lines: vec![],
+        questions: vec![],
+        question_current: 0,
+    }
+}
+
+/// Regression: Claude fires both `PreToolUse(ExitPlanMode)` → PlanPrompt and
+/// `Notification(permission_prompt)` → PermissionPrompt for the same user-facing
+/// plan approval moment. When the permission notification arrives after the
+/// PreToolUse event, the composite detector must not let the generic
+/// `PermissionPrompt` overwrite the more specific `PlanPrompt`.
+#[tokio::test]
+async fn plan_prompt_not_overwritten_by_permission_prompt() -> anyhow::Result<()> {
+    // Simulate tier 1 emitting PlanPrompt then PermissionPrompt in quick succession.
+    let detectors: Vec<Box<dyn super::Detector>> = vec![Box::new(MockDetector::new(
+        1,
+        vec![
+            (
+                Duration::from_millis(50),
+                AgentState::PlanPrompt {
+                    prompt: empty_prompt("plan"),
+                },
+            ),
+            (
+                Duration::from_millis(10),
+                AgentState::PermissionPrompt {
+                    prompt: empty_prompt("permission"),
+                },
+            ),
+        ],
+    ))];
+
+    let results = run_composite(
+        detectors,
+        Duration::from_secs(60),
+        Arc::new(AtomicU64::new(0)),
+        Duration::from_millis(300),
+    )
+    .await?;
+
+    // The final settled state should be PlanPrompt, not PermissionPrompt.
+    let last = results
+        .last()
+        .expect("expected at least one state emission");
+    assert!(
+        matches!(last.state, AgentState::PlanPrompt { .. }),
+        "expected final state to be PlanPrompt, got {:?}",
+        last.state,
     );
     Ok(())
 }

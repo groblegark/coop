@@ -258,7 +258,16 @@ impl CompositeDetector {
 
                     // State changed.
                     if tier <= current_tier {
-                        // Same or higher confidence → accept immediately.
+                        // Same or higher confidence → accept immediately,
+                        // UNLESS a generic PermissionPrompt would overwrite
+                        // a more specific PlanPrompt or Question from the
+                        // same tier (Claude fires both notification and
+                        // pre_tool_use hooks for the same prompt moment).
+                        if tier == current_tier
+                            && prompt_supersedes(&current_state, &new_state)
+                        {
+                            continue;
+                        }
                         self.grace_timer.cancel();
                         grace_proposed = None;
                         set_grace_deadline(&grace_deadline, None);
@@ -315,6 +324,21 @@ impl CompositeDetector {
 /// Returns `true` for states that represent an idle / waiting agent.
 fn is_idle_state(state: &AgentState) -> bool {
     matches!(state, AgentState::WaitingForInput)
+}
+
+/// Returns `true` when `current` is a specific prompt state that should not
+/// be overwritten by the more generic `incoming` prompt from the same tier.
+///
+/// `PlanPrompt` and `Question` carry richer context than `PermissionPrompt`.
+/// When the agent fires both a specific pre-tool-use event and a generic
+/// permission notification for the same user-facing moment, the specific
+/// state should stick.
+fn prompt_supersedes(current: &AgentState, incoming: &AgentState) -> bool {
+    matches!(incoming, AgentState::PermissionPrompt { .. })
+        && matches!(
+            current,
+            AgentState::PlanPrompt { .. } | AgentState::Question { .. }
+        )
 }
 
 fn set_grace_deadline(
