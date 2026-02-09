@@ -44,22 +44,15 @@ impl NatsConfig {
             .or_else(discover_nats_token)
             .filter(|t| !t.is_empty());
 
-        let stream = std::env::var("COOP_NATS_STREAM")
-            .unwrap_or_else(|_| "HOOK_EVENTS".to_string());
+        let stream =
+            std::env::var("COOP_NATS_STREAM").unwrap_or_else(|_| "HOOK_EVENTS".to_string());
 
-        let subject = std::env::var("COOP_NATS_SUBJECT")
-            .unwrap_or_else(|_| "hooks.>".to_string());
+        let subject = std::env::var("COOP_NATS_SUBJECT").unwrap_or_else(|_| "hooks.>".to_string());
 
         let consumer = std::env::var("COOP_NATS_CONSUMER")
             .unwrap_or_else(|_| format!("coop-{}", uuid::Uuid::new_v4()));
 
-        Some(Self {
-            url,
-            token,
-            stream,
-            subject,
-            consumer,
-        })
+        Some(Self { url, token, stream, subject, consumer })
     }
 }
 
@@ -122,10 +115,7 @@ struct NatsHookPayload {
 
 impl NatsReceiver {
     pub fn new(config: NatsConfig) -> Self {
-        Self {
-            config,
-            messages: None,
-        }
+        Self { config, messages: None }
     }
 
     /// Connect to NATS and create a JetStream pull consumer.
@@ -219,10 +209,7 @@ pub fn parse_nats_payload(payload: &[u8]) -> Option<HookEvent> {
         }
         "PreToolUse" => {
             let tool = raw.tool_name?;
-            Some(HookEvent::PreToolUse {
-                tool,
-                tool_input: raw.tool_input,
-            })
+            Some(HookEvent::PreToolUse { tool, tool_input: raw.tool_input })
         }
         // Events we receive but don't map to HookEvent:
         // SessionStart, UserPromptSubmit, PreCompact, SubagentStart, SubagentStop,

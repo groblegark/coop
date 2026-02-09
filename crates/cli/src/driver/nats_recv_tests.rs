@@ -7,14 +7,10 @@ use super::parse_nats_payload;
 
 #[test]
 fn parses_post_tool_use() {
-    let payload = br#"{"hook_event_name":"PostToolUse","tool_name":"Bash","session_id":"abc","cwd":"/tmp"}"#;
+    let payload =
+        br#"{"hook_event_name":"PostToolUse","tool_name":"Bash","session_id":"abc","cwd":"/tmp"}"#;
     let event = parse_nats_payload(payload);
-    assert_eq!(
-        event,
-        Some(HookEvent::ToolComplete {
-            tool: "Bash".to_string()
-        })
-    );
+    assert_eq!(event, Some(HookEvent::ToolComplete { tool: "Bash".to_string() }));
 }
 
 #[test]
@@ -38,9 +34,7 @@ fn parses_notification() {
     let event = parse_nats_payload(payload);
     assert_eq!(
         event,
-        Some(HookEvent::Notification {
-            notification_type: "idle_prompt".to_string()
-        })
+        Some(HookEvent::Notification { notification_type: "idle_prompt".to_string() })
     );
 }
 
@@ -51,9 +45,7 @@ fn parses_notification_permission_prompt() {
     let event = parse_nats_payload(payload);
     assert_eq!(
         event,
-        Some(HookEvent::Notification {
-            notification_type: "permission_prompt".to_string()
-        })
+        Some(HookEvent::Notification { notification_type: "permission_prompt".to_string() })
     );
 }
 
@@ -127,10 +119,5 @@ fn handles_extra_fields_gracefully() {
 fn post_tool_use_missing_tool_name_uses_empty() {
     let payload = br#"{"hook_event_name":"PostToolUse","session_id":"abc"}"#;
     let event = parse_nats_payload(payload);
-    assert_eq!(
-        event,
-        Some(HookEvent::ToolComplete {
-            tool: String::new()
-        })
-    );
+    assert_eq!(event, Some(HookEvent::ToolComplete { tool: String::new() }));
 }

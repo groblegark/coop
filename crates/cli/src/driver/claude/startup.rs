@@ -8,6 +8,8 @@
 //! `WaitingForInput` state. In headless/orchestrated mode these must be
 //! auto-handled.
 
+use std::time::Duration;
+
 use crate::driver::NudgeStep;
 
 /// Known startup prompts that Claude Code may present.
@@ -47,11 +49,12 @@ pub fn detect_startup_prompt(screen_lines: &[String]) -> Option<StartupPrompt> {
         return Some(StartupPrompt::WorkspaceTrust);
     }
 
-    // Permission bypass prompt
+    // Permission bypass prompt — must match the actual startup dialog, not the
+    // status bar indicator ("bypass permissions on") shown after acceptance.
     if lower.contains("skip permissions")
         || lower.contains("dangerously-skip-permissions")
         || lower.contains("allow tool use without prompting")
-        || lower.contains("bypass permissions")
+        || (lower.contains("bypass permissions") && !lower.contains("bypass permissions on"))
     {
         return Some(StartupPrompt::BypassPermissions);
     }
@@ -77,8 +80,15 @@ pub fn encode_startup_response(prompt: StartupPrompt) -> Vec<NudgeStep> {
             vec![NudgeStep { bytes: b"y\r".to_vec(), delay_after: None }]
         }
         StartupPrompt::BypassPermissions => {
-            // Accept permission bypass: press 'y' + enter
-            vec![NudgeStep { bytes: b"y\r".to_vec(), delay_after: None }]
+            // Accept permission bypass: press down-arrow to select "Yes, I accept",
+            // then enter to confirm. The dialog uses a select menu, not y/n.
+            vec![
+                NudgeStep {
+                    bytes: b"\x1b[B".to_vec(),
+                    delay_after: Some(Duration::from_millis(100)),
+                },
+                NudgeStep { bytes: b"\r".to_vec(), delay_after: None },
+            ]
         }
         StartupPrompt::LoginRequired => {
             // Nothing we can auto-handle for login; return empty to let it

@@ -42,10 +42,8 @@ fn statusline_no_statusline_flag() {
 
 #[test]
 fn statusline_cmd_space_separated() {
-    let cfg = StatuslineConfig::from_args(&[
-        "--statusline-cmd".to_string(),
-        "echo hello".to_string(),
-    ]);
+    let cfg =
+        StatuslineConfig::from_args(&["--statusline-cmd".to_string(), "echo hello".to_string()]);
     assert_eq!(cfg.cmd.as_deref(), Some("echo hello"));
 }
 
@@ -57,10 +55,7 @@ fn statusline_cmd_equals_syntax() {
 
 #[test]
 fn statusline_interval_override() {
-    let cfg = StatuslineConfig::from_args(&[
-        "--statusline-interval".to_string(),
-        "10".to_string(),
-    ]);
+    let cfg = StatuslineConfig::from_args(&["--statusline-interval".to_string(), "10".to_string()]);
     assert_eq!(cfg.interval, Duration::from_secs(10));
 }
 

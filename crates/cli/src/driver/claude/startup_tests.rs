@@ -55,6 +55,18 @@ fn no_prompt_on_normal_output() {
 }
 
 #[test]
+fn no_prompt_on_status_bar_bypass_indicator() {
+    // After accepting bypass permissions, the status bar shows "bypass permissions on".
+    // This should NOT be detected as a startup prompt.
+    let lines = vec![
+        "\u{276f} Try \"refactor <filepath>\"".to_owned(),
+        "──────────────────────────────────────────".to_owned(),
+        "  \u{23f5}\u{23f5} bypass permissions on (shift+tab to cycle)".to_owned(),
+    ];
+    assert_eq!(detect_startup_prompt(&lines), None);
+}
+
+#[test]
 fn encode_workspace_trust_response() {
     let steps = encode_startup_response(StartupPrompt::WorkspaceTrust);
     assert_eq!(steps.len(), 1);
@@ -65,8 +77,12 @@ fn encode_workspace_trust_response() {
 #[test]
 fn encode_bypass_permissions_response() {
     let steps = encode_startup_response(StartupPrompt::BypassPermissions);
-    assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"y\r");
+    assert_eq!(steps.len(), 2);
+    // Down arrow to select "Yes, I accept"
+    assert_eq!(steps[0].bytes, b"\x1b[B");
+    assert!(steps[0].delay_after.is_some());
+    // Enter to confirm
+    assert_eq!(steps[1].bytes, b"\r");
 }
 
 #[test]

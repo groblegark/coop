@@ -161,6 +161,8 @@ const DIALOG_SCREENS: &[DialogScreen] = &[
         ("Yes, and don't ask again", false),
         ("Esc to cancel", false),
     ],
+    // Bypass permissions acceptance: "Bypass Permissions mode" + "Yes, I accept" + "Enter to confirm"
+    &[("Bypass Permissions mode", false), ("Yes, I accept", false), ("enter to confirm", true)],
 ];
 
 /// Minimum number of signals that must match to identify a dialog screen.

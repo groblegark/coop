@@ -109,11 +109,7 @@ impl StatuslineConfig {
             .and_then(|s| s.parse().ok())
             .unwrap_or(DEFAULT_STATUSLINE_INTERVAL);
 
-        Self {
-            cmd,
-            interval: Duration::from_secs(interval_secs),
-            enabled: !no_statusline,
-        }
+        Self { cmd, interval: Duration::from_secs(interval_secs), enabled: !no_statusline }
     }
 }
 
@@ -141,12 +137,7 @@ struct AttachState {
 
 impl AttachState {
     fn new(cols: u16, rows: u16) -> Self {
-        Self {
-            agent_state: "unknown".to_owned(),
-            cols,
-            rows,
-            started: Instant::now(),
-        }
+        Self { agent_state: "unknown".to_owned(), cols, rows, started: Instant::now() }
     }
 
     fn uptime_secs(&self) -> u64 {
@@ -201,12 +192,7 @@ fn borrow_fd(fd: i32) -> BorrowedFd<'static> {
 
 fn terminal_size() -> Option<(u16, u16)> {
     let fd = std::io::stdout().as_raw_fd();
-    let mut ws = nix::libc::winsize {
-        ws_row: 0,
-        ws_col: 0,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
-    };
+    let mut ws = nix::libc::winsize { ws_row: 0, ws_col: 0, ws_xpixel: 0, ws_ypixel: 0 };
     // SAFETY: TIOCGWINSZ ioctl reads terminal size into a winsize struct.
     #[allow(unsafe_code)]
     let ret = unsafe { nix::libc::ioctl(fd, nix::libc::TIOCGWINSZ, &mut ws) };
@@ -236,18 +222,9 @@ fn reset_scroll_region(stdout: &mut std::io::Stdout) {
 }
 
 /// Render the statusline on the bottom row of the terminal.
-fn render_statusline(
-    stdout: &mut std::io::Stdout,
-    content: &str,
-    cols: u16,
-    rows: u16,
-) {
+fn render_statusline(stdout: &mut std::io::Stdout, content: &str, cols: u16, rows: u16) {
     // Save cursor, move to last row col 1, clear line, write content, restore.
-    let truncated = if content.len() > cols as usize {
-        &content[..cols as usize]
-    } else {
-        content
-    };
+    let truncated = if content.len() > cols as usize { &content[..cols as usize] } else { content };
     // Pad to full width to clear any previous content.
     let _ = write!(
         stdout,
@@ -284,9 +261,7 @@ fn run_statusline_cmd(cmd: &str, state: &AttachState) -> String {
         .output();
 
     match output {
-        Ok(out) if out.status.success() => {
-            String::from_utf8_lossy(&out.stdout).trim().to_owned()
-        }
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_owned(),
         _ => format!(" [coop] statusline cmd failed: {cmd}"),
     }
 }
@@ -335,10 +310,7 @@ pub fn run(args: &[String]) -> i32 {
     let auth_token = std::env::var("COOP_AUTH_TOKEN").ok();
 
     // Build a single-threaded tokio runtime.
-    let rt = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
+    let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(rt) => rt,
         Err(e) => {
             eprintln!("error: failed to create runtime: {e}");
@@ -346,22 +318,14 @@ pub fn run(args: &[String]) -> i32 {
         }
     };
 
-    rt.block_on(attach_inner(
-        &coop_url,
-        auth_token.as_deref(),
-        &statusline_cfg,
-    ))
+    rt.block_on(attach_inner(&coop_url, auth_token.as_deref(), &statusline_cfg))
 }
 
 // ---------------------------------------------------------------------------
 // Async core
 // ---------------------------------------------------------------------------
 
-async fn attach_inner(
-    coop_url: &str,
-    auth_token: Option<&str>,
-    sl_cfg: &StatuslineConfig,
-) -> i32 {
+async fn attach_inner(coop_url: &str, auth_token: Option<&str>, sl_cfg: &StatuslineConfig) -> i32 {
     // Convert HTTP URL to WebSocket URL.
     // Use mode=all when statusline is enabled so we get state_change events.
     let mode = if sl_cfg.enabled { "all" } else { "raw" };
@@ -618,7 +582,7 @@ where
     S: SinkExt<tokio_tungstenite::tungstenite::Message> + Unpin,
 {
     let text = serde_json::to_string(msg).map_err(|e| e.to_string())?;
-    tx.send(tokio_tungstenite::tungstenite::Message::Text(text.into()))
+    tx.send(tokio_tungstenite::tungstenite::Message::Text(text))
         .await
         .map_err(|_| "WebSocket send failed".to_owned())
 }

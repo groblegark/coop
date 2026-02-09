@@ -93,6 +93,34 @@ fn no_idle_on_tool_permission_dialog() {
 }
 
 #[test]
+fn no_idle_on_bypass_permissions_dialog() {
+    let snap = snapshot(&[
+        " WARNING: Claude Code running in Bypass Permissions mode",
+        "",
+        " In Bypass Permissions mode, Claude Code will not ask for your",
+        " approval before running potentially dangerous commands.",
+        "",
+        " \u{276f} 1. No, exit",
+        "   2. Yes, I accept",
+        "",
+        " Enter to confirm \u{00b7} Esc to cancel",
+    ]);
+    assert_eq!(classify_claude_screen(&snap), None);
+}
+
+#[test]
+fn idle_with_bypass_permissions_status_bar() {
+    // After accepting bypass permissions, the status bar shows the indicator.
+    // The idle prompt should still be detected.
+    let snap = snapshot(&[
+        "\u{276f} Try \"refactor <filepath>\"",
+        "────────────────────────────────",
+        "  \u{23f5}\u{23f5} bypass permissions on (shift+tab to cycle)",
+    ]);
+    assert_eq!(classify_claude_screen(&snap), Some(AgentState::WaitingForInput));
+}
+
+#[test]
 fn detects_prompt_with_status_text_below() {
     let snap = snapshot(&[
         "Claude Code v2.1.37",
