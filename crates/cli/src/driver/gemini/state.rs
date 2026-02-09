@@ -5,6 +5,15 @@ use serde_json::Value;
 
 use crate::driver::AgentState;
 
+/// Extract a semantic cause string from a Gemini stream-json JSONL event.
+pub fn format_gemini_cause(json: &Value) -> String {
+    match json.get("type").and_then(|v| v.as_str()) {
+        Some("result") => "stdout:idle".to_owned(),
+        Some("error") => "stdout:error".to_owned(),
+        _ => "stdout:working".to_owned(),
+    }
+}
+
 /// Parse a Gemini stream-json JSONL event into an [`AgentState`].
 ///
 /// Handles the event types from `--output-format stream-json`:

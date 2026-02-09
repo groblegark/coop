@@ -188,6 +188,7 @@ async fn ws_subscription_mode_state() -> anyhow::Result<()> {
         prev: AgentState::Starting,
         next: AgentState::Working,
         seq: 1,
+        cause: String::new(),
     });
 
     // Should receive StateChange
@@ -288,6 +289,7 @@ async fn ws_concurrent_readers() -> anyhow::Result<()> {
         prev: AgentState::Starting,
         next: AgentState::Working,
         seq: 1,
+        cause: String::new(),
     });
 
     // All 5 should receive the state change

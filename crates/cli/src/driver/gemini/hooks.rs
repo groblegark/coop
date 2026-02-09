@@ -9,9 +9,10 @@ use serde_json::{json, Value};
 ///
 /// Gemini hooks receive JSON on stdin and must output JSON on stdout.
 /// The hooks read stdin, wrap it, and write to the named pipe at `$COOP_HOOK_PIPE`:
-/// - `BeforeTool`: fires before each tool call for permission detection
+/// - `BeforeAgent`: fires at the start of each turn (after user prompt)
+/// - `BeforeTool`: fires before each tool call
 /// - `AfterTool`: fires after each tool call, includes tool name and result
-/// - `AfterAgent`: fires when the agent wants to stop; curls gating endpoint
+/// - `AfterAgent`: fires after each turn; curls gating endpoint
 /// - `SessionEnd`: fires when the session ends
 /// - `Notification`: fires on system notifications (e.g. `ToolPermission`)
 pub fn generate_hook_config(pipe_path: &Path) -> Value {
@@ -33,29 +34,36 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
 
     json!({
         "hooks": {
+            "BeforeAgent": [{
+                "matcher": "*",
+                "hooks": [{
+                    "type": "command",
+                    "command": "input=$(cat); printf '{\"event\":\"before_agent\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
+                }]
+            }],
             "BeforeTool": [{
-                "matcher": "",
+                "matcher": "*",
                 "hooks": [{
                     "type": "command",
                     "command": "input=$(cat); printf '{\"event\":\"pre_tool_use\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
                 }]
             }],
             "AfterTool": [{
-                "matcher": "",
+                "matcher": "*",
                 "hooks": [{
                     "type": "command",
                     "command": "input=$(cat); printf '{\"event\":\"after_tool\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
                 }]
             }],
             "AfterAgent": [{
-                "matcher": "",
+                "matcher": "*",
                 "hooks": [{
                     "type": "command",
                     "command": after_agent_command
                 }]
             }],
             "SessionEnd": [{
-                "matcher": "",
+                "matcher": "*",
                 "hooks": [{
                     "type": "command",
                     "command": "cat > /dev/null; echo '{\"event\":\"session_end\"}' > \"$COOP_HOOK_PIPE\""

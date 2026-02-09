@@ -530,6 +530,7 @@ function logEvent(msg) {
   switch (type) {
     case 'state_change':
       detail = `${msg.prev} -> ${msg.next}`;
+      if (msg.cause) detail += ` [${msg.cause}]`;
       if (msg.error_detail) detail += ` (${msg.error_category || 'error'})`;
       break;
     case 'exit':

@@ -325,4 +325,6 @@ message AgentStateEvent {
   optional string error_detail = 5;
   // Error classification (when next is "error").
   optional string error_category = 6;
+  // What caused this transition (e.g. "hook:idle", "log:tool(Bash)").
+  optional string cause = 7;
 }

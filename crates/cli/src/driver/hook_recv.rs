@@ -141,6 +141,7 @@ fn parse_hook_line(line: &str) -> Option<HookEvent> {
                 .to_string();
             Some(HookEvent::ToolComplete { tool })
         }
+        "before_agent" => Some(HookEvent::AgentStart),
         "stop" => Some(HookEvent::AgentStop),
         "session_end" => Some(HookEvent::SessionEnd),
         "notification" => {

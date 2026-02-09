@@ -107,6 +107,7 @@ impl AppStateBuilder {
                 agent_state: RwLock::new(self.agent_state),
                 state_seq: AtomicU64::new(0),
                 detection_tier: AtomicU8::new(u8::MAX),
+                detection_cause: RwLock::new(String::new()),
                 error_detail: RwLock::new(None),
                 error_category: RwLock::new(None),
             }),
@@ -272,7 +273,7 @@ impl MockDetector {
 impl Detector for MockDetector {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<AgentState>,
+        state_tx: mpsc::Sender<(AgentState, String)>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -280,7 +281,7 @@ impl Detector for MockDetector {
                 tokio::select! {
                     _ = shutdown.cancelled() => return,
                     _ = tokio::time::sleep(delay) => {
-                        if state_tx.send(state).await.is_err() {
+                        if state_tx.send((state, String::new())).await.is_err() {
                             return;
                         }
                     }

@@ -46,7 +46,7 @@ impl ClaudeScreenDetector {
 impl Detector for ClaudeScreenDetector {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<AgentState>,
+        state_tx: mpsc::Sender<(AgentState, String)>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -74,7 +74,7 @@ impl Detector for ClaudeScreenDetector {
 
                 if let Some(ref state) = new_state {
                     if last_state.as_ref() != Some(state) {
-                        let _ = state_tx.send(state.clone()).await;
+                        let _ = state_tx.send((state.clone(), "screen:idle".to_owned())).await;
                         last_state = new_state;
                     }
                 } else if last_state.is_some() {

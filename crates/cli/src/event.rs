@@ -20,6 +20,7 @@ pub struct StateChangeEvent {
     pub prev: AgentState,
     pub next: AgentState,
     pub seq: u64,
+    pub cause: String,
 }
 
 /// Input sent to the child process through the PTY.
@@ -92,6 +93,7 @@ impl PtySignal {
 /// Lifecycle events for hook integrations.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum HookEvent {
+    AgentStart,
     ToolComplete { tool: String },
     AgentStop,
     SessionEnd,

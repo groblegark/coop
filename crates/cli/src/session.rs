@@ -223,11 +223,13 @@ impl Session {
                         // Store metadata for the HTTP/gRPC API.
                         self.app_state.driver.state_seq.store(state_seq, std::sync::atomic::Ordering::Relaxed);
                         self.app_state.driver.detection_tier.store(detected.tier, std::sync::atomic::Ordering::Relaxed);
+                        *self.app_state.driver.detection_cause.write().await = detected.cause.clone();
 
                         let _ = self.app_state.channels.state_tx.send(StateChangeEvent {
                             prev,
                             next: detected.state.clone(),
                             seq: state_seq,
+                            cause: detected.cause,
                         });
 
                         // Track idle time for idle_timeout.
@@ -347,6 +349,7 @@ impl Session {
             prev,
             next: AgentState::Exited { status },
             seq: state_seq,
+            cause: String::new(),
         });
 
         Ok(status)

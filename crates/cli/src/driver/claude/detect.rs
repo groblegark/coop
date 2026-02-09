@@ -17,7 +17,7 @@ use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
 use crate::event::HookEvent;
 
 use super::prompt::extract_ask_user_from_tool_input;
-use super::state::parse_claude_state;
+use super::state::{format_claude_cause, parse_claude_state};
 
 /// Tier 1 detector: receives push events from Claude's hook system.
 ///
@@ -36,7 +36,7 @@ pub struct HookDetector {
 impl Detector for HookDetector {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<AgentState>,
+        state_tx: mpsc::Sender<(AgentState, String)>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -45,17 +45,17 @@ impl Detector for HookDetector {
                 tokio::select! {
                     _ = shutdown.cancelled() => break,
                     event = receiver.next_event() => {
-                        let state = match event {
+                        let (state, cause) = match event {
                             Some(HookEvent::AgentStop) | Some(HookEvent::SessionEnd) => {
-                                AgentState::WaitingForInput
+                                (AgentState::WaitingForInput, "hook:idle".to_owned())
                             }
                             Some(HookEvent::ToolComplete { .. }) => {
-                                AgentState::Working
+                                (AgentState::Working, "hook:working".to_owned())
                             }
                             Some(HookEvent::Notification { notification_type }) => {
                                 match notification_type.as_str() {
-                                    "idle_prompt" => AgentState::WaitingForInput,
-                                    "permission_prompt" => AgentState::Prompt {
+                                    "idle_prompt" => (AgentState::WaitingForInput, "hook:idle".to_owned()),
+                                    "permission_prompt" => (AgentState::Prompt {
                                         prompt: PromptContext {
                                             kind: PromptKind::Permission,
                                             tool: None,
@@ -64,16 +64,16 @@ impl Detector for HookDetector {
                                             questions: vec![],
                                             question_current: 0,
                                         },
-                                    },
+                                    }, "hook:prompt(permission)".to_owned()),
                                     _ => continue,
                                 }
                             }
                             Some(HookEvent::PreToolUse { ref tool, ref tool_input }) => {
                                 match tool.as_str() {
-                                    "AskUserQuestion" => AgentState::Prompt {
+                                    "AskUserQuestion" => (AgentState::Prompt {
                                         prompt: extract_ask_user_from_tool_input(tool_input.as_ref()),
-                                    },
-                                    "ExitPlanMode" => AgentState::Prompt {
+                                    }, "hook:prompt(question)".to_owned()),
+                                    "ExitPlanMode" => (AgentState::Prompt {
                                         prompt: PromptContext {
                                             kind: PromptKind::Plan,
                                             tool: None,
@@ -82,14 +82,15 @@ impl Detector for HookDetector {
                                             questions: vec![],
                                             question_current: 0,
                                         },
-                                    },
-                                    "EnterPlanMode" => AgentState::Working,
+                                    }, "hook:prompt(plan)".to_owned()),
+                                    "EnterPlanMode" => (AgentState::Working, "hook:working".to_owned()),
                                     _ => continue,
                                 }
                             }
+                            Some(_) => continue,
                             None => break,
                         };
-                        let _ = state_tx.send(state).await;
+                        let _ = state_tx.send((state, cause)).await;
                     }
                 }
             }
@@ -116,7 +117,7 @@ pub struct LogDetector {
 impl Detector for LogDetector {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<AgentState>,
+        state_tx: mpsc::Sender<(AgentState, String)>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -142,7 +143,8 @@ impl Detector for LogDetector {
                                 for line in &lines {
                                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
                                         if let Some(state) = parse_claude_state(&json) {
-                                            let _ = state_tx.send(state).await;
+                                            let cause = format_claude_cause(&json, "log");
+                                            let _ = state_tx.send((state, cause)).await;
                                         }
                                     }
                                 }
@@ -172,7 +174,7 @@ pub struct StdoutDetector {
 impl Detector for StdoutDetector {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<AgentState>,
+        state_tx: mpsc::Sender<(AgentState, String)>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -187,7 +189,8 @@ impl Detector for StdoutDetector {
                             Some(bytes) => {
                                 for json in parser.feed(&bytes) {
                                     if let Some(state) = parse_claude_state(&json) {
-                                        let _ = state_tx.send(state).await;
+                                        let cause = format_claude_cause(&json, "stdout");
+                                        let _ = state_tx.send((state, cause)).await;
                                     }
                                 }
                             }

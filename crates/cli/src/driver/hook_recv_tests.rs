@@ -14,6 +14,14 @@ fn parses_tool_complete_event() {
 }
 
 #[test]
+fn parses_before_agent_event() {
+    let event = parse_hook_line(
+        r#"{"event":"before_agent","data":{"prompt":"Fix the bug","hook_event_name":"BeforeAgent"}}"#,
+    );
+    assert_eq!(event, Some(HookEvent::AgentStart));
+}
+
+#[test]
 fn parses_stop_event() {
     let event = parse_hook_line(
         r#"{"event":"stop","data":{"hook_event_name":"Stop","stop_hook_active":false}}"#,

@@ -124,7 +124,7 @@ impl ScreenParser {
 impl Detector for ScreenParser {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<AgentState>,
+        state_tx: mpsc::Sender<(AgentState, String)>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -142,7 +142,13 @@ impl Detector for ScreenParser {
 
                 if let Some(ref state) = new_state {
                     if last_state.as_ref() != Some(state) {
-                        let _ = state_tx.send(state.clone()).await;
+                        let cause = match state {
+                            AgentState::WaitingForInput => "screen:idle",
+                            AgentState::Working => "screen:working",
+                            AgentState::Error { .. } => "screen:error",
+                            _ => "screen:idle",
+                        };
+                        let _ = state_tx.send((state.clone(), cause.to_owned())).await;
                         last_state = new_state;
                     }
                 } else if last_state.is_some() {

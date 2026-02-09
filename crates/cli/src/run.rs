@@ -243,6 +243,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             agent_state: RwLock::new(AgentState::Starting),
             state_seq: AtomicU64::new(0),
             detection_tier: AtomicU8::new(u8::MAX),
+            detection_cause: RwLock::new(String::new()),
             error_detail: RwLock::new(None),
             error_category: RwLock::new(None),
         }),

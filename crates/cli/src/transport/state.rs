@@ -61,6 +61,8 @@ pub struct DriverState {
     pub agent_state: RwLock<AgentState>,
     pub state_seq: AtomicU64,
     pub detection_tier: AtomicU8,
+    /// Freeform cause string from the detector that produced the current state.
+    pub detection_cause: RwLock<String>,
     /// Error detail string when agent is in `Error` state, `None` otherwise.
     pub error_detail: RwLock<Option<String>>,
     /// Classified error category when agent is in `Error` state, `None` otherwise.

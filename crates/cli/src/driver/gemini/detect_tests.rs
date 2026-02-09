@@ -36,7 +36,7 @@ async fn stdout_detector_parses_gemini_stream_json() -> anyhow::Result<()> {
     let _ = handle.await;
 
     match state {
-        Ok(Some(AgentState::Working)) => {}
+        Ok(Some((AgentState::Working, _cause))) => {}
         other => anyhow::bail!("expected Working, got {other:?}"),
     }
     Ok(())
@@ -67,7 +67,7 @@ async fn stdout_detector_detects_result_as_idle() -> anyhow::Result<()> {
     let _ = handle.await;
 
     match state {
-        Ok(Some(AgentState::WaitingForInput)) => {}
+        Ok(Some((AgentState::WaitingForInput, _cause))) => {}
         other => anyhow::bail!("expected WaitingForInput, got {other:?}"),
     }
     Ok(())
@@ -110,7 +110,7 @@ async fn run_hook_detector(events: Vec<&str>) -> anyhow::Result<Vec<AgentState>>
 
     let mut states = Vec::new();
     let timeout = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        while let Some(state) = state_rx.recv().await {
+        while let Some((state, _cause)) = state_rx.recv().await {
             states.push(state);
             if states.len() >= expected_count {
                 break;
@@ -126,6 +126,17 @@ async fn run_hook_detector(events: Vec<&str>) -> anyhow::Result<Vec<AgentState>>
         anyhow::bail!("timed out waiting for states");
     }
     Ok(states)
+}
+
+#[tokio::test]
+async fn hook_detector_before_agent() -> anyhow::Result<()> {
+    let states =
+        run_hook_detector(vec![r#"{"event":"before_agent","data":{"prompt":"Fix the bug"}}"#])
+            .await?;
+
+    assert_eq!(states.len(), 1);
+    assert!(matches!(states[0], AgentState::Working));
+    Ok(())
 }
 
 #[tokio::test]
@@ -165,18 +176,13 @@ async fn hook_detector_notification_tool_permission() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn hook_detector_pre_tool_use_maps_to_permission() -> anyhow::Result<()> {
+async fn hook_detector_pre_tool_use_maps_to_working() -> anyhow::Result<()> {
     let states = run_hook_detector(vec![
         r#"{"event":"pre_tool_use","data":{"tool_name":"Bash","tool_input":{"command":"ls"}}}"#,
     ])
     .await?;
 
     assert_eq!(states.len(), 1);
-    assert!(matches!(states[0], AgentState::Prompt { .. }));
-    if let AgentState::Prompt { prompt } = &states[0] {
-        assert_eq!(prompt.kind, crate::driver::PromptKind::Permission);
-        assert_eq!(prompt.tool.as_deref(), Some("Bash"));
-        assert!(prompt.input_preview.is_some());
-    }
+    assert!(matches!(states[0], AgentState::Working));
     Ok(())
 }

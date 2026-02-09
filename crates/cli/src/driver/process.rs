@@ -46,7 +46,7 @@ impl ProcessMonitor {
 impl Detector for ProcessMonitor {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<AgentState>,
+        state_tx: mpsc::Sender<(AgentState, String)>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -66,16 +66,20 @@ impl Detector for ProcessMonitor {
 
                 // Emit Working on rising edge (inactive → active).
                 if active && !was_active {
-                    let _ = state_tx.send(AgentState::Working).await;
+                    let _ =
+                        state_tx.send((AgentState::Working, "process:activity".to_owned())).await;
                 }
                 was_active = active;
 
                 if let Some(pid) = (self.child_pid)() {
                     if !is_process_alive(pid) {
                         let _ = state_tx
-                            .send(AgentState::Exited {
-                                status: ExitStatus { code: None, signal: None },
-                            })
+                            .send((
+                                AgentState::Exited {
+                                    status: ExitStatus { code: None, signal: None },
+                                },
+                                "process:exit".to_owned(),
+                            ))
                             .await;
                         break;
                     }

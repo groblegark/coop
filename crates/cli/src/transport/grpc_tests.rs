@@ -121,6 +121,7 @@ fn state_change_to_proto_converts_simple_transition() {
         prev: AgentState::Starting,
         next: AgentState::Working,
         seq: 7,
+        cause: String::new(),
     };
     let p = state_change_to_proto(&event);
     assert_eq!(p.prev, "starting");
@@ -143,6 +144,7 @@ fn state_change_to_proto_includes_prompt() {
         prev: AgentState::Working,
         next: AgentState::Prompt { prompt: prompt.clone() },
         seq: 10,
+        cause: String::new(),
     };
     let p = state_change_to_proto(&event);
     assert_eq!(p.next, "prompt");
@@ -161,6 +163,7 @@ fn state_change_to_proto_includes_error_fields() {
         prev: AgentState::Working,
         next: AgentState::Error { detail: "rate_limit_error".to_owned() },
         seq: 5,
+        cause: String::new(),
     };
     let p = state_change_to_proto(&event);
     assert_eq!(p.next, "error");
@@ -174,6 +177,7 @@ fn state_change_to_proto_omits_error_fields_for_non_error() {
         prev: AgentState::Starting,
         next: AgentState::Working,
         seq: 1,
+        cause: String::new(),
     };
     let p = state_change_to_proto(&event);
     assert!(p.error_detail.is_none());

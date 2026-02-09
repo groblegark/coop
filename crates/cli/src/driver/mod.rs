@@ -124,7 +124,7 @@ pub struct NudgeStep {
 pub trait Detector: Send + 'static {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<AgentState>,
+        state_tx: mpsc::Sender<(AgentState, String)>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 
@@ -150,6 +150,7 @@ pub trait RespondEncoder: Send + Sync {
 pub struct DetectedState {
     pub state: AgentState,
     pub tier: u8,
+    pub cause: String,
 }
 
 /// Combines multiple [`Detector`] tiers to produce a unified agent state
@@ -228,20 +229,20 @@ impl CompositeDetector {
         output_tx: mpsc::Sender<DetectedState>,
         shutdown: CancellationToken,
     ) {
-        // Internal channel where each detector sends (tier, state).
-        let (tag_tx, mut tag_rx) = mpsc::channel::<(u8, AgentState)>(64);
+        // Internal channel where each detector sends (tier, state, cause).
+        let (tag_tx, mut tag_rx) = mpsc::channel::<(u8, AgentState, String)>(64);
 
         // Spawn each detector with a forwarding task that tags with tier.
         for detector in self.tiers.drain(..) {
             let tier = detector.tier();
             let inner_tx = tag_tx.clone();
             let sd = shutdown.clone();
-            let (det_tx, mut det_rx) = mpsc::channel::<AgentState>(16);
+            let (det_tx, mut det_rx) = mpsc::channel::<(AgentState, String)>(16);
 
             tokio::spawn(detector.run(det_tx, sd));
             tokio::spawn(async move {
-                while let Some(state) = det_rx.recv().await {
-                    if inner_tx.send((tier, state)).await.is_err() {
+                while let Some((state, cause)) = det_rx.recv().await {
+                    if inner_tx.send((tier, state, cause)).await.is_err() {
                         break;
                     }
                 }
@@ -257,13 +258,13 @@ impl CompositeDetector {
                 biased;
                 _ = shutdown.cancelled() => break,
                 tagged = tag_rx.recv() => {
-                    let Some((tier, new_state)) = tagged else { break };
+                    let Some((tier, new_state, cause)) = tagged else { break };
 
                     // Terminal states always accepted immediately.
                     if matches!(new_state, AgentState::Exited { .. }) {
                         current_state = new_state.clone();
                         current_tier = tier;
-                        let _ = output_tx.send(DetectedState { state: new_state, tier }).await;
+                        let _ = output_tx.send(DetectedState { state: new_state, tier, cause }).await;
                         continue;
                     }
 
@@ -289,12 +290,12 @@ impl CompositeDetector {
                         }
                         current_state = new_state.clone();
                         current_tier = tier;
-                        let _ = output_tx.send(DetectedState { state: new_state, tier }).await;
+                        let _ = output_tx.send(DetectedState { state: new_state, tier, cause }).await;
                     } else if new_state.state_priority() > current_state.state_priority() {
                         // Lower confidence tier escalating state → accept.
                         current_state = new_state.clone();
                         current_tier = tier;
-                        let _ = output_tx.send(DetectedState { state: new_state, tier }).await;
+                        let _ = output_tx.send(DetectedState { state: new_state, tier, cause }).await;
                     } else {
                         // Lower confidence tier attempting to downgrade or
                         // maintain state priority → reject silently.

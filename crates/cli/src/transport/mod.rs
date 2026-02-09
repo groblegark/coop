@@ -139,6 +139,7 @@ pub async fn update_question_current(state: &AppState, answers_delivered: usize)
                 prev: next.clone(),
                 next,
                 seq,
+                cause: String::new(),
             });
         }
     }

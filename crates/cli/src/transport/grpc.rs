@@ -90,6 +90,7 @@ pub fn state_change_to_proto(e: &StateChangeEvent) -> proto::AgentStateEvent {
         }
         _ => (None, None),
     };
+    let cause = if e.cause.is_empty() { None } else { Some(e.cause.clone()) };
     proto::AgentStateEvent {
         prev: e.prev.as_str().to_owned(),
         next: e.next.as_str().to_owned(),
@@ -97,6 +98,7 @@ pub fn state_change_to_proto(e: &StateChangeEvent) -> proto::AgentStateEvent {
         prompt: e.next.prompt().map(prompt_to_proto),
         error_detail,
         error_category,
+        cause,
     }
 }
 

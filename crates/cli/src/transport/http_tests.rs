@@ -363,7 +363,7 @@ fn test_state_with_stop(
             agent_state: tokio::sync::RwLock::new(AgentState::Working),
             state_seq: std::sync::atomic::AtomicU64::new(0),
             detection_tier: std::sync::atomic::AtomicU8::new(u8::MAX),
-
+            detection_cause: tokio::sync::RwLock::new(String::new()),
             error_detail: tokio::sync::RwLock::new(None),
             error_category: tokio::sync::RwLock::new(None),
         }),
@@ -623,7 +623,7 @@ async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
             agent_state: tokio::sync::RwLock::new(AgentState::Working),
             state_seq: std::sync::atomic::AtomicU64::new(0),
             detection_tier: std::sync::atomic::AtomicU8::new(u8::MAX),
-
+            detection_cause: tokio::sync::RwLock::new(String::new()),
             error_detail: tokio::sync::RwLock::new(None),
             error_category: tokio::sync::RwLock::new(None),
         }),
