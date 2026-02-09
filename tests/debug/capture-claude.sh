@@ -139,13 +139,16 @@ snapshot() {
   tag="$(printf '%03d' "$SNAP_NUM")-${name}"
   local dest="$SNAP_DIR/$tag"
 
-  # Copy full config directory (mounted volume in Docker, local in --local)
+  # Copy config directory, excluding noisy dirs that change constantly
+  # (debug/ = growing log, cache/ = fetched assets, statsig/ = telemetry)
   mkdir -p "$dest"
   if [[ -d "$CONFIG_DIR" ]]; then
     if command -v rsync >/dev/null 2>&1; then
-      rsync -a "$CONFIG_DIR/" "$dest/"
+      rsync -a --exclude='debug/' --exclude='cache/' --exclude='statsig/' \
+        "$CONFIG_DIR/" "$dest/"
     else
       cp -a "$CONFIG_DIR/." "$dest/"
+      rm -rf "$dest/debug" "$dest/cache" "$dest/statsig"
     fi
   fi
 
@@ -186,9 +189,9 @@ snapshot() {
     if [[ "$diff_size" -gt 0 ]]; then
       echo ""
       echo "  Changes from $PREV_TAG:"
-      grep -E '^(---|\+\+\+|Only in)' "$diff_file" \
-        | grep -v '^--- /dev/null' | grep -v '^\+\+\+ /dev/null' \
-        | sed 's|^--- a/[^/]*/||; s|^\+\+\+ b/[^/]*/||; s/^/    /' \
+      grep -E '^(---|[+][+][+]|Only in)' "$diff_file" \
+        | grep -v '^--- /dev/null' | grep -v '^+++ /dev/null' \
+        | sed 's|^--- a/[^/]*/||; s|^+++ b/[^/]*/||; s/^/    /' \
         | sort -u | head -15
       echo ""
       if grep -q '\.claude\.json' "$diff_file" 2>/dev/null; then
@@ -282,7 +285,6 @@ if [[ "$USE_DOCKER" -eq 1 ]]; then
     -v "$WORKSPACE:/workspace"
     -w /workspace
     -e "CLAUDE_CONFIG_DIR=/config"
-    -e "COOP_AGENT=claude"
   )
   # Pass auth credentials only if explicitly requested via --auth
   if [[ "$PASS_AUTH" -eq 1 ]]; then
@@ -290,8 +292,12 @@ if [[ "$USE_DOCKER" -eq 1 ]]; then
     [[ -n "${ANTHROPIC_API_KEY:-}" ]] && DOCKER_ARGS+=(-e "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
   fi
 
-  CONTAINER_ID=$(docker run "${DOCKER_ARGS[@]}" "$IMAGE_TAG" \
-    --port 7070 --log-format text --agent claude -- claude)
+  if ! CONTAINER_ID=$(docker run "${DOCKER_ARGS[@]}" "$IMAGE_TAG" \
+    --port 7070 --log-format text --agent claude -- claude); then
+    echo "error: docker run failed (exit $?)" >&2
+    echo "Command: docker run ${DOCKER_ARGS[*]} $IMAGE_TAG --port 7070 --log-format text --agent claude -- claude" >&2
+    exit 1
+  fi
   echo "Container: ${CONTAINER_ID:0:12}"
 else
   # --- Local mode ---
