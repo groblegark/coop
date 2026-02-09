@@ -452,6 +452,10 @@ let eventCount = 0;
 let streamEl = null;   // current collapsed row element
 let streamAcc = null;  // { count, totalBytes, lastOffset, lastSeq, cols, rows }
 
+// Collapse consecutive pong events into a single updating row.
+let pongEl = null;
+let pongCount = 0;
+
 function logEvent(msg) {
   const type = msg.type || '?';
   const now = new Date();
@@ -459,6 +463,7 @@ function logEvent(msg) {
 
   // Collapse consecutive output+screen bursts in-place
   if (type === 'output' || type === 'screen') {
+    pongEl = null; pongCount = 0;
     if (streamEl && streamAcc) {
       // Update existing collapsed row
       if (type === 'output') {
@@ -495,9 +500,31 @@ function logEvent(msg) {
     return;
   }
 
-  // Non-stream event — break the collapsed run
+  // Collapse consecutive pong events in-place
+  if (type === 'pong') {
+    streamEl = null; streamAcc = null;
+    pongCount++;
+    if (pongEl) {
+      pongEl.innerHTML = renderPongHtml(ts, pongCount);
+      autoScroll();
+      return;
+    }
+    const div = document.createElement('div');
+    div.className = 'ev';
+    div.innerHTML = renderPongHtml(ts, pongCount);
+    eventLog.appendChild(div);
+    pongEl = div;
+    eventCount++;
+    trimEvents();
+    autoScroll();
+    return;
+  }
+
+  // Non-collapsible event — break all collapsed runs
   streamEl = null;
   streamAcc = null;
+  pongEl = null;
+  pongCount = 0;
 
   let detail = '';
   switch (type) {
@@ -539,6 +566,12 @@ function renderStreamHtml(ts, acc) {
   return parts;
 }
 
+function renderPongHtml(ts, count) {
+  return `<span class="ev-time">${ts}</span> ` +
+    `<span class="ev-type ev-type-pong">pong</span>` +
+    `<span class="ev-detail">${count}x</span>`;
+}
+
 function renderEvHtml(ts, type, detail) {
   return `<span class="ev-time">${ts}</span> ` +
     `<span class="ev-type ev-type-${type}">${type}</span>` +
@@ -548,6 +581,7 @@ function renderEvHtml(ts, type, detail) {
 function trimEvents() {
   while (eventCount > MAX_EVENTS) {
     if (eventLog.firstChild === streamEl) { streamEl = null; streamAcc = null; }
+    if (eventLog.firstChild === pongEl) { pongEl = null; pongCount = 0; }
     eventLog.removeChild(eventLog.firstChild);
     eventCount--;
   }
