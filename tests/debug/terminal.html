@@ -20,12 +20,33 @@
     overflow: hidden;
   }
   #sidebar.hidden { display: none; }
+
+  /* --- Tab bar --- */
+  #tab-bar {
+    display: flex; flex-shrink: 0;
+    border-bottom: 1px solid #333; background: #151515;
+  }
+  .tab {
+    flex: 1; padding: 6px 0; text-align: center;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.05em; color: #666;
+    cursor: pointer; border-bottom: 2px solid transparent;
+    user-select: none; transition: color 0.15s;
+  }
+  .tab:hover { color: #aaa; }
+  .tab.active { color: #ccc; border-bottom-color: #7cb7ff; }
+
+  /* --- Tab panels --- */
+  .tab-panel { display: none; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+  .tab-panel.active { display: flex; }
+
+  /* --- State panel --- */
   #sidebar h2 {
     font-size: 11px; font-weight: 600; text-transform: uppercase;
     letter-spacing: 0.05em; color: #888; padding: 8px 10px 4px;
     border-bottom: 1px solid #2a2a2a; flex-shrink: 0;
   }
-  .api-section { flex-shrink: 0; overflow-y: auto; max-height: 45%; }
+  .api-section { flex: 1; overflow-y: auto; }
   .api-block { padding: 4px 10px; }
   .api-block summary {
     cursor: pointer; font-size: 11px; font-weight: 600; color: #aaa;
@@ -41,10 +62,6 @@
   .api-block td:last-child { color: #ddd; }
 
   /* --- Event log --- */
-  #events-section {
-    flex: 1; display: flex; flex-direction: column;
-    border-top: 1px solid #2a2a2a; min-height: 0;
-  }
   #event-log {
     flex: 1; overflow-y: auto; padding: 4px 10px;
     font-size: 11px; line-height: 1.4;
@@ -60,7 +77,60 @@
   .ev-type-error        { color: #e06060; }
   .ev-type-resize       { color: #6cc; }
   .ev-type-pong         { color: #666; }
+  .ev-type-stop         { color: #e8a317; }
   .ev-detail { color: #999; margin-left: 4px; }
+
+  /* --- Actions panel --- */
+  #actions-panel { padding: 0; }
+  .action-section { padding: 8px 10px; border-bottom: 1px solid #2a2a2a; }
+  .action-section:last-child { border-bottom: none; }
+  .action-label {
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.05em; color: #666; margin-bottom: 4px;
+  }
+  .action-row { display: flex; gap: 4px; align-items: center; margin-top: 4px; }
+  .action-row input[type="text"],
+  .action-row textarea,
+  .action-row select {
+    flex: 1; min-width: 0;
+    background: #222; border: 1px solid #444; color: #ddd;
+    font: 11px Menlo, Monaco, monospace; padding: 3px 6px;
+    border-radius: 3px; outline: none;
+  }
+  .action-row input:focus,
+  .action-row textarea:focus,
+  .action-row select:focus { border-color: #7cb7ff; }
+  .action-row textarea { resize: vertical; min-height: 28px; line-height: 1.4; }
+  .action-btn {
+    background: #2a2a2a; border: 1px solid #444; color: #ccc;
+    font: 11px Menlo, Monaco, monospace; padding: 3px 10px;
+    border-radius: 3px; cursor: pointer; white-space: nowrap;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .action-btn:hover { border-color: #888; color: #fff; }
+  .action-btn:active { background: #333; }
+  .action-btn.btn-danger { border-color: #a33; color: #e66; }
+  .action-btn.btn-danger:hover { border-color: #e66; color: #f88; }
+  .action-btn.btn-success { border-color: #3a3; color: #6c6; }
+  .action-btn.btn-success:hover { border-color: #6c6; color: #8e8; }
+  .action-btn.btn-warn { border-color: #a83; color: #ec6; }
+  .action-btn.btn-warn:hover { border-color: #ec6; color: #fe8; }
+  .key-grid { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+  .key-btn {
+    background: #252525; border: 1px solid #3a3a3a; color: #aaa;
+    font: 10px Menlo, Monaco, monospace; padding: 2px 6px;
+    border-radius: 3px; cursor: pointer; transition: all 0.1s;
+  }
+  .key-btn:hover { border-color: #666; color: #ddd; background: #2e2e2e; }
+  .key-btn:active { background: #333; }
+  .action-result {
+    font-size: 10px; color: #666; margin-top: 4px;
+    max-height: 40px; overflow-y: auto; word-break: break-all;
+  }
+  .action-result.ok { color: #6c6; }
+  .action-result.err { color: #e66; }
+  .action-check { margin: 0; accent-color: #7cb7ff; }
+  .action-check-label { font-size: 10px; color: #888; margin-left: 2px; }
 
   /* --- Status bar --- */
   #status {
@@ -100,31 +170,125 @@
 <div id="main">
   <div id="terminal"></div>
   <div id="sidebar">
-    <h2>API State</h2>
-    <div class="api-section">
-      <div class="api-block">
-        <details open>
-          <summary>Health</summary>
-          <table id="t-health"></table>
-        </details>
-      </div>
-      <div class="api-block">
-        <details open>
-          <summary>Status</summary>
-          <table id="t-status"></table>
-        </details>
-      </div>
-      <div class="api-block">
-        <details open>
-          <summary>Agent</summary>
-          <table id="t-agent"></table>
-        </details>
+    <div id="tab-bar">
+      <div class="tab active" data-tab="state">State</div>
+      <div class="tab" data-tab="events">Events</div>
+      <div class="tab" data-tab="actions">Actions</div>
+    </div>
+
+    <!-- State panel -->
+    <div id="panel-state" class="tab-panel active">
+      <div class="api-section">
+        <div class="api-block">
+          <details open><summary>Health</summary><table id="t-health"></table></details>
+        </div>
+        <div class="api-block">
+          <details open><summary>Status</summary><table id="t-status"></table></details>
+        </div>
+        <div class="api-block">
+          <details open><summary>Agent</summary><table id="t-agent"></table></details>
+        </div>
       </div>
     </div>
-    <div id="events-section">
-      <h2>Events</h2>
+
+    <!-- Events panel -->
+    <div id="panel-events" class="tab-panel">
       <div id="event-log"></div>
     </div>
+
+    <!-- Actions panel -->
+    <div id="panel-actions" class="tab-panel">
+      <div style="flex:1; overflow-y:auto;">
+
+        <!-- Send Input -->
+        <div class="action-section">
+          <div class="action-label">Input</div>
+          <div class="action-row">
+            <input type="text" id="act-input" placeholder="Text to send..." />
+            <label><input type="checkbox" id="act-input-enter" class="action-check" checked /><span class="action-check-label">Enter</span></label>
+            <button class="action-btn" id="act-input-send">Send</button>
+          </div>
+          <div id="act-input-result" class="action-result"></div>
+        </div>
+
+        <!-- Keys -->
+        <div class="action-section">
+          <div class="action-label">Keys</div>
+          <div class="key-grid" id="key-grid"></div>
+        </div>
+
+        <!-- Signal -->
+        <div class="action-section">
+          <div class="action-label">Signal</div>
+          <div class="action-row">
+            <button class="action-btn" data-signal="SIGINT">SIGINT</button>
+            <button class="action-btn btn-warn" data-signal="SIGTERM">SIGTERM</button>
+            <button class="action-btn btn-danger" data-signal="SIGKILL">SIGKILL</button>
+          </div>
+          <div class="action-row">
+            <button class="action-btn" data-signal="SIGTSTP">SIGTSTP</button>
+            <button class="action-btn" data-signal="SIGCONT">SIGCONT</button>
+            <button class="action-btn" data-signal="SIGHUP">SIGHUP</button>
+          </div>
+          <div id="act-signal-result" class="action-result"></div>
+        </div>
+
+        <!-- Nudge -->
+        <div class="action-section">
+          <div class="action-label">Nudge</div>
+          <div class="action-row">
+            <input type="text" id="act-nudge" placeholder="Nudge message..." />
+            <button class="action-btn btn-warn" id="act-nudge-send">Nudge</button>
+          </div>
+          <div id="act-nudge-result" class="action-result"></div>
+        </div>
+
+        <!-- Respond -->
+        <div class="action-section">
+          <div class="action-label">Respond to Prompt</div>
+          <div class="action-row">
+            <button class="action-btn btn-success" id="act-respond-accept">Accept</button>
+            <button class="action-btn btn-danger" id="act-respond-reject">Reject</button>
+          </div>
+          <div class="action-row">
+            <input type="text" id="act-respond-text" placeholder="Text response..." />
+            <button class="action-btn" id="act-respond-text-send">Send</button>
+          </div>
+          <div id="act-respond-result" class="action-result"></div>
+        </div>
+
+        <!-- Stop Config -->
+        <div class="action-section">
+          <div class="action-label">Stop Config</div>
+          <div class="action-row">
+            <select id="act-stop-mode">
+              <option value="allow">allow</option>
+              <option value="signal">signal</option>
+            </select>
+            <button class="action-btn" id="act-stop-get">Get</button>
+            <button class="action-btn" id="act-stop-put">Put</button>
+          </div>
+          <div class="action-row">
+            <input type="text" id="act-stop-prompt" placeholder="Block reason (optional)" />
+          </div>
+          <div id="act-stop-result" class="action-result"></div>
+        </div>
+
+        <!-- Resize -->
+        <div class="action-section">
+          <div class="action-label">Resize</div>
+          <div class="action-row">
+            <input type="text" id="act-resize-cols" placeholder="cols" style="width:60px;flex:none;" />
+            <span style="color:#666;">x</span>
+            <input type="text" id="act-resize-rows" placeholder="rows" style="width:60px;flex:none;" />
+            <button class="action-btn" id="act-resize-send">Resize</button>
+          </div>
+          <div id="act-resize-result" class="action-result"></div>
+        </div>
+
+      </div>
+    </div>
+
   </div>
 </div>
 <div id="status">
@@ -188,6 +352,26 @@ try {
 fitAddon.fit();
 term.focus();
 
+// --- Tab switching ---
+let activeTab = 'state';
+const tabs = document.querySelectorAll('#tab-bar .tab');
+const panels = {
+  state:   document.getElementById('panel-state'),
+  events:  document.getElementById('panel-events'),
+  actions: document.getElementById('panel-actions'),
+};
+
+function switchTab(name) {
+  activeTab = name;
+  tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  for (const [k, p] of Object.entries(panels)) p.classList.toggle('active', k === name);
+}
+
+tabs.forEach(t => t.addEventListener('click', () => {
+  switchTab(t.dataset.tab);
+  term.focus();
+}));
+
 // --- Sidebar toggle ---
 const sidebar = document.getElementById('sidebar');
 const toggleBtn = document.getElementById('toggle-btn');
@@ -242,7 +426,7 @@ async function pollAgentState() {
 
 async function pollApi() {
   pollAgentState();
-  if (!sidebarVisible) return;
+  if (!sidebarVisible || activeTab !== 'state') return;
   try {
     const [health, status, agent] = await Promise.all([
       fetch(`${BASE}/api/v1/health`).then(r => r.ok ? r.json() : null).catch(() => null),
@@ -269,7 +453,6 @@ let streamEl = null;   // current collapsed row element
 let streamAcc = null;  // { count, totalBytes, lastOffset, lastSeq, cols, rows }
 
 function logEvent(msg) {
-  if (!sidebarVisible) return;
   const type = msg.type || '?';
   const now = new Date();
   const ts = now.toTimeString().slice(0, 8);
@@ -330,6 +513,9 @@ function logEvent(msg) {
       break;
     case 'resize':
       detail = `${msg.cols}x${msg.rows}`;
+      break;
+    case 'stop':
+      detail = msg.stop_type || '';
       break;
   }
 
@@ -392,6 +578,158 @@ function b64encode(bytes) {
   for (const b of bytes) bin += String.fromCharCode(b);
   return btoa(bin);
 }
+
+// --- Actions: HTTP helpers ---
+async function apiPost(path, body) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); } catch (_) { json = null; }
+  return { ok: res.ok, status: res.status, json, text };
+}
+
+async function apiPut(path, body) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); } catch (_) { json = null; }
+  return { ok: res.ok, status: res.status, json, text };
+}
+
+async function apiGet(path) {
+  const res = await fetch(`${BASE}${path}`);
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); } catch (_) { json = null; }
+  return { ok: res.ok, status: res.status, json, text };
+}
+
+function showResult(elId, res) {
+  const el = document.getElementById(elId);
+  el.className = 'action-result ' + (res.ok ? 'ok' : 'err');
+  const display = res.json ? JSON.stringify(res.json) : res.text;
+  el.textContent = `${res.status}: ${display}`;
+}
+
+// --- Actions: Input ---
+document.getElementById('act-input-send').addEventListener('click', async () => {
+  const text = document.getElementById('act-input').value;
+  const enter = document.getElementById('act-input-enter').checked;
+  const payload = enter ? { text: text + '\n' } : { text };
+  const res = await apiPost('/api/v1/input', payload);
+  showResult('act-input-result', res);
+  document.getElementById('act-input').value = '';
+});
+
+document.getElementById('act-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    document.getElementById('act-input-send').click();
+  }
+});
+
+// --- Actions: Keys ---
+const KEY_DEFS = [
+  'enter', 'escape', 'tab', 'backspace', 'delete',
+  'up', 'down', 'left', 'right',
+  'ctrl-c', 'ctrl-d', 'ctrl-z', 'ctrl-l', 'ctrl-a', 'ctrl-e',
+];
+const keyGrid = document.getElementById('key-grid');
+for (const key of KEY_DEFS) {
+  const btn = document.createElement('button');
+  btn.className = 'key-btn';
+  btn.textContent = key;
+  btn.addEventListener('click', () => {
+    send(ws, { type: 'keys', keys: [key] });
+  });
+  keyGrid.appendChild(btn);
+}
+
+// --- Actions: Signal ---
+document.querySelectorAll('[data-signal]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const res = await apiPost('/api/v1/signal', { signal: btn.dataset.signal });
+    showResult('act-signal-result', res);
+  });
+});
+
+// --- Actions: Nudge ---
+document.getElementById('act-nudge-send').addEventListener('click', async () => {
+  const message = document.getElementById('act-nudge').value;
+  const res = await apiPost('/api/v1/agent/nudge', { message });
+  showResult('act-nudge-result', res);
+  if (res.ok) document.getElementById('act-nudge').value = '';
+});
+
+document.getElementById('act-nudge').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    document.getElementById('act-nudge-send').click();
+  }
+});
+
+// --- Actions: Respond ---
+document.getElementById('act-respond-accept').addEventListener('click', async () => {
+  const res = await apiPost('/api/v1/agent/respond', { accept: true });
+  showResult('act-respond-result', res);
+});
+
+document.getElementById('act-respond-reject').addEventListener('click', async () => {
+  const res = await apiPost('/api/v1/agent/respond', { accept: false });
+  showResult('act-respond-result', res);
+});
+
+document.getElementById('act-respond-text-send').addEventListener('click', async () => {
+  const text = document.getElementById('act-respond-text').value;
+  const res = await apiPost('/api/v1/agent/respond', { text });
+  showResult('act-respond-result', res);
+  if (res.ok) document.getElementById('act-respond-text').value = '';
+});
+
+document.getElementById('act-respond-text').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    document.getElementById('act-respond-text-send').click();
+  }
+});
+
+// --- Actions: Stop Config ---
+document.getElementById('act-stop-get').addEventListener('click', async () => {
+  const res = await apiGet('/api/v1/config/stop');
+  showResult('act-stop-result', res);
+  if (res.ok && res.json) {
+    document.getElementById('act-stop-mode').value = res.json.mode || 'allow';
+    document.getElementById('act-stop-prompt').value = res.json.prompt || '';
+  }
+});
+
+document.getElementById('act-stop-put').addEventListener('click', async () => {
+  const mode = document.getElementById('act-stop-mode').value;
+  const prompt = document.getElementById('act-stop-prompt').value || null;
+  const res = await apiPut('/api/v1/config/stop', { mode, prompt });
+  showResult('act-stop-result', res);
+});
+
+// --- Actions: Resize ---
+document.getElementById('act-resize-send').addEventListener('click', async () => {
+  const cols = parseInt(document.getElementById('act-resize-cols').value, 10);
+  const rows = parseInt(document.getElementById('act-resize-rows').value, 10);
+  if (!cols || !rows || cols < 1 || rows < 1) {
+    document.getElementById('act-resize-result').className = 'action-result err';
+    document.getElementById('act-resize-result').textContent = 'Invalid cols/rows';
+    return;
+  }
+  const res = await apiPost('/api/v1/resize', { cols, rows });
+  showResult('act-resize-result', res);
+});
 
 // --- Connection lifecycle ---
 let ws = null;
