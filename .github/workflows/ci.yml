@@ -58,7 +58,9 @@ jobs:
           curl -fsSL https://github.com/alfredjeanlab/claudeless/releases/latest/download/claudeless-linux-x86_64.tar.gz | sudo tar xz -C /usr/local/bin
       - name: Install system deps (macOS)
         if: runner.os == 'macOS'
-        run: brew install protobuf tmux alfredjeanlab/tap/claudeless
+        run: |
+          brew install protobuf tmux
+          curl -fsSL https://github.com/alfredjeanlab/claudeless/releases/latest/download/claudeless-darwin-aarch64.tar.gz | sudo tar xz -C /usr/local/bin
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --all
       - run: cargo test --all
