@@ -157,6 +157,7 @@ fn empty_prompt(kind: PromptKind) -> PromptContext {
         input_preview: None,
         screen_lines: vec![],
         options: vec![],
+        options_fallback: false,
         questions: vec![],
         question_current: 0,
     }

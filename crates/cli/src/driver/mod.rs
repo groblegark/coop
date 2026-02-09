@@ -84,6 +84,9 @@ pub struct PromptContext {
     /// Numbered option labels parsed from the terminal screen (permission/plan prompts).
     #[serde(default)]
     pub options: Vec<String>,
+    /// True when `options` contains fallback labels (parser couldn't find real options).
+    #[serde(default)]
+    pub options_fallback: bool,
     /// All questions in a multi-question dialog.
     #[serde(default)]
     pub questions: Vec<QuestionContext>,

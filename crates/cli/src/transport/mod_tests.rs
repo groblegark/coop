@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use super::{resolve_permission_option, resolve_plan_option};
+use super::{encode_response, resolve_permission_option, resolve_plan_option};
+use crate::driver::claude::encoding::ClaudeRespondEncoder;
+use crate::driver::{AgentState, PromptContext, PromptKind};
 
 // ---------------------------------------------------------------------------
 // resolve_permission_option
@@ -51,4 +53,60 @@ fn plan_accept_false_maps_to_4() {
 #[test]
 fn plan_both_none_defaults_to_4() {
     assert_eq!(resolve_plan_option(None, None), 4);
+}
+
+// ---------------------------------------------------------------------------
+// encode_response: options_fallback
+// ---------------------------------------------------------------------------
+
+fn fallback_prompt(kind: PromptKind) -> PromptContext {
+    PromptContext {
+        kind,
+        tool: None,
+        input_preview: None,
+        screen_lines: vec![],
+        options: vec!["Accept".to_string(), "Cancel".to_string()],
+        options_fallback: true,
+        questions: vec![],
+        question_current: 0,
+    }
+}
+
+#[yare::parameterized(
+    perm_accept_true = { PromptKind::Permission, Some(true), None, b"\r" as &[u8] },
+    perm_accept_false = { PromptKind::Permission, Some(false), None, b"\x1b" },
+    perm_option_1 = { PromptKind::Permission, None, Some(1), b"\r" },
+    perm_option_2 = { PromptKind::Permission, None, Some(2), b"\x1b" },
+    perm_none_defaults_esc = { PromptKind::Permission, None, None, b"\x1b" },
+    plan_accept_true = { PromptKind::Plan, Some(true), None, b"\r" },
+    plan_accept_false = { PromptKind::Plan, Some(false), None, b"\x1b" },
+    plan_option_1 = { PromptKind::Plan, None, Some(1), b"\r" },
+    plan_option_2 = { PromptKind::Plan, None, Some(2), b"\x1b" },
+)]
+fn fallback_encoding(kind: PromptKind, accept: Option<bool>, option: Option<u32>, expected: &[u8]) {
+    let encoder = ClaudeRespondEncoder::default();
+    let state = AgentState::Prompt { prompt: fallback_prompt(kind) };
+    let (steps, _) = encode_response(&state, &encoder, accept, option, None, &[]).unwrap();
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].bytes, expected);
+}
+
+#[test]
+fn non_fallback_permission_uses_encoder() {
+    let encoder = ClaudeRespondEncoder::default();
+    let prompt = PromptContext {
+        kind: PromptKind::Permission,
+        tool: None,
+        input_preview: None,
+        screen_lines: vec![],
+        options: vec!["Yes".to_string(), "No".to_string()],
+        options_fallback: false,
+        questions: vec![],
+        question_current: 0,
+    };
+    let state = AgentState::Prompt { prompt };
+    let (steps, _) = encode_response(&state, &encoder, Some(true), None, None, &[]).unwrap();
+    // Non-fallback should use the encoder's digit format (e.g. "1\r")
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].bytes, b"1\r");
 }

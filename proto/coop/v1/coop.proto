@@ -217,6 +217,8 @@ message PromptContext {
   uint32 question_current = 9;
   // Numbered option labels parsed from the terminal screen (permission/plan prompts).
   repeated string options = 10;
+  // True when options contains fallback labels (parser couldn't find real options).
+  bool options_fallback = 11;
 }
 
 message GetAgentStateRequest {}

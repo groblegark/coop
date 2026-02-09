@@ -136,12 +136,24 @@ pub fn encode_response(
     match agent {
         AgentState::Prompt { prompt } => match prompt.kind {
             PromptKind::Permission => {
-                let opt = resolve_permission_option(accept, option);
-                Ok((encoder.encode_permission(opt), 0))
+                if prompt.options_fallback {
+                    let accepted = accept.or(option.map(|n| n == 1)).unwrap_or(false);
+                    let bytes = if accepted { b"\r".to_vec() } else { b"\x1b".to_vec() };
+                    Ok((vec![NudgeStep { bytes, delay_after: None }], 0))
+                } else {
+                    let opt = resolve_permission_option(accept, option);
+                    Ok((encoder.encode_permission(opt), 0))
+                }
             }
             PromptKind::Plan => {
-                let opt = resolve_plan_option(accept, option);
-                Ok((encoder.encode_plan(opt, text), 0))
+                if prompt.options_fallback {
+                    let accepted = accept.or(option.map(|n| n == 1)).unwrap_or(false);
+                    let bytes = if accepted { b"\r".to_vec() } else { b"\x1b".to_vec() };
+                    Ok((vec![NudgeStep { bytes, delay_after: None }], 0))
+                } else {
+                    let opt = resolve_plan_option(accept, option);
+                    Ok((encoder.encode_plan(opt, text), 0))
+                }
             }
             PromptKind::Question => {
                 if answers.is_empty() {

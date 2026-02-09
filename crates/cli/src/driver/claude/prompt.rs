@@ -27,6 +27,7 @@ pub fn extract_permission_context(json: &Value) -> PromptContext {
         input_preview,
         screen_lines: vec![],
         options: vec![],
+        options_fallback: false,
         questions: vec![],
         question_current: 0,
     }
@@ -82,6 +83,7 @@ pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext 
         input_preview: None,
         screen_lines: vec![],
         options: vec![],
+        options_fallback: false,
         questions,
         question_current: 0,
     }
@@ -98,6 +100,7 @@ pub fn extract_plan_context(screen: &ScreenSnapshot) -> PromptContext {
         input_preview: None,
         screen_lines: screen.lines.clone(),
         options: vec![],
+        options_fallback: false,
         questions: vec![],
         question_current: 0,
     }

@@ -56,6 +56,7 @@ impl Detector for HookDetector {
                                             input_preview: None,
                                             screen_lines: vec![],
                                             options: vec![],
+                                            options_fallback: false,
                                             questions: vec![],
                                             question_current: 0,
                                         },

@@ -131,6 +131,12 @@
   .action-result.err { color: #e66; }
   .action-check { margin: 0; accent-color: #7cb7ff; }
   .action-check-label { font-size: 10px; color: #888; margin-left: 2px; }
+  .fallback-badge {
+    font-size: 10px; color: #e8a317; border: 1px solid #a83;
+    border-radius: 3px; padding: 1px 6px; margin-bottom: 4px;
+    display: inline-block;
+  }
+  .action-btn.btn-fallback { border-style: dashed; opacity: 0.85; }
 
   /* --- Status bar --- */
   #status {
@@ -251,11 +257,13 @@
           <!-- Permission prompt: numbered options -->
           <div id="act-respond-permission" style="display:none;">
             <div id="act-respond-perm-info" style="font-size:10px;color:#888;margin-bottom:4px;"></div>
+            <div id="act-respond-perm-fallback" class="fallback-badge" style="display:none;">fallback — parser couldn't find real options</div>
             <div id="act-respond-perm-options" class="action-row"></div>
           </div>
 
           <!-- Plan prompt: numbered options with feedback -->
           <div id="act-respond-plan" style="display:none;">
+            <div id="act-respond-plan-fallback" class="fallback-badge" style="display:none;">fallback — parser couldn't find real options</div>
             <div id="act-respond-plan-options" class="action-row"></div>
             <div class="action-row">
               <input type="text" id="act-plan-feedback" placeholder="Feedback (last option)..." />
@@ -765,11 +773,13 @@ function updateRespondUI(prompt) {
     if (prompt.tool) parts.push(`Tool: ${prompt.tool}`);
     if (prompt.input_preview) parts.push(prompt.input_preview);
     info.textContent = parts.join(' — ') || '';
+    const isFallback = !!prompt.options_fallback;
+    document.getElementById('act-respond-perm-fallback').style.display = isFallback ? '' : 'none';
     // Dynamic options from screen parsing, with hardcoded fallback
     const permOptsEl = document.getElementById('act-respond-perm-options');
     permOptsEl.innerHTML = '';
     const permOpts = prompt.options?.length ? prompt.options : ['Yes', "Yes, and don't ask again", 'No'];
-    const permStyles = ['btn-success', 'btn-warn', 'btn-danger'];
+    const permStyles = isFallback ? ['btn-success btn-fallback', 'btn-danger btn-fallback'] : ['btn-success', 'btn-warn', 'btn-danger'];
     permOpts.forEach((label, i) => {
       const btn = document.createElement('button');
       btn.className = `action-btn ${permStyles[i] || ''}`;
@@ -783,11 +793,13 @@ function updateRespondUI(prompt) {
   } else if (prompt.kind === 'plan') {
     respondPanels.plan.style.display = '';
     document.getElementById('act-plan-feedback').value = '';
+    const isFallback = !!prompt.options_fallback;
+    document.getElementById('act-respond-plan-fallback').style.display = isFallback ? '' : 'none';
     // Dynamic options from screen parsing, with hardcoded fallback
     const planOptsEl = document.getElementById('act-respond-plan-options');
     planOptsEl.innerHTML = '';
     const planOpts = prompt.options?.length ? prompt.options : ['Start with clear context', 'Auto-accept edits', 'Review each edit', 'Provide feedback'];
-    const planStyles = ['btn-success', 'btn-success', '', 'btn-warn'];
+    const planStyles = isFallback ? ['btn-success btn-fallback', 'btn-danger btn-fallback'] : ['btn-success', 'btn-success', '', 'btn-warn'];
     planOpts.forEach((label, i) => {
       const btn = document.createElement('button');
       btn.className = `action-btn ${planStyles[i] || ''}`;

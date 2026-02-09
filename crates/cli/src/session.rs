@@ -378,22 +378,64 @@ impl Session {
 /// the enriched prompt context.
 ///
 /// This runs as a detached task because hook events fire before the PTY output
-/// containing numbered options reaches the screen buffer.
+/// containing numbered options reaches the screen buffer. Retries up to
+/// `MAX_ATTEMPTS` times, then falls back to universal Accept/Cancel options
+/// that encode to Enter/Esc.
 async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64) {
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    const MAX_ATTEMPTS: u32 = 10;
+    const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
-    let screen = app.terminal.screen.read().await;
-    let snap = screen.snapshot();
-    drop(screen);
+    let mut last_snap_lines = 0usize;
 
-    let options = crate::driver::claude::prompt::parse_options_from_screen(&snap.lines);
-    if options.is_empty() {
-        return;
+    for _ in 0..MAX_ATTEMPTS {
+        tokio::time::sleep(POLL_INTERVAL).await;
+
+        // Bail if the state has changed since we spawned.
+        let current_seq = app.driver.state_seq.load(std::sync::atomic::Ordering::Relaxed);
+        if current_seq != expected_seq {
+            return;
+        }
+
+        let screen = app.terminal.screen.read().await;
+        let snap = screen.snapshot();
+        drop(screen);
+        last_snap_lines = snap.lines.len();
+
+        let options = crate::driver::claude::prompt::parse_options_from_screen(&snap.lines);
+        if !options.is_empty() {
+            let mut agent = app.driver.agent_state.write().await;
+
+            // Re-check seq under the write lock.
+            let current_seq = app.driver.state_seq.load(std::sync::atomic::Ordering::Relaxed);
+            if current_seq != expected_seq {
+                return;
+            }
+
+            if let AgentState::Prompt { ref mut prompt } = *agent {
+                if matches!(prompt.kind, PromptKind::Permission | PromptKind::Plan) {
+                    prompt.options = options;
+                    prompt.screen_lines = snap.lines.clone();
+
+                    let next = agent.clone();
+                    drop(agent);
+
+                    let _ = app.channels.state_tx.send(StateChangeEvent {
+                        prev: next.clone(),
+                        next,
+                        seq: expected_seq,
+                        cause: "enriched".to_owned(),
+                    });
+                }
+            }
+            return;
+        }
     }
 
-    let mut agent = app.driver.agent_state.write().await;
+    // All retries exhausted — set fallback options so API consumers have
+    // something to present (Enter for accept, Esc for cancel).
+    debug!(last_snap_lines, "prompt option enrichment: setting fallback options");
 
-    // Only enrich if the state hasn't changed since we spawned.
+    let mut agent = app.driver.agent_state.write().await;
     let current_seq = app.driver.state_seq.load(std::sync::atomic::Ordering::Relaxed);
     if current_seq != expected_seq {
         return;
@@ -401,14 +443,12 @@ async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64) {
 
     if let AgentState::Prompt { ref mut prompt } = *agent {
         if matches!(prompt.kind, PromptKind::Permission | PromptKind::Plan) {
-            prompt.options = options;
-            prompt.screen_lines = snap.lines.clone();
+            prompt.options = vec!["Accept".to_string(), "Cancel".to_string()];
+            prompt.options_fallback = true;
 
             let next = agent.clone();
             drop(agent);
 
-            // Re-broadcast with enriched context. Use the same seq so clients
-            // see this as an update to the existing prompt, not a new state.
             let _ = app.channels.state_tx.send(StateChangeEvent {
                 prev: next.clone(),
                 next,
