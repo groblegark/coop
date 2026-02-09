@@ -10,45 +10,56 @@ fn generated_config_has_required_hooks() {
     let config = generate_hook_config(Path::new("/tmp/coop.pipe"));
     let hooks = &config["hooks"];
 
+    assert!(hooks.get("BeforeTool").is_some());
     assert!(hooks.get("AfterTool").is_some());
+    assert!(hooks.get("AfterAgent").is_some());
     assert!(hooks.get("SessionEnd").is_some());
     assert!(hooks.get("Notification").is_some());
 
     // Verify nested matcher + hooks structure
-    let after_tool = &hooks["AfterTool"];
-    assert!(after_tool.is_array());
-    assert_eq!(after_tool[0]["matcher"], "");
-    assert!(after_tool[0]["hooks"].is_array());
-    assert_eq!(after_tool[0]["hooks"][0]["type"], "command");
-
-    let session_end = &hooks["SessionEnd"];
-    assert!(session_end.is_array());
-    assert_eq!(session_end[0]["matcher"], "");
-    assert!(session_end[0]["hooks"].is_array());
-    assert_eq!(session_end[0]["hooks"][0]["type"], "command");
-
-    let notification = &hooks["Notification"];
-    assert!(notification.is_array());
-    assert_eq!(notification[0]["matcher"], "");
-    assert!(notification[0]["hooks"].is_array());
-    assert_eq!(notification[0]["hooks"][0]["type"], "command");
+    for hook_name in [
+        "BeforeTool",
+        "AfterTool",
+        "AfterAgent",
+        "SessionEnd",
+        "Notification",
+    ] {
+        let hook = &hooks[hook_name];
+        assert!(hook.is_array(), "{hook_name} should be an array");
+        assert_eq!(
+            hook[0]["matcher"], "",
+            "{hook_name} matcher should be empty"
+        );
+        assert!(
+            hook[0]["hooks"].is_array(),
+            "{hook_name} hooks should be array"
+        );
+        assert_eq!(
+            hook[0]["hooks"][0]["type"], "command",
+            "{hook_name} type should be command"
+        );
+    }
 }
 
 #[test]
-fn config_references_env_var() {
+fn config_references_env_vars() {
     let config = generate_hook_config(Path::new("/tmp/coop.pipe"));
     let config_str = serde_json::to_string(&config).unwrap_or_default();
 
     // Config should use $COOP_HOOK_PIPE, not a hardcoded path
     assert!(config_str.contains("COOP_HOOK_PIPE"));
+    // AfterAgent hook should reference $COOP_URL for gating
+    assert!(config_str.contains("COOP_URL"));
 }
 
 #[test]
-fn env_vars_include_pipe_path() {
-    let vars = hook_env_vars(Path::new("/tmp/coop.pipe"));
-    assert_eq!(vars.len(), 1);
+fn env_vars_include_pipe_path_and_coop_url() {
+    let vars = hook_env_vars(Path::new("/tmp/coop.pipe"), "http://127.0.0.1:8080");
+    assert_eq!(vars.len(), 2);
     assert_eq!(vars[0].0, "COOP_HOOK_PIPE");
     assert_eq!(vars[0].1, "/tmp/coop.pipe");
+    assert_eq!(vars[1].0, "COOP_URL");
+    assert_eq!(vars[1].1, "http://127.0.0.1:8080");
 }
 
 #[test]

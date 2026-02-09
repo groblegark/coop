@@ -28,12 +28,15 @@ pub struct GeminiSessionSetup {
 /// Writes a settings file with hook config and creates the pipe path.
 /// The settings file is injected via `GEMINI_CLI_SYSTEM_SETTINGS_PATH`
 /// so hooks are active without modifying user or project settings.
-pub fn prepare_gemini_session(_working_dir: &Path) -> anyhow::Result<GeminiSessionSetup> {
+pub fn prepare_gemini_session(
+    _working_dir: &Path,
+    coop_url: &str,
+) -> anyhow::Result<GeminiSessionSetup> {
     let temp_dir = tempfile::tempdir()?;
     let hook_pipe_path = temp_dir.path().join("hook.pipe");
     let settings_path = write_settings_file(temp_dir.path(), &hook_pipe_path)?;
 
-    let mut env_vars = super::hooks::hook_env_vars(&hook_pipe_path);
+    let mut env_vars = super::hooks::hook_env_vars(&hook_pipe_path, coop_url);
     // Inject settings file via system settings path so Gemini loads our hooks
     env_vars.push((
         "GEMINI_CLI_SYSTEM_SETTINGS_PATH".to_string(),

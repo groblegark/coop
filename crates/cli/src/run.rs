@@ -20,6 +20,7 @@ use crate::driver::claude::setup::{self as claude_setup, ClaudeSessionSetup};
 use crate::driver::claude::{ClaudeDriver, ClaudeDriverConfig};
 use crate::driver::gemini::setup::{self as gemini_setup, GeminiSessionSetup};
 use crate::driver::gemini::{GeminiDriver, GeminiDriverConfig};
+use crate::driver::process::ProcessMonitor;
 use crate::driver::AgentType;
 use crate::driver::{AgentState, Detector, NudgeEncoder, RespondEncoder};
 use crate::pty::attach::{AttachSpec, TmuxBackend};
@@ -139,7 +140,10 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     // 2b. Prepare Gemini session setup (creates FIFO pipe path, writes settings).
     let gemini_setup: Option<GeminiSessionSetup> = if agent_enum == AgentType::Gemini {
-        Some(gemini_setup::prepare_gemini_session(&working_dir)?)
+        Some(gemini_setup::prepare_gemini_session(
+            &working_dir,
+            &coop_url_for_setup,
+        )?)
     } else {
         None
     };
@@ -425,7 +429,13 @@ fn build_driver(
             })?;
             let nudge: Arc<dyn NudgeEncoder> = Arc::new(driver.nudge);
             let respond: Arc<dyn RespondEncoder> = Arc::new(driver.respond);
-            let detectors = driver.detectors;
+            let mut detectors = driver.detectors;
+            // Tier 4: ProcessMonitor fallback for basic Working/Exited detection
+            detectors.push(Box::new(
+                ProcessMonitor::new(child_pid_fn, ring_total_written_fn)
+                    .with_poll_interval(config.process_poll()),
+            ));
+            detectors.sort_by_key(|d| d.tier());
             Ok((Some(nudge), Some(respond), detectors))
         }
         AgentType::Unknown => {

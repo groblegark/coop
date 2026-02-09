@@ -59,9 +59,21 @@ impl Detector for HookDetector {
                                     _ => continue,
                                 }
                             }
-                            // Gemini hooks don't use AgentStop or PreToolUse
                             Some(HookEvent::AgentStop) => AgentState::WaitingForInput,
-                            Some(HookEvent::PreToolUse { .. }) => continue,
+                            Some(HookEvent::PreToolUse { tool, tool_input }) => {
+                                AgentState::Prompt {
+                                    prompt: PromptContext {
+                                        kind: PromptKind::Permission,
+                                        tool: Some(tool),
+                                        input_preview: tool_input
+                                            .as_ref()
+                                            .and_then(|v| serde_json::to_string(v).ok()),
+                                        screen_lines: vec![],
+                                        questions: vec![],
+                                        question_current: 0,
+                                    },
+                                }
+                            }
                             None => break,
                         };
                         let _ = state_tx.send(state).await;

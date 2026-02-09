@@ -6,7 +6,7 @@ use super::prepare_gemini_session;
 #[test]
 fn prepare_session_creates_settings_file() -> anyhow::Result<()> {
     let work_dir = tempfile::tempdir()?;
-    let setup = prepare_gemini_session(work_dir.path())?;
+    let setup = prepare_gemini_session(work_dir.path(), "http://127.0.0.1:0")?;
 
     // Settings file should exist in the temp dir (pointed to by env var)
     let settings_path = setup
@@ -27,9 +27,10 @@ fn prepare_session_creates_settings_file() -> anyhow::Result<()> {
 #[test]
 fn prepare_session_has_env_vars() -> anyhow::Result<()> {
     let work_dir = tempfile::tempdir()?;
-    let setup = prepare_gemini_session(work_dir.path())?;
+    let setup = prepare_gemini_session(work_dir.path(), "http://127.0.0.1:0")?;
 
     assert!(setup.env_vars.iter().any(|(k, _)| k == "COOP_HOOK_PIPE"));
+    assert!(setup.env_vars.iter().any(|(k, _)| k == "COOP_URL"));
     assert!(setup
         .env_vars
         .iter()
@@ -40,7 +41,7 @@ fn prepare_session_has_env_vars() -> anyhow::Result<()> {
 #[test]
 fn prepare_session_pipe_path_in_temp_dir() -> anyhow::Result<()> {
     let work_dir = tempfile::tempdir()?;
-    let setup = prepare_gemini_session(work_dir.path())?;
+    let setup = prepare_gemini_session(work_dir.path(), "http://127.0.0.1:0")?;
 
     assert!(setup.hook_pipe_path.file_name().is_some());
     assert_eq!(
@@ -53,7 +54,7 @@ fn prepare_session_pipe_path_in_temp_dir() -> anyhow::Result<()> {
 #[test]
 fn prepare_session_has_no_extra_args() -> anyhow::Result<()> {
     let work_dir = tempfile::tempdir()?;
-    let setup = prepare_gemini_session(work_dir.path())?;
+    let setup = prepare_gemini_session(work_dir.path(), "http://127.0.0.1:0")?;
 
     // Gemini doesn't need extra CLI args (no --session-id, etc.)
     assert!(setup.extra_args.is_empty());

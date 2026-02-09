@@ -167,3 +167,20 @@ async fn hook_detector_notification_tool_permission() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn hook_detector_pre_tool_use_maps_to_permission() -> anyhow::Result<()> {
+    let states = run_hook_detector(vec![
+        r#"{"event":"pre_tool_use","data":{"tool_name":"Bash","tool_input":{"command":"ls"}}}"#,
+    ])
+    .await?;
+
+    assert_eq!(states.len(), 1);
+    assert!(matches!(states[0], AgentState::Prompt { .. }));
+    if let AgentState::Prompt { prompt } = &states[0] {
+        assert_eq!(prompt.kind, crate::driver::PromptKind::Permission);
+        assert_eq!(prompt.tool.as_deref(), Some("Bash"));
+        assert!(prompt.input_preview.is_some());
+    }
+    Ok(())
+}
