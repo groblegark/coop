@@ -133,24 +133,50 @@ esac
 SNAP_NUM=0
 PREV_TAG=""
 
+RSYNC_EXCLUDES=(
+  --exclude='debug/' --exclude='cache/' --exclude='statsig/'
+  --exclude='.claude.json.backup.*'
+)
+
+# Copy config into a directory, filtering out noisy files.
+copy_config() {
+  local dest="$1"
+  mkdir -p "$dest"
+  if [[ -d "$CONFIG_DIR" ]]; then
+    if command -v rsync >/dev/null 2>&1; then
+      rsync -a "${RSYNC_EXCLUDES[@]}" "$CONFIG_DIR/" "$dest/"
+    else
+      cp -a "$CONFIG_DIR/." "$dest/"
+      rm -rf "$dest/debug" "$dest/cache" "$dest/statsig"
+      rm -f "$dest"/.claude.json.backup.*
+    fi
+  fi
+}
+
 snapshot() {
   local name="$1"
   local tag
   tag="$(printf '%03d' "$SNAP_NUM")-${name}"
   local dest="$SNAP_DIR/$tag"
 
-  # Copy config directory, excluding noisy dirs that change constantly
-  # (debug/ = growing log, cache/ = fetched assets, statsig/ = telemetry)
-  mkdir -p "$dest"
-  if [[ -d "$CONFIG_DIR" ]]; then
-    if command -v rsync >/dev/null 2>&1; then
-      rsync -a --exclude='debug/' --exclude='cache/' --exclude='statsig/' \
-        "$CONFIG_DIR/" "$dest/"
-    else
-      cp -a "$CONFIG_DIR/." "$dest/"
-      rm -rf "$dest/debug" "$dest/cache" "$dest/statsig"
+  # Copy config into a temp dir first to check for changes
+  local tmp_snap
+  tmp_snap="$(mktemp -d)"
+  copy_config "$tmp_snap"
+
+  # If we have a previous snapshot, diff against it — skip if nothing changed
+  if [[ -n "$PREV_TAG" ]]; then
+    if diff -rq "$SNAP_DIR/$PREV_TAG" "$tmp_snap" >/dev/null 2>&1; then
+      rm -rf "$tmp_snap"
+      return 0
     fi
   fi
+
+  # Something changed (or first snapshot) — commit it
+  mv "$tmp_snap" "$dest"
+
+  echo ""
+  echo "━━━ [$(printf '%03d' "$SNAP_NUM")] $tag ━━━"
 
   # Capture coop agent state
   curl -sf "http://localhost:$PORT/api/v1/agent/state" \
@@ -183,24 +209,17 @@ snapshot() {
       --label "b/$tag" "$dest" \
       > "$diff_file" 2>/dev/null || true
 
-    local diff_size
-    diff_size="$(wc -c < "$diff_file" | tr -d ' ')"
-
-    if [[ "$diff_size" -gt 0 ]]; then
-      echo ""
-      echo "  Changes from $PREV_TAG:"
-      grep -E '^(---|[+][+][+]|Only in)' "$diff_file" \
-        | grep -v '^--- /dev/null' | grep -v '^+++ /dev/null' \
-        | sed 's|^--- a/[^/]*/||; s|^+++ b/[^/]*/||; s/^/    /' \
-        | sort -u | head -15
-      echo ""
-      if grep -q '\.claude\.json' "$diff_file" 2>/dev/null; then
-        echo "  .claude.json diff:"
-        awk '/^diff.*\.claude\.json/,/^diff [^.]/' "$diff_file" \
-          | head -40 | sed 's/^/    /'
-      fi
-    else
-      echo "  (no changes from previous snapshot)"
+    echo ""
+    echo "  Changes from $PREV_TAG:"
+    grep -E '^(---|[+][+][+]|Only in)' "$diff_file" \
+      | grep -v '^--- /dev/null' | grep -v '^+++ /dev/null' \
+      | sed 's|^--- a/[^/]*/||; s|^+++ b/[^/]*/||; s/^/    /' \
+      | sort -u | head -15
+    echo ""
+    if grep -q '\.claude\.json' "$diff_file" 2>/dev/null; then
+      echo "  .claude.json diff:"
+      awk '/^diff.*\.claude\.json/,/^diff [^.]/' "$diff_file" \
+        | head -40 | sed 's/^/    /'
     fi
   else
     local count
@@ -357,24 +376,20 @@ if [[ "$OPEN" -eq 1 ]]; then
   fi
 fi
 
-# --- Snapshot REPL ---
+# --- Auto-snapshot loop ---
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Type a snapshot name and press Enter."
-echo "Examples: security-notes, login, trust, theme, idle"
-echo "Ctrl-D or 'quit' to exit."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Watching for config changes (Ctrl-C to stop)…"
 echo ""
 
 while true; do
-  printf "\033[1m[%03d]\033[0m snapshot> " "$SNAP_NUM"
-  read -r name || break
-  name="$(echo "$name" | tr ' ' '-' | tr -cd 'a-zA-Z0-9._-')"
-  [[ "$name" == "quit" || "$name" == "exit" ]] && break
-  [[ -z "$name" ]] && continue
+  sleep 1
+  # Check if the process is still alive
+  if [[ -n "$CONTAINER_ID" ]]; then
+    docker ps -q --filter "id=$CONTAINER_ID" | grep -q . || break
+  elif [[ -n "$COOP_PID" ]] && ! kill -0 "$COOP_PID" 2>/dev/null; then
+    break
+  fi
 
-  echo ""
-  echo "━━━ [$(printf '%03d' "$SNAP_NUM")] $name ━━━"
-  snapshot "$name"
-  echo ""
+  # snapshot() diffs internally and returns early if nothing changed
+  snapshot "snap"
 done
