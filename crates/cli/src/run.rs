@@ -10,7 +10,7 @@ use std::time::Instant;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use tracing_subscriber::EnvFilter;
 
@@ -22,7 +22,7 @@ use crate::driver::gemini::setup::{self as gemini_setup, GeminiSessionSetup};
 use crate::driver::gemini::GeminiDriver;
 use crate::driver::process::ProcessMonitor;
 use crate::driver::AgentType;
-use crate::driver::{AgentState, Detector, NudgeEncoder, RespondEncoder};
+use crate::driver::{AgentState, Detector, NudgeEncoder, NudgeStep, RespondEncoder};
 use crate::pty::attach::{AttachSpec, TmuxBackend};
 use crate::pty::spawn::NativePty;
 use crate::pty::Backend;
@@ -34,7 +34,7 @@ use crate::transport::grpc::CoopGrpc;
 use crate::transport::state::{
     DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels,
 };
-use crate::transport::{build_health_router, build_router, AppState};
+use crate::transport::{build_health_router, build_router, deliver_steps, AppState};
 
 /// Result of a completed session.
 pub struct RunResult {
@@ -383,10 +383,69 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         &config,
         crate::session::SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx)
             .with_detectors(detectors)
-            .with_shutdown(shutdown),
+            .with_shutdown(shutdown.clone()),
     );
 
+    // Spawn startup nudge task for Claude: auto-respond to blocking prompts
+    // (workspace trust, bypass permissions) that prevent reaching idle state.
+    if agent_enum == AgentType::Claude {
+        let nudge_app = Arc::clone(&app_state);
+        let nudge_shutdown = shutdown;
+        tokio::spawn(startup_nudge(nudge_app, nudge_shutdown));
+    }
+
     Ok(PreparedSession { app_state, session, config })
+}
+
+/// Auto-respond to Claude startup prompts that block the agent from reaching
+/// idle state (bypass permissions, workspace trust).
+///
+/// Polls the terminal screen during the startup window. When a known prompt
+/// is detected, sends the appropriate keystrokes to accept it. Stops after
+/// the agent leaves the `Starting` state or the startup window expires.
+async fn startup_nudge(app: Arc<AppState>, shutdown: CancellationToken) {
+    use crate::driver::claude::startup::{detect_startup_prompt, encode_startup_response};
+
+    const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(2_000);
+    const STARTUP_WINDOW: std::time::Duration = std::time::Duration::from_secs(120);
+
+    let deadline = tokio::time::Instant::now() + STARTUP_WINDOW;
+
+    loop {
+        tokio::select! {
+            _ = shutdown.cancelled() => break,
+            _ = tokio::time::sleep(POLL_INTERVAL) => {}
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            debug!("startup nudge: window expired");
+            break;
+        }
+
+        // Stop once the agent has left Starting (detectors are active).
+        if app.ready.load(std::sync::atomic::Ordering::Acquire) {
+            debug!("startup nudge: agent ready, stopping");
+            break;
+        }
+
+        let snapshot = {
+            let screen = app.terminal.screen.read().await;
+            screen.snapshot()
+        };
+
+        if let Some(prompt) = detect_startup_prompt(&snapshot.lines) {
+            let steps: Vec<NudgeStep> = encode_startup_response(prompt);
+            if steps.is_empty() {
+                // LoginRequired — nothing we can auto-handle.
+                continue;
+            }
+            info!("startup nudge: auto-responding to {:?}", prompt);
+            let _ = deliver_steps(&app.channels.input_tx, steps).await;
+
+            // Wait a bit for the screen to update after responding.
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        }
+    }
 }
 
 type DriverComponents =
