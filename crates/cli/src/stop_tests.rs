@@ -87,12 +87,12 @@ fn generate_block_reason_default_no_schema() {
     assert_eq!(
         generate_block_reason(&config),
         concat!(
-            "Please confirm by running one of:\n",
-            "1. You are done\n",
-            "    coop send '{\"status\":\"done\",\"message\":\"<summary>\"}'\n",
-            "2. You are still working\n",
-            "    coop send '{\"status\":\"continue\",\"message\":\"<what remains>\"}'\n",
-            "3. You need clarification: Use the AskUserQuestion tool",
+            "Follow the instructions provided in the stop hook above.\n",
+            "1. If you are done, use the Bash tool:\n",
+            "    `coop send '{\"status\":\"done\",\"message\":\"<summary>\"}'`\n",
+            "2. If you are still working, use the Bash tool:\n",
+            "    `coop send '{\"status\":\"continue\",\"message\":\"<what remains>\"}'`\n",
+            "3. If you need clarification, use the AskUserQuestion tool.",
         )
     );
 }
@@ -108,12 +108,12 @@ fn generate_block_reason_custom_prompt_no_schema() {
         generate_block_reason(&config),
         concat!(
             "Finish your work first.\n",
-            "Please confirm by running one of:\n",
-            "1. You are done\n",
-            "    coop send '{\"status\":\"done\",\"message\":\"<summary>\"}'\n",
-            "2. You are still working\n",
-            "    coop send '{\"status\":\"continue\",\"message\":\"<what remains>\"}'\n",
-            "3. You need clarification: Use the AskUserQuestion tool",
+            "Follow the instructions provided in the stop hook above.\n",
+            "1. If you are done, use the Bash tool:\n",
+            "    `coop send '{\"status\":\"done\",\"message\":\"<summary>\"}'`\n",
+            "2. If you are still working, use the Bash tool:\n",
+            "    `coop send '{\"status\":\"continue\",\"message\":\"<what remains>\"}'`\n",
+            "3. If you need clarification, use the AskUserQuestion tool.",
         )
     );
 }
@@ -129,7 +129,7 @@ fn generate_block_reason_prompt_with_inline_json() {
         generate_block_reason(&config),
         concat!(
             "Send {\"result\":\"ok\"} when done.\n",
-            "When ready to stop, run: coop send '<json>'",
+            "When ready to stop, run: `coop send '<json>'`",
         )
     );
 }
@@ -162,9 +162,9 @@ fn generate_block_reason_with_enum_schema_expands_commands() {
             "Signal when ready.\n",
             "Please confirm by running one of:\n",
             "1. Work completed\n",
-            "    coop send '{\"status\":\"done\"}'\n",
+            "    `coop send '{\"status\":\"done\"}'`\n",
             "2. Something went wrong\n",
-            "    coop send '{\"status\":\"error\"}'",
+            "    `coop send '{\"status\":\"error\"}'`",
         )
     );
 }
@@ -212,9 +212,9 @@ fn generate_block_reason_enum_with_extra_fields() {
         concat!(
             "Please confirm by running one of:\n",
             "1. Task completed successfully\n",
-            "    coop send '{\"notes\":\"<notes>\",\"status\":\"success\"}'\n",
+            "    `coop send '{\"notes\":\"<notes>\",\"status\":\"success\"}'`\n",
             "2. Task could not be completed\n",
-            "    coop send '{\"notes\":\"<notes>\",\"status\":\"failure\"}'",
+            "    `coop send '{\"notes\":\"<notes>\",\"status\":\"failure\"}'`",
         )
     );
 }
@@ -239,7 +239,7 @@ fn generate_block_reason_non_enum_schema() {
     // No enum field → single example from the schema
     assert_eq!(
         generate_block_reason(&config),
-        "When ready to stop, run: coop send '{\"message\":\"<message>\"}'"
+        "When ready to stop, run: `coop send '{\"message\":\"<message>\"}'`"
     );
 }
 

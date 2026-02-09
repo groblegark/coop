@@ -245,7 +245,7 @@ pub fn generate_block_reason(config: &StopConfig) -> String {
             } else {
                 parts.push(format!("{}. {v}", i + 1));
             }
-            parts.push(format!("    coop send '{body}'"));
+            parts.push(format!("    `coop send '{body}'`"));
         }
     } else {
         // No enum to expand — custom prompt, schema example, or defaults.
@@ -267,22 +267,23 @@ pub fn generate_block_reason(config: &StopConfig) -> String {
         if has_schema {
             // User defined a schema — show a single example from it.
             let body = generate_example_body(config.schema.as_ref(), None);
-            parts.push(format!("When ready to stop, run: coop send '{body}'"));
+            parts.push(format!("When ready to stop, run: `coop send '{body}'`"));
         } else if prompt_has_json {
             // Prompt already contains inline JSON examples.
-            parts.push("When ready to stop, run: coop send '<json>'".to_owned());
+            parts.push("When ready to stop, run: `coop send '<json>'`".to_owned());
         } else {
             // No schema, no inline JSON — provide sensible defaults.
-            parts.push("Please confirm by running one of:".to_owned());
-            parts.push("1. You are done".to_owned());
-            parts
-                .push("    coop send '{\"status\":\"done\",\"message\":\"<summary>\"}'".to_owned());
-            parts.push("2. You are still working".to_owned());
+            parts.push("Follow the instructions provided in the stop hook above.".to_owned());
+            parts.push("1. If you are done, use the Bash tool:".to_owned());
             parts.push(
-                "    coop send '{\"status\":\"continue\",\"message\":\"<what remains>\"}'"
+                "    `coop send '{\"status\":\"done\",\"message\":\"<summary>\"}'`".to_owned(),
+            );
+            parts.push("2. If you are still working, use the Bash tool:".to_owned());
+            parts.push(
+                "    `coop send '{\"status\":\"continue\",\"message\":\"<what remains>\"}'`"
                     .to_owned(),
             );
-            parts.push("3. You need clarification: Use the AskUserQuestion tool".to_owned());
+            parts.push("3. If you need clarification, use the AskUserQuestion tool.".to_owned());
         }
     }
 
