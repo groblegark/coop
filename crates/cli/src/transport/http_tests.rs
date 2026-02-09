@@ -424,7 +424,7 @@ fn test_state_with_stop(
             agent_state: tokio::sync::RwLock::new(AgentState::Working),
             state_seq: std::sync::atomic::AtomicU64::new(0),
             detection_tier: std::sync::atomic::AtomicU8::new(u8::MAX),
-            idle_grace_deadline: Arc::new(parking_lot::Mutex::new(None)),
+
             error_detail: tokio::sync::RwLock::new(None),
             error_category: tokio::sync::RwLock::new(None),
         }),
@@ -439,7 +439,6 @@ fn test_state_with_stop(
             auth_token: None,
             nudge_encoder: None,
             respond_encoder: None,
-            idle_grace_duration: std::time::Duration::from_secs(60),
         },
         lifecycle: crate::transport::state::LifecycleState {
             shutdown: tokio_util::sync::CancellationToken::new(),
@@ -733,7 +732,7 @@ async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
             agent_state: tokio::sync::RwLock::new(AgentState::Working),
             state_seq: std::sync::atomic::AtomicU64::new(0),
             detection_tier: std::sync::atomic::AtomicU8::new(u8::MAX),
-            idle_grace_deadline: Arc::new(parking_lot::Mutex::new(None)),
+
             error_detail: tokio::sync::RwLock::new(None),
             error_category: tokio::sync::RwLock::new(None),
         }),
@@ -748,7 +747,6 @@ async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
             auth_token: Some("secret-token".to_owned()),
             nudge_encoder: None,
             respond_encoder: None,
-            idle_grace_duration: std::time::Duration::from_secs(60),
         },
         lifecycle: crate::transport::state::LifecycleState {
             shutdown: tokio_util::sync::CancellationToken::new(),

@@ -382,7 +382,6 @@ Current agent state and prompt context.
     "questions": [],
     "question_current": 0
   },
-  "idle_grace_remaining_secs": null,
   "error_detail": null,
   "error_category": null
 }
@@ -396,7 +395,6 @@ Current agent state and prompt context.
 | `screen_seq` | int | Current screen sequence number |
 | `detection_tier` | string | Which detection tier produced this state |
 | `prompt` | object or null | Prompt context (present for prompt states) |
-| `idle_grace_remaining_secs` | float or null | Seconds remaining on the idle grace timer |
 | `error_detail` | string or null | Error description (when state is `error`) |
 | `error_category` | string or null | Error classification (when state is `error`) |
 

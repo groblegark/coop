@@ -232,12 +232,10 @@ message GetAgentStateResponse {
   string detection_tier = 5;
   // Prompt context (present for prompt states).
   optional PromptContext prompt = 6;
-  // Seconds remaining on the idle grace timer.
-  optional float idle_grace_remaining_secs = 7;
   // Error description (when state is "error").
-  optional string error_detail = 8;
+  optional string error_detail = 7;
   // Error classification (when state is "error").
-  optional string error_category = 9;
+  optional string error_category = 8;
 }
 
 message NudgeRequest {

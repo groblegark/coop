@@ -130,11 +130,6 @@ impl Config {
         env_duration_ms("COOP_SCREEN_DEBOUNCE_MS", 50)
     }
 
-    /// How often the composite detector polls the idle grace timer.
-    pub fn idle_grace_poll(&self) -> Duration {
-        env_duration_ms("COOP_IDLE_GRACE_POLL_MS", 1_000)
-    }
-
     /// Process monitor poll interval (Tier 4).
     pub fn process_poll(&self) -> Duration {
         env_duration_ms("COOP_PROCESS_POLL_MS", 5_000)
@@ -183,11 +178,6 @@ impl Config {
     /// Delay between keystrokes in multi-question sequences.
     pub fn keyboard_delay(&self) -> Duration {
         env_duration_ms("COOP_KEYBOARD_DELAY_MS", 100)
-    }
-
-    /// Idle grace period before confirming idle state.
-    pub fn idle_grace(&self) -> Duration {
-        env_duration_secs("COOP_IDLE_GRACE_SECS", 60)
     }
 
     /// Idle timeout (0 = disabled).

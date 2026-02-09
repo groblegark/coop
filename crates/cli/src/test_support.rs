@@ -107,7 +107,6 @@ impl AppStateBuilder {
                 agent_state: RwLock::new(self.agent_state),
                 state_seq: AtomicU64::new(0),
                 detection_tier: AtomicU8::new(u8::MAX),
-                idle_grace_deadline: Arc::new(parking_lot::Mutex::new(None)),
                 error_detail: RwLock::new(None),
                 error_category: RwLock::new(None),
             }),
@@ -122,7 +121,6 @@ impl AppStateBuilder {
                 auth_token: self.auth_token,
                 nudge_encoder: self.nudge_encoder,
                 respond_encoder: self.respond_encoder,
-                idle_grace_duration: Duration::from_secs(60),
             },
             lifecycle: LifecycleState {
                 shutdown: CancellationToken::new(),

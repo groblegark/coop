@@ -16,7 +16,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use crate::config::Config;
-use crate::driver::grace::IdleGraceTimer;
 use crate::driver::{
     classify_error_detail, AgentState, CompositeDetector, DetectedState, Detector, ExitStatus,
 };
@@ -88,9 +87,6 @@ impl Session {
             shutdown,
         } = session;
 
-        let idle_grace = config.idle_grace();
-        let idle_grace_poll = config.idle_grace_poll();
-
         // Set initial PID (Release so signal-delivery loads with Acquire see it)
         if let Some(pid) = backend.child_pid() {
             app_state
@@ -116,18 +112,9 @@ impl Session {
 
         // Build and spawn the composite detector (tier resolution + dedup).
         let (detector_tx, detector_rx) = mpsc::channel(64);
-        let grace_timer = IdleGraceTimer::new(idle_grace);
-        let composite = CompositeDetector {
-            tiers: detectors,
-            grace_timer,
-            grace_tick_interval: idle_grace_poll,
-        };
-        let ring_total = Arc::clone(&app_state.terminal.ring_total_written);
-        let activity_fn: Arc<dyn Fn() -> u64 + Send + Sync> =
-            Arc::new(move || ring_total.load(std::sync::atomic::Ordering::Relaxed));
-        let grace_deadline = Arc::clone(&app_state.driver.idle_grace_deadline);
+        let composite = CompositeDetector { tiers: detectors };
         let detector_shutdown = shutdown.clone();
-        tokio::spawn(composite.run(detector_tx, activity_fn, grace_deadline, detector_shutdown));
+        tokio::spawn(composite.run(detector_tx, detector_shutdown));
 
         Self {
             app_state,

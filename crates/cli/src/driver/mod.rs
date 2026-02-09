@@ -4,7 +4,6 @@
 pub mod claude;
 pub mod error_category;
 pub mod gemini;
-pub mod grace;
 pub mod hook_recv;
 pub mod jsonl_stdout;
 pub mod log_watch;
@@ -14,12 +13,10 @@ pub mod unknown;
 
 pub use error_category::{classify_error_detail, ErrorCategory};
 
-use grace::{GraceCheck, IdleGraceTimer};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -155,19 +152,17 @@ pub struct DetectedState {
     pub tier: u8,
 }
 
-/// Combines multiple [`Detector`] tiers with a grace timer to produce
-/// a unified agent state stream.
+/// Combines multiple [`Detector`] tiers to produce a unified agent state
+/// stream.
 ///
 /// Tier resolution rules:
 /// - Lower tier number = higher confidence.
 /// - States from equal-or-higher confidence tiers are accepted immediately.
-/// - Idle transitions from lower confidence tiers go through the grace timer.
-/// - Non-idle transitions are accepted from any tier.
+/// - Lower confidence tiers may only *escalate* state priority; downgrades
+///   are silently rejected.
 /// - Duplicate states (prev == next) are suppressed.
 pub struct CompositeDetector {
     pub tiers: Vec<Box<dyn Detector>>,
-    pub grace_timer: IdleGraceTimer,
-    pub grace_tick_interval: Duration,
 }
 
 impl AgentState {
@@ -182,6 +177,29 @@ impl AgentState {
             Self::Error { .. } => "error",
             Self::Exited { .. } => "exited",
             Self::Unknown => "unknown",
+        }
+    }
+
+    /// Relative priority for tier-based state resolution.
+    ///
+    /// Lower-confidence tiers may only *escalate* state (move to a higher
+    /// priority); they are never allowed to downgrade it.  Same-or-higher
+    /// confidence tiers may transition in any direction.
+    ///
+    /// ```text
+    /// Starting(0) < WaitingForInput(1) < Error(2) < Working(3) < Prompt(4)
+    /// ```
+    ///
+    /// `Unknown` is treated the same as `Starting` (lowest).
+    /// `Exited` is handled separately (always accepted) and never compared.
+    pub fn state_priority(&self) -> u8 {
+        match self {
+            Self::Starting | Self::Unknown => 0,
+            Self::WaitingForInput => 1,
+            Self::Error { .. } => 2,
+            Self::Working => 3,
+            Self::Prompt { .. } => 4,
+            Self::Exited { .. } => 5,
         }
     }
 
@@ -202,18 +220,12 @@ impl std::fmt::Display for AgentState {
 
 impl CompositeDetector {
     /// Run the composite detector, spawning all tier detectors and
-    /// multiplexing their outputs with tier priority + dedup + grace timer.
+    /// multiplexing their outputs with tier priority + dedup.
     ///
     /// - `output_tx`: deduplicated state emissions sent to the session loop.
-    /// - `activity_fn`: lock-free function returning total bytes written
-    ///   (used by the grace timer to detect ongoing output).
-    /// - `grace_deadline`: shared deadline for the HTTP/gRPC API to report
-    ///   `idle_grace_remaining_secs`.
     pub async fn run(
         mut self,
         output_tx: mpsc::Sender<DetectedState>,
-        activity_fn: Arc<dyn Fn() -> u64 + Send + Sync>,
-        grace_deadline: Arc<parking_lot::Mutex<Option<std::time::Instant>>>,
         shutdown: CancellationToken,
     ) {
         // Internal channel where each detector sends (tier, state).
@@ -239,8 +251,6 @@ impl CompositeDetector {
 
         let mut current_state = AgentState::Starting;
         let mut current_tier: u8 = u8::MAX;
-        let mut grace_proposed: Option<(u8, AgentState)> = None;
-        let mut grace_check_interval = tokio::time::interval(self.grace_tick_interval);
 
         loop {
             tokio::select! {
@@ -251,9 +261,6 @@ impl CompositeDetector {
 
                     // Terminal states always accepted immediately.
                     if matches!(new_state, AgentState::Exited { .. }) {
-                        self.grace_timer.cancel();
-                        grace_proposed = None;
-                        set_grace_deadline(&grace_deadline, None);
                         current_state = new_state.clone();
                         current_tier = tier;
                         let _ = output_tx.send(DetectedState { state: new_state, tier }).await;
@@ -280,62 +287,28 @@ impl CompositeDetector {
                         {
                             continue;
                         }
-                        self.grace_timer.cancel();
-                        grace_proposed = None;
-                        set_grace_deadline(&grace_deadline, None);
                         current_state = new_state.clone();
                         current_tier = tier;
                         let _ = output_tx.send(DetectedState { state: new_state, tier }).await;
-                    } else if is_idle_state(&new_state) && !is_idle_state(&current_state) {
-                        // Lower confidence tier reporting idle: start grace timer.
-                        let activity = (activity_fn)();
-                        self.grace_timer.trigger(activity);
-                        let deadline = std::time::Instant::now() + self.grace_timer.duration;
-                        set_grace_deadline(&grace_deadline, Some(deadline));
-                        grace_proposed = Some((tier, new_state));
-                        debug!(tier, "grace timer started for idle transition");
+                    } else if new_state.state_priority() > current_state.state_priority() {
+                        // Lower confidence tier escalating state → accept.
+                        current_state = new_state.clone();
+                        current_tier = tier;
+                        let _ = output_tx.send(DetectedState { state: new_state, tier }).await;
                     } else {
-                        // Lower confidence tier reporting non-idle change.
-                        self.grace_timer.cancel();
-                        grace_proposed = None;
-                        set_grace_deadline(&grace_deadline, None);
-                        current_state = new_state.clone();
-                        current_tier = tier;
-                        let _ = output_tx.send(DetectedState { state: new_state, tier }).await;
-                    }
-                }
-                _ = grace_check_interval.tick(), if self.grace_timer.is_pending() => {
-                    let activity = (activity_fn)();
-                    match self.grace_timer.check(activity) {
-                        GraceCheck::Confirmed => {
-                            self.grace_timer.cancel();
-                            set_grace_deadline(&grace_deadline, None);
-                            if let Some((tier, state)) = grace_proposed.take() {
-                                if state != current_state {
-                                    debug!(tier, "grace timer confirmed idle");
-                                    current_state = state.clone();
-                                    current_tier = tier;
-                                    let _ = output_tx.send(DetectedState { state, tier }).await;
-                                }
-                            }
-                        }
-                        GraceCheck::Invalidated => {
-                            debug!("grace timer invalidated (activity detected)");
-                            self.grace_timer.cancel();
-                            grace_proposed = None;
-                            set_grace_deadline(&grace_deadline, None);
-                        }
-                        GraceCheck::Waiting | GraceCheck::NotPending => {}
+                        // Lower confidence tier attempting to downgrade or
+                        // maintain state priority → reject silently.
+                        debug!(
+                            tier,
+                            new = new_state.as_str(),
+                            current = current_state.as_str(),
+                            "rejected state downgrade from lower confidence tier"
+                        );
                     }
                 }
             }
         }
     }
-}
-
-/// Returns `true` for states that represent an idle / waiting agent.
-fn is_idle_state(state: &AgentState) -> bool {
-    matches!(state, AgentState::WaitingForInput)
 }
 
 /// Returns `true` when `current` is a specific prompt state that should not
@@ -355,18 +328,10 @@ fn prompt_supersedes(current: &AgentState, incoming: &AgentState) -> bool {
     }
 }
 
-fn set_grace_deadline(
-    deadline: &parking_lot::Mutex<Option<std::time::Instant>>,
-    value: Option<std::time::Instant>,
-) {
-    *deadline.lock() = value;
-}
-
 impl std::fmt::Debug for CompositeDetector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CompositeDetector")
             .field("tiers", &self.tiers.len())
-            .field("grace_timer", &self.grace_timer)
             .finish()
     }
 }

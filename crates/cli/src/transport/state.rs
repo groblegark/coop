@@ -3,9 +3,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-use parking_lot::Mutex;
+use std::time::Instant;
 
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -63,10 +61,6 @@ pub struct DriverState {
     pub agent_state: RwLock<AgentState>,
     pub state_seq: AtomicU64,
     pub detection_tier: AtomicU8,
-    /// Arc-wrapped so the session loop can pass a cheap clone to
-    /// [`CompositeDetector::run`] without holding a reference to the
-    /// entire `DriverState`.
-    pub idle_grace_deadline: Arc<Mutex<Option<Instant>>>,
     /// Error detail string when agent is in `Error` state, `None` otherwise.
     pub error_detail: RwLock<Option<String>>,
     /// Classified error category when agent is in `Error` state, `None` otherwise.
@@ -85,19 +79,6 @@ impl DriverState {
             tier.to_string()
         }
     }
-
-    /// Compute the remaining seconds on the idle grace timer, if any.
-    pub fn idle_grace_remaining_secs(&self) -> Option<f32> {
-        let deadline = self.idle_grace_deadline.lock();
-        deadline.map(|dl| {
-            let now = Instant::now();
-            if now < dl {
-                (dl - now).as_secs_f32()
-            } else {
-                0.0
-            }
-        })
-    }
 }
 
 /// Channel endpoints for consumer ↔ session communication.
@@ -114,7 +95,6 @@ pub struct SessionSettings {
     pub auth_token: Option<String>,
     pub nudge_encoder: Option<Arc<dyn NudgeEncoder>>,
     pub respond_encoder: Option<Arc<dyn RespondEncoder>>,
-    pub idle_grace_duration: Duration,
 }
 
 /// Runtime lifecycle primitives.

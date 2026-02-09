@@ -320,7 +320,6 @@ impl proto::coop_server::Coop for CoopGrpc {
             screen_seq: screen.seq(),
             detection_tier: self.state.driver.detection_tier_str(),
             prompt: agent.prompt().map(prompt_to_proto),
-            idle_grace_remaining_secs: self.state.driver.idle_grace_remaining_secs(),
             error_detail: self.state.driver.error_detail.read().await.clone(),
             error_category: self
                 .state

@@ -60,7 +60,6 @@ crates/cli/               # Single crate (binary + lib)
 │   │   └── spawn.rs       # NativePty backend (forkpty + exec)
 │   └── driver/
 │       ├── mod.rs          # AgentState, Detector, NudgeEncoder traits
-│       ├── grace.rs        # IdleGraceTimer
 │       └── jsonl_stdout.rs # JsonlParser
 └── tests/
     ├── pty_backend.rs           # Integration tests for PTY backend
