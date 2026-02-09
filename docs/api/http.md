@@ -377,8 +377,7 @@ Current agent state and prompt context.
   "prompt": {
     "prompt_type": "permission",
     "tool": "Bash",
-    "input_preview": "{\"command\":\"ls -la\"}",
-    "screen_lines": [],
+    "input": "{\"command\":\"ls -la\"}",
     "questions": [],
     "question_current": 0
   },
@@ -419,8 +418,8 @@ Current agent state and prompt context.
 |-------|------|-------------|
 | `prompt_type` | string | `"permission"`, `"plan"`, `"question"` |
 | `tool` | string or null | Tool name (permission prompts) |
-| `input_preview` | string or null | Truncated tool input (permission prompts) |
-| `screen_lines` | string[] | Raw screen lines (plan prompts) |
+| `input` | string or null | Truncated tool input (permission prompts) |
+| `auth_url` | string or null | OAuth authorization URL (setup oauth_login prompts) |
 | `questions` | QuestionContext[] | All questions in a multi-question dialog |
 | `question_current` | int | 0-indexed current question; equals `questions.len()` at confirm phase |
 

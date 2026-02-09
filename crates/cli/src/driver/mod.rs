@@ -92,8 +92,10 @@ pub struct PromptContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subtype: Option<String>,
     pub tool: Option<String>,
-    pub input_preview: Option<String>,
-    pub screen_lines: Vec<String>,
+    pub input: Option<String>,
+    /// OAuth authorization URL (present during setup oauth_login prompts).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_url: Option<String>,
     /// Numbered option labels parsed from the terminal screen (permission/plan prompts).
     #[serde(default)]
     pub options: Vec<String>,

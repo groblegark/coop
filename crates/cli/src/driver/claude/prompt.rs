@@ -12,7 +12,7 @@ use crate::screen::ScreenSnapshot;
 /// name and a truncated preview of its input.
 pub fn extract_permission_context(json: &Value) -> PromptContext {
     let tool_use = find_last_tool_use(json);
-    let (tool, input_preview) = match tool_use {
+    let (tool, input) = match tool_use {
         Some(block) => {
             let tool = block.get("name").and_then(|v| v.as_str()).map(String::from);
             let preview = block.get("input").and_then(summarize_tool_input);
@@ -25,8 +25,8 @@ pub fn extract_permission_context(json: &Value) -> PromptContext {
         kind: PromptKind::Permission,
         subtype: None,
         tool,
-        input_preview,
-        screen_lines: vec![],
+        input,
+        auth_url: None,
         options: vec![],
         options_fallback: false,
         questions: vec![],
@@ -82,8 +82,8 @@ pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext 
         kind: PromptKind::Question,
         subtype: None,
         tool: Some("AskUserQuestion".to_string()),
-        input_preview: None,
-        screen_lines: vec![],
+        input: None,
+        auth_url: None,
         options: vec![],
         options_fallback: false,
         questions,
@@ -95,13 +95,13 @@ pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext 
 ///
 /// Plan prompts are detected via the screen rather than the session log,
 /// so context is built from the visible screen lines.
-pub fn extract_plan_context(screen: &ScreenSnapshot) -> PromptContext {
+pub fn extract_plan_context(_screen: &ScreenSnapshot) -> PromptContext {
     PromptContext {
         kind: PromptKind::Plan,
         subtype: None,
         tool: None,
-        input_preview: None,
-        screen_lines: screen.lines.clone(),
+        input: None,
+        auth_url: None,
         options: vec![],
         options_fallback: false,
         questions: vec![],
@@ -198,11 +198,7 @@ fn parse_numbered_option(trimmed: &str) -> Option<(u32, String)> {
 
     // Strip trailing selection indicators (e.g. " ✔" or " ✓") that Claude
     // renders after the currently-active option in picker dialogs.
-    let label = rest
-        .trim_end()
-        .trim_end_matches(['✔', '✓'])
-        .trim_end()
-        .to_string();
+    let label = rest.trim_end().trim_end_matches(['✔', '✓']).trim_end().to_string();
 
     if label.is_empty() {
         return None;

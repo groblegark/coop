@@ -218,24 +218,24 @@ message PromptContext {
   string type = 1;
   // Tool name (permission prompts).
   optional string tool = 2;
-  // Truncated tool input JSON (permission prompts).
-  optional string input_preview = 3;
-  // Raw screen lines (plan prompts).
-  repeated string screen_lines = 7;
-  // All questions in a multi-question dialog.
-  repeated QuestionContext questions = 8;
-  // 0-indexed current question; equals questions count at confirm phase.
-  uint32 question_current = 9;
-  // Numbered option labels parsed from the terminal screen (permission/plan prompts).
-  repeated string options = 10;
-  // True when options contains fallback labels (parser couldn't find real options).
-  bool options_fallback = 11;
   // Prompt subtype for further classification within a type.
   // Known subtypes by type:
   //   permission: "trust", "tool"
   //   setup: "theme_picker", "terminal_setup", "security_notes",
   //          "login_success", "login_method", "oauth_login"
-  optional string subtype = 12;
+  optional string subtype = 3;
+  // OAuth authorization URL (present during setup oauth_login prompts).
+  optional string auth_url = 4;
+  // All questions in a multi-question dialog.
+  repeated QuestionContext questions = 5;
+  // 0-indexed current question; equals questions count at confirm phase.
+  uint32 question_current = 6;
+  // Numbered option labels parsed from the terminal screen (permission/plan prompts).
+  repeated string options = 7;
+  // True when options contains fallback labels (parser couldn't find real options).
+  bool options_fallback = 8;
+  // Truncated tool input JSON (permission prompts).
+  optional string input = 9;
 }
 
 message GetAgentStateRequest {}

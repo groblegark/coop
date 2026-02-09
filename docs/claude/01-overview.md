@@ -145,14 +145,14 @@ When the agent enters a prompt state (`PermissionPrompt`, `PlanPrompt`,
 
 **Permission prompts** -- extracted from the last `tool_use` block:
 - `tool`: tool name (e.g. `"Bash"`, `"Edit"`)
-- `input_preview`: truncated JSON of the tool input (~200 chars)
+- `input`: truncated JSON of the tool input (~200 chars)
 
 **AskUser questions** -- extracted from the `AskUserQuestion` tool input:
 - `question`: the question text
 - `options`: array of option labels
 
-**Plan prompts** -- extracted from the terminal screen:
-- `screen_lines`: raw lines from the rendered screen
+**Setup prompts** -- extracted from the terminal screen:
+- `auth_url`: OAuth authorization URL (present for `oauth_login` subtype)
 
 
 ## Encoding

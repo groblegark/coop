@@ -1,7 +1,6 @@
-CLAUDE.local.md
-
 # Build
 /target/
+node_modules/
 
 # Editor
 .idea/
@@ -20,6 +19,7 @@ coverage/
 
 # Debug captures
 tests/debug/captures/
+tests/debug/.env
 
 # Caches
 .quench/

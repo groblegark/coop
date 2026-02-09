@@ -119,8 +119,8 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<(AgentState, Stri
                         kind: PromptKind::Permission,
                         subtype: Some("trust".to_owned()),
                         tool: None,
-                        input_preview: None,
-                        screen_lines: vec![],
+                        input: None,
+                        auth_url: None,
                         options,
                         options_fallback: false,
                         questions: vec![],
@@ -132,14 +132,16 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<(AgentState, Stri
         }
         Some(DialogKind::Setup(subtype)) => {
             let options = parse_options_from_screen(&snapshot.lines);
+            let auth_url =
+                if subtype == "oauth_login" { extract_auth_url(&snapshot.lines) } else { None };
             return Some((
                 AgentState::Prompt {
                     prompt: PromptContext {
                         kind: PromptKind::Setup,
                         subtype: Some(subtype.to_owned()),
                         tool: None,
-                        input_preview: None,
-                        screen_lines: vec![],
+                        input: None,
+                        auth_url,
                         options,
                         options_fallback: false,
                         questions: vec![],
@@ -272,6 +274,29 @@ fn classify_interactive_dialog(lines: &[String]) -> Option<DialogKind> {
         }
     }
     None
+}
+
+/// Extract an OAuth authorization URL from screen lines.
+///
+/// The URL starts with `https://claude.ai/oauth/authorize?` and may wrap
+/// across multiple terminal lines.  Continuation lines start at column 0
+/// (no leading whitespace) while surrounding UI text is indented.
+fn extract_auth_url(lines: &[String]) -> Option<String> {
+    let prefix = "https://claude.ai/oauth/authorize?";
+    let start_idx = lines.iter().position(|line| line.trim_start().starts_with(prefix))?;
+
+    let mut url = lines[start_idx].trim().to_string();
+
+    // Concatenate hard-wrapped continuation lines.
+    for line in &lines[start_idx + 1..] {
+        let trimmed = line.trim_end();
+        if trimmed.is_empty() || trimmed.starts_with(' ') {
+            break;
+        }
+        url.push_str(trimmed);
+    }
+
+    Some(url)
 }
 
 #[cfg(test)]

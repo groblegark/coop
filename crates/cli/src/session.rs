@@ -414,7 +414,6 @@ async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64) {
             if let AgentState::Prompt { ref mut prompt } = *agent {
                 if matches!(prompt.kind, PromptKind::Permission | PromptKind::Plan) {
                     prompt.options = options;
-                    prompt.screen_lines = snap.lines.clone();
 
                     let next = agent.clone();
                     drop(agent);

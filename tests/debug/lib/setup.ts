@@ -1,0 +1,149 @@
+// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2026 Alfred Jean LLC
+
+import { dirname, join } from "node:path";
+import { $ } from "bun";
+
+/** Directory containing the calling script (tests/debug/) */
+export function scriptDir(): string {
+	return dirname(Bun.main);
+}
+
+/** Repository root (two levels up from tests/debug/) */
+export function rootDir(): string {
+	return dirname(dirname(scriptDir()));
+}
+
+/** Path to the debug coop binary */
+export function coopBin(): string {
+	return join(rootDir(), "target/debug/coop");
+}
+
+export async function buildCoop(): Promise<void> {
+	console.log("Building coop…");
+	await $`cargo build -p coop --manifest-path ${rootDir()}/Cargo.toml`;
+}
+
+export async function buildDocker(target: string, tag: string): Promise<void> {
+	console.log(`Building ${tag} (target: ${target})…`);
+	await $`docker build --target ${target} -t ${tag} ${rootDir()}`;
+}
+
+interface HealthCheckOpts {
+	/** Native process to check liveness */
+	proc?: { readonly exitCode: number | null; kill(): void };
+	/** Docker container ID to check liveness */
+	containerId?: string;
+	/** Max attempts (default 50) */
+	maxAttempts?: number;
+	/** Delay between attempts in ms (default 200) */
+	delayMs?: number;
+}
+
+export async function waitForHealth(
+	port: number,
+	opts: HealthCheckOpts = {},
+): Promise<void> {
+	const { maxAttempts = 50, delayMs = 200 } = opts;
+	process.stdout.write("Waiting for coop to be ready");
+
+	for (let i = 0; i < maxAttempts; i++) {
+		try {
+			const res = await fetch(`http://localhost:${port}/api/v1/health`);
+			if (res.ok) {
+				console.log(" ok");
+				return;
+			}
+		} catch {
+			// not ready yet
+		}
+
+		// Check if the underlying process/container is still alive
+		if (opts.proc && opts.proc.exitCode !== null) {
+			console.log(" failed (process exited)");
+			process.exit(1);
+		}
+		if (opts.containerId) {
+			const ps = await $`docker ps -q --filter id=${opts.containerId}`
+				.quiet()
+				.text();
+			if (!ps.trim()) {
+				console.log(" failed (container exited)");
+				await $`docker logs ${opts.containerId}`.quiet().nothrow();
+				process.exit(1);
+			}
+		}
+
+		process.stdout.write(".");
+		await Bun.sleep(delayMs);
+	}
+
+	// Final check
+	try {
+		const res = await fetch(`http://localhost:${port}/api/v1/health`);
+		if (res.ok) {
+			console.log(" ok");
+			return;
+		}
+	} catch {
+		// fall through
+	}
+	console.log(" timed out");
+	process.exit(1);
+}
+
+export async function openBrowser(port: number): Promise<void> {
+	const html = `file://${scriptDir()}/terminal.html?port=${port}`;
+	console.log(`Opening ${html}`);
+
+	try {
+		// macOS
+		await $`open ${html}`.quiet();
+	} catch {
+		try {
+			// Linux
+			await $`xdg-open ${html}`.quiet();
+		} catch {
+			console.log(`Open manually: ${html}`);
+		}
+	}
+}
+
+type CleanupFn = () => void | Promise<void>;
+const cleanupFns: CleanupFn[] = [];
+let cleanupRegistered = false;
+
+export function onExit(fn: CleanupFn): void {
+	cleanupFns.push(fn);
+	if (!cleanupRegistered) {
+		cleanupRegistered = true;
+		const run = () => {
+			for (const f of cleanupFns) {
+				try {
+					f();
+				} catch {
+					// best-effort
+				}
+			}
+			process.exit();
+		};
+		process.on("SIGINT", run);
+		process.on("SIGTERM", run);
+		process.on("exit", () => {
+			for (const f of cleanupFns) {
+				try {
+					f();
+				} catch {
+					// best-effort
+				}
+			}
+		});
+	}
+}
+
+export type Profile = "empty" | "authorized" | "trusted";
+
+export interface ProfileOpts {
+	configDir: string;
+	workspace: string;
+}

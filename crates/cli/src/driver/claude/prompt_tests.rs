@@ -25,8 +25,8 @@ fn permission_context_extracts_tool_and_preview() {
     let ctx = extract_permission_context(&entry);
     assert_eq!(ctx.kind, crate::driver::PromptKind::Permission);
     assert_eq!(ctx.tool.as_deref(), Some("Bash"));
-    assert!(ctx.input_preview.is_some());
-    let preview = ctx.input_preview.as_deref().unwrap_or("");
+    assert!(ctx.input.is_some());
+    let preview = ctx.input.as_deref().unwrap_or("");
     assert!(preview.contains("npm install express"));
 }
 
@@ -44,7 +44,7 @@ fn permission_context_truncates_large_input() {
         }
     });
     let ctx = extract_permission_context(&entry);
-    let preview = ctx.input_preview.unwrap_or_default();
+    let preview = ctx.input.unwrap_or_default();
     assert!(preview.len() <= 210); // 200 + "..."
     assert!(preview.ends_with("..."));
 }
@@ -102,7 +102,7 @@ fn ask_user_context_with_empty_input() {
 }
 
 #[test]
-fn plan_context_captures_screen_lines() {
+fn plan_context_returns_plan_kind() {
     let screen = ScreenSnapshot {
         lines: vec![
             "Plan: Implement auth system".to_string(),
@@ -117,8 +117,7 @@ fn plan_context_captures_screen_lines() {
     };
     let ctx = extract_plan_context(&screen);
     assert_eq!(ctx.kind, crate::driver::PromptKind::Plan);
-    assert_eq!(ctx.screen_lines.len(), 3);
-    assert_eq!(ctx.screen_lines[0], "Plan: Implement auth system");
+    assert!(ctx.auth_url.is_none());
 }
 
 #[test]
@@ -202,7 +201,7 @@ fn missing_fields_produce_sensible_defaults() {
     let ctx = extract_permission_context(&entry);
     assert_eq!(ctx.kind, crate::driver::PromptKind::Permission);
     assert!(ctx.tool.is_none());
-    assert!(ctx.input_preview.is_none());
+    assert!(ctx.input.is_none());
 
     // AskUser context with no input field
     let block = json!({ "type": "tool_use", "name": "AskUserQuestion" });

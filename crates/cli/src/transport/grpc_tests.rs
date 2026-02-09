@@ -87,8 +87,8 @@ fn prompt_to_proto_converts_all_fields() {
         kind: crate::driver::PromptKind::Permission,
         subtype: None,
         tool: Some("bash".to_owned()),
-        input_preview: Some("rm -rf /".to_owned()),
-        screen_lines: vec!["$ rm -rf /".to_owned()],
+        input: Some("rm -rf /".to_owned()),
+        auth_url: None,
         options: vec![],
         options_fallback: false,
         questions: vec![],
@@ -97,8 +97,8 @@ fn prompt_to_proto_converts_all_fields() {
     let p = prompt_to_proto(&prompt);
     assert_eq!(p.r#type, "permission");
     assert_eq!(p.tool.as_deref(), Some("bash"));
-    assert_eq!(p.input_preview.as_deref(), Some("rm -rf /"));
-    assert_eq!(p.screen_lines, vec!["$ rm -rf /"]);
+    assert_eq!(p.input.as_deref(), Some("rm -rf /"));
+    assert!(p.auth_url.is_none());
 }
 
 #[test]
@@ -107,8 +107,8 @@ fn prompt_to_proto_maps_subtype() {
         kind: crate::driver::PromptKind::Setup,
         subtype: Some("theme_picker".to_owned()),
         tool: None,
-        input_preview: None,
-        screen_lines: vec![],
+        input: None,
+        auth_url: None,
         options: vec!["Dark mode".to_owned(), "Light mode".to_owned()],
         options_fallback: false,
         questions: vec![],
@@ -127,8 +127,8 @@ fn prompt_to_proto_handles_none_fields() {
         kind: crate::driver::PromptKind::Question,
         subtype: None,
         tool: None,
-        input_preview: None,
-        screen_lines: vec![],
+        input: None,
+        auth_url: None,
         options: vec![],
         options_fallback: false,
         questions: vec![],
@@ -137,8 +137,8 @@ fn prompt_to_proto_handles_none_fields() {
     let p = prompt_to_proto(&prompt);
     assert_eq!(p.r#type, "question");
     assert!(p.tool.is_none());
-    assert!(p.input_preview.is_none());
-    assert!(p.screen_lines.is_empty());
+    assert!(p.input.is_none());
+    assert!(p.auth_url.is_none());
 }
 
 #[test]
@@ -162,8 +162,8 @@ fn state_change_to_proto_includes_prompt() {
         kind: crate::driver::PromptKind::Permission,
         subtype: None,
         tool: Some("write".to_owned()),
-        input_preview: None,
-        screen_lines: vec![],
+        input: None,
+        auth_url: None,
         options: vec![],
         options_fallback: false,
         questions: vec![],

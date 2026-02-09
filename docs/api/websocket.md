@@ -112,8 +112,7 @@ to a `state_request`.
   "prompt": {
     "prompt_type": "permission",
     "tool": "Bash",
-    "input_preview": "{\"command\":\"rm -rf /tmp/test\"}",
-    "screen_lines": [],
+    "input": "{\"command\":\"rm -rf /tmp/test\"}",
     "questions": [],
     "question_current": 0
   },
@@ -431,8 +430,7 @@ No response on success. Error with `BAD_REQUEST` if the signal is unrecognized.
 {
   "prompt_type": "permission",
   "tool": "Bash",
-  "input_preview": "{\"command\":\"ls\"}",
-  "screen_lines": [],
+  "input": "{\"command\":\"ls\"}",
   "questions": [],
   "question_current": 0
 }
@@ -442,8 +440,8 @@ No response on success. Error with `BAD_REQUEST` if the signal is unrecognized.
 |-------|------|-------------|
 | `prompt_type` | string | `"permission"`, `"plan"`, `"question"` |
 | `tool` | string or null | Tool name (permission prompts) |
-| `input_preview` | string or null | Truncated tool input (permission prompts) |
-| `screen_lines` | string[] | Raw screen lines (plan prompts) |
+| `input` | string or null | Truncated tool input (permission prompts) |
+| `auth_url` | string or null | OAuth authorization URL (setup oauth_login prompts) |
 | `questions` | QuestionContext[] | All questions in a multi-question dialog |
 | `question_current` | int | 0-indexed current question; equals `questions.len()` at confirm phase |
 

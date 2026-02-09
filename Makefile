@@ -45,16 +45,16 @@ outdated:
 
 # Launch coop wrapping claude with browser terminal
 try-claude:
-	@COOP_AGENT=claude tests/debug/start.sh -- claude
+	@COOP_AGENT=claude bun tests/debug/start.ts -- claude
 
 # Launch coop wrapping claudeless with browser terminal
 # Usage: make try-claudeless SCENARIO=crates/cli/tests/scenarios/claude_hello.toml
 try-claudeless:
-	@COOP_AGENT=claude tests/debug/start.sh -- claudeless --scenario $(SCENARIO)
+	@COOP_AGENT=claude bun tests/debug/start.ts -- claudeless --scenario $(SCENARIO)
 
 # Launch coop wrapping gemini with browser terminal
 try-gemini:
-	@COOP_AGENT=gemini tests/debug/start.sh -- gemini
+	@COOP_AGENT=gemini bun tests/debug/start.ts -- gemini
 
 # Build Docker claudeless image (for testing)
 docker-test-image:
@@ -63,22 +63,23 @@ docker-test-image:
 # Launch coop + claudeless in Docker with browser terminal
 # Usage: make try-docker-claudeless SCENARIO=claude_hello.toml
 try-docker-claudeless:
-	@tests/debug/start-docker.sh claudeless --scenario $(or $(SCENARIO),claude_hello.toml)
+	@bun tests/debug/start-docker.ts claudeless --scenario $(or $(SCENARIO),claude_hello.toml)
 
 # Launch coop + claude CLI in Docker with browser terminal
+# Usage: make try-docker-claude PROFILE=trusted
 try-docker-claude:
-	@tests/debug/start-docker.sh claude
+	@bun tests/debug/start-docker.ts claude $(if $(PROFILE),--profile $(PROFILE))
 
 # Launch coop + gemini CLI in Docker with browser terminal
 try-docker-gemini:
-	@tests/debug/start-docker.sh gemini
+	@bun tests/debug/start-docker.ts gemini
 
 # Capture state changes during claude onboarding (interactive)
 # Usage: make capture-claude CONFIG=empty    (full onboarding)
 #        make capture-claude CONFIG=auth-only (skip login)
 #        make capture-claude CONFIG=trusted   (skip to idle)
 capture-claude:
-	@tests/debug/capture-claude.sh --config $(or $(CONFIG),empty)
+	@bun tests/debug/capture-claude.ts --config $(or $(CONFIG),empty)
 
 # Run Docker e2e tests (builds test image first)
 test-docker: docker-test-image

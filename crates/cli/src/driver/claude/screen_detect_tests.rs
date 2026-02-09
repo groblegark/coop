@@ -143,6 +143,57 @@ fn login_success_emits_setup() {
 }
 
 #[test]
+fn oauth_login_extracts_auth_url_single_line() {
+    let snap = snapshot(&[
+        "",
+        " Paste code here if prompted",
+        "",
+        "https://claude.ai/oauth/authorize?client_id=abc&state=xyz",
+        "",
+    ]);
+    let (s, c) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.kind, PromptKind::Setup);
+    assert_eq!(prompt.subtype.as_deref(), Some("oauth_login"));
+    assert_eq!(
+        prompt.auth_url.as_deref(),
+        Some("https://claude.ai/oauth/authorize?client_id=abc&state=xyz")
+    );
+    assert_eq!(c, "screen:setup");
+}
+
+#[test]
+fn oauth_login_extracts_wrapped_auth_url() {
+    // Real Claude wraps the URL across multiple terminal lines.
+    let snap = snapshot(&[
+        " Browser didn't open? Use the url below to sign in (c to copy)",
+        "",
+        "https://claude.ai/oauth/authorize?code=true&client_id=9d1c&redirect_uri=",
+        "https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user",
+        "%3Asessions&state=BwPX",
+        "",
+        " Paste code here if prompted >",
+    ]);
+    let (s, _) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.subtype.as_deref(), Some("oauth_login"));
+    assert_eq!(
+        prompt.auth_url.as_deref(),
+        Some("https://claude.ai/oauth/authorize?code=true&client_id=9d1c&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Asessions&state=BwPX")
+    );
+}
+
+#[test]
+fn oauth_login_no_url_has_none_auth_url() {
+    let snap =
+        snapshot(&[" Paste code here if prompted", " Please visit this URL: oauth/authorize"]);
+    let (s, _) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.subtype.as_deref(), Some("oauth_login"));
+    assert!(prompt.auth_url.is_none());
+}
+
+#[test]
 fn detects_prompt_with_status_text_below() {
     let snap = snapshot(&[
         "Claude Code v2.1.37",

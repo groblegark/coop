@@ -357,9 +357,9 @@
 </div>
 
 <script type="module">
-import { Terminal }  from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm';
 import { FitAddon }  from 'https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/+esm';
 import { WebglAddon } from 'https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/+esm';
+import { Terminal }  from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm';
 
 const params = new URLSearchParams(location.search);
 const PORT = params.get('port') || '7070';
@@ -502,7 +502,7 @@ async function pollApi() {
   } catch (_) { /* ignore */ }
 }
 
-let pollTimer = setInterval(pollApi, 2000);
+const pollTimer = setInterval(pollApi, 2000);
 pollApi();
 
 // --- Event log ---
@@ -805,7 +805,7 @@ function updateRespondUI(prompt) {
     const info = document.getElementById('act-respond-perm-info');
     const parts = [];
     if (prompt.tool) parts.push(`Tool: ${prompt.tool}`);
-    if (prompt.input_preview) parts.push(prompt.input_preview);
+    if (prompt.input) parts.push(prompt.input);
     info.textContent = parts.join(' — ') || '';
     const isFallback = !!prompt.options_fallback;
     document.getElementById('act-respond-perm-fallback').style.display = isFallback ? '' : 'none';
