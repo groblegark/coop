@@ -32,19 +32,19 @@ fn detects_idle_prompt() {
 }
 
 #[test]
-fn no_match_on_empty_screen() {
+fn no_idle_on_empty_screen() {
     let snap = snapshot(&["", "", ""]);
     assert_eq!(classify_claude_screen(&snap), None);
 }
 
 #[test]
-fn no_match_on_working_output() {
+fn no_idle_on_working_output() {
     let snap = snapshot(&["Reading file src/main.rs...", "Analyzing code...", ""]);
     assert_eq!(classify_claude_screen(&snap), None);
 }
 
 #[test]
-fn no_match_on_startup_prompt() {
+fn no_idle_on_startup_prompt() {
     let snap = snapshot(&["Do you trust the files in this folder?", "(y/n)", ""]);
     assert_eq!(classify_claude_screen(&snap), None);
 }
@@ -59,7 +59,7 @@ fn detects_bare_prompt() {
 }
 
 #[test]
-fn no_match_on_workspace_trust_dialog() {
+fn no_idle_on_workspace_trust_dialog() {
     let snap = snapshot(&[
         " Accessing workspace:",
         " /Users/kestred/Developer/foo",
@@ -73,7 +73,7 @@ fn no_match_on_workspace_trust_dialog() {
 }
 
 #[test]
-fn no_match_on_theme_picker() {
+fn no_idle_on_theme_picker() {
     let snap = snapshot(&[
         " Choose the text style that looks best with your terminal",
         "",
@@ -86,7 +86,7 @@ fn no_match_on_theme_picker() {
 }
 
 #[test]
-fn no_match_on_tool_permission_dialog() {
+fn no_idle_on_tool_permission_dialog() {
     let snap = snapshot(&[
         " Bash command",
         "",
