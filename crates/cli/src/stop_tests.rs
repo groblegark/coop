@@ -84,12 +84,10 @@ fn generate_block_reason_default_no_schema() {
         prompt: None,
         schema: None,
     };
-    let reason = generate_block_reason(&config, "http://127.0.0.1:8080/api/v1/hooks/stop/resolve");
-    assert!(reason.contains("You must signal before stopping."));
-    assert!(reason.contains("-d '{}'"));
-    assert!(reason.contains("http://127.0.0.1:8080/api/v1/hooks/stop/resolve"));
-    // Should NOT contain the old placeholder
-    assert!(!reason.contains(r#"{"your":"json"}"#));
+    let reason = generate_block_reason(&config);
+    assert!(reason.contains("Do not exit yet"));
+    assert!(reason.contains("continue working"));
+    assert!(reason.contains("coop send"));
 }
 
 #[test]
@@ -99,10 +97,9 @@ fn generate_block_reason_custom_prompt_no_schema() {
         prompt: Some("Finish your work first.".to_owned()),
         schema: None,
     };
-    let reason = generate_block_reason(&config, "http://localhost:3000/api/v1/hooks/stop/resolve");
+    let reason = generate_block_reason(&config);
     assert!(reason.contains("Finish your work first."));
-    assert!(reason.contains("You must signal before stopping."));
-    assert!(reason.contains("-d '{}'"));
+    assert!(reason.contains("When ready to stop, run: coop send"));
 }
 
 #[test]
@@ -127,13 +124,13 @@ fn generate_block_reason_with_enum_schema_expands_commands() {
         prompt: Some("Signal when ready.".to_owned()),
         schema: Some(StopSchema { fields }),
     };
-    let reason = generate_block_reason(&config, "http://127.0.0.1:9000/api/v1/hooks/stop/resolve");
+    let reason = generate_block_reason(&config);
 
-    // Should have one curl per enum value
+    // Should have one `coop send` per enum value
     assert!(reason.contains("Run one of:"));
-    assert!(reason.contains(r#"-d '{"status":"done"}'"#));
+    assert!(reason.contains(r#"coop send '{"status":"done"}'"#));
     assert!(reason.contains("Work completed"));
-    assert!(reason.contains(r#"-d '{"status":"error"}'"#));
+    assert!(reason.contains(r#"coop send '{"status":"error"}'"#));
     assert!(reason.contains("Something went wrong"));
     // Custom prompt preserved
     assert!(reason.contains("Signal when ready."));
@@ -176,7 +173,7 @@ fn generate_block_reason_enum_with_extra_fields() {
         prompt: None,
         schema: Some(StopSchema { fields }),
     };
-    let reason = generate_block_reason(&config, "http://127.0.0.1:9000/api/v1/hooks/stop/resolve");
+    let reason = generate_block_reason(&config);
 
     // Single enum field → expanded with extra fields filled in
     assert!(reason.contains("Run one of:"));
@@ -203,11 +200,11 @@ fn generate_block_reason_non_enum_schema() {
         prompt: None,
         schema: Some(StopSchema { fields }),
     };
-    let reason = generate_block_reason(&config, "http://127.0.0.1:9000/api/v1/hooks/stop/resolve");
+    let reason = generate_block_reason(&config);
 
-    // No enum → single command with placeholder
-    assert!(reason.contains("You must signal before stopping."));
-    assert!(reason.contains(r#"-d '{"message":"<message>"}'"#));
+    // No enum → plain default with coop send
+    assert!(reason.contains("Do not exit yet"));
+    assert!(reason.contains("coop send"));
     assert!(!reason.contains("Run one of:"));
 }
 

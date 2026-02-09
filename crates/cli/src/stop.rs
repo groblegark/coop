@@ -203,20 +203,15 @@ impl std::fmt::Debug for StopState {
 // Block reason generation
 // ---------------------------------------------------------------------------
 
-/// Assemble the block reason text from the stop config and resolve URL.
+/// Assemble the block reason text from the stop config.
 ///
 /// This is the `reason` field returned in `{"decision":"block","reason":"..."}`.
-/// It tells the agent what to do: call the resolve endpoint with the right body.
+/// It tells the agent what to do: run `coop send` with the right body.
 ///
-/// The output is designed to be directly actionable — concrete curl commands the
-/// agent can copy-paste, modeled after oddjobs' `oj emit agent:signal` approach.
-pub fn generate_block_reason(config: &StopConfig, resolve_url: &str) -> String {
+/// The output is designed to be directly actionable — concrete `coop send`
+/// commands the agent can copy-paste.
+pub fn generate_block_reason(config: &StopConfig) -> String {
     let mut parts = Vec::new();
-
-    // Custom prompt (or default directive)
-    if let Some(ref prompt) = config.prompt {
-        parts.push(prompt.clone());
-    }
 
     // Find enum fields eligible for command expansion.
     let primary_enum = config.schema.as_ref().and_then(|schema| {
@@ -234,27 +229,36 @@ pub fn generate_block_reason(config: &StopConfig, resolve_url: &str) -> String {
     });
 
     if let Some((enum_name, enum_field)) = primary_enum {
-        // Expand into one curl command per enum value (like oddjobs).
-        parts.push("You must signal before stopping. Run one of:".to_owned());
+        // Custom prompt (or default directive)
+        if let Some(ref prompt) = config.prompt {
+            parts.push(prompt.clone());
+        }
+
+        // Expand into one `coop send` per enum value.
+        parts.push(
+            "Do not exit yet \u{2014} continue working. Signal before stopping. Run one of:"
+                .to_owned(),
+        );
         let values = enum_field.r#enum.as_deref().unwrap_or_default();
         let descs = enum_field.descriptions.as_ref();
         for v in values {
             let body = generate_example_body(config.schema.as_ref(), Some((&enum_name, v)));
-            let mut line = format!(
-                "curl -sf -X POST -H 'Content-Type: application/json' -d '{body}' {resolve_url}"
-            );
+            let mut line = format!("coop send '{body}'");
             if let Some(vd) = descs.and_then(|d| d.get(v)) {
-                line.push_str(&format!("  — {vd}"));
+                line.push_str(&format!("  \u{2014} {vd}"));
             }
             parts.push(line);
         }
+    } else if let Some(ref prompt) = config.prompt {
+        // No enum schema, custom prompt.
+        parts.push(prompt.clone());
+        parts.push("When ready to stop, run: coop send".to_owned());
     } else {
-        // Single command — use example body from schema or empty `{}`.
-        parts.push("You must signal before stopping.".to_owned());
-        let body = generate_example_body(config.schema.as_ref(), None);
-        parts.push(format!(
-            "To signal, run: curl -sf -X POST -H 'Content-Type: application/json' -d '{body}' {resolve_url}"
-        ));
+        // No schema, no prompt — plain default.
+        parts.push(
+            "Do not exit yet \u{2014} continue working. When ready to stop, run: coop send"
+                .to_owned(),
+        );
     }
 
     parts.join("\n")

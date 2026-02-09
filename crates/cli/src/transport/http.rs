@@ -634,7 +634,7 @@ pub async fn hooks_stop(
     }
 
     // 5. Block: generate reason and return block verdict.
-    let reason = generate_block_reason(&config, &stop.resolve_url);
+    let reason = generate_block_reason(&config);
     drop(config);
     stop.emit(StopType::Blocked, None, None);
     Json(StopHookVerdict {
