@@ -78,31 +78,37 @@ fn deserialize_empty_object_is_defaults() -> anyhow::Result<()> {
 }
 
 #[test]
-fn generate_block_reason_default_prompt() {
+fn generate_block_reason_default_no_schema() {
     let config = StopConfig {
         mode: StopMode::Signal,
         prompt: None,
         schema: None,
     };
-    let reason = generate_block_reason(&config, "http://127.0.0.1:8080/api/v1/hooks/stop/resolve");
-    assert!(reason.contains("Do not stop yet"));
+    let reason =
+        generate_block_reason(&config, "http://127.0.0.1:8080/api/v1/hooks/stop/resolve");
+    assert!(reason.contains("You must signal before stopping."));
+    assert!(reason.contains("-d '{}'"));
     assert!(reason.contains("http://127.0.0.1:8080/api/v1/hooks/stop/resolve"));
+    // Should NOT contain the old placeholder
+    assert!(!reason.contains(r#"{"your":"json"}"#));
 }
 
 #[test]
-fn generate_block_reason_custom_prompt() {
+fn generate_block_reason_custom_prompt_no_schema() {
     let config = StopConfig {
         mode: StopMode::Signal,
         prompt: Some("Finish your work first.".to_owned()),
         schema: None,
     };
-    let reason = generate_block_reason(&config, "http://localhost:3000/api/v1/hooks/stop/resolve");
+    let reason =
+        generate_block_reason(&config, "http://localhost:3000/api/v1/hooks/stop/resolve");
     assert!(reason.contains("Finish your work first."));
-    assert!(!reason.contains("Do not stop yet"));
+    assert!(reason.contains("You must signal before stopping."));
+    assert!(reason.contains("-d '{}'"));
 }
 
 #[test]
-fn generate_block_reason_with_schema() {
+fn generate_block_reason_with_enum_schema_expands_commands() {
     let mut fields = BTreeMap::new();
     fields.insert(
         "status".to_owned(),
@@ -123,12 +129,91 @@ fn generate_block_reason_with_schema() {
         prompt: Some("Signal when ready.".to_owned()),
         schema: Some(StopSchema { fields }),
     };
-    let reason = generate_block_reason(&config, "http://127.0.0.1:9000/api/v1/hooks/stop/resolve");
+    let reason =
+        generate_block_reason(&config, "http://127.0.0.1:9000/api/v1/hooks/stop/resolve");
+
+    // Should have one curl per enum value
+    assert!(reason.contains("Run one of:"));
+    assert!(reason.contains(r#"-d '{"status":"done"}'"#));
+    assert!(reason.contains("Work completed"));
+    assert!(reason.contains(r#"-d '{"status":"error"}'"#));
+    assert!(reason.contains("Something went wrong"));
+    // Custom prompt preserved
     assert!(reason.contains("Signal when ready."));
-    assert!(reason.contains("status (required): Task outcome"));
-    assert!(reason.contains("\"done\": Work completed"));
-    assert!(reason.contains("\"error\": Something went wrong"));
-    assert!(reason.contains("curl"));
+}
+
+#[test]
+fn generate_block_reason_enum_with_extra_fields() {
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        "notes".to_owned(),
+        StopSchemaField {
+            required: false,
+            r#enum: None,
+            descriptions: None,
+            description: Some("Optional notes".to_owned()),
+        },
+    );
+    fields.insert(
+        "status".to_owned(),
+        StopSchemaField {
+            required: true,
+            r#enum: Some(vec!["success".to_owned(), "failure".to_owned()]),
+            descriptions: Some({
+                let mut d = BTreeMap::new();
+                d.insert(
+                    "success".to_owned(),
+                    "Task completed successfully".to_owned(),
+                );
+                d.insert(
+                    "failure".to_owned(),
+                    "Task could not be completed".to_owned(),
+                );
+                d
+            }),
+            description: Some("Outcome of the task".to_owned()),
+        },
+    );
+    let config = StopConfig {
+        mode: StopMode::Signal,
+        prompt: None,
+        schema: Some(StopSchema { fields }),
+    };
+    let reason =
+        generate_block_reason(&config, "http://127.0.0.1:9000/api/v1/hooks/stop/resolve");
+
+    // Single enum field → expanded with extra fields filled in
+    assert!(reason.contains("Run one of:"));
+    assert!(reason.contains(r#""status":"success""#));
+    assert!(reason.contains(r#""status":"failure""#));
+    // Non-enum field should use placeholder
+    assert!(reason.contains(r#""notes":"<notes>""#));
+}
+
+#[test]
+fn generate_block_reason_non_enum_schema() {
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        "message".to_owned(),
+        StopSchemaField {
+            required: true,
+            r#enum: None,
+            descriptions: None,
+            description: Some("A message".to_owned()),
+        },
+    );
+    let config = StopConfig {
+        mode: StopMode::Signal,
+        prompt: None,
+        schema: Some(StopSchema { fields }),
+    };
+    let reason =
+        generate_block_reason(&config, "http://127.0.0.1:9000/api/v1/hooks/stop/resolve");
+
+    // No enum → single command with placeholder
+    assert!(reason.contains("You must signal before stopping."));
+    assert!(reason.contains(r#"-d '{"message":"<message>"}'"#));
+    assert!(!reason.contains("Run one of:"));
 }
 
 #[test]

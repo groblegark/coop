@@ -207,50 +207,90 @@ impl std::fmt::Debug for StopState {
 ///
 /// This is the `reason` field returned in `{"decision":"block","reason":"..."}`.
 /// It tells the agent what to do: call the resolve endpoint with the right body.
+///
+/// The output is designed to be directly actionable — concrete curl commands the
+/// agent can copy-paste, modeled after oddjobs' `oj emit agent:signal` approach.
 pub fn generate_block_reason(config: &StopConfig, resolve_url: &str) -> String {
     let mut parts = Vec::new();
 
-    // Custom prompt
+    // Custom prompt (or default directive)
     if let Some(ref prompt) = config.prompt {
         parts.push(prompt.clone());
-    } else {
-        parts.push("Do not stop yet. Signal when ready to stop.".to_owned());
     }
 
-    // Schema fields documentation
-    if let Some(ref schema) = config.schema {
-        parts.push(String::new());
-        parts.push("Signal body fields:".to_owned());
-        for (name, field) in &schema.fields {
-            let mut desc = format!("  - {name}");
-            if field.required {
-                desc.push_str(" (required)");
-            }
-            if let Some(ref d) = field.description {
-                desc.push_str(&format!(": {d}"));
-            }
-            parts.push(desc);
-
-            if let Some(ref values) = field.r#enum {
-                let descs = field.descriptions.as_ref();
-                for v in values {
-                    let mut line = format!("      - \"{v}\"");
-                    if let Some(vd) = descs.and_then(|d| d.get(v)) {
-                        line.push_str(&format!(": {vd}"));
-                    }
-                    parts.push(line);
-                }
-            }
+    // Find enum fields eligible for command expansion.
+    let primary_enum = config.schema.as_ref().and_then(|schema| {
+        let enum_fields: Vec<_> = schema
+            .fields
+            .iter()
+            .filter(|(_, f)| f.r#enum.is_some())
+            .collect();
+        if enum_fields.len() == 1 {
+            let (name, field) = enum_fields[0];
+            Some((name.clone(), field.clone()))
+        } else {
+            None
         }
-    }
+    });
 
-    // Curl instruction
-    parts.push(String::new());
-    parts.push(format!(
-        "To signal, run: curl -sf -X POST -H 'Content-Type: application/json' -d '{{\"your\":\"json\"}}' {resolve_url}"
-    ));
+    if let Some((enum_name, enum_field)) = primary_enum {
+        // Expand into one curl command per enum value (like oddjobs).
+        parts.push("You must signal before stopping. Run one of:".to_owned());
+        let values = enum_field.r#enum.as_deref().unwrap_or_default();
+        let descs = enum_field.descriptions.as_ref();
+        for v in values {
+            let body = generate_example_body(config.schema.as_ref(), Some((&enum_name, v)));
+            let mut line = format!(
+                "curl -sf -X POST -H 'Content-Type: application/json' -d '{body}' {resolve_url}"
+            );
+            if let Some(vd) = descs.and_then(|d| d.get(v)) {
+                line.push_str(&format!("  — {vd}"));
+            }
+            parts.push(line);
+        }
+    } else {
+        // Single command — use example body from schema or empty `{}`.
+        parts.push("You must signal before stopping.".to_owned());
+        let body = generate_example_body(config.schema.as_ref(), None);
+        parts.push(format!(
+            "To signal, run: curl -sf -X POST -H 'Content-Type: application/json' -d '{body}' {resolve_url}"
+        ));
+    }
 
     parts.join("\n")
+}
+
+/// Build an example JSON body string from a schema.
+///
+/// When `enum_override` is provided, that field uses the given value; other
+/// fields use their first enum value or a `<name>` placeholder.
+fn generate_example_body(
+    schema: Option<&StopSchema>,
+    enum_override: Option<(&str, &str)>,
+) -> String {
+    let schema = match schema {
+        Some(s) if !s.fields.is_empty() => s,
+        _ => return "{}".to_owned(),
+    };
+
+    let mut obj = serde_json::Map::new();
+    for (name, field) in &schema.fields {
+        let val = if let Some((override_name, override_val)) = enum_override {
+            if name == override_name {
+                override_val.to_owned()
+            } else if let Some(ref values) = field.r#enum {
+                values.first().cloned().unwrap_or_default()
+            } else {
+                format!("<{name}>")
+            }
+        } else if let Some(ref values) = field.r#enum {
+            values.first().cloned().unwrap_or_default()
+        } else {
+            format!("<{name}>")
+        };
+        obj.insert(name.clone(), Value::String(val));
+    }
+    serde_json::to_string(&Value::Object(obj)).unwrap_or_else(|_| "{}".to_owned())
 }
 
 #[cfg(test)]
