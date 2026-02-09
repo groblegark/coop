@@ -88,7 +88,7 @@ impl Session {
             shutdown,
         } = session;
 
-        let idle_grace = Duration::from_secs(config.idle_grace);
+        let idle_grace = config.idle_grace();
         let idle_grace_poll = config.idle_grace_poll();
 
         // Set initial PID (Release so signal-delivery loads with Acquire see it)
@@ -143,7 +143,7 @@ impl Session {
 
     /// Run the session loop until the backend exits or shutdown is triggered.
     pub async fn run(mut self, config: &Config) -> anyhow::Result<ExitStatus> {
-        let idle_timeout = config.idle_timeout_duration();
+        let idle_timeout = config.idle_timeout();
         let shutdown_timeout = config.shutdown_timeout();
         let mut screen_debounce = tokio::time::interval(config.screen_debounce());
         let mut state_seq: u64 = 0;

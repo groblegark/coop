@@ -42,10 +42,6 @@ pub struct Config {
     #[arg(long, env = "COOP_AGENT_CONFIG")]
     pub agent_config: Option<PathBuf>,
 
-    /// Idle grace period in seconds before confirming idle state.
-    #[arg(long, env = "COOP_IDLE_GRACE", default_value = "60")]
-    pub idle_grace: u64,
-
     /// Attach to an existing session (e.g. tmux:session-name).
     #[arg(long, env = "COOP_ATTACH")]
     pub attach: Option<String>,
@@ -69,10 +65,6 @@ pub struct Config {
     /// Health-check-only HTTP port.
     #[arg(long, env = "COOP_HEALTH_PORT")]
     pub health_port: Option<u16>,
-
-    /// Idle timeout in seconds (0 = disabled).
-    #[arg(long, env = "COOP_IDLE_TIMEOUT", default_value = "0")]
-    pub idle_timeout: u64,
 
     /// Log format (json or text).
     #[arg(long, env = "COOP_LOG_FORMAT", default_value = "json")]
@@ -178,9 +170,14 @@ impl Config {
         env_duration_ms("COOP_KEYBOARD_DELAY_MS", 100)
     }
 
-    /// Idle timeout as a `Duration` (derived from the `--idle-timeout` CLI flag).
-    pub fn idle_timeout_duration(&self) -> Duration {
-        Duration::from_secs(self.idle_timeout)
+    /// Idle grace period before confirming idle state.
+    pub fn idle_grace(&self) -> Duration {
+        env_duration_secs("COOP_IDLE_GRACE_SECS", 60)
+    }
+
+    /// Idle timeout (0 = disabled).
+    pub fn idle_timeout(&self) -> Duration {
+        env_duration_secs("COOP_IDLE_TIMEOUT_SECS", 0)
     }
 
     /// Build a minimal `Config` for tests (port 0, `echo` command).
@@ -194,14 +191,12 @@ impl Config {
             auth_token: None,
             agent: "unknown".into(),
             agent_config: None,
-            idle_grace: 60,
             attach: None,
             cols: 80,
             rows: 24,
             ring_size: 4096,
             term: "xterm-256color".into(),
             health_port: None,
-            idle_timeout: 0,
             log_format: "json".into(),
             log_level: "debug".into(),
             resume: None,
@@ -240,6 +235,14 @@ pub fn load_agent_config(path: &Path) -> anyhow::Result<AgentFileConfig> {
     let contents = std::fs::read_to_string(path)?;
     let config: AgentFileConfig = serde_json::from_str(&contents)?;
     Ok(config)
+}
+
+fn env_duration_secs(var: &str, default: u64) -> Duration {
+    let secs = std::env::var(var)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default);
+    Duration::from_secs(secs)
 }
 
 fn env_duration_ms(var: &str, default: u64) -> Duration {

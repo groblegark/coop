@@ -74,8 +74,6 @@ fn defaults_are_correct() {
     assert_eq!(config.cols, 200);
     assert_eq!(config.rows, 50);
     assert_eq!(config.ring_size, 1048576);
-    assert_eq!(config.idle_grace, 60);
-    assert_eq!(config.idle_timeout, 0);
     assert_eq!(config.log_format, "json");
     assert_eq!(config.log_level, "info");
 }
@@ -93,4 +91,6 @@ fn env_duration_defaults() {
     assert_eq!(config.tmux_poll(), Duration::from_secs(1));
     assert_eq!(config.pty_reap(), Duration::from_millis(50));
     assert_eq!(config.feedback_delay(), Duration::from_millis(100));
+    assert_eq!(config.idle_grace(), Duration::from_secs(60));
+    assert_eq!(config.idle_timeout(), Duration::ZERO);
 }

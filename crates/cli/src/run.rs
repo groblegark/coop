@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, RwLock};
@@ -242,7 +242,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             auth_token: config.auth_token.clone(),
             nudge_encoder,
             respond_encoder,
-            idle_grace_duration: Duration::from_secs(config.idle_grace),
+            idle_grace_duration: config.idle_grace(),
         },
         lifecycle: LifecycleState {
             shutdown: shutdown.clone(),
