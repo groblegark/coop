@@ -26,16 +26,27 @@ export async function loadEnvFile(): Promise<void> {
 }
 
 /**
- * Resolve OAuth token via fallback chain:
- * env var → macOS Keychain → ~/.claude/.credentials.json
+ * Resolved credential — either an OAuth token (Flow A) or API key (Flow B).
  */
-export async function resolveOAuthToken(): Promise<string> {
-	// 1. Environment variable
+export type Credential =
+	| { type: "oauth_token"; token: string }
+	| { type: "api_key"; key: string };
+
+/**
+ * Resolve credential via fallback chain:
+ *
+ * Flow A (OAuth token): env → Keychain → ~/.claude/.credentials.json
+ * Flow B (API key):     env → ~/.claude/.claude.json primaryApiKey
+ */
+export async function resolveCredential(): Promise<Credential> {
+	// --- Flow A: OAuth token ---
+
+	// 1a. Environment variable
 	if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-		return process.env.CLAUDE_CODE_OAUTH_TOKEN;
+		return { type: "oauth_token", token: process.env.CLAUDE_CODE_OAUTH_TOKEN };
 	}
 
-	// 2. macOS Keychain
+	// 2a. macOS Keychain
 	try {
 		const kcJson =
 			await $`security find-generic-password -s "Claude Code-credentials" -w`
@@ -43,23 +54,41 @@ export async function resolveOAuthToken(): Promise<string> {
 				.text();
 		const data = JSON.parse(kcJson);
 		const token = data?.claudeAiOauth?.accessToken;
-		if (token) return token;
+		if (token) return { type: "oauth_token", token };
 	} catch {
 		// not found or not macOS
 	}
 
-	// 3. ~/.claude/.credentials.json
+	// 3a. ~/.claude/.credentials.json
 	const credPath = join(process.env.HOME ?? "", ".claude/.credentials.json");
 	try {
 		const data = await Bun.file(credPath).json();
 		const token = data?.claudeAiOauth?.accessToken;
-		if (token) return token;
+		if (token) return { type: "oauth_token", token };
+	} catch {
+		// file doesn't exist
+	}
+
+	// --- Flow B: API key ---
+
+	// 1b. Environment variable
+	if (process.env.ANTHROPIC_API_KEY) {
+		return { type: "api_key", key: process.env.ANTHROPIC_API_KEY };
+	}
+
+	// 2b. ~/.claude/.claude.json primaryApiKey
+	const claudePath = join(process.env.HOME ?? "", ".claude/.claude.json");
+	try {
+		const data = await Bun.file(claudePath).json();
+		if (data?.primaryApiKey) {
+			return { type: "api_key", key: data.primaryApiKey };
+		}
 	} catch {
 		// file doesn't exist
 	}
 
 	throw new Error(
-		"No OAuth token found. Set CLAUDE_CODE_OAUTH_TOKEN, add tests/debug/.env, or log in with 'claude'.",
+		"No credential found. Set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY, add tests/debug/.env, or log in with 'claude'.",
 	);
 }
 
@@ -89,44 +118,53 @@ export async function resolveOAuthAccount(): Promise<Record<string, unknown>> {
 
 export async function writeCredentials(
 	configDir: string,
-	token: string,
+	credential: Credential,
 	account: Record<string, unknown>,
 	baseJson: Record<string, unknown>,
 ): Promise<void> {
-	// Write .credentials.json
-	const credentials = {
-		claudeAiOauth: {
-			accessToken: token,
-			refreshToken: "",
-			expiresAt: 9999999999999,
-			scopes: ["user:inference", "user:profile", "user:sessions:claude_code"],
-		},
-	};
-	await Bun.write(
-		join(configDir, ".credentials.json"),
-		JSON.stringify(credentials),
-	);
-
 	// Detect lastOnboardingVersion from claude --version
-	let onboardingVer = "0.0.0";
-	try {
-		const ver = await $`claude --version`.quiet().text();
-		const match = ver.match(/(\d+\.\d+\.\d+)/);
-		if (match) onboardingVer = match[1];
-	} catch {
-		// claude not installed
-	}
+	const onboardingVer = await detectOnboardingVersion();
 
-	// Inject oauthAccount + lastOnboardingVersion into base json
-	const claudeJson = {
-		...baseJson,
-		oauthAccount: account,
-		lastOnboardingVersion: onboardingVer,
-	};
-	await Bun.write(
-		join(configDir, ".claude.json"),
-		JSON.stringify(claudeJson, null, 2),
-	);
+	if (credential.type === "oauth_token") {
+		// Flow A: write .credentials.json + .claude.json
+		const credentials = {
+			claudeAiOauth: {
+				accessToken: credential.token,
+				refreshToken: "",
+				expiresAt: 9999999999999,
+				scopes: [
+					"user:inference",
+					"user:profile",
+					"user:sessions:claude_code",
+				],
+			},
+		};
+		await Bun.write(
+			join(configDir, ".credentials.json"),
+			JSON.stringify(credentials),
+		);
+		const claudeJson = {
+			...baseJson,
+			oauthAccount: account,
+			lastOnboardingVersion: onboardingVer,
+		};
+		await Bun.write(
+			join(configDir, ".claude.json"),
+			JSON.stringify(claudeJson, null, 2),
+		);
+	} else {
+		// Flow B: write primaryApiKey into .claude.json (no .credentials.json)
+		const claudeJson = {
+			...baseJson,
+			oauthAccount: account,
+			primaryApiKey: credential.key,
+			lastOnboardingVersion: onboardingVer,
+		};
+		await Bun.write(
+			join(configDir, ".claude.json"),
+			JSON.stringify(claudeJson, null, 2),
+		);
+	}
 }
 
 export async function detectOnboardingVersion(): Promise<string> {

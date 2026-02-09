@@ -23,9 +23,10 @@ import { join, relative } from "node:path";
 import { parseArgs } from "node:util";
 import { $ } from "bun";
 import {
+	type Credential,
 	loadEnvFile,
+	resolveCredential,
 	resolveOAuthAccount,
-	resolveOAuthToken,
 	writeCredentials,
 } from "./lib/credentials";
 import {
@@ -87,10 +88,10 @@ await mkdir(screenDir, { recursive: true });
 await loadEnvFile();
 
 if (configMode === "trusted" || configMode === "authorized") {
-	let token: string;
+	let credential: Credential;
 	let account: Record<string, unknown>;
 	try {
-		token = await resolveOAuthToken();
+		credential = await resolveCredential();
 	} catch (e) {
 		console.error(`error: ${(e as Error).message}`);
 		process.exit(1);
@@ -103,7 +104,7 @@ if (configMode === "trusted" || configMode === "authorized") {
 	}
 
 	if (configMode === "trusted") {
-		await writeCredentials(configDir, token, account, {
+		await writeCredentials(configDir, credential, account, {
 			hasCompletedOnboarding: true,
 			projects: {
 				[containerWs]: {
@@ -116,7 +117,7 @@ if (configMode === "trusted" || configMode === "authorized") {
 		await Bun.write(join(workspace, "CLAUDE.md"), "");
 	} else {
 		// authorized
-		await writeCredentials(configDir, token, account, {
+		await writeCredentials(configDir, credential, account, {
 			hasCompletedOnboarding: true,
 			projects: {},
 		});
