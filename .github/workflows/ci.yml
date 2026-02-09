@@ -60,7 +60,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install protobuf tmux
-          curl -fsSL https://github.com/alfredjeanlab/claudeless/releases/latest/download/claudeless-darwin-aarch64.tar.gz | sudo tar xz -C /usr/local/bin
+          curl -fsSL https://github.com/alfredjeanlab/claudeless/releases/latest/download/claudeless-macos-aarch64.tar.gz | sudo tar xz -C /usr/local/bin
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --all
       - run: cargo test --all

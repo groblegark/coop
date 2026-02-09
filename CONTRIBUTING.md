@@ -6,17 +6,15 @@ By contributing, you acknowledge that contributions are licensed under BSL 1.1 (
 
 ## Requirements
 
-**Required:**
-
 - **Rust 1.92+** — install via [rustup](https://rustup.rs/)
 - **protoc** — Protocol Buffers compiler (needed by `prost-build` for gRPC codegen)
   - macOS: `brew install protobuf`
   - Debian/Ubuntu: `apt install protobuf-compiler`
+- **[quench](https://github.com/nicholasgasior/quench)** — lint ratcheting, used by `make check`
+- **[claudeless](https://github.com/alfredjeanlab/claudeless)** — Claude CLI simulator for integration tests and manual testing
 
 **Optional:**
 
-- **[quench](https://github.com/nicholasgasior/quench)** — lint ratcheting, used by `make check`; skip with `cargo test` alone
-- **[claudeless](../claudeless)** — Claude CLI simulator for integration tests (`cargo test`) and manual testing (`make try-claudeless`)
 - **Docker** — for `make test-docker` and `try-docker-*` targets
 - **Claude CLI** / **Gemini CLI** — only for `make try-claude` / `make try-gemini`
 

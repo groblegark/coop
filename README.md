@@ -102,11 +102,11 @@ Agent states: `starting`, `working`, `waiting_for_input`, `permission_prompt`, `
 - **protoc** — Protocol Buffers compiler (used by `prost-build` for gRPC codegen)
   - macOS: `brew install protobuf`
   - Debian/Ubuntu: `apt install protobuf-compiler`
+- **[quench](https://github.com/nicholasgasior/quench)** — lint ratcheting tool, used by `make check`
+- **[claudeless](https://github.com/alfredjeanlab/claudeless)** — Claude CLI simulator, used for integration tests and manual testing
 
 Optional:
 
-- **[quench](https://github.com/nicholasgasior/quench)** — lint ratcheting tool, used by `make check`
-- **[claudeless](../claudeless)** — Claude CLI simulator, used for integration tests and manual testing
 - **Docker** — used for `make test-docker` and `try-docker-*` targets
 - **Claude CLI** / **Gemini CLI** — only needed for `make try-claude` / `make try-gemini` manual testing
 
