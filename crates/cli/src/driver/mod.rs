@@ -3,6 +3,7 @@
 
 pub mod claude;
 pub mod error_category;
+pub mod gemini;
 pub mod grace;
 pub mod hook_recv;
 pub mod jsonl_stdout;
