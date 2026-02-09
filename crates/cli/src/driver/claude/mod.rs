@@ -6,39 +6,22 @@ pub mod encoding;
 pub mod hooks;
 pub mod prompt;
 pub mod resume;
+pub mod screen_detect;
 pub mod setup;
 pub mod startup;
 pub mod state;
 
-use std::path::PathBuf;
-use std::time::Duration;
+use std::path::{Path, PathBuf};
 
 use bytes::Bytes;
 use tokio::sync::mpsc;
+
+use crate::config::Config;
 
 use super::hook_recv::HookReceiver;
 use super::Detector;
 use detect::{HookDetector, LogDetector, StdoutDetector};
 use encoding::{ClaudeNudgeEncoder, ClaudeRespondEncoder};
-
-/// Configuration for building a [`ClaudeDriver`].
-pub struct ClaudeDriverConfig {
-    /// Path to Claude's session log file (Tier 2).
-    pub session_log_path: Option<PathBuf>,
-    /// Path for the hook named pipe (Tier 1).
-    pub hook_pipe_path: Option<PathBuf>,
-    /// Channel for raw stdout JSONL bytes (Tier 3).
-    /// Used when Claude runs with `--print --output-format stream-json`.
-    pub stdout_rx: Option<mpsc::Receiver<Bytes>>,
-    /// Byte offset to start reading the session log from (for resume).
-    pub log_start_offset: u64,
-    /// Log watcher fallback poll interval.
-    pub log_poll: Duration,
-    /// Delay between plan rejection keystroke and feedback text.
-    pub feedback_delay: Duration,
-    /// Delay between keystrokes in multi-question sequences.
-    pub input_delay: Duration,
-}
 
 /// Claude Code agent driver.
 ///
@@ -51,32 +34,38 @@ pub struct ClaudeDriver {
 }
 
 impl ClaudeDriver {
-    /// Build a new driver from the given configuration.
+    /// Build a new driver from config and runtime paths.
     ///
     /// Constructs detectors based on available tiers:
     /// - Tier 1 (HookDetector): if `hook_pipe_path` is set
     /// - Tier 2 (LogDetector): if `session_log_path` is set
     /// - Tier 3 (StdoutDetector): if `stdout_rx` is provided
-    pub fn new(config: ClaudeDriverConfig) -> anyhow::Result<Self> {
+    pub fn new(
+        config: &Config,
+        hook_pipe_path: Option<&Path>,
+        session_log_path: Option<PathBuf>,
+        stdout_rx: Option<mpsc::Receiver<Bytes>>,
+        log_start_offset: u64,
+    ) -> anyhow::Result<Self> {
         let mut detectors: Vec<Box<dyn Detector>> = Vec::new();
 
         // Tier 1: Hook events (highest confidence)
-        if let Some(pipe_path) = config.hook_pipe_path {
-            let receiver = HookReceiver::new(&pipe_path)?;
+        if let Some(pipe_path) = hook_pipe_path {
+            let receiver = HookReceiver::new(pipe_path)?;
             detectors.push(Box::new(HookDetector { receiver }));
         }
 
         // Tier 2: Session log watching
-        if let Some(log_path) = config.session_log_path {
+        if let Some(log_path) = session_log_path {
             detectors.push(Box::new(LogDetector {
                 log_path,
-                start_offset: config.log_start_offset,
-                poll_interval: config.log_poll,
+                start_offset: log_start_offset,
+                poll_interval: config.log_poll(),
             }));
         }
 
         // Tier 3: Structured stdout JSONL
-        if let Some(stdout_rx) = config.stdout_rx {
+        if let Some(stdout_rx) = stdout_rx {
             detectors.push(Box::new(StdoutDetector { stdout_rx }));
         }
 
@@ -86,8 +75,8 @@ impl ClaudeDriver {
         Ok(Self {
             nudge: ClaudeNudgeEncoder,
             respond: ClaudeRespondEncoder {
-                feedback_delay: config.feedback_delay,
-                input_delay: config.input_delay,
+                feedback_delay: config.feedback_delay(),
+                input_delay: config.keyboard_delay(),
             },
             detectors,
         })

@@ -140,9 +140,24 @@ impl Config {
         env_duration_ms("COOP_PROCESS_POLL_MS", 5_000)
     }
 
-    /// Screen parser poll interval (Tier 5).
+    /// Screen parser poll interval (Tier 5, unknown driver).
     pub fn screen_poll(&self) -> Duration {
         env_duration_ms("COOP_SCREEN_POLL_MS", 2_000)
+    }
+
+    /// Claude screen detector: fast poll interval during startup window.
+    pub fn screen_startup_poll(&self) -> Duration {
+        env_duration_ms("COOP_SCREEN_STARTUP_POLL_MS", 3_000)
+    }
+
+    /// Claude screen detector: slow poll interval after startup window.
+    pub fn screen_steady_poll(&self) -> Duration {
+        env_duration_ms("COOP_SCREEN_STEADY_POLL_MS", 15_000)
+    }
+
+    /// Claude screen detector: how long to use the fast startup poll.
+    pub fn screen_startup_window(&self) -> Duration {
+        env_duration_secs("COOP_SCREEN_STARTUP_WINDOW_SECS", 15)
     }
 
     /// Log watcher fallback poll interval (Tier 2).

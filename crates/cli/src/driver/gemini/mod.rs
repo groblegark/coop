@@ -7,27 +7,17 @@ pub mod hooks;
 pub mod setup;
 pub mod state;
 
-use std::path::PathBuf;
-use std::time::Duration;
+use std::path::Path;
 
 use bytes::Bytes;
 use tokio::sync::mpsc;
+
+use crate::config::Config;
 
 use super::hook_recv::HookReceiver;
 use super::Detector;
 use detect::{HookDetector, StdoutDetector};
 use encoding::{GeminiNudgeEncoder, GeminiRespondEncoder};
-
-/// Configuration for building a [`GeminiDriver`].
-pub struct GeminiDriverConfig {
-    /// Path for the hook named pipe (Tier 1).
-    pub hook_pipe_path: Option<PathBuf>,
-    /// Channel for raw stdout JSONL bytes (Tier 3).
-    /// Used when Gemini runs with `--output-format stream-json`.
-    pub stdout_rx: Option<mpsc::Receiver<Bytes>>,
-    /// Delay between plan rejection keystroke and feedback text.
-    pub feedback_delay: Duration,
-}
 
 /// Gemini CLI agent driver.
 ///
@@ -40,22 +30,26 @@ pub struct GeminiDriver {
 }
 
 impl GeminiDriver {
-    /// Build a new driver from the given configuration.
+    /// Build a new driver from config and runtime paths.
     ///
     /// Constructs detectors based on available tiers:
     /// - Tier 1 (HookDetector): if `hook_pipe_path` is set
     /// - Tier 3 (StdoutDetector): if `stdout_rx` is provided
-    pub fn new(config: GeminiDriverConfig) -> anyhow::Result<Self> {
+    pub fn new(
+        config: &Config,
+        hook_pipe_path: Option<&Path>,
+        stdout_rx: Option<mpsc::Receiver<Bytes>>,
+    ) -> anyhow::Result<Self> {
         let mut detectors: Vec<Box<dyn Detector>> = Vec::new();
 
         // Tier 1: Hook events (highest confidence)
-        if let Some(pipe_path) = config.hook_pipe_path {
-            let receiver = HookReceiver::new(&pipe_path)?;
+        if let Some(pipe_path) = hook_pipe_path {
+            let receiver = HookReceiver::new(pipe_path)?;
             detectors.push(Box::new(HookDetector { receiver }));
         }
 
         // Tier 3: Structured stdout JSONL
-        if let Some(stdout_rx) = config.stdout_rx {
+        if let Some(stdout_rx) = stdout_rx {
             detectors.push(Box::new(StdoutDetector { stdout_rx }));
         }
 
@@ -65,7 +59,7 @@ impl GeminiDriver {
         Ok(Self {
             nudge: GeminiNudgeEncoder,
             respond: GeminiRespondEncoder {
-                feedback_delay: config.feedback_delay,
+                feedback_delay: config.feedback_delay(),
             },
             detectors,
         })

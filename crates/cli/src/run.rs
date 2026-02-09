@@ -17,9 +17,9 @@ use tracing_subscriber::EnvFilter;
 use crate::config::{self, Config};
 use crate::driver::claude::resume;
 use crate::driver::claude::setup::{self as claude_setup, ClaudeSessionSetup};
-use crate::driver::claude::{ClaudeDriver, ClaudeDriverConfig};
+use crate::driver::claude::ClaudeDriver;
 use crate::driver::gemini::setup::{self as gemini_setup, GeminiSessionSetup};
-use crate::driver::gemini::{GeminiDriver, GeminiDriverConfig};
+use crate::driver::gemini::GeminiDriver;
 use crate::driver::process::ProcessMonitor;
 use crate::driver::AgentType;
 use crate::driver::{AgentState, Detector, NudgeEncoder, RespondEncoder};
@@ -171,7 +171,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let log_start_offset = resume_state.as_ref().map(|s| s.log_offset).unwrap_or(0);
     let pid_terminal = Arc::clone(&terminal);
     let rtw_for_driver = Arc::clone(&terminal.ring_total_written);
-    let (nudge_encoder, respond_encoder, detectors) = build_driver(
+    let (nudge_encoder, respond_encoder, mut detectors) = build_driver(
         &config,
         agent_enum,
         claude_setup.as_ref(),
@@ -189,6 +189,30 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         Arc::new(move || rtw_for_driver.load(std::sync::atomic::Ordering::Relaxed)),
         log_start_offset,
     )?;
+
+    // Tier 5: Claude screen detector for idle prompt detection.
+    if agent_enum == AgentType::Claude {
+        let screen_terminal = Arc::clone(&terminal);
+        let snapshot_fn: Arc<dyn Fn() -> crate::screen::ScreenSnapshot + Send + Sync> =
+            Arc::new(move || {
+                screen_terminal
+                    .screen
+                    .try_read()
+                    .map(|s| s.snapshot())
+                    .unwrap_or_else(|_| crate::screen::ScreenSnapshot {
+                        lines: vec![],
+                        cols: 0,
+                        rows: 0,
+                        alt_screen: false,
+                        cursor: crate::screen::CursorPosition { row: 0, col: 0 },
+                        sequence: 0,
+                    })
+            });
+        detectors.push(Box::new(
+            crate::driver::claude::screen_detect::ClaudeScreenDetector::new(&config, snapshot_fn),
+        ));
+        detectors.sort_by_key(|d| d.tier());
+    }
 
     // 6. Spawn backend AFTER driver is built (FIFO must exist before child starts).
     let extra_env: Vec<(String, String)> = claude_setup
@@ -407,26 +431,24 @@ fn build_driver(
 ) -> anyhow::Result<DriverComponents> {
     match agent {
         AgentType::Claude => {
-            let driver = ClaudeDriver::new(ClaudeDriverConfig {
-                session_log_path: claude_setup.map(|s| s.session_log_path.clone()),
-                hook_pipe_path: claude_setup.map(|s| s.hook_pipe_path.clone()),
-                stdout_rx: None,
+            let driver = ClaudeDriver::new(
+                config,
+                claude_setup.map(|s| s.hook_pipe_path.as_path()),
+                claude_setup.map(|s| s.session_log_path.clone()),
+                None,
                 log_start_offset,
-                log_poll: config.log_poll(),
-                feedback_delay: config.feedback_delay(),
-                input_delay: config.keyboard_delay(),
-            })?;
+            )?;
             let nudge: Arc<dyn NudgeEncoder> = Arc::new(driver.nudge);
             let respond: Arc<dyn RespondEncoder> = Arc::new(driver.respond);
             let detectors = driver.detectors;
             Ok((Some(nudge), Some(respond), detectors))
         }
         AgentType::Gemini => {
-            let driver = GeminiDriver::new(GeminiDriverConfig {
-                hook_pipe_path: gemini_setup.map(|s| s.hook_pipe_path.clone()),
-                stdout_rx: None,
-                feedback_delay: config.feedback_delay(),
-            })?;
+            let driver = GeminiDriver::new(
+                config,
+                gemini_setup.map(|s| s.hook_pipe_path.as_path()),
+                None,
+            )?;
             let nudge: Arc<dyn NudgeEncoder> = Arc::new(driver.nudge);
             let respond: Arc<dyn RespondEncoder> = Arc::new(driver.respond);
             let mut detectors = driver.detectors;
