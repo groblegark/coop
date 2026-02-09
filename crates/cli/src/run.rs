@@ -312,7 +312,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     }
 
     // Spawn gRPC server
-    if let Some(grpc_port) = config.grpc_port {
+    if let Some(grpc_port) = config.port_grpc {
         let grpc = CoopGrpc::new(Arc::clone(&app_state));
         let addr = format!("{}:{}", config.host, grpc_port).parse()?;
         info!("gRPC listening on {addr}");
@@ -329,7 +329,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     }
 
     // Spawn health probe
-    if let Some(health_port) = config.health_port {
+    if let Some(health_port) = config.port_health {
         let health_router = build_health_router(Arc::clone(&app_state));
         let addr = format!("{}:{}", config.host, health_port);
         let listener = TcpListener::bind(&addr).await?;

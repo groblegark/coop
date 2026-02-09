@@ -252,7 +252,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
-/// Build a minimal health-only router (for `--health-port`).
+/// Build a minimal health-only router (for `--port-health`).
 pub fn build_health_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/api/v1/health", get(http::health))

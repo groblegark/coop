@@ -28,7 +28,7 @@ pub struct Config {
 
     /// gRPC port to listen on.
     #[arg(long, env = "COOP_GRPC_PORT")]
-    pub grpc_port: Option<u16>,
+    pub port_grpc: Option<u16>,
 
     /// Bearer token for API authentication.
     #[arg(long, env = "COOP_AUTH_TOKEN")]
@@ -64,7 +64,7 @@ pub struct Config {
 
     /// Health-check-only HTTP port.
     #[arg(long, env = "COOP_HEALTH_PORT")]
-    pub health_port: Option<u16>,
+    pub port_health: Option<u16>,
 
     /// Log format (json or text).
     #[arg(long, env = "COOP_LOG_FORMAT", default_value = "json")]
@@ -187,7 +187,7 @@ impl Config {
             port: Some(0),
             socket: None,
             host: "127.0.0.1".into(),
-            grpc_port: None,
+            port_grpc: None,
             auth_token: None,
             agent: "unknown".into(),
             agent_config: None,
@@ -196,7 +196,7 @@ impl Config {
             rows: 24,
             ring_size: 4096,
             term: "xterm-256color".into(),
-            health_port: None,
+            port_health: None,
             log_format: "json".into(),
             log_level: "debug".into(),
             resume: None,
