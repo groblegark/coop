@@ -129,9 +129,6 @@ type GrpcStream<T> = Pin<Box<dyn tokio_stream::Stream<Item = Result<T, Status>> 
 
 #[tonic::async_trait]
 impl proto::coop_server::Coop for CoopGrpc {
-    // -----------------------------------------------------------------------
-    // 1. GetHealth
-    // -----------------------------------------------------------------------
     async fn get_health(
         &self,
         _request: Request<proto::GetHealthRequest>,
@@ -149,9 +146,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         }))
     }
 
-    // -----------------------------------------------------------------------
-    // 2. GetScreen
-    // -----------------------------------------------------------------------
     async fn get_screen(
         &self,
         request: Request<proto::GetScreenRequest>,
@@ -162,9 +156,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(screen_snapshot_to_response(&snap, req.include_cursor)))
     }
 
-    // -----------------------------------------------------------------------
-    // 3. GetStatus
-    // -----------------------------------------------------------------------
     async fn get_status(
         &self,
         _request: Request<proto::GetStatusRequest>,
@@ -204,9 +195,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         }))
     }
 
-    // -----------------------------------------------------------------------
-    // 4. SendInput
-    // -----------------------------------------------------------------------
     async fn send_input(
         &self,
         request: Request<proto::SendInputRequest>,
@@ -226,9 +214,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(proto::SendInputResponse { bytes_written: len }))
     }
 
-    // -----------------------------------------------------------------------
-    // 5. SendKeys
-    // -----------------------------------------------------------------------
     async fn send_keys(
         &self,
         request: Request<proto::SendKeysRequest>,
@@ -247,9 +232,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(proto::SendKeysResponse { bytes_written: len }))
     }
 
-    // -----------------------------------------------------------------------
-    // 6. Resize
-    // -----------------------------------------------------------------------
     async fn resize(
         &self,
         request: Request<proto::ResizeRequest>,
@@ -269,9 +251,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(proto::ResizeResponse { cols: cols as i32, rows: rows as i32 }))
     }
 
-    // -----------------------------------------------------------------------
-    // 7. SendSignal
-    // -----------------------------------------------------------------------
     async fn send_signal(
         &self,
         request: Request<proto::SendSignalRequest>,
@@ -289,9 +268,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(proto::SendSignalResponse { delivered: true }))
     }
 
-    // -----------------------------------------------------------------------
-    // 8. GetAgentState
-    // -----------------------------------------------------------------------
     async fn get_agent_state(
         &self,
         _request: Request<proto::GetAgentStateRequest>,
@@ -317,9 +293,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         }))
     }
 
-    // -----------------------------------------------------------------------
-    // 9. Nudge
-    // -----------------------------------------------------------------------
     async fn nudge(
         &self,
         request: Request<proto::NudgeRequest>,
@@ -363,9 +336,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(proto::NudgeResponse { delivered: true, state_before, reason: None }))
     }
 
-    // -----------------------------------------------------------------------
-    // 10. Respond
-    // -----------------------------------------------------------------------
     async fn respond(
         &self,
         request: Request<proto::RespondRequest>,
@@ -418,9 +388,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(proto::RespondResponse { delivered: true, prompt_type, reason: None }))
     }
 
-    // -----------------------------------------------------------------------
-    // 11. StreamOutput
-    // -----------------------------------------------------------------------
     type StreamOutputStream = GrpcStream<proto::OutputChunk>;
 
     async fn stream_output(
@@ -469,9 +436,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
     }
 
-    // -----------------------------------------------------------------------
-    // 12. StreamScreen
-    // -----------------------------------------------------------------------
     type StreamScreenStream = GrpcStream<proto::ScreenSnapshot>;
 
     async fn stream_screen(
@@ -506,9 +470,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
     }
 
-    // -----------------------------------------------------------------------
-    // 13. StreamState
-    // -----------------------------------------------------------------------
     type StreamStateStream = GrpcStream<proto::AgentStateEvent>;
 
     async fn stream_state(
@@ -536,9 +497,14 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
     }
 
-    // -----------------------------------------------------------------------
-    // 14. ResolveStop
-    // -----------------------------------------------------------------------
+    async fn shutdown(
+        &self,
+        _request: Request<proto::ShutdownRequest>,
+    ) -> Result<Response<proto::ShutdownResponse>, Status> {
+        self.state.lifecycle.shutdown.cancel();
+        Ok(Response::new(proto::ShutdownResponse { accepted: true }))
+    }
+
     async fn resolve_stop(
         &self,
         request: Request<proto::ResolveStopRequest>,
@@ -552,9 +518,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(proto::ResolveStopResponse { accepted: true }))
     }
 
-    // -----------------------------------------------------------------------
-    // 15. PutStopConfig
-    // -----------------------------------------------------------------------
     async fn put_stop_config(
         &self,
         request: Request<proto::PutStopConfigRequest>,
@@ -566,9 +529,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(proto::PutStopConfigResponse { updated: true }))
     }
 
-    // -----------------------------------------------------------------------
-    // 16. GetStopConfig
-    // -----------------------------------------------------------------------
     async fn get_stop_config(
         &self,
         _request: Request<proto::GetStopConfigRequest>,
@@ -579,9 +539,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(proto::GetStopConfigResponse { config_json: json }))
     }
 
-    // -----------------------------------------------------------------------
-    // 17. StreamStopEvents
-    // -----------------------------------------------------------------------
     type StreamStopEventsStream = GrpcStream<proto::StopEvent>;
 
     async fn stream_stop_events(

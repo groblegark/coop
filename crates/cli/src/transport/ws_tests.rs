@@ -152,6 +152,7 @@ fn client_message_roundtrip() -> anyhow::Result<()> {
         r#"{"type":"replay","offset":0}"#,
         r#"{"type":"auth","token":"tok"}"#,
         r#"{"type":"signal","signal":"SIGINT"}"#,
+        r#"{"type":"shutdown"}"#,
         r#"{"type":"ping"}"#,
     ];
 
@@ -159,6 +160,18 @@ fn client_message_roundtrip() -> anyhow::Result<()> {
         let _msg: ClientMessage = serde_json::from_str(json)
             .map_err(|e| anyhow::anyhow!("failed to parse '{json}': {e}"))?;
     }
+    Ok(())
+}
+
+#[test]
+fn shutdown_message_serialization() -> anyhow::Result<()> {
+    let msg = ClientMessage::Shutdown {};
+    let json = serde_json::to_string(&msg).anyhow()?;
+    assert!(json.contains("\"type\":\"shutdown\""));
+
+    // Roundtrip
+    let _: ClientMessage = serde_json::from_str(r#"{"type":"shutdown"}"#)
+        .map_err(|e| anyhow::anyhow!("failed to parse shutdown: {e}"))?;
     Ok(())
 }
 
@@ -251,6 +264,34 @@ async fn nudge_accepted_when_agent_waiting() -> anyhow::Result<()> {
     let msg = ClientMessage::Nudge { message: "hello".to_owned() };
     let reply = handle_client_message(&state, msg, client_id, &mut true).await;
     assert!(reply.is_none(), "expected None (success), got {reply:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn shutdown_cancels_token() -> anyhow::Result<()> {
+    let (state, _rx) = ws_test_state(AgentState::Working);
+    assert!(!state.lifecycle.shutdown.is_cancelled());
+
+    let msg = ClientMessage::Shutdown {};
+    let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
+    assert!(reply.is_none(), "expected None (success), got {reply:?}");
+    assert!(state.lifecycle.shutdown.is_cancelled());
+    Ok(())
+}
+
+#[tokio::test]
+async fn shutdown_requires_auth() -> anyhow::Result<()> {
+    let (state, _rx) = ws_test_state(AgentState::Working);
+
+    let msg = ClientMessage::Shutdown {};
+    let reply = handle_client_message(&state, msg, "test-ws", &mut false).await;
+    match reply {
+        Some(ServerMessage::Error { code, .. }) => {
+            assert_eq!(code, "UNAUTHORIZED");
+        }
+        other => anyhow::bail!("expected Unauthorized error, got {other:?}"),
+    }
+    assert!(!state.lifecycle.shutdown.is_cancelled());
     Ok(())
 }
 

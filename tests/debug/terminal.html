@@ -301,6 +301,15 @@
           <div id="act-stop-result" class="action-result"></div>
         </div>
 
+        <!-- Shutdown -->
+        <div class="action-section">
+          <div class="action-label">Lifecycle</div>
+          <div class="action-row">
+            <button class="action-btn btn-danger" id="act-shutdown">Shutdown</button>
+          </div>
+          <div id="act-shutdown-result" class="action-result"></div>
+        </div>
+
         <!-- Resize -->
         <div class="action-section">
           <div class="action-label">Resize</div>
@@ -885,6 +894,12 @@ document.getElementById('act-stop-put').addEventListener('click', async () => {
   const prompt = document.getElementById('act-stop-prompt').value || null;
   const res = await apiPut('/api/v1/config/stop', { mode, prompt });
   showResult('act-stop-result', res);
+});
+
+// --- Actions: Shutdown ---
+document.getElementById('act-shutdown').addEventListener('click', async () => {
+  const res = await apiPost('/api/v1/shutdown', {});
+  showResult('act-shutdown-result', res);
 });
 
 // --- Actions: Resize ---

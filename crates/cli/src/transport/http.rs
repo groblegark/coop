@@ -595,6 +595,12 @@ pub async fn get_stop_config(State(s): State<Arc<AppState>>) -> impl IntoRespons
     Json(config.clone())
 }
 
+/// `POST /api/v1/shutdown` — initiate graceful coop shutdown.
+pub async fn shutdown(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+    s.lifecycle.shutdown.cancel();
+    Json(serde_json::json!({ "accepted": true }))
+}
+
 /// `PUT /api/v1/config/stop` — update stop config.
 pub async fn put_stop_config(
     State(s): State<Arc<AppState>>,

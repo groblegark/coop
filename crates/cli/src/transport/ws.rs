@@ -124,6 +124,7 @@ pub enum ClientMessage {
     Signal {
         signal: String,
     },
+    Shutdown {},
     Ping {},
 }
 
@@ -485,6 +486,14 @@ async fn handle_client_message(
                 }
                 None => Some(ws_error(ErrorCode::BadRequest, &format!("unknown signal: {signal}"))),
             }
+        }
+
+        ClientMessage::Shutdown {} => {
+            if !*authed {
+                return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
+            }
+            state.lifecycle.shutdown.cancel();
+            None // Connection will close as servers shut down
         }
     }
 }

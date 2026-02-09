@@ -277,6 +277,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/agent/respond", post(http::agent_respond))
         .route("/api/v1/hooks/stop", post(http::hooks_stop))
         .route("/api/v1/hooks/stop/resolve", post(http::resolve_stop))
+        .route("/api/v1/shutdown", post(http::shutdown))
         .route("/api/v1/config/stop", get(http::get_stop_config).put(http::put_stop_config))
         .route("/ws", get(ws::ws_handler))
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_layer))

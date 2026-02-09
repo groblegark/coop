@@ -339,6 +339,50 @@ async fn resize_rejects_zero_rows() -> anyhow::Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// Shutdown endpoint tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn shutdown_cancels_token() -> anyhow::Result<()> {
+    let (state, _rx) = test_state();
+    assert!(!state.lifecycle.shutdown.is_cancelled());
+    let app = build_router(state.clone());
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    let resp = server.post("/api/v1/shutdown").json(&serde_json::json!({})).await;
+    resp.assert_status(StatusCode::OK);
+    let body = resp.text();
+    assert!(body.contains("\"accepted\":true"));
+    assert!(state.lifecycle.shutdown.is_cancelled());
+    Ok(())
+}
+
+#[tokio::test]
+async fn shutdown_requires_auth() -> anyhow::Result<()> {
+    let (state, _rx) = AppStateBuilder::new().child_pid(1234).auth_token("secret").build();
+    let app = build_router(state.clone());
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    // Without auth token — should be rejected
+    let resp = server.post("/api/v1/shutdown").json(&serde_json::json!({})).await;
+    resp.assert_status(StatusCode::UNAUTHORIZED);
+    assert!(!state.lifecycle.shutdown.is_cancelled());
+
+    // With auth token — should succeed
+    let resp = server
+        .post("/api/v1/shutdown")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            axum::http::HeaderValue::from_static("Bearer secret"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    resp.assert_status(StatusCode::OK);
+    assert!(state.lifecycle.shutdown.is_cancelled());
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Stop hook endpoint tests
 // ---------------------------------------------------------------------------
 

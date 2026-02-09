@@ -55,8 +55,23 @@ pub struct PreparedSession {
 
 impl PreparedSession {
     /// Run the session loop to completion.
+    ///
+    /// After the agent process exits, coop stays alive (servers keep running)
+    /// until the shutdown token is cancelled by SIGTERM, SIGINT, or a Shutdown
+    /// API call.
     pub async fn run(self) -> anyhow::Result<RunResult> {
         let status = self.session.run(&self.config).await?;
+
+        // Agent exited — wait for explicit shutdown signal.
+        // Skip if shutdown was already triggered (SIGTERM/SIGINT/idle timeout).
+        if !self.app_state.lifecycle.shutdown.is_cancelled() {
+            info!(
+                "agent exited (code={:?}, signal={:?}), awaiting shutdown",
+                status.code, status.signal
+            );
+            self.app_state.lifecycle.shutdown.cancelled().await;
+        }
+
         Ok(RunResult { status, app_state: self.app_state })
     }
 }

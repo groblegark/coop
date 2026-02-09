@@ -50,6 +50,11 @@ service Coop {
   rpc GetStopConfig(GetStopConfigRequest) returns (GetStopConfigResponse);
   // Stream stop hook verdict events in real time.
   rpc StreamStopEvents(StreamStopEventsRequest) returns (stream StopEvent);
+
+  // Lifecycle
+
+  // Initiate graceful coop shutdown.
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
 }
 
 // --- Terminal messages ---
@@ -315,6 +320,13 @@ message StopEvent {
   optional string error_detail = 3;
   // Monotonic sequence number.
   uint64 seq = 4;
+}
+
+// --- Lifecycle messages ---
+
+message ShutdownRequest {}
+message ShutdownResponse {
+  bool accepted = 1;
 }
 
 // Agent state transition event.
