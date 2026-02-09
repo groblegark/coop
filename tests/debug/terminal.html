@@ -251,23 +251,15 @@
           <!-- Permission prompt: numbered options -->
           <div id="act-respond-permission" style="display:none;">
             <div id="act-respond-perm-info" style="font-size:10px;color:#888;margin-bottom:4px;"></div>
-            <div class="action-row">
-              <button class="action-btn btn-success" data-perm-option="1">1. Yes</button>
-              <button class="action-btn btn-warn" data-perm-option="2">2. Don't ask again</button>
-              <button class="action-btn btn-danger" data-perm-option="3">3. No</button>
-            </div>
+            <div id="act-respond-perm-options" class="action-row"></div>
           </div>
 
           <!-- Plan prompt: numbered options with feedback -->
           <div id="act-respond-plan" style="display:none;">
+            <div id="act-respond-plan-options" class="action-row"></div>
             <div class="action-row">
-              <button class="action-btn btn-success" data-plan-option="1">1. Clear ctx</button>
-              <button class="action-btn btn-success" data-plan-option="2">2. Auto-accept</button>
-              <button class="action-btn" data-plan-option="3">3. Manual</button>
-            </div>
-            <div class="action-row">
-              <input type="text" id="act-plan-feedback" placeholder="Feedback for option 4..." />
-              <button class="action-btn btn-warn" id="act-plan-feedback-send">4. Feedback</button>
+              <input type="text" id="act-plan-feedback" placeholder="Feedback (last option)..." />
+              <button class="action-btn btn-warn" id="act-plan-feedback-send">Feedback</button>
             </div>
           </div>
 
@@ -773,9 +765,43 @@ function updateRespondUI(prompt) {
     if (prompt.tool) parts.push(`Tool: ${prompt.tool}`);
     if (prompt.input_preview) parts.push(prompt.input_preview);
     info.textContent = parts.join(' — ') || '';
+    // Dynamic options from screen parsing, with hardcoded fallback
+    const permOptsEl = document.getElementById('act-respond-perm-options');
+    permOptsEl.innerHTML = '';
+    const permOpts = prompt.options?.length ? prompt.options : ['Yes', "Yes, and don't ask again", 'No'];
+    const permStyles = ['btn-success', 'btn-warn', 'btn-danger'];
+    permOpts.forEach((label, i) => {
+      const btn = document.createElement('button');
+      btn.className = `action-btn ${permStyles[i] || ''}`;
+      btn.textContent = `${i + 1}. ${label}`;
+      btn.addEventListener('click', async () => {
+        const res = await apiPost('/api/v1/agent/respond', { option: i + 1 });
+        showResult('act-respond-result', res);
+      });
+      permOptsEl.appendChild(btn);
+    });
   } else if (prompt.kind === 'plan') {
     respondPanels.plan.style.display = '';
     document.getElementById('act-plan-feedback').value = '';
+    // Dynamic options from screen parsing, with hardcoded fallback
+    const planOptsEl = document.getElementById('act-respond-plan-options');
+    planOptsEl.innerHTML = '';
+    const planOpts = prompt.options?.length ? prompt.options : ['Start with clear context', 'Auto-accept edits', 'Review each edit', 'Provide feedback'];
+    const planStyles = ['btn-success', 'btn-success', '', 'btn-warn'];
+    planOpts.forEach((label, i) => {
+      const btn = document.createElement('button');
+      btn.className = `action-btn ${planStyles[i] || ''}`;
+      btn.textContent = `${i + 1}. ${label}`;
+      btn.addEventListener('click', async () => {
+        const res = await apiPost('/api/v1/agent/respond', { option: i + 1 });
+        showResult('act-respond-result', res);
+      });
+      planOptsEl.appendChild(btn);
+    });
+    // Update feedback button to reference the last option
+    const fbBtn = document.getElementById('act-plan-feedback-send');
+    const lastIdx = planOpts.length;
+    fbBtn.textContent = `${lastIdx}. Feedback`;
   } else if (prompt.kind === 'question') {
     respondPanels.question.style.display = '';
     const q = prompt.questions?.[prompt.question_current ?? 0];
@@ -802,26 +828,13 @@ function updateRespondUI(prompt) {
   }
 }
 
-// Permission handlers (numbered options)
-document.querySelectorAll('[data-perm-option]').forEach(btn => {
-  btn.addEventListener('click', async () => {
-    const option = parseInt(btn.dataset.permOption, 10);
-    const res = await apiPost('/api/v1/agent/respond', { option });
-    showResult('act-respond-result', res);
-  });
-});
-
-// Plan handlers (numbered options)
-document.querySelectorAll('[data-plan-option]').forEach(btn => {
-  btn.addEventListener('click', async () => {
-    const option = parseInt(btn.dataset.planOption, 10);
-    const res = await apiPost('/api/v1/agent/respond', { option });
-    showResult('act-respond-result', res);
-  });
-});
+// Plan feedback handler (option = last option index)
 document.getElementById('act-plan-feedback-send').addEventListener('click', async () => {
   const feedback = document.getElementById('act-plan-feedback').value || undefined;
-  const res = await apiPost('/api/v1/agent/respond', { option: 4, text: feedback });
+  // Feedback uses the last option number
+  const planOptsEl = document.getElementById('act-respond-plan-options');
+  const lastOption = planOptsEl.children.length;
+  const res = await apiPost('/api/v1/agent/respond', { option: lastOption, text: feedback });
   showResult('act-respond-result', res);
 });
 document.getElementById('act-plan-feedback').addEventListener('keydown', (e) => {

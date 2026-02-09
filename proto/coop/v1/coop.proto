@@ -215,6 +215,8 @@ message PromptContext {
   repeated QuestionContext questions = 8;
   // 0-indexed current question; equals questions count at confirm phase.
   uint32 question_current = 9;
+  // Numbered option labels parsed from the terminal screen (permission/plan prompts).
+  repeated string options = 10;
 }
 
 message GetAgentStateRequest {}

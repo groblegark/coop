@@ -79,6 +79,7 @@ pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
             })
             .collect(),
         question_current: p.question_current as u32,
+        options: p.options.clone(),
     }
 }
 

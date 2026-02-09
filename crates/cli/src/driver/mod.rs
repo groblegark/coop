@@ -81,6 +81,9 @@ pub struct PromptContext {
     pub tool: Option<String>,
     pub input_preview: Option<String>,
     pub screen_lines: Vec<String>,
+    /// Numbered option labels parsed from the terminal screen (permission/plan prompts).
+    #[serde(default)]
+    pub options: Vec<String>,
     /// All questions in a multi-question dialog.
     #[serde(default)]
     pub questions: Vec<QuestionContext>,
