@@ -18,13 +18,15 @@ use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 
-use crate::driver::{classify_error_detail, AgentState, PromptContext};
+use crate::driver::{classify_error_detail, AgentState, PromptContext, QuestionAnswer};
 use crate::error::ErrorCode;
 use crate::event::{InputEvent, OutputEvent, PtySignal, StateChangeEvent};
 use crate::screen::CursorPosition;
 use crate::transport::auth;
 use crate::transport::state::AppState;
-use crate::transport::{deliver_steps, encode_response, keys_to_bytes, read_ring_combined};
+use crate::transport::{
+    deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_active_question,
+};
 
 // ---------------------------------------------------------------------------
 // Server -> Client
@@ -99,6 +101,8 @@ pub enum ClientMessage {
         accept: Option<bool>,
         option: Option<i32>,
         text: Option<String>,
+        #[serde(default)]
+        answers: Vec<WsQuestionAnswer>,
     },
     Replay {
         offset: u64,
@@ -110,6 +114,13 @@ pub enum ClientMessage {
         name: String,
     },
     Ping {},
+}
+
+/// WebSocket JSON representation of a question answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WsQuestionAnswer {
+    pub option: Option<i32>,
+    pub text: Option<String>,
 }
 
 /// WebSocket subscription mode (query parameter on upgrade).
@@ -427,6 +438,7 @@ async fn handle_client_message(
             accept,
             option,
             text,
+            answers,
         } => {
             if !*authed {
                 return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
@@ -438,17 +450,33 @@ async fn handle_client_message(
                 Some(enc) => Arc::clone(enc),
                 None => return Some(ws_error(ErrorCode::NoDriver, "no agent driver configured")),
             };
+            let domain_answers: Vec<QuestionAnswer> = answers
+                .iter()
+                .map(|a| QuestionAnswer {
+                    option: a.option.map(|o| o as u32),
+                    text: a.text.clone(),
+                })
+                .collect();
             let _delivery = state.nudge_mutex.lock().await;
             let agent = state.driver.agent_state.read().await;
-            let steps =
-                match encode_response(&agent, encoder.as_ref(), accept, option, text.as_deref()) {
-                    Ok(s) => s,
-                    Err(code) => {
-                        return Some(ws_error(code, "no prompt active"));
-                    }
-                };
+            let (steps, answers_delivered) = match encode_response(
+                &agent,
+                encoder.as_ref(),
+                accept,
+                option,
+                text.as_deref(),
+                &domain_answers,
+            ) {
+                Ok(r) => r,
+                Err(code) => {
+                    return Some(ws_error(code, "no prompt active"));
+                }
+            };
             drop(agent);
             let _ = deliver_steps(&state.channels.input_tx, steps).await;
+            if answers_delivered > 0 {
+                update_active_question(state, answers_delivered).await;
+            }
             None
         }
 

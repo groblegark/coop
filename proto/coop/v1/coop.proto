@@ -122,6 +122,16 @@ message ScreenSnapshot {
 
 // --- Agent messages ---
 
+message QuestionContext {
+  string question = 1;
+  repeated string options = 2;
+}
+
+message QuestionAnswer {
+  optional int32 option = 1;
+  optional string text = 2;
+}
+
 message PromptContext {
   string type = 1;
   optional string tool = 2;
@@ -130,6 +140,8 @@ message PromptContext {
   repeated string options = 5;
   optional string summary = 6;
   repeated string screen_lines = 7;
+  repeated QuestionContext questions = 8;
+  uint32 active_question = 9;
 }
 
 message GetAgentStateRequest {}
@@ -158,6 +170,7 @@ message RespondRequest {
   optional bool accept = 1;
   optional int32 option = 2;
   optional string text = 3;
+  repeated QuestionAnswer answers = 4;
 }
 message RespondResponse {
   bool delivered = 1;

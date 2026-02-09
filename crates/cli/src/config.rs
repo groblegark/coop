@@ -171,6 +171,11 @@ impl Config {
         env_duration_ms("COOP_FEEDBACK_DELAY_MS", 100)
     }
 
+    /// Delay between keystrokes in multi-question sequences.
+    pub fn keyboard_delay(&self) -> Duration {
+        env_duration_ms("COOP_KEYBOARD_DELAY_MS", 100)
+    }
+
     /// Idle timeout as a `Duration` (derived from the `--idle-timeout` CLI flag).
     pub fn idle_timeout_duration(&self) -> Duration {
         Duration::from_secs(self.idle_timeout)

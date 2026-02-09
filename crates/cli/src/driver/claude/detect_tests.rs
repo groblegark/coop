@@ -221,12 +221,12 @@ async fn hook_detector_pre_tool_use_ask_user() -> anyhow::Result<()> {
     .await?;
 
     assert_eq!(states.len(), 1);
-    if let AgentState::AskUser { prompt } = &states[0] {
+    if let AgentState::Question { prompt } = &states[0] {
         assert_eq!(prompt.prompt_type, "question");
         assert_eq!(prompt.question.as_deref(), Some("Which DB?"));
         assert_eq!(prompt.options, vec!["PostgreSQL", "SQLite"]);
     } else {
-        anyhow::bail!("expected AskUser, got {:?}", states[0]);
+        anyhow::bail!("expected Question, got {:?}", states[0]);
     }
     Ok(())
 }
@@ -260,7 +260,10 @@ async fn hook_detector_pre_tool_use_enter_plan_mode() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn hook_detector_tool_complete() -> anyhow::Result<()> {
-    let states = run_hook_detector(vec![r#"{"event":"post_tool_use","tool":"Bash"}"#]).await?;
+    let states = run_hook_detector(vec![
+        r#"{"event":"post_tool_use","data":{"tool_name":"Bash","tool_input":{"command":"ls"}}}"#,
+    ])
+    .await?;
 
     assert_eq!(states.len(), 1);
     assert!(matches!(states[0], AgentState::Working));
@@ -269,7 +272,10 @@ async fn hook_detector_tool_complete() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn hook_detector_stop() -> anyhow::Result<()> {
-    let states = run_hook_detector(vec![r#"{"event":"stop"}"#]).await?;
+    let states = run_hook_detector(vec![
+        r#"{"event":"stop","data":{"stop_hook_active":false}}"#,
+    ])
+    .await?;
 
     assert_eq!(states.len(), 1);
     assert!(matches!(states[0], AgentState::WaitingForInput));

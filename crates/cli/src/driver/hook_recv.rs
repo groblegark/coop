@@ -36,7 +36,6 @@ pub struct HookReceiver {
 #[derive(Deserialize)]
 struct RawHookEvent {
     event: String,
-    tool: Option<String>,
     data: Option<serde_json::Value>,
 }
 
@@ -134,9 +133,16 @@ impl Drop for HookReceiver {
 fn parse_hook_line(line: &str) -> Option<HookEvent> {
     let raw: RawHookEvent = serde_json::from_str(line).ok()?;
     match raw.event.as_str() {
-        "post_tool_use" => Some(HookEvent::ToolComplete {
-            tool: raw.tool.unwrap_or_default(),
-        }),
+        "post_tool_use" => {
+            let tool = raw
+                .data
+                .as_ref()
+                .and_then(|d| d.get("tool_name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            Some(HookEvent::ToolComplete { tool })
+        }
         "stop" => Some(HookEvent::AgentStop),
         "session_end" => Some(HookEvent::SessionEnd),
         "notification" => {

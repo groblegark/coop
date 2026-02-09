@@ -53,7 +53,7 @@ pub enum AgentState {
     WaitingForInput,
     PermissionPrompt { prompt: PromptContext },
     PlanPrompt { prompt: PromptContext },
-    AskUser { prompt: PromptContext },
+    Question { prompt: PromptContext },
     Error { detail: String },
     AltScreen,
     Exited { status: ExitStatus },
@@ -70,6 +70,26 @@ pub struct PromptContext {
     pub options: Vec<String>,
     pub summary: Option<String>,
     pub screen_lines: Vec<String>,
+    /// All questions in a multi-question dialog.
+    #[serde(default)]
+    pub questions: Vec<QuestionContext>,
+    /// 0-indexed active question; == questions.len() means confirm phase.
+    #[serde(default)]
+    pub active_question: usize,
+}
+
+/// A single question within a multi-question dialog.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuestionContext {
+    pub question: String,
+    pub options: Vec<String>,
+}
+
+/// An answer to a single question within a dialog.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuestionAnswer {
+    pub option: Option<u32>,
+    pub text: Option<String>,
 }
 
 /// Exit status of the child process.
@@ -109,7 +129,8 @@ pub trait NudgeEncoder: Send + Sync {
 pub trait RespondEncoder: Send + Sync {
     fn encode_permission(&self, accept: bool) -> Vec<NudgeStep>;
     fn encode_plan(&self, accept: bool, feedback: Option<&str>) -> Vec<NudgeStep>;
-    fn encode_question(&self, option: Option<u32>, text: Option<&str>) -> Vec<NudgeStep>;
+    fn encode_question(&self, answers: &[QuestionAnswer], total_questions: usize)
+        -> Vec<NudgeStep>;
 }
 
 /// A state emission from the composite detector, including the tier that
@@ -145,7 +166,7 @@ impl AgentState {
             Self::WaitingForInput => "waiting_for_input",
             Self::PermissionPrompt { .. } => "permission_prompt",
             Self::PlanPrompt { .. } => "plan_prompt",
-            Self::AskUser { .. } => "ask_user",
+            Self::Question { .. } => "question",
             Self::Error { .. } => "error",
             Self::AltScreen => "alt_screen",
             Self::Exited { .. } => "exited",
@@ -158,7 +179,7 @@ impl AgentState {
         match self {
             Self::PermissionPrompt { prompt }
             | Self::PlanPrompt { prompt }
-            | Self::AskUser { prompt } => Some(prompt),
+            | Self::Question { prompt } => Some(prompt),
             _ => None,
         }
     }

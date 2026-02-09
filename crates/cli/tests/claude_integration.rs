@@ -12,9 +12,10 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use coop::config::Config;
-use coop::driver::AgentState;
+use coop::driver::{AgentState, QuestionAnswer};
 use coop::event::{InputEvent, StateChangeEvent};
 use coop::run;
+use coop::transport::{deliver_steps, encode_response};
 use tokio::sync::broadcast;
 
 /// Panics if `claudeless` is not installed.
@@ -120,7 +121,7 @@ async fn claude_ask_user_session_lifecycle() -> anyhow::Result<()> {
     let input_tx = prepared.app_state.channels.input_tx.clone();
     let handle = tokio::spawn(prepared.run());
 
-    wait_for(&mut rx, |s| matches!(s, AgentState::AskUser { .. })).await?;
+    wait_for(&mut rx, |s| matches!(s, AgentState::Question { .. })).await?;
 
     // Emulate user selecting first option in the elicitation dialog.
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -140,16 +141,18 @@ async fn claude_ask_user_session_lifecycle() -> anyhow::Result<()> {
 async fn claude_multi_question_session_lifecycle() -> anyhow::Result<()> {
     expect_claudeless();
 
-    let prepared =
-        run::prepare(claude_config("claude_multi_question.toml", "help me decide")).await?;
+    let prepared = run::prepare(claude_config(
+        "claude_multi_question.toml",
+        "help me decide",
+    ))
+    .await?;
     let mut rx = prepared.app_state.channels.state_tx.subscribe();
     let shutdown = prepared.app_state.lifecycle.shutdown.clone();
     let input_tx = prepared.app_state.channels.input_tx.clone();
     let handle = tokio::spawn(prepared.run());
 
     // Multi-question is a single dialog with tabs: Q1 → Q2 → Confirm.
-    wait_for(&mut rx, |s| matches!(s, AgentState::AskUser { .. })).await?;
-
+    wait_for(&mut rx, |s| matches!(s, AgentState::Question { .. })).await?;
 
     // Answer first question (select option 1).
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -177,12 +180,90 @@ async fn claude_multi_question_session_lifecycle() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Test Respond API with single-question backwards compat (option field).
+#[tokio::test]
+async fn claude_ask_user_respond_api() -> anyhow::Result<()> {
+    expect_claudeless();
+
+    let prepared = run::prepare(claude_config("claude_ask_user.toml", "help me choose")).await?;
+    let mut rx = prepared.app_state.channels.state_tx.subscribe();
+    let shutdown = prepared.app_state.lifecycle.shutdown.clone();
+    let app = prepared.app_state.clone();
+    let handle = tokio::spawn(prepared.run());
+
+    wait_for(&mut rx, |s| matches!(s, AgentState::Question { .. })).await?;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Use encode_response with old-style option field (backwards compat).
+    let encoder = app.config.respond_encoder.as_ref().unwrap();
+    let agent = app.driver.agent_state.read().await;
+    let (steps, _count) = encode_response(&agent, encoder.as_ref(), None, Some(1), None, &[])
+        .map_err(|e| anyhow::anyhow!("encode_response failed: {:?}", e))?;
+    drop(agent);
+    deliver_steps(&app.channels.input_tx, steps)
+        .await
+        .map_err(|e| anyhow::anyhow!("deliver_steps failed: {:?}", e))?;
+
+    wait_for(&mut rx, |s| matches!(s, AgentState::WaitingForInput)).await?;
+
+    shutdown.cancel();
+    handle.await??;
+
+    Ok(())
+}
+
+/// Test Respond API with multi-question all-at-once answers.
+#[tokio::test]
+async fn claude_multi_question_respond_api() -> anyhow::Result<()> {
+    expect_claudeless();
+
+    let prepared = run::prepare(claude_config(
+        "claude_multi_question.toml",
+        "help me decide",
+    ))
+    .await?;
+    let mut rx = prepared.app_state.channels.state_tx.subscribe();
+    let shutdown = prepared.app_state.lifecycle.shutdown.clone();
+    let app = prepared.app_state.clone();
+    let handle = tokio::spawn(prepared.run());
+
+    wait_for(&mut rx, |s| matches!(s, AgentState::Question { .. })).await?;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Use encode_response with structured answers (all-at-once mode).
+    let answers = vec![
+        QuestionAnswer {
+            option: Some(1),
+            text: None,
+        },
+        QuestionAnswer {
+            option: Some(2),
+            text: None,
+        },
+    ];
+    let encoder = app.config.respond_encoder.as_ref().unwrap();
+    let agent = app.driver.agent_state.read().await;
+    let (steps, count) = encode_response(&agent, encoder.as_ref(), None, None, None, &answers)
+        .map_err(|e| anyhow::anyhow!("encode_response failed: {:?}", e))?;
+    drop(agent);
+    assert_eq!(count, 2);
+    deliver_steps(&app.channels.input_tx, steps)
+        .await
+        .map_err(|e| anyhow::anyhow!("deliver_steps failed: {:?}", e))?;
+
+    wait_for(&mut rx, |s| matches!(s, AgentState::WaitingForInput)).await?;
+
+    shutdown.cancel();
+    handle.await??;
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn claude_plan_mode_session_lifecycle() -> anyhow::Result<()> {
     expect_claudeless();
 
-    let prepared =
-        run::prepare(claude_config("claude_plan_mode.toml", "plan a feature")).await?;
+    let prepared = run::prepare(claude_config("claude_plan_mode.toml", "plan a feature")).await?;
     let mut rx = prepared.app_state.channels.state_tx.subscribe();
     let shutdown = prepared.app_state.lifecycle.shutdown.clone();
     let input_tx = prepared.app_state.channels.input_tx.clone();

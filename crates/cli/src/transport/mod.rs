@@ -20,7 +20,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 
-use crate::driver::{AgentState, NudgeStep, RespondEncoder};
+use crate::driver::{AgentState, NudgeStep, QuestionAnswer, RespondEncoder};
 use crate::error::ErrorCode;
 use crate::event::InputEvent;
 
@@ -92,20 +92,74 @@ pub async fn deliver_steps(
 }
 
 /// Match the current agent state to the appropriate encoder call.
+///
+/// Returns `(steps, answers_delivered)` where `answers_delivered` is the
+/// number of question answers that were encoded (for active_question tracking).
 pub fn encode_response(
     agent: &AgentState,
     encoder: &dyn RespondEncoder,
     accept: Option<bool>,
     option: Option<i32>,
     text: Option<&str>,
-) -> Result<Vec<NudgeStep>, ErrorCode> {
+    answers: &[QuestionAnswer],
+) -> Result<(Vec<NudgeStep>, usize), ErrorCode> {
     match agent {
         AgentState::PermissionPrompt { .. } => {
-            Ok(encoder.encode_permission(accept.unwrap_or(false)))
+            Ok((encoder.encode_permission(accept.unwrap_or(false)), 0))
         }
-        AgentState::PlanPrompt { .. } => Ok(encoder.encode_plan(accept.unwrap_or(false), text)),
-        AgentState::AskUser { .. } => Ok(encoder.encode_question(option.map(|o| o as u32), text)),
+        AgentState::PlanPrompt { .. } => {
+            Ok((encoder.encode_plan(accept.unwrap_or(false), text), 0))
+        }
+        AgentState::Question { prompt } => {
+            let total_questions = prompt.questions.len();
+            // If structured answers provided, use them; otherwise bridge old fields.
+            let effective_answers: Vec<QuestionAnswer>;
+            let answers_ref = if answers.is_empty() {
+                if option.is_some() || text.is_some() {
+                    effective_answers = vec![QuestionAnswer {
+                        option: option.map(|o| o as u32),
+                        text: text.map(|t| t.to_string()),
+                    }];
+                    &effective_answers
+                } else {
+                    return Ok((vec![], 0));
+                }
+            } else {
+                answers
+            };
+            let count = answers_ref.len();
+            Ok((encoder.encode_question(answers_ref, total_questions), count))
+        }
         _ => Err(ErrorCode::NoPrompt),
+    }
+}
+
+/// Advance `active_question` on the current `Question` state after answers
+/// have been delivered to the PTY.
+pub async fn update_active_question(state: &AppState, answers_delivered: usize) {
+    let mut agent = state.driver.agent_state.write().await;
+    if let AgentState::Question { ref mut prompt } = *agent {
+        let prev_aq = prompt.active_question;
+        prompt.active_question = prev_aq
+            .saturating_add(answers_delivered)
+            .min(prompt.questions.len());
+        if prompt.active_question != prev_aq {
+            let next = agent.clone();
+            drop(agent);
+            let seq = state
+                .driver
+                .state_seq
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            // Broadcast updated state so clients see active_question progress.
+            let _ = state
+                .channels
+                .state_tx
+                .send(crate::event::StateChangeEvent {
+                    prev: next.clone(),
+                    next,
+                    seq,
+                });
+        }
     }
 }
 

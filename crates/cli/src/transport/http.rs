@@ -13,13 +13,15 @@ use base64::Engine;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
-use crate::driver::{AgentState, PromptContext};
+use crate::driver::{AgentState, PromptContext, QuestionAnswer};
 use crate::error::ErrorCode;
 use crate::event::InputEvent;
 use crate::event::PtySignal;
 use crate::screen::CursorPosition;
 use crate::transport::state::AppState;
-use crate::transport::{deliver_steps, encode_response, keys_to_bytes, read_ring_combined};
+use crate::transport::{
+    deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_active_question,
+};
 
 // ---------------------------------------------------------------------------
 // Request / Response types
@@ -163,6 +165,15 @@ pub struct NudgeResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RespondRequest {
     pub accept: Option<bool>,
+    pub option: Option<i32>,
+    pub text: Option<String>,
+    #[serde(default)]
+    pub answers: Vec<HttpQuestionAnswer>,
+}
+
+/// HTTP JSON representation of a question answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpQuestionAnswer {
     pub option: Option<i32>,
     pub text: Option<String>,
 }
@@ -488,19 +499,29 @@ pub async fn agent_respond(
         }
     };
 
+    let answers: Vec<QuestionAnswer> = req
+        .answers
+        .iter()
+        .map(|a| QuestionAnswer {
+            option: a.option.map(|o| o as u32),
+            text: a.text.clone(),
+        })
+        .collect();
+
     let _delivery = s.nudge_mutex.lock().await;
 
     let agent = s.driver.agent_state.read().await;
     let prompt_type = agent.as_str().to_owned();
 
-    let steps = match encode_response(
+    let (steps, answers_delivered) = match encode_response(
         &agent,
         encoder.as_ref(),
         req.accept,
         req.option,
         req.text.as_deref(),
+        &answers,
     ) {
-        Ok(s) => s,
+        Ok(r) => r,
         Err(code) => {
             return code.to_http_response("no prompt active").into_response();
         }
@@ -508,6 +529,11 @@ pub async fn agent_respond(
 
     drop(agent);
     let _ = deliver_steps(&s.channels.input_tx, steps).await;
+
+    // Update active_question tracking for multi-question dialogs.
+    if answers_delivered > 0 {
+        update_active_question(&s, answers_delivered).await;
+    }
 
     Json(RespondResponse {
         delivered: true,

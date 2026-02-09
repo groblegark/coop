@@ -26,7 +26,7 @@ use super::state::parse_claude_state;
 /// - `ToolComplete` → `Working`
 /// - `Notification(idle_prompt)` → `WaitingForInput`
 /// - `Notification(permission_prompt)` → `PermissionPrompt`
-/// - `PreToolUse(AskUserQuestion)` → `AskUser` with context
+/// - `PreToolUse(AskUserQuestion)` → `Question` with context
 /// - `PreToolUse(ExitPlanMode)` → `PlanPrompt`
 /// - `PreToolUse(EnterPlanMode)` → `Working`
 pub struct HookDetector {
@@ -64,6 +64,8 @@ impl Detector for HookDetector {
                                             options: vec![],
                                             summary: None,
                                             screen_lines: vec![],
+                                            questions: vec![],
+                                            active_question: 0,
                                         },
                                     },
                                     _ => continue,
@@ -71,7 +73,7 @@ impl Detector for HookDetector {
                             }
                             Some(HookEvent::PreToolUse { ref tool, ref tool_input }) => {
                                 match tool.as_str() {
-                                    "AskUserQuestion" => AgentState::AskUser {
+                                    "AskUserQuestion" => AgentState::Question {
                                         prompt: extract_ask_user_from_tool_input(tool_input.as_ref()),
                                     },
                                     "ExitPlanMode" => AgentState::PlanPrompt {
@@ -83,6 +85,8 @@ impl Detector for HookDetector {
                                             options: vec![],
                                             summary: None,
                                             screen_lines: vec![],
+                                            questions: vec![],
+                                            active_question: 0,
                                         },
                                     },
                                     "EnterPlanMode" => AgentState::Working,

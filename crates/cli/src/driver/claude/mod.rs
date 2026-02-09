@@ -36,6 +36,8 @@ pub struct ClaudeDriverConfig {
     pub log_poll: Duration,
     /// Delay between plan rejection keystroke and feedback text.
     pub feedback_delay: Duration,
+    /// Delay between keystrokes in multi-question sequences.
+    pub input_delay: Duration,
 }
 
 /// Claude Code agent driver.
@@ -88,6 +90,7 @@ impl ClaudeDriver {
             nudge: ClaudeNudgeEncoder,
             respond: ClaudeRespondEncoder {
                 feedback_delay: config.feedback_delay,
+                input_delay: config.input_delay,
             },
             detectors,
             hook_pipe_path,

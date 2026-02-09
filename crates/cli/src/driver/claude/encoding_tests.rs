@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use crate::driver::{NudgeEncoder, RespondEncoder};
+use crate::driver::{NudgeEncoder, QuestionAnswer, RespondEncoder};
 
 use super::{ClaudeNudgeEncoder, ClaudeRespondEncoder};
 
@@ -64,25 +64,106 @@ fn plan_reject_without_feedback() {
     assert!(steps[0].delay_after.is_none());
 }
 
+// ---------------------------------------------------------------------------
+// Single-question mode (total_questions <= 1)
+// ---------------------------------------------------------------------------
+
 #[test]
-fn question_with_option_number() {
+fn question_single_with_option_number() {
     let encoder = ClaudeRespondEncoder::default();
-    let steps = encoder.encode_question(Some(2), None);
+    let answers = [QuestionAnswer {
+        option: Some(2),
+        text: None,
+    }];
+    let steps = encoder.encode_question(&answers, 1);
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].bytes, b"2\r");
 }
 
 #[test]
-fn question_with_freeform_text() {
+fn question_single_with_freeform_text() {
     let encoder = ClaudeRespondEncoder::default();
-    let steps = encoder.encode_question(None, Some("Use Redis instead"));
+    let answers = [QuestionAnswer {
+        option: None,
+        text: Some("Use Redis instead".to_string()),
+    }];
+    let steps = encoder.encode_question(&answers, 1);
     assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"Use Redis instead\r");
+    assert_eq!(steps[0].bytes, b"Use Redis instead\r\r");
 }
 
 #[test]
-fn question_with_neither_option_nor_text() {
+fn question_with_empty_answers() {
     let encoder = ClaudeRespondEncoder::default();
-    let steps = encoder.encode_question(None, None);
+    let steps = encoder.encode_question(&[], 1);
     assert!(steps.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// One-at-a-time mode (single answer, total_questions > 1)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn question_one_at_a_time_emits_digit_only() {
+    let encoder = ClaudeRespondEncoder::default();
+    let answers = [QuestionAnswer {
+        option: Some(1),
+        text: None,
+    }];
+    // Single answer in a multi-question dialog → just digit, no CR.
+    let steps = encoder.encode_question(&answers, 3);
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].bytes, b"1");
+    assert!(steps[0].delay_after.is_none());
+}
+
+// ---------------------------------------------------------------------------
+// All-at-once mode (multiple answers)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn question_all_at_once_emits_sequence_with_delays() {
+    let encoder = ClaudeRespondEncoder::default();
+    let answers = [
+        QuestionAnswer {
+            option: Some(1),
+            text: None,
+        },
+        QuestionAnswer {
+            option: Some(2),
+            text: None,
+        },
+    ];
+    let steps = encoder.encode_question(&answers, 2);
+    // Two answer steps + one confirm step.
+    assert_eq!(steps.len(), 3);
+    assert_eq!(steps[0].bytes, b"1");
+    assert_eq!(steps[0].delay_after, Some(Duration::from_millis(100)));
+    assert_eq!(steps[1].bytes, b"2");
+    assert_eq!(steps[1].delay_after, Some(Duration::from_millis(100)));
+    assert_eq!(steps[2].bytes, b"\r");
+    assert!(steps[2].delay_after.is_none());
+}
+
+#[test]
+fn question_all_at_once_freeform_mixed() {
+    let encoder = ClaudeRespondEncoder::default();
+    let answers = [
+        QuestionAnswer {
+            option: Some(1),
+            text: None,
+        },
+        QuestionAnswer {
+            option: None,
+            text: Some("custom answer".to_string()),
+        },
+    ];
+    let steps = encoder.encode_question(&answers, 2);
+    assert_eq!(steps.len(), 3);
+    assert_eq!(steps[0].bytes, b"1");
+    assert_eq!(steps[0].delay_after, Some(Duration::from_millis(100)));
+    assert_eq!(steps[1].bytes, b"custom answer\r");
+    assert_eq!(steps[1].delay_after, Some(Duration::from_millis(100)));
+    assert_eq!(steps[2].bytes, b"\r");
+    assert!(steps[2].delay_after.is_none());
 }

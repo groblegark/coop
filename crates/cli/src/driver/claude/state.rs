@@ -35,7 +35,7 @@ pub fn parse_claude_state(json: &Value) -> Option<AgentState> {
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
                 return match tool {
-                    "AskUserQuestion" => Some(AgentState::AskUser {
+                    "AskUserQuestion" => Some(AgentState::Question {
                         prompt: extract_ask_user_context(block),
                     }),
                     _ => Some(AgentState::Working),

@@ -375,6 +375,7 @@ fn build_driver(
                 log_start_offset,
                 log_poll: config.log_poll(),
                 feedback_delay: config.feedback_delay(),
+                input_delay: config.keyboard_delay(),
             })?;
             let nudge: Arc<dyn NudgeEncoder> = Arc::new(driver.nudge);
             let respond: Arc<dyn RespondEncoder> = Arc::new(driver.respond);

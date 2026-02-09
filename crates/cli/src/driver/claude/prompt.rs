@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use crate::driver::PromptContext;
+use crate::driver::{PromptContext, QuestionContext};
 use crate::screen::ScreenSnapshot;
 
 /// Extract permission prompt context from a session log entry.
@@ -29,10 +29,12 @@ pub fn extract_permission_context(json: &Value) -> PromptContext {
         options: vec![],
         summary: None,
         screen_lines: vec![],
+        questions: vec![],
+        active_question: 0,
     }
 }
 
-/// Extract context from an `AskUserQuestion` tool_use block.
+/// Extract question context from an `AskUserQuestion` tool_use block.
 ///
 /// Handles Claude's tool input format where questions are in a
 /// `questions` array with `question` text and `options[].label`.
@@ -40,35 +42,49 @@ pub fn extract_ask_user_context(block: &Value) -> PromptContext {
     extract_ask_user_from_tool_input(block.get("input"))
 }
 
-/// Extract AskUser context directly from the tool input value.
+/// Extract question context directly from the tool input value.
 ///
 /// Used by the `PreToolUse` hook path where `tool_input` is provided
 /// directly (not wrapped in a `tool_use` block).
+///
+/// Parses all questions from `input.questions[]` into the `questions` vec.
+/// Top-level `question`/`options` fields are populated from `questions[0]`
+/// for backwards compatibility.
 pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext {
-    // Claude's format: input.questions[0]
-    let first_q = input
+    let questions_arr = input
         .and_then(|i| i.get("questions"))
-        .and_then(|q| q.as_array())
-        .and_then(|arr| arr.first());
+        .and_then(|q| q.as_array());
 
-    let question = first_q
-        .and_then(|q| q.get("question"))
-        .and_then(|v| v.as_str())
-        .map(String::from);
-
-    let options: Vec<String> = first_q
-        .and_then(|q| q.get("options"))
-        .and_then(|v| v.as_array())
+    let questions: Vec<QuestionContext> = questions_arr
         .map(|arr| {
             arr.iter()
-                .filter_map(|v| {
-                    v.get("label")
-                        .and_then(|l| l.as_str())
-                        .or_else(|| v.as_str())
-                        .map(String::from)
+                .filter_map(|q| {
+                    let question = q.get("question")?.as_str()?.to_string();
+                    let options = q
+                        .get("options")
+                        .and_then(|v| v.as_array())
+                        .map(|opts| {
+                            opts.iter()
+                                .filter_map(|v| {
+                                    v.get("label")
+                                        .and_then(|l| l.as_str())
+                                        .or_else(|| v.as_str())
+                                        .map(String::from)
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    Some(QuestionContext { question, options })
                 })
                 .collect()
         })
+        .unwrap_or_default();
+
+    // Backwards compat: top-level fields from first question.
+    let question = questions.first().map(|q| q.question.clone());
+    let options = questions
+        .first()
+        .map(|q| q.options.clone())
         .unwrap_or_default();
 
     PromptContext {
@@ -79,6 +95,8 @@ pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext 
         options,
         summary: None,
         screen_lines: vec![],
+        questions,
+        active_question: 0,
     }
 }
 
@@ -95,6 +113,8 @@ pub fn extract_plan_context(screen: &ScreenSnapshot) -> PromptContext {
         options: vec![],
         summary: None,
         screen_lines: screen.lines.clone(),
+        questions: vec![],
+        active_question: 0,
     }
 }
 

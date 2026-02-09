@@ -7,7 +7,9 @@ use super::{parse_hook_line, HookReceiver};
 
 #[test]
 fn parses_tool_complete_event() {
-    let event = parse_hook_line(r#"{"event":"post_tool_use","tool":"Bash"}"#);
+    let event = parse_hook_line(
+        r#"{"event":"post_tool_use","data":{"tool_name":"Bash","tool_input":{"command":"ls"}}}"#,
+    );
     assert_eq!(
         event,
         Some(HookEvent::ToolComplete {
@@ -18,7 +20,9 @@ fn parses_tool_complete_event() {
 
 #[test]
 fn parses_stop_event() {
-    let event = parse_hook_line(r#"{"event":"stop"}"#);
+    let event = parse_hook_line(
+        r#"{"event":"stop","data":{"hook_event_name":"Stop","stop_hook_active":false}}"#,
+    );
     assert_eq!(event, Some(HookEvent::AgentStop));
 }
 
@@ -149,7 +153,7 @@ async fn reads_event_from_pipe() -> anyhow::Result<()> {
             Err(_) => return,
         };
         use tokio::io::AsyncWriteExt;
-        let _ = file.write_all(b"{\"event\":\"stop\"}\n").await;
+        let _ = file.write_all(b"{\"event\":\"stop\",\"data\":{}}\n").await;
     });
 
     let event = recv.next_event().await;

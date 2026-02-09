@@ -22,14 +22,14 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
                 "matcher": "",
                 "hooks": [{
                     "type": "command",
-                    "command": "echo '{\"event\":\"post_tool_use\",\"tool\":\"'\"$TOOL_NAME\"'\"}' > \"$COOP_HOOK_PIPE\""
+                    "command": "input=$(cat); printf '{\"event\":\"post_tool_use\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
                 }]
             }],
             "Stop": [{
                 "matcher": "",
                 "hooks": [{
                     "type": "command",
-                    "command": "echo '{\"event\":\"stop\"}' > \"$COOP_HOOK_PIPE\""
+                    "command": "input=$(cat); printf '{\"event\":\"stop\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
                 }]
             }],
             "Notification": [{
