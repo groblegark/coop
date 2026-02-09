@@ -6,6 +6,10 @@
 # A cron polls for stuck PRs — those with failing checks or merge
 # conflicts — and relabels them `merge:cicd` for agent-assisted
 # resolution.
+#
+# LEGACY: This runbook is superseded by the beads event bus merge path
+# when GT_SLING_OJ=1 is enabled. To disable this cron-based approach,
+# unset OJ_LEGACY_MERGE (defaults to "1" = enabled during transition).
 
 # ------------------------------------------------------------------------------
 # Cron: detect stuck merge:auto PRs and escalate to cicd
@@ -21,6 +25,10 @@ job "merge-check" {
 
   step "scan" {
     run = <<-SHELL
+      # Guard: skip when legacy merge is disabled (OJ handles merges via event bus)
+      if [ "${OJ_LEGACY_MERGE:-1}" != "1" ]; then
+        exit 0
+      fi
       gh pr list --label merge:auto --json number,mergeable,statusCheckRollup --jq '
         .[] | select(
           .mergeable == "CONFLICTING" or
