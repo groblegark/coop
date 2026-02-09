@@ -88,6 +88,8 @@ fn prompt_to_proto_converts_all_fields() {
         tool: Some("bash".to_owned()),
         input_preview: Some("rm -rf /".to_owned()),
         screen_lines: vec!["$ rm -rf /".to_owned()],
+        options: vec![],
+        options_fallback: false,
         questions: vec![],
         question_current: 0,
     };
@@ -105,6 +107,8 @@ fn prompt_to_proto_handles_none_fields() {
         tool: None,
         input_preview: None,
         screen_lines: vec![],
+        options: vec![],
+        options_fallback: false,
         questions: vec![],
         question_current: 0,
     };
@@ -137,6 +141,8 @@ fn state_change_to_proto_includes_prompt() {
         tool: Some("write".to_owned()),
         input_preview: None,
         screen_lines: vec![],
+        options: vec![],
+        options_fallback: false,
         questions: vec![],
         question_current: 0,
     };

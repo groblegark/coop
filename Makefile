@@ -1,4 +1,4 @@
-.PHONY: check ci fmt install coverage outdated try-claude try-claudeless try-gemini docker-test-image try-docker test-docker
+.PHONY: check ci fmt install coverage outdated try-claude try-claudeless try-gemini docker-test-image try-docker-claudeless try-docker-claude try-docker-gemini test-docker
 
 # Quick checks
 #
@@ -60,10 +60,18 @@ try-gemini:
 docker-test-image:
 	docker build --target test -t coop:test .
 
-# Launch coop in Docker with browser terminal
-# Usage: make try-docker SCENARIO=claude_hello.toml
-try-docker:
-	@tests/debug/start-docker.sh --scenario $(or $(SCENARIO),claude_hello.toml)
+# Launch coop + claudeless in Docker with browser terminal
+# Usage: make try-docker-claudeless SCENARIO=claude_hello.toml
+try-docker-claudeless:
+	@tests/debug/start-docker.sh claudeless --scenario $(or $(SCENARIO),claude_hello.toml)
+
+# Launch coop + claude CLI in Docker with browser terminal
+try-docker-claude:
+	@tests/debug/start-docker.sh claude
+
+# Launch coop + gemini CLI in Docker with browser terminal
+try-docker-gemini:
+	@tests/debug/start-docker.sh gemini
 
 # Run Docker e2e tests (builds test image first)
 test-docker: docker-test-image

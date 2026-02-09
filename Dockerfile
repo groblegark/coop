@@ -2,30 +2,32 @@
 # Copyright (c) 2026 Alfred Jean LLC
 
 FROM rust:1.92-bookworm AS builder
-ARG TARGETARCH=amd64
-RUN apt-get update && apt-get install -y protobuf-compiler libssl-dev pkg-config
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y protobuf-compiler musl-tools \
+    && rustup target add x86_64-unknown-linux-musl \
+    && rustup target add aarch64-unknown-linux-musl
 ENV RUSTC_WRAPPER=""
 WORKDIR /src
 COPY . .
-RUN cargo build --release \
-    && strip target/release/coop \
-    && cp target/release/coop /coop-bin
+RUN case "$TARGETARCH" in \
+      arm64) RUST_TARGET=aarch64-unknown-linux-musl ;; \
+      *)     RUST_TARGET=x86_64-unknown-linux-musl ;; \
+    esac \
+    && cargo build --release --target "$RUST_TARGET" \
+    && strip "target/$RUST_TARGET/release/coop" \
+    && cp "target/$RUST_TARGET/release/coop" /coop-bin
 
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd -g 65534 nonroot && useradd -u 65534 -g nonroot -s /bin/false nonroot
+FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /coop-bin /coop
-USER 65534:65534
 ENTRYPOINT ["/coop"]
 
 # ---------------------------------------------------------------------------
 # Test stage: debian + claudeless + coop binary + scenario fixtures
 # ---------------------------------------------------------------------------
 FROM debian:bookworm-slim AS test
-ARG TARGETARCH=amd64
-ARG CLAUDELESS_VERSION=0.2.5
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates libssl3 \
+ARG TARGETARCH
+ARG CLAUDELESS_VERSION=0.3.0
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN case "$TARGETARCH" in \
       arm64) ARCH=aarch64 ;; \
@@ -38,4 +40,23 @@ RUN case "$TARGETARCH" in \
     && chmod +x /usr/local/bin/claudeless
 COPY --from=builder /coop-bin /usr/local/bin/coop
 COPY crates/cli/tests/scenarios/ /scenarios/
+ENTRYPOINT ["coop"]
+
+# ---------------------------------------------------------------------------
+# Agent images: coop with a pre-installed agent CLI, ready to deploy
+# ---------------------------------------------------------------------------
+
+FROM debian:bookworm-slim AS claude
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/root/.local/bin:$PATH"
+COPY --from=builder /coop-bin /usr/local/bin/coop
+ENTRYPOINT ["coop"]
+
+FROM debian:bookworm-slim AS gemini
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates nodejs npm \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g @google/gemini-cli
+COPY --from=builder /coop-bin /usr/local/bin/coop
 ENTRYPOINT ["coop"]

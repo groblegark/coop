@@ -18,6 +18,7 @@ use tracing::{debug, warn};
 use crate::config::Config;
 use crate::driver::{
     classify_error_detail, AgentState, CompositeDetector, DetectedState, Detector, ExitStatus,
+    PromptKind,
 };
 use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
 use crate::pty::{Backend, Boxed};
@@ -232,6 +233,18 @@ impl Session {
                             cause: detected.cause,
                         });
 
+                        // Spawn deferred option enrichment for Permission/Plan prompts.
+                        // Hook events fire before the screen renders numbered options,
+                        // so we wait briefly for the PTY output to catch up, then parse
+                        // options from the screen and re-broadcast the enriched state.
+                        if let AgentState::Prompt { ref prompt } = detected.state {
+                            if matches!(prompt.kind, PromptKind::Permission | PromptKind::Plan) {
+                                let app = Arc::clone(&self.app_state);
+                                let seq = state_seq;
+                                tokio::spawn(enrich_prompt_options(app, seq));
+                            }
+                        }
+
                         // Track idle time for idle_timeout.
                         if matches!(detected.state, AgentState::WaitingForInput)
                             && idle_timeout > Duration::ZERO
@@ -358,6 +371,91 @@ impl Session {
     /// Get a reference to the shared application state.
     pub fn app_state(&self) -> &Arc<AppState> {
         &self.app_state
+    }
+}
+
+/// Wait for the screen to render prompt options, parse them, and re-broadcast
+/// the enriched prompt context.
+///
+/// This runs as a detached task because hook events fire before the PTY output
+/// containing numbered options reaches the screen buffer. Retries up to
+/// `MAX_ATTEMPTS` times, then falls back to universal Accept/Cancel options
+/// that encode to Enter/Esc.
+async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64) {
+    const MAX_ATTEMPTS: u32 = 10;
+    const POLL_INTERVAL: Duration = Duration::from_millis(200);
+
+    let mut last_snap_lines = 0usize;
+
+    for _ in 0..MAX_ATTEMPTS {
+        tokio::time::sleep(POLL_INTERVAL).await;
+
+        // Bail if the state has changed since we spawned.
+        let current_seq = app.driver.state_seq.load(std::sync::atomic::Ordering::Relaxed);
+        if current_seq != expected_seq {
+            return;
+        }
+
+        let screen = app.terminal.screen.read().await;
+        let snap = screen.snapshot();
+        drop(screen);
+        last_snap_lines = snap.lines.len();
+
+        let options = crate::driver::claude::prompt::parse_options_from_screen(&snap.lines);
+        if !options.is_empty() {
+            let mut agent = app.driver.agent_state.write().await;
+
+            // Re-check seq under the write lock.
+            let current_seq = app.driver.state_seq.load(std::sync::atomic::Ordering::Relaxed);
+            if current_seq != expected_seq {
+                return;
+            }
+
+            if let AgentState::Prompt { ref mut prompt } = *agent {
+                if matches!(prompt.kind, PromptKind::Permission | PromptKind::Plan) {
+                    prompt.options = options;
+                    prompt.screen_lines = snap.lines.clone();
+
+                    let next = agent.clone();
+                    drop(agent);
+
+                    let _ = app.channels.state_tx.send(StateChangeEvent {
+                        prev: next.clone(),
+                        next,
+                        seq: expected_seq,
+                        cause: "enriched".to_owned(),
+                    });
+                }
+            }
+            return;
+        }
+    }
+
+    // All retries exhausted — set fallback options so API consumers have
+    // something to present (Enter for accept, Esc for cancel).
+    debug!(last_snap_lines, "prompt option enrichment: setting fallback options");
+
+    let mut agent = app.driver.agent_state.write().await;
+    let current_seq = app.driver.state_seq.load(std::sync::atomic::Ordering::Relaxed);
+    if current_seq != expected_seq {
+        return;
+    }
+
+    if let AgentState::Prompt { ref mut prompt } = *agent {
+        if matches!(prompt.kind, PromptKind::Permission | PromptKind::Plan) {
+            prompt.options = vec!["Accept".to_string(), "Cancel".to_string()];
+            prompt.options_fallback = true;
+
+            let next = agent.clone();
+            drop(agent);
+
+            let _ = app.channels.state_tx.send(StateChangeEvent {
+                prev: next.clone(),
+                next,
+                seq: expected_seq,
+                cause: "enriched".to_owned(),
+            });
+        }
     }
 }
 

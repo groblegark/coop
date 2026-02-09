@@ -187,7 +187,7 @@ async fn claude_ask_user_respond_api() -> anyhow::Result<()> {
     let answers = vec![QuestionAnswer { option: Some(1), text: None }];
     let encoder = app.config.respond_encoder.as_ref().unwrap();
     let agent = app.driver.agent_state.read().await;
-    let (steps, _count) = encode_response(&agent, encoder.as_ref(), None, None, &answers)
+    let (steps, _count) = encode_response(&agent, encoder.as_ref(), None, None, None, &answers)
         .map_err(|e| anyhow::anyhow!("encode_response failed: {:?}", e))?;
     drop(agent);
     deliver_steps(&app.channels.input_tx, steps)
@@ -224,7 +224,7 @@ async fn claude_multi_question_respond_api() -> anyhow::Result<()> {
     ];
     let encoder = app.config.respond_encoder.as_ref().unwrap();
     let agent = app.driver.agent_state.read().await;
-    let (steps, count) = encode_response(&agent, encoder.as_ref(), None, None, &answers)
+    let (steps, count) = encode_response(&agent, encoder.as_ref(), None, None, None, &answers)
         .map_err(|e| anyhow::anyhow!("encode_response failed: {:?}", e))?;
     drop(agent);
     assert_eq!(count, 2);

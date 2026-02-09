@@ -37,18 +37,22 @@ impl Default for ClaudeRespondEncoder {
 }
 
 impl RespondEncoder for ClaudeRespondEncoder {
-    fn encode_permission(&self, accept: bool) -> Vec<NudgeStep> {
-        let key = if accept { "y" } else { "n" };
-        vec![NudgeStep { bytes: format!("{key}\r").into_bytes(), delay_after: None }]
+    fn encode_permission(&self, option: u32) -> Vec<NudgeStep> {
+        vec![NudgeStep { bytes: format!("{option}\r").into_bytes(), delay_after: None }]
     }
 
-    fn encode_plan(&self, accept: bool, feedback: Option<&str>) -> Vec<NudgeStep> {
-        if accept {
-            return vec![NudgeStep { bytes: b"y\r".to_vec(), delay_after: None }];
+    fn encode_plan(&self, option: u32, feedback: Option<&str>) -> Vec<NudgeStep> {
+        // Options 1-3 are direct selections; option 4 is freeform feedback.
+        if option <= 3 {
+            return vec![NudgeStep {
+                bytes: format!("{option}\r").into_bytes(),
+                delay_after: None,
+            }];
         }
 
+        // Option 4: type feedback text (the TUI opens a text input).
         let mut steps = vec![NudgeStep {
-            bytes: b"n\r".to_vec(),
+            bytes: format!("{option}\r").into_bytes(),
             delay_after: feedback.map(|_| self.feedback_delay),
         }];
 

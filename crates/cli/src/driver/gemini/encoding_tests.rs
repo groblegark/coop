@@ -28,29 +28,34 @@ fn nudge_with_multiline_message() {
 }
 
 #[yare::parameterized(
-    accept = { true, b"1\r" as &[u8] },
-    deny   = { false, b"\x1b" },
+    option_1_accept = { 1, b"1\r" as &[u8] },
+    option_2_reject = { 2, b"\x1b" },
+    option_3_reject = { 3, b"\x1b" },
 )]
-fn permission_encoding(accept: bool, expected: &[u8]) {
+fn permission_encoding(option: u32, expected: &[u8]) {
     let encoder = GeminiRespondEncoder::default();
-    let steps = encoder.encode_permission(accept);
+    let steps = encoder.encode_permission(option);
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].bytes, expected);
 }
 
-#[test]
-fn plan_accept() {
+#[yare::parameterized(
+    option_1 = { 1, b"y\r" as &[u8] },
+    option_2 = { 2, b"y\r" },
+    option_3 = { 3, b"y\r" },
+)]
+fn plan_accept_options(option: u32, expected: &[u8]) {
     let encoder = GeminiRespondEncoder::default();
-    let steps = encoder.encode_plan(true, None);
+    let steps = encoder.encode_plan(option, None);
     assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"y\r");
+    assert_eq!(steps[0].bytes, expected);
     assert!(steps[0].delay_after.is_none());
 }
 
 #[test]
-fn plan_reject_with_feedback() {
+fn plan_option_4_with_feedback() {
     let encoder = GeminiRespondEncoder::default();
-    let steps = encoder.encode_plan(false, Some("Don't modify the schema"));
+    let steps = encoder.encode_plan(4, Some("Don't modify the schema"));
     assert_eq!(steps.len(), 2);
     assert_eq!(steps[0].bytes, b"n\r");
     assert_eq!(steps[0].delay_after, Some(Duration::from_millis(100)));
@@ -59,9 +64,9 @@ fn plan_reject_with_feedback() {
 }
 
 #[test]
-fn plan_reject_without_feedback() {
+fn plan_option_4_without_feedback() {
     let encoder = GeminiRespondEncoder::default();
-    let steps = encoder.encode_plan(false, None);
+    let steps = encoder.encode_plan(4, None);
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].bytes, b"n\r");
     assert!(steps[0].delay_after.is_none());

@@ -82,6 +82,12 @@ pub struct PromptContext {
     pub tool: Option<String>,
     pub input_preview: Option<String>,
     pub screen_lines: Vec<String>,
+    /// Numbered option labels parsed from the terminal screen (permission/plan prompts).
+    #[serde(default)]
+    pub options: Vec<String>,
+    /// True when `options` contains fallback labels (parser couldn't find real options).
+    #[serde(default)]
+    pub options_fallback: bool,
     /// All questions in a multi-question dialog.
     #[serde(default)]
     pub questions: Vec<QuestionContext>,
@@ -139,8 +145,8 @@ pub trait NudgeEncoder: Send + Sync {
 
 /// Encodes structured prompt responses into PTY byte sequences.
 pub trait RespondEncoder: Send + Sync {
-    fn encode_permission(&self, accept: bool) -> Vec<NudgeStep>;
-    fn encode_plan(&self, accept: bool, feedback: Option<&str>) -> Vec<NudgeStep>;
+    fn encode_permission(&self, option: u32) -> Vec<NudgeStep>;
+    fn encode_plan(&self, option: u32, feedback: Option<&str>) -> Vec<NudgeStep>;
     fn encode_question(&self, answers: &[QuestionAnswer], total_questions: usize)
         -> Vec<NudgeStep>;
 }

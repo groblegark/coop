@@ -35,13 +35,15 @@ impl Default for GeminiRespondEncoder {
 }
 
 impl RespondEncoder for GeminiRespondEncoder {
-    fn encode_permission(&self, accept: bool) -> Vec<NudgeStep> {
-        let bytes = if accept { b"1\r".to_vec() } else { b"\x1b".to_vec() };
+    fn encode_permission(&self, option: u32) -> Vec<NudgeStep> {
+        // Gemini permission: option 1 = accept ("1\r"), anything else = Escape to dismiss.
+        let bytes = if option == 1 { b"1\r".to_vec() } else { b"\x1b".to_vec() };
         vec![NudgeStep { bytes, delay_after: None }]
     }
 
-    fn encode_plan(&self, accept: bool, feedback: Option<&str>) -> Vec<NudgeStep> {
-        if accept {
+    fn encode_plan(&self, option: u32, feedback: Option<&str>) -> Vec<NudgeStep> {
+        // Gemini plan: options 1-3 accept ("y\r"), option 4 rejects ("n\r") + feedback.
+        if option <= 3 {
             return vec![NudgeStep { bytes: b"y\r".to_vec(), delay_after: None }];
         }
 
