@@ -184,6 +184,24 @@ fn oauth_login_extracts_wrapped_auth_url() {
 }
 
 #[test]
+fn oauth_login_extracts_platform_domain_auth_url() {
+    let snap = snapshot(&[
+        " Browser didn't open? Use the url below to sign in (c to copy)",
+        "",
+        "https://platform.claude.com/oauth/authorize?code=true&client_id=9d1c",
+        "",
+        " Paste code here if prompted >",
+    ]);
+    let (s, _) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.subtype.as_deref(), Some("oauth_login"));
+    assert_eq!(
+        prompt.auth_url.as_deref(),
+        Some("https://platform.claude.com/oauth/authorize?code=true&client_id=9d1c")
+    );
+}
+
+#[test]
 fn oauth_login_no_url_has_none_auth_url() {
     let snap =
         snapshot(&[" Paste code here if prompted", " Please visit this URL: oauth/authorize"]);

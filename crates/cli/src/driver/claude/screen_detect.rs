@@ -278,12 +278,15 @@ fn classify_interactive_dialog(lines: &[String]) -> Option<DialogKind> {
 
 /// Extract an OAuth authorization URL from screen lines.
 ///
-/// The URL starts with `https://claude.ai/oauth/authorize?` and may wrap
-/// across multiple terminal lines.  Continuation lines start at column 0
+/// Looks for `https://<any-domain>/oauth/authorize?` and may span
+/// multiple terminal lines.  Continuation lines start at column 0
 /// (no leading whitespace) while surrounding UI text is indented.
 fn extract_auth_url(lines: &[String]) -> Option<String> {
-    let prefix = "https://claude.ai/oauth/authorize?";
-    let start_idx = lines.iter().position(|line| line.trim_start().starts_with(prefix))?;
+    let suffix = "/oauth/authorize?";
+    let start_idx = lines.iter().position(|line| {
+        let t = line.trim_start();
+        t.starts_with("https://") && t.contains(suffix)
+    })?;
 
     let mut url = lines[start_idx].trim().to_string();
 

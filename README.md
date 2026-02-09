@@ -107,6 +107,7 @@ Agent states: `starting`, `working`, `waiting_for_input`, `permission_prompt`, `
 
 Optional:
 
+- **[Bun](https://bun.sh/)** — used by `tests/debug/` scripts for manual testing targets (`try-*`, `capture-*`)
 - **Docker** — used for `make test-docker` and `try-docker-*` targets
 - **Claude CLI** / **Gemini CLI** — only needed for `make try-claude` / `make try-gemini` manual testing
 
@@ -120,6 +121,8 @@ cargo test    # unit tests only
 
 ### Manual testing
 
+Requires [Bun](https://bun.sh/).
+
 ```bash
 # Launch coop + claudeless in a browser terminal (requires claudeless)
 make try-claudeless SCENARIO=crates/cli/tests/scenarios/claude_hello.toml
@@ -130,9 +133,14 @@ make try-gemini     # requires gemini CLI
 
 # Docker variants (requires Docker)
 make try-docker-claudeless SCENARIO=claude_hello.toml
-make try-docker-claude
+make try-docker-claude                    # empty config
+make try-docker-claude PROFILE=trusted    # pre-seeded credentials
 make try-docker-gemini
 make test-docker    # run Docker e2e tests
+
+# Capture claude onboarding state changes
+make capture-claude                  # empty config, full onboarding
+make capture-claude CONFIG=trusted   # skip to idle
 ```
 
 ## License

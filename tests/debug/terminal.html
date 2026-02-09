@@ -285,6 +285,15 @@
 
           <!-- Setup prompt: numbered options -->
           <div id="act-respond-setup" style="display:none;">
+            <div id="act-respond-setup-info" style="font-size:10px;color:#888;margin-bottom:4px;"></div>
+            <div id="act-respond-setup-auth" style="display:none;margin-bottom:6px;">
+              <div style="font-size:10px;color:#b8a0e8;margin-bottom:2px;">Auth URL:</div>
+              <div class="action-row">
+                <input type="text" id="act-setup-auth-url" readonly style="font-size:10px;color:#7cb7ff;cursor:text;" />
+                <button class="action-btn" id="act-setup-auth-copy">Copy</button>
+                <button class="action-btn btn-success" id="act-setup-auth-open">Open</button>
+              </div>
+            </div>
             <div id="act-respond-setup-options" class="action-column"></div>
           </div>
 
@@ -826,6 +835,18 @@ function updateRespondUI(prompt) {
     });
   } else if (prompt.type === 'setup') {
     respondPanels.setup.style.display = '';
+    const setupInfoEl = document.getElementById('act-respond-setup-info');
+    setupInfoEl.textContent = prompt.subtype ? `Subtype: ${prompt.subtype}` : '';
+    // Auth URL (oauth_login prompts)
+    const authPanel = document.getElementById('act-respond-setup-auth');
+    const authUrlInput = document.getElementById('act-setup-auth-url');
+    if (prompt.auth_url) {
+      authPanel.style.display = '';
+      authUrlInput.value = prompt.auth_url;
+    } else {
+      authPanel.style.display = 'none';
+      authUrlInput.value = '';
+    }
     const setupOptsEl = document.getElementById('act-respond-setup-options');
     setupOptsEl.innerHTML = '';
     const setupOpts = prompt.options?.length ? prompt.options : ['Continue'];
@@ -903,6 +924,19 @@ document.getElementById('act-plan-feedback').addEventListener('keydown', (e) => 
     e.preventDefault();
     document.getElementById('act-plan-feedback-send').click();
   }
+});
+
+// Setup auth URL handlers
+document.getElementById('act-setup-auth-copy').addEventListener('click', () => {
+  const url = document.getElementById('act-setup-auth-url').value;
+  navigator.clipboard.writeText(url).then(() => {
+    document.getElementById('act-setup-auth-copy').textContent = 'Copied!';
+    setTimeout(() => { document.getElementById('act-setup-auth-copy').textContent = 'Copy'; }, 1500);
+  });
+});
+document.getElementById('act-setup-auth-open').addEventListener('click', () => {
+  const url = document.getElementById('act-setup-auth-url').value;
+  if (url) window.open(url, '_blank');
 });
 
 // Question freeform handler
