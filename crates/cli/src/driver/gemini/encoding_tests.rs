@@ -28,8 +28,8 @@ fn nudge_with_multiline_message() {
 }
 
 #[yare::parameterized(
-    accept = { true, b"y\r" as &[u8] },
-    deny   = { false, b"n\r" },
+    accept = { true, b"1\r" as &[u8] },
+    deny   = { false, b"\x1b" },
 )]
 fn permission_encoding(accept: bool, expected: &[u8]) {
     let encoder = GeminiRespondEncoder::default();

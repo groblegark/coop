@@ -36,8 +36,8 @@ impl Default for GeminiRespondEncoder {
 
 impl RespondEncoder for GeminiRespondEncoder {
     fn encode_permission(&self, accept: bool) -> Vec<NudgeStep> {
-        let key = if accept { "y" } else { "n" };
-        vec![NudgeStep { bytes: format!("{key}\r").into_bytes(), delay_after: None }]
+        let bytes = if accept { b"1\r".to_vec() } else { b"\x1b".to_vec() };
+        vec![NudgeStep { bytes, delay_after: None }]
     }
 
     fn encode_plan(&self, accept: bool, feedback: Option<&str>) -> Vec<NudgeStep> {

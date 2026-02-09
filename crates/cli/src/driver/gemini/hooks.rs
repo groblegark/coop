@@ -62,7 +62,7 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
                 }]
             }],
             "Notification": [{
-                "matcher": "",
+                "matcher": "*",
                 "hooks": [{
                     "type": "command",
                     "command": "input=$(cat); printf '{\"event\":\"notification\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""

@@ -151,7 +151,8 @@ fn parse_hook_line(line: &str) -> Option<HookEvent> {
         }
         "pre_tool_use" => {
             let data = raw.data?;
-            let tool = data.get("tool_name").and_then(|v| v.as_str())?.to_string();
+            let tool =
+                data.get("tool_name").and_then(|v| v.as_str()).unwrap_or_default().to_string();
             let tool_input = data.get("tool_input").cloned();
             Some(HookEvent::PreToolUse { tool, tool_input })
         }

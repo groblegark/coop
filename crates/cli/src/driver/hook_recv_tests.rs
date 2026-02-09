@@ -97,9 +97,9 @@ fn notification_missing_type_returns_none() {
 }
 
 #[test]
-fn pre_tool_use_missing_tool_name_returns_none() {
+fn pre_tool_use_missing_tool_name_returns_empty() {
     let event = parse_hook_line(r#"{"event":"pre_tool_use","data":{}}"#);
-    assert_eq!(event, None);
+    assert_eq!(event, Some(HookEvent::PreToolUse { tool: "".to_string(), tool_input: None }));
 }
 
 #[test]
