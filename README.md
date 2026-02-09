@@ -1,6 +1,6 @@
 # Coop
 
-A terminal session manager for AI coding agents. Spawns agent CLIs on a PTY, classifies agent state via structured data, and serves everything over HTTP + WebSocket + gRPC.
+A terminal session manager for AI coding agents. Spawns agent CLIs on a PTY, classifies agent state via structured data, and serves everything over your choice of HTTP, WebSocket, or gRPC.
 
 Coop replaces tmux/screen-based agent orchestration with a proper API. Instead of `capture-pane` and `send-keys`, consumers get structured endpoints for screen state, agent state detection, nudging idle agents, and answering prompts.
 
@@ -40,7 +40,7 @@ coop --agent claude --port 8080 --resume <session-id> -- claude
 
 ## API
 
-Once coop is running, consumers interact with agents over HTTP:
+Once coop is running, consumers interact with agents over HTTP or gRPC:
 
 ```bash
 # Check agent state
