@@ -71,6 +71,12 @@ message GetHealthResponse {
   string agent = 4;
   // Number of connected WebSocket clients.
   int32 ws_clients = 5;
+  // Terminal width.
+  int32 terminal_cols = 6;
+  // Terminal height.
+  int32 terminal_rows = 7;
+  // Whether the session is ready (agent has left Starting state).
+  bool ready = 8;
 }
 
 message GetScreenRequest {
@@ -255,7 +261,7 @@ message NudgeResponse {
   // Whether the nudge was written to the PTY.
   bool delivered = 1;
   // Agent state at the time of the request.
-  string state_before = 2;
+  optional string state_before = 2;
   // Why the nudge was not delivered.
   optional string reason = 3;
 }
@@ -277,8 +283,8 @@ message RespondRequest {
 message RespondResponse {
   // Whether the response was written to the PTY.
   bool delivered = 1;
-  // Agent state at the time of the request.
-  string prompt_type = 2;
+  // Prompt type at the time of the request.
+  optional string prompt_type = 2;
   // Why the response was not delivered.
   optional string reason = 3;
 }

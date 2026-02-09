@@ -14,20 +14,21 @@ use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use base64::Engine;
-use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 
-use crate::driver::{classify_error_detail, AgentState, PromptContext, QuestionAnswer};
+use crate::driver::{classify_error_detail, AgentState, PromptContext};
 use crate::error::ErrorCode;
-use crate::event::{InputEvent, OutputEvent, PtySignal, StateChangeEvent};
+use crate::event::{OutputEvent, StateChangeEvent};
 use crate::screen::CursorPosition;
 use crate::stop::StopEvent;
 use crate::transport::auth;
-use crate::transport::state::AppState;
-use crate::transport::{
-    deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_question_current,
+use crate::transport::handler::{
+    compute_status, handle_input, handle_input_raw, handle_keys, handle_nudge, handle_resize,
+    handle_respond, handle_signal, TransportQuestionAnswer,
 };
+use crate::transport::read_ring_combined;
+use crate::transport::state::AppState;
 
 // ---------------------------------------------------------------------------
 // Server -> Client
@@ -68,9 +69,29 @@ pub enum ServerMessage {
         code: String,
         message: String,
     },
-    Resize {
-        cols: u16,
-        rows: u16,
+    NudgeResult {
+        delivered: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        state_before: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+    RespondResult {
+        delivered: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        prompt_type: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+    Status {
+        state: String,
+        pid: Option<i32>,
+        uptime_secs: i64,
+        exit_code: Option<i32>,
+        screen_seq: u64,
+        bytes_read: u64,
+        bytes_written: u64,
+        ws_clients: i32,
     },
     Stop {
         stop_type: String,
@@ -92,6 +113,8 @@ pub enum ServerMessage {
 pub enum ClientMessage {
     Input {
         text: String,
+        #[serde(default)]
+        enter: bool,
     },
     InputRaw {
         data: String,
@@ -105,6 +128,7 @@ pub enum ClientMessage {
     },
     ScreenRequest {},
     StateRequest {},
+    StatusRequest {},
     Nudge {
         message: String,
     },
@@ -112,7 +136,7 @@ pub enum ClientMessage {
         accept: Option<bool>,
         text: Option<String>,
         #[serde(default)]
-        answers: Vec<WsQuestionAnswer>,
+        answers: Vec<TransportQuestionAnswer>,
         option: Option<i32>,
     },
     Replay {
@@ -126,13 +150,6 @@ pub enum ClientMessage {
     },
     Shutdown {},
     Ping {},
-}
-
-/// WebSocket JSON representation of a question answer.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WsQuestionAnswer {
-    pub option: Option<i32>,
-    pub text: Option<String>,
 }
 
 /// WebSocket subscription mode (query parameter on upgrade).
@@ -359,6 +376,20 @@ async fn handle_client_message(
             })
         }
 
+        ClientMessage::StatusRequest {} => {
+            let st = compute_status(state).await;
+            Some(ServerMessage::Status {
+                state: st.state.to_owned(),
+                pid: st.pid,
+                uptime_secs: st.uptime_secs,
+                exit_code: st.exit_code,
+                screen_seq: st.screen_seq,
+                bytes_read: st.bytes_read,
+                bytes_written: st.bytes_written,
+                ws_clients: st.ws_clients,
+            })
+        }
+
         ClientMessage::Replay { offset } => {
             let ring = state.terminal.ring.read().await;
             let combined = read_ring_combined(&ring, offset);
@@ -367,12 +398,11 @@ async fn handle_client_message(
         }
 
         // Write operations require auth
-        ClientMessage::Input { text } => {
+        ClientMessage::Input { text, enter } => {
             if !*authed {
                 return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
             }
-            let data = Bytes::from(text.into_bytes());
-            let _ = state.channels.input_tx.send(InputEvent::Write(data)).await;
+            let _ = handle_input(state, text, enter).await;
             None
         }
 
@@ -382,7 +412,7 @@ async fn handle_client_message(
             }
             let decoded =
                 base64::engine::general_purpose::STANDARD.decode(&data).unwrap_or_default();
-            let _ = state.channels.input_tx.send(InputEvent::Write(Bytes::from(decoded))).await;
+            let _ = handle_input_raw(state, decoded).await;
             None
         }
 
@@ -390,101 +420,56 @@ async fn handle_client_message(
             if !*authed {
                 return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
             }
-            let data = match keys_to_bytes(&keys) {
-                Ok(d) => d,
+            match handle_keys(state, &keys).await {
+                Ok(_) => None,
                 Err(bad_key) => {
-                    return Some(ws_error(
-                        ErrorCode::BadRequest,
-                        &format!("unknown key: {bad_key}"),
-                    ));
+                    Some(ws_error(ErrorCode::BadRequest, &format!("unknown key: {bad_key}")))
                 }
-            };
-            let _ = state.channels.input_tx.send(InputEvent::Write(Bytes::from(data))).await;
-            None
+            }
         }
 
-        ClientMessage::Resize { cols, rows } => {
-            if cols == 0 || rows == 0 {
-                return Some(ws_error(ErrorCode::BadRequest, "cols and rows must be positive"));
-            }
-            let _ = state.channels.input_tx.send(InputEvent::Resize { cols, rows }).await;
-            None
-        }
+        ClientMessage::Resize { cols, rows } => match handle_resize(state, cols, rows).await {
+            Ok(()) => None,
+            Err(_) => Some(ws_error(ErrorCode::BadRequest, "cols and rows must be positive")),
+        },
 
         ClientMessage::Nudge { message } => {
             if !*authed {
                 return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
             }
-            if !state.ready.load(Ordering::Acquire) {
-                return Some(ws_error(ErrorCode::NotReady, "agent is still starting"));
+            match handle_nudge(state, &message).await {
+                Ok(outcome) => Some(ServerMessage::NudgeResult {
+                    delivered: outcome.delivered,
+                    state_before: outcome.state_before,
+                    reason: outcome.reason,
+                }),
+                Err(code) => Some(ws_error(code, &error_message(code))),
             }
-            let encoder = match &state.config.nudge_encoder {
-                Some(enc) => Arc::clone(enc),
-                None => return Some(ws_error(ErrorCode::NoDriver, "no agent driver configured")),
-            };
-            let _delivery = state.nudge_mutex.lock().await;
-            let agent = state.driver.agent_state.read().await;
-            if !matches!(&*agent, AgentState::WaitingForInput) {
-                return Some(ws_error(ErrorCode::AgentBusy, "agent is not waiting for input"));
-            }
-            drop(agent);
-            let steps = encoder.encode(&message);
-            let _ = deliver_steps(&state.channels.input_tx, steps).await;
-            None
         }
 
         ClientMessage::Respond { accept, text, answers, option } => {
             if !*authed {
                 return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
             }
-            if !state.ready.load(Ordering::Acquire) {
-                return Some(ws_error(ErrorCode::NotReady, "agent is still starting"));
+            match handle_respond(state, accept, option, text.as_deref(), &answers).await {
+                Ok(outcome) => Some(ServerMessage::RespondResult {
+                    delivered: outcome.delivered,
+                    prompt_type: outcome.prompt_type,
+                    reason: outcome.reason,
+                }),
+                Err(code) => Some(ws_error(code, &error_message(code))),
             }
-            let encoder = match &state.config.respond_encoder {
-                Some(enc) => Arc::clone(enc),
-                None => return Some(ws_error(ErrorCode::NoDriver, "no agent driver configured")),
-            };
-            let domain_answers: Vec<QuestionAnswer> = answers
-                .iter()
-                .map(|a| QuestionAnswer {
-                    option: a.option.map(|o| o as u32),
-                    text: a.text.clone(),
-                })
-                .collect();
-            let resolved_option = option.map(|o| o as u32);
-            let _delivery = state.nudge_mutex.lock().await;
-            let agent = state.driver.agent_state.read().await;
-            let (steps, answers_delivered) = match encode_response(
-                &agent,
-                encoder.as_ref(),
-                accept,
-                resolved_option,
-                text.as_deref(),
-                &domain_answers,
-            ) {
-                Ok(r) => r,
-                Err(code) => {
-                    return Some(ws_error(code, "no prompt active"));
-                }
-            };
-            drop(agent);
-            let _ = deliver_steps(&state.channels.input_tx, steps).await;
-            if answers_delivered > 0 {
-                update_question_current(state, answers_delivered).await;
-            }
-            None
         }
 
         ClientMessage::Signal { signal } => {
             if !*authed {
                 return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
             }
-            match PtySignal::from_name(&signal) {
-                Some(sig) => {
-                    let _ = state.channels.input_tx.send(InputEvent::Signal(sig)).await;
-                    None
+            match handle_signal(state, &signal).await {
+                Ok(()) => None,
+                Err(bad_signal) => {
+                    Some(ws_error(ErrorCode::BadRequest, &format!("unknown signal: {bad_signal}")))
                 }
-                None => Some(ws_error(ErrorCode::BadRequest, &format!("unknown signal: {signal}"))),
             }
         }
 
@@ -501,6 +486,15 @@ async fn handle_client_message(
 /// Build a WebSocket error message.
 fn ws_error(code: ErrorCode, message: &str) -> ServerMessage {
     ServerMessage::Error { code: code.as_str().to_owned(), message: message.to_owned() }
+}
+
+/// Map an error code to a human-readable message for WS error responses.
+fn error_message(code: ErrorCode) -> String {
+    match code {
+        ErrorCode::NotReady => "agent is still starting".to_owned(),
+        ErrorCode::NoDriver => "no agent driver configured".to_owned(),
+        _ => "request failed".to_owned(),
+    }
 }
 
 /// Convert a `StateChangeEvent` to a `ServerMessage`.

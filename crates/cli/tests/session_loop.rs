@@ -319,8 +319,10 @@ async fn http_agent_state_endpoint() -> anyhow::Result<()> {
     let server = axum_test::TestServer::new(router)?;
 
     let resp = server.get("/api/v1/agent/state").await;
-    // No driver configured -> NO_DRIVER error (404)
-    resp.assert_status(StatusCode::NOT_FOUND);
+    // Without a driver, state is returned normally (Starting/Unknown).
+    resp.assert_status(StatusCode::OK);
+    let body = resp.text();
+    assert!(body.contains("\"state\":"), "body: {body}");
     Ok(())
 }
 

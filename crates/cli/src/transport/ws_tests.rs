@@ -142,11 +142,13 @@ fn auth_message_serialization() -> anyhow::Result<()> {
 fn client_message_roundtrip() -> anyhow::Result<()> {
     let messages = vec![
         r#"{"type":"input","text":"hello"}"#,
+        r#"{"type":"input","text":"hello","enter":true}"#,
         r#"{"type":"input_raw","data":"aGVsbG8="}"#,
         r#"{"type":"keys","keys":["Enter"]}"#,
         r#"{"type":"resize","cols":200,"rows":50}"#,
         r#"{"type":"screen_request"}"#,
         r#"{"type":"state_request"}"#,
+        r#"{"type":"status_request"}"#,
         r#"{"type":"nudge","message":"fix bug"}"#,
         r#"{"type":"respond","accept":true}"#,
         r#"{"type":"replay","offset":0}"#,
@@ -247,10 +249,12 @@ async fn nudge_rejected_when_agent_working() -> anyhow::Result<()> {
     let msg = ClientMessage::Nudge { message: "hello".to_owned() };
     let reply = handle_client_message(&state, msg, client_id, &mut true).await;
     match reply {
-        Some(ServerMessage::Error { code, .. }) => {
-            assert_eq!(code, "AGENT_BUSY");
+        Some(ServerMessage::NudgeResult { delivered, state_before, reason }) => {
+            assert!(!delivered);
+            assert_eq!(state_before.as_deref(), Some("working"));
+            assert!(reason.as_deref().unwrap_or("").contains("agent is working"));
         }
-        other => anyhow::bail!("expected AgentBusy error, got {other:?}"),
+        other => anyhow::bail!("expected NudgeResult, got {other:?}"),
     }
     Ok(())
 }
@@ -263,7 +267,14 @@ async fn nudge_accepted_when_agent_waiting() -> anyhow::Result<()> {
 
     let msg = ClientMessage::Nudge { message: "hello".to_owned() };
     let reply = handle_client_message(&state, msg, client_id, &mut true).await;
-    assert!(reply.is_none(), "expected None (success), got {reply:?}");
+    match reply {
+        Some(ServerMessage::NudgeResult { delivered, state_before, reason }) => {
+            assert!(delivered);
+            assert_eq!(state_before.as_deref(), Some("waiting_for_input"));
+            assert!(reason.is_none());
+        }
+        other => anyhow::bail!("expected NudgeResult with delivered=true, got {other:?}"),
+    }
     Ok(())
 }
 
@@ -351,5 +362,91 @@ fn signal_message_serialization() -> anyhow::Result<()> {
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"signal\""));
     assert!(json.contains("\"signal\":\"SIGTERM\""));
+    Ok(())
+}
+
+#[test]
+fn nudge_result_serialization() -> anyhow::Result<()> {
+    let msg = ServerMessage::NudgeResult {
+        delivered: false,
+        state_before: Some("working".to_owned()),
+        reason: Some("agent is working".to_owned()),
+    };
+    let json = serde_json::to_string(&msg).anyhow()?;
+    assert!(json.contains("\"type\":\"nudge_result\""));
+    assert!(json.contains("\"delivered\":false"));
+    assert!(json.contains("\"state_before\":\"working\""));
+    assert!(json.contains("\"reason\":\"agent is working\""));
+    Ok(())
+}
+
+#[test]
+fn nudge_result_omits_none_fields() -> anyhow::Result<()> {
+    let msg = ServerMessage::NudgeResult {
+        delivered: true,
+        state_before: Some("waiting_for_input".to_owned()),
+        reason: None,
+    };
+    let json = serde_json::to_string(&msg).anyhow()?;
+    assert!(json.contains("\"delivered\":true"));
+    assert!(!json.contains("reason"), "json: {json}");
+    Ok(())
+}
+
+#[test]
+fn respond_result_serialization() -> anyhow::Result<()> {
+    let msg = ServerMessage::RespondResult {
+        delivered: true,
+        prompt_type: Some("permission".to_owned()),
+        reason: None,
+    };
+    let json = serde_json::to_string(&msg).anyhow()?;
+    assert!(json.contains("\"type\":\"respond_result\""));
+    assert!(json.contains("\"delivered\":true"));
+    assert!(json.contains("\"prompt_type\":\"permission\""));
+    Ok(())
+}
+
+#[test]
+fn status_message_serialization() -> anyhow::Result<()> {
+    let msg = ServerMessage::Status {
+        state: "running".to_owned(),
+        pid: Some(1234),
+        uptime_secs: 60,
+        exit_code: None,
+        screen_seq: 42,
+        bytes_read: 1024,
+        bytes_written: 512,
+        ws_clients: 2,
+    };
+    let json = serde_json::to_string(&msg).anyhow()?;
+    assert!(json.contains("\"type\":\"status\""));
+    assert!(json.contains("\"state\":\"running\""));
+    assert!(json.contains("\"pid\":1234"));
+    assert!(json.contains("\"uptime_secs\":60"));
+    Ok(())
+}
+
+#[test]
+fn status_request_serialization() -> anyhow::Result<()> {
+    let msg = ClientMessage::StatusRequest {};
+    let json = serde_json::to_string(&msg).anyhow()?;
+    assert!(json.contains("\"type\":\"status_request\""));
+    Ok(())
+}
+
+#[test]
+fn input_with_enter_serialization() -> anyhow::Result<()> {
+    let msg = ClientMessage::Input { text: "hello".to_owned(), enter: true };
+    let json = serde_json::to_string(&msg).anyhow()?;
+    assert!(json.contains("\"enter\":true"));
+
+    // enter defaults to false when omitted
+    let parsed: ClientMessage = serde_json::from_str(r#"{"type":"input","text":"hello"}"#)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    match parsed {
+        ClientMessage::Input { enter, .. } => assert!(!enter),
+        other => anyhow::bail!("expected Input, got {other:?}"),
+    }
     Ok(())
 }

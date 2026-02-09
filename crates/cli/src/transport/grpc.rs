@@ -7,18 +7,19 @@ use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use bytes::Bytes;
 use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
-use super::{
-    deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_question_current,
-};
-use crate::driver::{classify_error_detail, AgentState, PromptContext, QuestionAnswer};
+use super::read_ring_combined;
+use crate::driver::{classify_error_detail, AgentState, PromptContext};
 use crate::error::ErrorCode;
-use crate::event::{InputEvent, OutputEvent, PtySignal, StateChangeEvent};
+use crate::event::{OutputEvent, StateChangeEvent};
 use crate::stop::StopConfig;
+use crate::transport::handler::{
+    compute_health, compute_status, handle_input, handle_keys, handle_nudge, handle_resize,
+    handle_respond, handle_signal, TransportQuestionAnswer,
+};
 use crate::transport::state::AppState;
 
 /// Generated protobuf types for the `coop.v1` package.
@@ -133,16 +134,16 @@ impl proto::coop_server::Coop for CoopGrpc {
         &self,
         _request: Request<proto::GetHealthRequest>,
     ) -> Result<Response<proto::GetHealthResponse>, Status> {
-        let pid = self.state.terminal.child_pid.load(Ordering::Relaxed);
-        let uptime = self.state.config.started_at.elapsed().as_secs() as i64;
-        let ws = self.state.lifecycle.ws_client_count.load(Ordering::Relaxed);
-
+        let h = compute_health(&self.state).await;
         Ok(Response::new(proto::GetHealthResponse {
-            status: "running".to_owned(),
-            pid: if pid == 0 { None } else { Some(pid as i32) },
-            uptime_secs: uptime,
-            agent: self.state.config.agent.to_string(),
-            ws_clients: ws,
+            status: h.status.to_owned(),
+            pid: h.pid,
+            uptime_secs: h.uptime_secs,
+            agent: h.agent,
+            ws_clients: h.ws_clients,
+            terminal_cols: h.terminal_cols as i32,
+            terminal_rows: h.terminal_rows as i32,
+            ready: h.ready,
         }))
     }
 
@@ -160,38 +161,16 @@ impl proto::coop_server::Coop for CoopGrpc {
         &self,
         _request: Request<proto::GetStatusRequest>,
     ) -> Result<Response<proto::GetStatusResponse>, Status> {
-        let pid = self.state.terminal.child_pid.load(Ordering::Relaxed);
-        let agent = self.state.driver.agent_state.read().await;
-        let screen = self.state.terminal.screen.read().await;
-        let ring = self.state.terminal.ring.read().await;
-        let uptime = self.state.config.started_at.elapsed().as_secs() as i64;
-        let exit = self.state.terminal.exit_status.read().await;
-
-        let exit_code = exit.as_ref().and_then(|e| e.code);
-
-        let bw = self.state.lifecycle.bytes_written.load(Ordering::Relaxed);
-        let ws = self.state.lifecycle.ws_client_count.load(Ordering::Relaxed);
-
-        let state_str = match &*agent {
-            AgentState::Exited { .. } => "exited",
-            _ => {
-                if pid == 0 {
-                    "starting"
-                } else {
-                    "running"
-                }
-            }
-        };
-
+        let st = compute_status(&self.state).await;
         Ok(Response::new(proto::GetStatusResponse {
-            state: state_str.to_owned(),
-            pid: if pid == 0 { None } else { Some(pid as i32) },
-            uptime_secs: uptime,
-            exit_code,
-            screen_seq: screen.seq(),
-            bytes_read: ring.total_written(),
-            bytes_written: bw,
-            ws_clients: ws,
+            state: st.state.to_owned(),
+            pid: st.pid,
+            uptime_secs: st.uptime_secs,
+            exit_code: st.exit_code,
+            screen_seq: st.screen_seq,
+            bytes_read: st.bytes_read,
+            bytes_written: st.bytes_written,
+            ws_clients: st.ws_clients,
         }))
     }
 
@@ -200,17 +179,7 @@ impl proto::coop_server::Coop for CoopGrpc {
         request: Request<proto::SendInputRequest>,
     ) -> Result<Response<proto::SendInputResponse>, Status> {
         let req = request.into_inner();
-        let mut payload = req.text.into_bytes();
-        if req.enter {
-            payload.push(b'\r');
-        }
-        let len = payload.len() as i32;
-        self.state
-            .channels
-            .input_tx
-            .send(InputEvent::Write(Bytes::from(payload)))
-            .await
-            .map_err(|_| ErrorCode::Internal.to_grpc_status("input channel closed"))?;
+        let len = handle_input(&self.state, req.text, req.enter).await;
         Ok(Response::new(proto::SendInputResponse { bytes_written: len }))
     }
 
@@ -219,16 +188,9 @@ impl proto::coop_server::Coop for CoopGrpc {
         request: Request<proto::SendKeysRequest>,
     ) -> Result<Response<proto::SendKeysResponse>, Status> {
         let req = request.into_inner();
-        let data = keys_to_bytes(&req.keys).map_err(|bad_key| {
+        let len = handle_keys(&self.state, &req.keys).await.map_err(|bad_key| {
             ErrorCode::BadRequest.to_grpc_status(format!("unknown key: {bad_key}"))
         })?;
-        let len = data.len() as i32;
-        self.state
-            .channels
-            .input_tx
-            .send(InputEvent::Write(Bytes::from(data)))
-            .await
-            .map_err(|_| ErrorCode::Internal.to_grpc_status("input channel closed"))?;
         Ok(Response::new(proto::SendKeysResponse { bytes_written: len }))
     }
 
@@ -242,12 +204,9 @@ impl proto::coop_server::Coop for CoopGrpc {
         }
         let cols = req.cols as u16;
         let rows = req.rows as u16;
-        self.state
-            .channels
-            .input_tx
-            .send(InputEvent::Resize { cols, rows })
+        handle_resize(&self.state, cols, rows)
             .await
-            .map_err(|_| ErrorCode::Internal.to_grpc_status("input channel closed"))?;
+            .map_err(|code| code.to_grpc_status("cols and rows must be positive"))?;
         Ok(Response::new(proto::ResizeResponse { cols: cols as i32, rows: rows as i32 }))
     }
 
@@ -256,15 +215,9 @@ impl proto::coop_server::Coop for CoopGrpc {
         request: Request<proto::SendSignalRequest>,
     ) -> Result<Response<proto::SendSignalResponse>, Status> {
         let req = request.into_inner();
-        let sig = PtySignal::from_name(&req.signal).ok_or_else(|| {
-            ErrorCode::BadRequest.to_grpc_status(format!("unknown signal: {}", req.signal))
+        handle_signal(&self.state, &req.signal).await.map_err(|bad_signal| {
+            ErrorCode::BadRequest.to_grpc_status(format!("unknown signal: {bad_signal}"))
         })?;
-        self.state
-            .channels
-            .input_tx
-            .send(InputEvent::Signal(sig))
-            .await
-            .map_err(|_| ErrorCode::Internal.to_grpc_status("input channel closed"))?;
         Ok(Response::new(proto::SendSignalResponse { delivered: true }))
     }
 
@@ -297,95 +250,37 @@ impl proto::coop_server::Coop for CoopGrpc {
         &self,
         request: Request<proto::NudgeRequest>,
     ) -> Result<Response<proto::NudgeResponse>, Status> {
-        if !self.state.ready.load(Ordering::Acquire) {
-            return Err(ErrorCode::NotReady.to_grpc_status("agent is still starting"));
-        }
-
         let req = request.into_inner();
-
-        let encoder = self
-            .state
-            .config
-            .nudge_encoder
-            .as_ref()
-            .ok_or_else(|| ErrorCode::NoDriver.to_grpc_status("no nudge encoder configured"))?;
-
-        let _delivery = self.state.nudge_mutex.lock().await;
-
-        let agent = self.state.driver.agent_state.read().await;
-        let state_before = agent.as_str().to_owned();
-
-        match &*agent {
-            AgentState::WaitingForInput => {}
-            other => {
-                return Ok(Response::new(proto::NudgeResponse {
-                    delivered: false,
-                    state_before,
-                    reason: Some(format!("agent is {}", other.as_str())),
-                }));
-            }
+        match handle_nudge(&self.state, &req.message).await {
+            Ok(outcome) => Ok(Response::new(proto::NudgeResponse {
+                delivered: outcome.delivered,
+                state_before: outcome.state_before,
+                reason: outcome.reason,
+            })),
+            Err(code) => Err(code.to_grpc_status(grpc_error_message(code))),
         }
-
-        let steps = encoder.encode(&req.message);
-        drop(agent);
-
-        deliver_steps(&self.state.channels.input_tx, steps)
-            .await
-            .map_err(|code| code.to_grpc_status("input channel closed"))?;
-
-        Ok(Response::new(proto::NudgeResponse { delivered: true, state_before, reason: None }))
     }
 
     async fn respond(
         &self,
         request: Request<proto::RespondRequest>,
     ) -> Result<Response<proto::RespondResponse>, Status> {
-        if !self.state.ready.load(Ordering::Acquire) {
-            return Err(ErrorCode::NotReady.to_grpc_status("agent is still starting"));
-        }
-
         let req = request.into_inner();
-
-        let encoder =
-            self.state.config.respond_encoder.as_ref().ok_or_else(|| {
-                ErrorCode::NoDriver.to_grpc_status("no respond encoder configured")
-            })?;
-
-        let answers: Vec<QuestionAnswer> = req
+        let answers: Vec<TransportQuestionAnswer> = req
             .answers
             .iter()
-            .map(|a| QuestionAnswer { option: a.option.map(|o| o as u32), text: a.text.clone() })
+            .map(|a| TransportQuestionAnswer { option: a.option, text: a.text.clone() })
             .collect();
-
-        let _delivery = self.state.nudge_mutex.lock().await;
-
-        let agent = self.state.driver.agent_state.read().await;
-
-        let option = req.option.map(|o| o as u32);
-        let (steps, answers_delivered) = encode_response(
-            &agent,
-            encoder.as_ref(),
-            req.accept,
-            option,
-            req.text.as_deref(),
-            &answers,
-        )
-        .map_err(|code| {
-            code.to_grpc_status(format!("agent is {} (no active prompt)", agent.as_str()))
-        })?;
-
-        let prompt_type = agent.prompt().map(|p| p.kind.as_str().to_owned()).unwrap_or_default();
-        drop(agent);
-
-        deliver_steps(&self.state.channels.input_tx, steps)
+        match handle_respond(&self.state, req.accept, req.option, req.text.as_deref(), &answers)
             .await
-            .map_err(|code| code.to_grpc_status("input channel closed"))?;
-
-        if answers_delivered > 0 {
-            update_question_current(&self.state, answers_delivered).await;
+        {
+            Ok(outcome) => Ok(Response::new(proto::RespondResponse {
+                delivered: outcome.delivered,
+                prompt_type: outcome.prompt_type,
+                reason: outcome.reason,
+            })),
+            Err(code) => Err(code.to_grpc_status(grpc_error_message(code))),
         }
-
-        Ok(Response::new(proto::RespondResponse { delivered: true, prompt_type, reason: None }))
     }
 
     type StreamOutputStream = GrpcStream<proto::OutputChunk>;
@@ -569,6 +464,15 @@ impl proto::coop_server::Coop for CoopGrpc {
         });
 
         Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
+    }
+}
+
+/// Map an error code to a human-readable message for gRPC error responses.
+fn grpc_error_message(code: ErrorCode) -> &'static str {
+    match code {
+        ErrorCode::NotReady => "agent is still starting",
+        ErrorCode::NoDriver => "no agent driver configured",
+        _ => "request failed",
     }
 }
 

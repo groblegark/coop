@@ -94,6 +94,38 @@ async fn input_sends_event() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn input_raw_sends_event() -> anyhow::Result<()> {
+    let (state, mut rx) = test_state();
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    // "hello" base64-encoded
+    let resp =
+        server.post("/api/v1/input/raw").json(&serde_json::json!({"data": "aGVsbG8="})).await;
+    resp.assert_status(StatusCode::OK);
+    let body = resp.text();
+    assert!(body.contains("\"bytes_written\":5"), "body: {body}");
+
+    let event = rx.recv().await;
+    assert!(matches!(event, Some(InputEvent::Write(_))));
+    Ok(())
+}
+
+#[tokio::test]
+async fn input_raw_rejects_bad_base64() -> anyhow::Result<()> {
+    let (state, _rx) = test_state();
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    let resp = server
+        .post("/api/v1/input/raw")
+        .json(&serde_json::json!({"data": "not-valid-base64!!!"}))
+        .await;
+    resp.assert_status(StatusCode::BAD_REQUEST);
+    Ok(())
+}
+
+#[tokio::test]
 async fn keys_sends_event() -> anyhow::Result<()> {
     let (state, mut rx) = test_state();
     let app = build_router(state);
@@ -153,17 +185,20 @@ async fn status_running() -> anyhow::Result<()> {
     resp.assert_status(StatusCode::OK);
     let body = resp.text();
     assert!(body.contains("\"state\":\"running\""));
+    assert!(body.contains("\"uptime_secs\":"), "body: {body}");
     Ok(())
 }
 
 #[tokio::test]
-async fn agent_state_no_driver_404() -> anyhow::Result<()> {
+async fn agent_state_without_driver_returns_state() -> anyhow::Result<()> {
     let (state, _rx) = test_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
     let resp = server.get("/api/v1/agent/state").await;
-    resp.assert_status(StatusCode::NOT_FOUND);
+    resp.assert_status(StatusCode::OK);
+    let body = resp.text();
+    assert!(body.contains("\"state\":\"starting\""), "body: {body}");
     Ok(())
 }
 
@@ -239,7 +274,6 @@ async fn agent_state_includes_error_fields() -> anyhow::Result<()> {
     let (state, _rx) = AppStateBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Error { detail: "rate_limit_error".to_owned() })
-        .nudge_encoder(Arc::new(StubNudgeEncoder))
         .build();
     // Populate error fields as session loop would
     *state.driver.error_detail.write().await = Some("rate_limit_error".to_owned());
@@ -258,11 +292,8 @@ async fn agent_state_includes_error_fields() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn agent_state_omits_error_fields_when_not_error() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new()
-        .child_pid(1234)
-        .agent_state(AgentState::Working)
-        .nudge_encoder(Arc::new(StubNudgeEncoder))
-        .build();
+    let (state, _rx) =
+        AppStateBuilder::new().child_pid(1234).agent_state(AgentState::Working).build();
 
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
@@ -291,7 +322,7 @@ async fn agent_nudge_rejected_when_working() -> anyhow::Result<()> {
     resp.assert_status(StatusCode::OK);
     let body = resp.text();
     assert!(body.contains("\"delivered\":false"));
-    assert!(body.contains("agent_busy"));
+    assert!(body.contains("agent is working"), "body: {body}");
     Ok(())
 }
 

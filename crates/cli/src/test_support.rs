@@ -244,6 +244,24 @@ impl NudgeEncoder for StubNudgeEncoder {
     }
 }
 
+/// Stub respond encoder that returns fixed byte sequences.
+pub struct StubRespondEncoder;
+impl RespondEncoder for StubRespondEncoder {
+    fn encode_permission(&self, option: u32) -> Vec<NudgeStep> {
+        vec![NudgeStep { bytes: format!("{option}\r").into_bytes(), delay_after: None }]
+    }
+    fn encode_plan(&self, option: u32, _feedback: Option<&str>) -> Vec<NudgeStep> {
+        vec![NudgeStep { bytes: format!("{option}\r").into_bytes(), delay_after: None }]
+    }
+    fn encode_question(
+        &self,
+        _answers: &[crate::driver::QuestionAnswer],
+        _total_questions: usize,
+    ) -> Vec<NudgeStep> {
+        vec![NudgeStep { bytes: b"q\r".to_vec(), delay_after: None }]
+    }
+}
+
 /// Assert that an expression evaluates to `Err` whose Display output
 /// contains the given substring.
 #[macro_export]

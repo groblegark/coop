@@ -10,19 +10,18 @@ use axum::extract::{Query, State};
 use axum::response::IntoResponse;
 use axum::Json;
 use base64::Engine;
-use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
-use crate::driver::{AgentState, ErrorCategory, PromptContext, QuestionAnswer};
+use crate::driver::{ErrorCategory, PromptContext};
 use crate::error::ErrorCode;
-use crate::event::InputEvent;
-use crate::event::PtySignal;
 use crate::screen::CursorPosition;
 use crate::stop::{generate_block_reason, StopConfig, StopMode, StopType};
-use crate::transport::state::AppState;
-use crate::transport::{
-    deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_question_current,
+use crate::transport::handler::{
+    compute_health, compute_status, handle_input, handle_input_raw, handle_keys, handle_nudge,
+    handle_resize, handle_respond, handle_signal, TransportQuestionAnswer,
 };
+use crate::transport::read_ring_combined;
+use crate::transport::state::AppState;
 
 // ---------------------------------------------------------------------------
 // Request / Response types
@@ -90,6 +89,7 @@ pub struct OutputResponse {
 pub struct StatusResponse {
     pub state: String,
     pub pid: Option<i32>,
+    pub uptime_secs: i64,
     pub exit_code: Option<i32>,
     pub screen_seq: u64,
     pub bytes_read: u64,
@@ -102,6 +102,11 @@ pub struct InputRequest {
     pub text: String,
     #[serde(default)]
     pub enter: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InputRawRequest {
+    pub data: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,15 +172,8 @@ pub struct RespondRequest {
     pub accept: Option<bool>,
     pub text: Option<String>,
     #[serde(default)]
-    pub answers: Vec<HttpQuestionAnswer>,
+    pub answers: Vec<TransportQuestionAnswer>,
     pub option: Option<i32>,
-}
-
-/// HTTP JSON representation of a question answer.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HttpQuestionAnswer {
-    pub option: Option<i32>,
-    pub text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,19 +189,15 @@ pub struct RespondResponse {
 
 /// `GET /api/v1/health`
 pub async fn health(State(s): State<Arc<AppState>>) -> impl IntoResponse {
-    let snap = s.terminal.screen.read().await.snapshot();
-    let pid = s.terminal.child_pid.load(Ordering::Relaxed);
-    let uptime = s.config.started_at.elapsed().as_secs() as i64;
-    let ready = s.ready.load(Ordering::Acquire);
-
+    let h = compute_health(&s).await;
     Json(HealthResponse {
-        status: "running".to_owned(),
-        pid: if pid == 0 { None } else { Some(pid as i32) },
-        uptime_secs: uptime,
-        agent: s.config.agent.to_string(),
-        terminal: TerminalSize { cols: snap.cols, rows: snap.rows },
-        ws_clients: s.lifecycle.ws_client_count.load(Ordering::Relaxed),
-        ready,
+        status: h.status.to_owned(),
+        pid: h.pid,
+        uptime_secs: h.uptime_secs,
+        agent: h.agent,
+        terminal: TerminalSize { cols: h.terminal_cols, rows: h.terminal_rows },
+        ws_clients: h.ws_clients,
+        ready: h.ready,
     })
 }
 
@@ -275,32 +269,16 @@ pub async fn output(
 
 /// `GET /api/v1/status`
 pub async fn status(State(s): State<Arc<AppState>>) -> impl IntoResponse {
-    let agent = s.driver.agent_state.read().await;
-    let ring = s.terminal.ring.read().await;
-    let screen = s.terminal.screen.read().await;
-    let pid = s.terminal.child_pid.load(Ordering::Relaxed);
-    let exit = s.terminal.exit_status.read().await;
-    let bw = s.lifecycle.bytes_written.load(Ordering::Relaxed);
-
-    let state_str = match &*agent {
-        AgentState::Exited { .. } => "exited",
-        _ => {
-            if pid == 0 {
-                "starting"
-            } else {
-                "running"
-            }
-        }
-    };
-
+    let st = compute_status(&s).await;
     Json(StatusResponse {
-        state: state_str.to_owned(),
-        pid: if pid == 0 { None } else { Some(pid as i32) },
-        exit_code: exit.as_ref().and_then(|e| e.code),
-        screen_seq: screen.seq(),
-        bytes_read: ring.total_written(),
-        bytes_written: bw,
-        ws_clients: s.lifecycle.ws_client_count.load(Ordering::Relaxed),
+        state: st.state.to_owned(),
+        pid: st.pid,
+        uptime_secs: st.uptime_secs,
+        exit_code: st.exit_code,
+        screen_seq: st.screen_seq,
+        bytes_read: st.bytes_read,
+        bytes_written: st.bytes_written,
+        ws_clients: st.ws_clients,
     })
 }
 
@@ -309,13 +287,22 @@ pub async fn input(
     State(s): State<Arc<AppState>>,
     Json(req): Json<InputRequest>,
 ) -> impl IntoResponse {
-    let mut data = req.text.into_bytes();
-    if req.enter {
-        data.push(b'\r');
-    }
-    let len = data.len() as i32;
-    let _ = s.channels.input_tx.send(InputEvent::Write(Bytes::from(data))).await;
+    let len = handle_input(&s, req.text, req.enter).await;
+    Json(InputResponse { bytes_written: len }).into_response()
+}
 
+/// `POST /api/v1/input/raw`
+pub async fn input_raw(
+    State(s): State<Arc<AppState>>,
+    Json(req): Json<InputRawRequest>,
+) -> impl IntoResponse {
+    let decoded = match base64::engine::general_purpose::STANDARD.decode(&req.data) {
+        Ok(d) => d,
+        Err(_) => {
+            return ErrorCode::BadRequest.to_http_response("invalid base64 data").into_response()
+        }
+    };
+    let len = handle_input_raw(&s, decoded).await;
     Json(InputResponse { bytes_written: len }).into_response()
 }
 
@@ -324,18 +311,12 @@ pub async fn input_keys(
     State(s): State<Arc<AppState>>,
     Json(req): Json<KeysRequest>,
 ) -> impl IntoResponse {
-    let data = match keys_to_bytes(&req.keys) {
-        Ok(d) => d,
-        Err(bad_key) => {
-            return ErrorCode::BadRequest
-                .to_http_response(format!("unknown key: {bad_key}"))
-                .into_response()
-        }
-    };
-    let len = data.len() as i32;
-    let _ = s.channels.input_tx.send(InputEvent::Write(Bytes::from(data))).await;
-
-    Json(InputResponse { bytes_written: len }).into_response()
+    match handle_keys(&s, &req.keys).await {
+        Ok(len) => Json(InputResponse { bytes_written: len }).into_response(),
+        Err(bad_key) => ErrorCode::BadRequest
+            .to_http_response(format!("unknown key: {bad_key}"))
+            .into_response(),
+    }
 }
 
 /// `POST /api/v1/resize`
@@ -343,15 +324,12 @@ pub async fn resize(
     State(s): State<Arc<AppState>>,
     Json(req): Json<ResizeRequest>,
 ) -> impl IntoResponse {
-    if req.cols == 0 || req.rows == 0 {
-        return ErrorCode::BadRequest
-            .to_http_response("cols and rows must be positive")
-            .into_response();
+    match handle_resize(&s, req.cols, req.rows).await {
+        Ok(()) => Json(ResizeResponse { cols: req.cols, rows: req.rows }).into_response(),
+        Err(_) => {
+            ErrorCode::BadRequest.to_http_response("cols and rows must be positive").into_response()
+        }
     }
-
-    let _ = s.channels.input_tx.send(InputEvent::Resize { cols: req.cols, rows: req.rows }).await;
-
-    Json(ResizeResponse { cols: req.cols, rows: req.rows }).into_response()
 }
 
 /// `POST /api/v1/signal`
@@ -359,25 +337,16 @@ pub async fn signal(
     State(s): State<Arc<AppState>>,
     Json(req): Json<SignalRequest>,
 ) -> impl IntoResponse {
-    let sig = match PtySignal::from_name(&req.signal) {
-        Some(s) => s,
-        None => {
-            return ErrorCode::BadRequest
-                .to_http_response(format!("unknown signal: {}", req.signal))
-                .into_response()
-        }
-    };
-
-    let _ = s.channels.input_tx.send(InputEvent::Signal(sig)).await;
-    Json(SignalResponse { delivered: true }).into_response()
+    match handle_signal(&s, &req.signal).await {
+        Ok(()) => Json(SignalResponse { delivered: true }).into_response(),
+        Err(bad_signal) => ErrorCode::BadRequest
+            .to_http_response(format!("unknown signal: {bad_signal}"))
+            .into_response(),
+    }
 }
 
 /// `GET /api/v1/agent/state`
 pub async fn agent_state(State(s): State<Arc<AppState>>) -> impl IntoResponse {
-    if s.config.nudge_encoder.is_none() && s.config.respond_encoder.is_none() {
-        return ErrorCode::NoDriver.to_http_response("no agent driver configured").into_response();
-    }
-
     let state = s.driver.agent_state.read().await;
     let screen = s.terminal.screen.read().await;
 
@@ -399,42 +368,15 @@ pub async fn agent_nudge(
     State(s): State<Arc<AppState>>,
     Json(req): Json<NudgeRequest>,
 ) -> impl IntoResponse {
-    if !s.ready.load(Ordering::Acquire) {
-        return ErrorCode::NotReady.to_http_response("agent is still starting").into_response();
+    match handle_nudge(&s, &req.message).await {
+        Ok(outcome) => Json(NudgeResponse {
+            delivered: outcome.delivered,
+            state_before: outcome.state_before,
+            reason: outcome.reason,
+        })
+        .into_response(),
+        Err(code) => code.to_http_response(error_message(code)).into_response(),
     }
-
-    let encoder = match &s.config.nudge_encoder {
-        Some(enc) => Arc::clone(enc),
-        None => {
-            return ErrorCode::NoDriver
-                .to_http_response("no agent driver configured")
-                .into_response()
-        }
-    };
-
-    let _delivery = s.nudge_mutex.lock().await;
-
-    let agent = s.driver.agent_state.read().await;
-    let state_before = agent.as_str().to_owned();
-
-    match &*agent {
-        AgentState::WaitingForInput => {}
-        _ => {
-            return Json(NudgeResponse {
-                delivered: false,
-                state_before: Some(state_before),
-                reason: Some("agent_busy".to_owned()),
-            })
-            .into_response();
-        }
-    }
-    drop(agent);
-
-    let steps = encoder.encode(&req.message);
-    let _ = deliver_steps(&s.channels.input_tx, steps).await;
-
-    Json(NudgeResponse { delivered: true, state_before: Some(state_before), reason: None })
-        .into_response()
 }
 
 /// `POST /api/v1/agent/respond`
@@ -442,54 +384,24 @@ pub async fn agent_respond(
     State(s): State<Arc<AppState>>,
     Json(req): Json<RespondRequest>,
 ) -> impl IntoResponse {
-    if !s.ready.load(Ordering::Acquire) {
-        return ErrorCode::NotReady.to_http_response("agent is still starting").into_response();
+    match handle_respond(&s, req.accept, req.option, req.text.as_deref(), &req.answers).await {
+        Ok(outcome) => Json(RespondResponse {
+            delivered: outcome.delivered,
+            prompt_type: outcome.prompt_type,
+            reason: outcome.reason,
+        })
+        .into_response(),
+        Err(code) => code.to_http_response(error_message(code)).into_response(),
     }
+}
 
-    let encoder = match &s.config.respond_encoder {
-        Some(enc) => Arc::clone(enc),
-        None => {
-            return ErrorCode::NoDriver
-                .to_http_response("no agent driver configured")
-                .into_response()
-        }
-    };
-
-    let answers: Vec<QuestionAnswer> = req
-        .answers
-        .iter()
-        .map(|a| QuestionAnswer { option: a.option.map(|o| o as u32), text: a.text.clone() })
-        .collect();
-
-    let _delivery = s.nudge_mutex.lock().await;
-
-    let agent = s.driver.agent_state.read().await;
-    let prompt_type = agent.prompt().map(|p| p.kind.as_str().to_owned());
-
-    let option = req.option.map(|o| o as u32);
-    let (steps, answers_delivered) = match encode_response(
-        &agent,
-        encoder.as_ref(),
-        req.accept,
-        option,
-        req.text.as_deref(),
-        &answers,
-    ) {
-        Ok(r) => r,
-        Err(code) => {
-            return code.to_http_response("no prompt active").into_response();
-        }
-    };
-
-    drop(agent);
-    let _ = deliver_steps(&s.channels.input_tx, steps).await;
-
-    // Update question_current tracking for multi-question dialogs.
-    if answers_delivered > 0 {
-        update_question_current(&s, answers_delivered).await;
+/// Map an error code to a human-readable message for HTTP error responses.
+fn error_message(code: ErrorCode) -> &'static str {
+    match code {
+        ErrorCode::NotReady => "agent is still starting",
+        ErrorCode::NoDriver => "no agent driver configured",
+        _ => "request failed",
     }
-
-    Json(RespondResponse { delivered: true, prompt_type, reason: None }).into_response()
 }
 
 // ---------------------------------------------------------------------------

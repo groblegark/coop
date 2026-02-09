@@ -5,6 +5,7 @@
 
 pub mod auth;
 pub mod grpc;
+pub mod handler;
 pub mod http;
 pub mod state;
 pub mod ws;
@@ -269,6 +270,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/output", get(http::output))
         .route("/api/v1/status", get(http::status))
         .route("/api/v1/input", post(http::input))
+        .route("/api/v1/input/raw", post(http::input_raw))
         .route("/api/v1/input/keys", post(http::input_keys))
         .route("/api/v1/resize", post(http::resize))
         .route("/api/v1/signal", post(http::signal))
