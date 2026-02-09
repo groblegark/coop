@@ -389,11 +389,18 @@ impl proto::coop_server::Coop for CoopGrpc {
 
         let agent = self.state.driver.agent_state.read().await;
 
-        let (steps, answers_delivered) =
-            encode_response(&agent, encoder.as_ref(), req.accept, req.text.as_deref(), &answers)
-                .map_err(|code| {
-                    code.to_grpc_status(format!("agent is {} (no active prompt)", agent.as_str()))
-                })?;
+        let option = req.option.map(|o| o as u32);
+        let (steps, answers_delivered) = encode_response(
+            &agent,
+            encoder.as_ref(),
+            req.accept,
+            option,
+            req.text.as_deref(),
+            &answers,
+        )
+        .map_err(|code| {
+            code.to_grpc_status(format!("agent is {} (no active prompt)", agent.as_str()))
+        })?;
 
         let prompt_type = agent.prompt().map(|p| p.kind.as_str().to_owned()).unwrap_or_default();
         drop(agent);

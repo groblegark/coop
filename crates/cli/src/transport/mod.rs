@@ -91,6 +91,36 @@ pub async fn deliver_steps(
     Ok(())
 }
 
+/// Resolve the option number for a permission prompt from `accept` and `option`.
+///
+/// If `option` is provided, it takes precedence. Otherwise, `accept` is mapped:
+/// `true` → 1 (Yes), `false` → 3 (No).
+pub fn resolve_permission_option(accept: Option<bool>, option: Option<u32>) -> u32 {
+    if let Some(n) = option {
+        return n;
+    }
+    if accept.unwrap_or(false) {
+        1
+    } else {
+        3
+    }
+}
+
+/// Resolve the option number for a plan prompt from `accept` and `option`.
+///
+/// If `option` is provided, it takes precedence. Otherwise, `accept` is mapped:
+/// `true` → 2 (Yes, auto-accept edits), `false` → 4 (freeform feedback).
+pub fn resolve_plan_option(accept: Option<bool>, option: Option<u32>) -> u32 {
+    if let Some(n) = option {
+        return n;
+    }
+    if accept.unwrap_or(false) {
+        2
+    } else {
+        4
+    }
+}
+
 /// Match the current agent state to the appropriate encoder call.
 ///
 /// Returns `(steps, answers_delivered)` where `answers_delivered` is the
@@ -99,13 +129,20 @@ pub fn encode_response(
     agent: &AgentState,
     encoder: &dyn RespondEncoder,
     accept: Option<bool>,
+    option: Option<u32>,
     text: Option<&str>,
     answers: &[QuestionAnswer],
 ) -> Result<(Vec<NudgeStep>, usize), ErrorCode> {
     match agent {
         AgentState::Prompt { prompt } => match prompt.kind {
-            PromptKind::Permission => Ok((encoder.encode_permission(accept.unwrap_or(false)), 0)),
-            PromptKind::Plan => Ok((encoder.encode_plan(accept.unwrap_or(false), text), 0)),
+            PromptKind::Permission => {
+                let opt = resolve_permission_option(accept, option);
+                Ok((encoder.encode_permission(opt), 0))
+            }
+            PromptKind::Plan => {
+                let opt = resolve_plan_option(accept, option);
+                Ok((encoder.encode_plan(opt, text), 0))
+            }
             PromptKind::Question => {
                 if answers.is_empty() {
                     return Ok((vec![], 0));
@@ -243,3 +280,7 @@ pub fn build_health_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/agent/state", get(http::agent_state))
         .with_state(state)
 }
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod tests;

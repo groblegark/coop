@@ -138,8 +138,8 @@ pub trait NudgeEncoder: Send + Sync {
 
 /// Encodes structured prompt responses into PTY byte sequences.
 pub trait RespondEncoder: Send + Sync {
-    fn encode_permission(&self, accept: bool) -> Vec<NudgeStep>;
-    fn encode_plan(&self, accept: bool, feedback: Option<&str>) -> Vec<NudgeStep>;
+    fn encode_permission(&self, option: u32) -> Vec<NudgeStep>;
+    fn encode_plan(&self, option: u32, feedback: Option<&str>) -> Vec<NudgeStep>;
     fn encode_question(&self, answers: &[QuestionAnswer], total_questions: usize)
         -> Vec<NudgeStep>;
 }

@@ -168,6 +168,7 @@ pub struct RespondRequest {
     pub text: Option<String>,
     #[serde(default)]
     pub answers: Vec<HttpQuestionAnswer>,
+    pub option: Option<i32>,
 }
 
 /// HTTP JSON representation of a question answer.
@@ -465,10 +466,12 @@ pub async fn agent_respond(
     let agent = s.driver.agent_state.read().await;
     let prompt_type = agent.prompt().map(|p| p.kind.as_str().to_owned());
 
+    let option = req.option.map(|o| o as u32);
     let (steps, answers_delivered) = match encode_response(
         &agent,
         encoder.as_ref(),
         req.accept,
+        option,
         req.text.as_deref(),
         &answers,
     ) {

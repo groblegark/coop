@@ -245,15 +245,42 @@
 
         <!-- Respond -->
         <div class="action-section">
-          <div class="action-label">Respond to Prompt</div>
-          <div class="action-row">
-            <button class="action-btn btn-success" id="act-respond-accept">Accept</button>
-            <button class="action-btn btn-danger" id="act-respond-reject">Reject</button>
+          <div class="action-label">Respond to Prompt <span id="act-respond-kind" style="color:#7cb7ff;"></span></div>
+          <div id="act-respond-none" style="font-size:10px;color:#555;">No active prompt</div>
+
+          <!-- Permission prompt: numbered options -->
+          <div id="act-respond-permission" style="display:none;">
+            <div id="act-respond-perm-info" style="font-size:10px;color:#888;margin-bottom:4px;"></div>
+            <div class="action-row">
+              <button class="action-btn btn-success" data-perm-option="1">1. Yes</button>
+              <button class="action-btn btn-warn" data-perm-option="2">2. Don't ask again</button>
+              <button class="action-btn btn-danger" data-perm-option="3">3. No</button>
+            </div>
           </div>
-          <div class="action-row">
-            <input type="text" id="act-respond-text" placeholder="Text response..." />
-            <button class="action-btn" id="act-respond-text-send">Send</button>
+
+          <!-- Plan prompt: numbered options with feedback -->
+          <div id="act-respond-plan" style="display:none;">
+            <div class="action-row">
+              <button class="action-btn btn-success" data-plan-option="1">1. Clear ctx</button>
+              <button class="action-btn btn-success" data-plan-option="2">2. Auto-accept</button>
+              <button class="action-btn" data-plan-option="3">3. Manual</button>
+            </div>
+            <div class="action-row">
+              <input type="text" id="act-plan-feedback" placeholder="Feedback for option 4..." />
+              <button class="action-btn btn-warn" id="act-plan-feedback-send">4. Feedback</button>
+            </div>
           </div>
+
+          <!-- Question prompt: show question + options -->
+          <div id="act-respond-question" style="display:none;">
+            <div id="act-question-text" style="font-size:10px;color:#aaa;margin-bottom:4px;"></div>
+            <div id="act-question-options" class="key-grid"></div>
+            <div class="action-row" style="margin-top:4px;">
+              <input type="text" id="act-question-freeform" placeholder="Other (freeform text)..." />
+              <button class="action-btn" id="act-question-freeform-send">Send</button>
+            </div>
+          </div>
+
           <div id="act-respond-result" class="action-result"></div>
         </div>
 
@@ -420,7 +447,10 @@ function esc(v) {
 async function pollAgentState() {
   try {
     const agent = await fetch(`${BASE}/api/v1/agent/state`).then(r => r.ok ? r.json() : null);
-    if (agent?.state) setAgentState(agent.state);
+    if (agent?.state) {
+      setAgentState(agent.state);
+      updateRespondUI(agent.prompt ?? null);
+    }
   } catch (_) { /* ignore */ }
 }
 
@@ -711,28 +741,107 @@ document.getElementById('act-nudge').addEventListener('keydown', (e) => {
   }
 });
 
-// --- Actions: Respond ---
-document.getElementById('act-respond-accept').addEventListener('click', async () => {
-  const res = await apiPost('/api/v1/agent/respond', { accept: true });
-  showResult('act-respond-result', res);
+// --- Actions: Respond (prompt-aware) ---
+let currentPrompt = null;  // PromptContext from last state_change
+
+const respondPanels = {
+  none: document.getElementById('act-respond-none'),
+  permission: document.getElementById('act-respond-permission'),
+  plan: document.getElementById('act-respond-plan'),
+  question: document.getElementById('act-respond-question'),
+};
+
+function updateRespondUI(prompt) {
+  currentPrompt = prompt;
+  const kindEl = document.getElementById('act-respond-kind');
+
+  // Hide all panels
+  for (const p of Object.values(respondPanels)) p.style.display = 'none';
+
+  if (!prompt) {
+    respondPanels.none.style.display = '';
+    kindEl.textContent = '';
+    return;
+  }
+
+  kindEl.textContent = `(${prompt.kind})`;
+
+  if (prompt.kind === 'permission') {
+    respondPanels.permission.style.display = '';
+    const info = document.getElementById('act-respond-perm-info');
+    const parts = [];
+    if (prompt.tool) parts.push(`Tool: ${prompt.tool}`);
+    if (prompt.input_preview) parts.push(prompt.input_preview);
+    info.textContent = parts.join(' — ') || '';
+  } else if (prompt.kind === 'plan') {
+    respondPanels.plan.style.display = '';
+    document.getElementById('act-plan-feedback').value = '';
+  } else if (prompt.kind === 'question') {
+    respondPanels.question.style.display = '';
+    const q = prompt.questions?.[prompt.question_current ?? 0];
+    const textEl = document.getElementById('act-question-text');
+    const optsEl = document.getElementById('act-question-options');
+    optsEl.innerHTML = '';
+    if (q) {
+      textEl.textContent = q.question;
+      q.options.forEach((opt, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'key-btn';
+        btn.textContent = `${i + 1}. ${opt}`;
+        btn.addEventListener('click', async () => {
+          const res = await apiPost('/api/v1/agent/respond', { answers: [{ option: i + 1 }] });
+          showResult('act-respond-result', res);
+        });
+        optsEl.appendChild(btn);
+      });
+    } else {
+      textEl.textContent = prompt.question_current >= (prompt.questions?.length ?? 0)
+        ? '(confirm phase)' : '(no question data)';
+    }
+    document.getElementById('act-question-freeform').value = '';
+  }
+}
+
+// Permission handlers (numbered options)
+document.querySelectorAll('[data-perm-option]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const option = parseInt(btn.dataset.permOption, 10);
+    const res = await apiPost('/api/v1/agent/respond', { option });
+    showResult('act-respond-result', res);
+  });
 });
 
-document.getElementById('act-respond-reject').addEventListener('click', async () => {
-  const res = await apiPost('/api/v1/agent/respond', { accept: false });
+// Plan handlers (numbered options)
+document.querySelectorAll('[data-plan-option]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const option = parseInt(btn.dataset.planOption, 10);
+    const res = await apiPost('/api/v1/agent/respond', { option });
+    showResult('act-respond-result', res);
+  });
+});
+document.getElementById('act-plan-feedback-send').addEventListener('click', async () => {
+  const feedback = document.getElementById('act-plan-feedback').value || undefined;
+  const res = await apiPost('/api/v1/agent/respond', { option: 4, text: feedback });
   showResult('act-respond-result', res);
 });
-
-document.getElementById('act-respond-text-send').addEventListener('click', async () => {
-  const text = document.getElementById('act-respond-text').value;
-  const res = await apiPost('/api/v1/agent/respond', { text });
-  showResult('act-respond-result', res);
-  if (res.ok) document.getElementById('act-respond-text').value = '';
-});
-
-document.getElementById('act-respond-text').addEventListener('keydown', (e) => {
+document.getElementById('act-plan-feedback').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
-    document.getElementById('act-respond-text-send').click();
+    document.getElementById('act-plan-feedback-send').click();
+  }
+});
+
+// Question freeform handler
+document.getElementById('act-question-freeform-send').addEventListener('click', async () => {
+  const text = document.getElementById('act-question-freeform').value;
+  const res = await apiPost('/api/v1/agent/respond', { answers: [{ text }] });
+  showResult('act-respond-result', res);
+  if (res.ok) document.getElementById('act-question-freeform').value = '';
+});
+document.getElementById('act-question-freeform').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    document.getElementById('act-question-freeform-send').click();
   }
 });
 
@@ -805,6 +914,7 @@ function connect() {
       info.textContent = `offset: ${msg.offset + bytes.length}`;
     } else if (msg.type === 'state_change') {
       setAgentState(msg.next);
+      updateRespondUI(msg.prompt ?? null);
     } else if (msg.type === 'exit') {
       const desc = msg.signal != null ? `signal ${msg.signal}` : `code ${msg.code ?? '?'}`;
       setStatus('disconnected', `Exited (${desc})`);

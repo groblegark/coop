@@ -252,16 +252,18 @@ message NudgeResponse {
 }
 
 // Respond to an active prompt. Fields used depend on the current agent state:
-//   permission_prompt: accept
-//   plan_prompt: accept, text (feedback on reject)
+//   permission_prompt: accept or option
+//   plan_prompt: accept or option, text (feedback)
 //   question: answers
 message RespondRequest {
-  // Accept/deny (permission and plan prompts).
+  // Accept/deny (permission and plan prompts). Deprecated: use option instead.
   optional bool accept = 1;
-  // Freeform text (plan rejection feedback).
+  // Freeform text (plan feedback).
   optional string text = 3;
   // Structured answers for multi-question dialogs.
   repeated QuestionAnswer answers = 4;
+  // 1-indexed option number for permission/plan prompts.
+  optional int32 option = 5;
 }
 message RespondResponse {
   // Whether the response was written to the PTY.

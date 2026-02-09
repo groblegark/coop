@@ -113,6 +113,7 @@ pub enum ClientMessage {
         text: Option<String>,
         #[serde(default)]
         answers: Vec<WsQuestionAnswer>,
+        option: Option<i32>,
     },
     Replay {
         offset: u64,
@@ -431,7 +432,7 @@ async fn handle_client_message(
             None
         }
 
-        ClientMessage::Respond { accept, text, answers } => {
+        ClientMessage::Respond { accept, text, answers, option } => {
             if !*authed {
                 return Some(ws_error(ErrorCode::Unauthorized, "not authenticated"));
             }
@@ -449,12 +450,14 @@ async fn handle_client_message(
                     text: a.text.clone(),
                 })
                 .collect();
+            let resolved_option = option.map(|o| o as u32);
             let _delivery = state.nudge_mutex.lock().await;
             let agent = state.driver.agent_state.read().await;
             let (steps, answers_delivered) = match encode_response(
                 &agent,
                 encoder.as_ref(),
                 accept,
+                resolved_option,
                 text.as_deref(),
                 &domain_answers,
             ) {

@@ -28,42 +28,47 @@ fn nudge_with_multiline_message() {
 }
 
 #[yare::parameterized(
-    accept = { true, b"y\r" as &[u8] },
-    deny   = { false, b"n\r" },
+    option_1_yes            = { 1, b"1\r" as &[u8] },
+    option_2_dont_ask_again = { 2, b"2\r" },
+    option_3_no             = { 3, b"3\r" },
 )]
-fn permission_encoding(accept: bool, expected: &[u8]) {
+fn permission_encoding(option: u32, expected: &[u8]) {
     let encoder = ClaudeRespondEncoder::default();
-    let steps = encoder.encode_permission(accept);
+    let steps = encoder.encode_permission(option);
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].bytes, expected);
 }
 
-#[test]
-fn plan_accept() {
+#[yare::parameterized(
+    option_1_clear_context = { 1, b"1\r" as &[u8] },
+    option_2_auto_accept   = { 2, b"2\r" },
+    option_3_manual        = { 3, b"3\r" },
+)]
+fn plan_accept_options(option: u32, expected: &[u8]) {
     let encoder = ClaudeRespondEncoder::default();
-    let steps = encoder.encode_plan(true, None);
+    let steps = encoder.encode_plan(option, None);
     assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"y\r");
+    assert_eq!(steps[0].bytes, expected);
     assert!(steps[0].delay_after.is_none());
 }
 
 #[test]
-fn plan_reject_with_feedback() {
+fn plan_option_4_with_feedback() {
     let encoder = ClaudeRespondEncoder::default();
-    let steps = encoder.encode_plan(false, Some("Don't modify the schema"));
+    let steps = encoder.encode_plan(4, Some("Don't modify the schema"));
     assert_eq!(steps.len(), 2);
-    assert_eq!(steps[0].bytes, b"n\r");
+    assert_eq!(steps[0].bytes, b"4\r");
     assert_eq!(steps[0].delay_after, Some(Duration::from_millis(100)));
     assert_eq!(steps[1].bytes, b"Don't modify the schema\r");
     assert!(steps[1].delay_after.is_none());
 }
 
 #[test]
-fn plan_reject_without_feedback() {
+fn plan_option_4_without_feedback() {
     let encoder = ClaudeRespondEncoder::default();
-    let steps = encoder.encode_plan(false, None);
+    let steps = encoder.encode_plan(4, None);
     assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"n\r");
+    assert_eq!(steps[0].bytes, b"4\r");
     assert!(steps[0].delay_after.is_none());
 }
 
