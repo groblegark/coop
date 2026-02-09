@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Alfred Jean LLC
 
 FROM rust:1.92-bookworm AS builder
-ARG TARGETARCH=amd64
+ARG TARGETARCH
 RUN apt-get update && apt-get install -y protobuf-compiler musl-tools \
     && rustup target add x86_64-unknown-linux-musl \
     && rustup target add aarch64-unknown-linux-musl
@@ -25,8 +25,8 @@ ENTRYPOINT ["/coop"]
 # Test stage: debian + claudeless + coop binary + scenario fixtures
 # ---------------------------------------------------------------------------
 FROM debian:bookworm-slim AS test
-ARG TARGETARCH=amd64
-ARG CLAUDELESS_VERSION=0.2.5
+ARG TARGETARCH
+ARG CLAUDELESS_VERSION=0.3.0
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN case "$TARGETARCH" in \

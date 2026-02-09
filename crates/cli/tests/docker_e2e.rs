@@ -32,10 +32,21 @@ macro_rules! skip_unless_docker {
 static BUILD_ONCE: Once = Once::new();
 
 /// Build the `coop:test` Docker image exactly once per test run.
+fn workspace_root() -> std::path::PathBuf {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir
+        .ancestors()
+        .find(|p| p.join("Dockerfile").exists())
+        .expect("could not find workspace root with Dockerfile")
+        .to_path_buf()
+}
+
 fn ensure_image_built() {
     BUILD_ONCE.call_once(|| {
+        let root = workspace_root();
         let status = Command::new("docker")
             .args(["build", "--target", "test", "-t", "coop:test", "."])
+            .current_dir(&root)
             .status()
             .expect("failed to run docker build");
         assert!(status.success(), "docker build failed");
