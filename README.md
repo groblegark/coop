@@ -32,7 +32,7 @@ coop --port 8080 -- /bin/bash
 coop --agent claude --attach tmux:my-session --port 8080
 
 # Enable gRPC alongside HTTP
-coop --agent claude --port 8080 --grpc-port 9090 -- claude
+coop --agent claude --port 8080 --port-grpc 9090 -- claude
 
 # Resume a previous Claude session
 coop --agent claude --port 8080 --resume <session-id> -- claude
@@ -79,7 +79,7 @@ websocat ws://localhost:8080/ws?mode=state
 | POST | `/api/v1/agent/respond` | Answer agent prompt |
 | GET | `/ws` | WebSocket (raw, screen, state, or all) |
 
-gRPC is also available when `--grpc-port` is set, mirroring the HTTP endpoints with streaming RPCs for output, screen, and state.
+gRPC is also available when `--port-grpc` is set, mirroring the HTTP endpoints with streaming RPCs for output, screen, and state.
 
 ## Agent Drivers
 
