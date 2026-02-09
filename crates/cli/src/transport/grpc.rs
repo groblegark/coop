@@ -18,6 +18,7 @@ use super::{
 use crate::driver::{classify_error_detail, AgentState, PromptContext, QuestionAnswer};
 use crate::error::ErrorCode;
 use crate::event::{InputEvent, OutputEvent, PtySignal, StateChangeEvent};
+use crate::stop::StopConfig;
 use crate::transport::state::AppState;
 
 /// Generated protobuf types for the `coop.v1` package.
@@ -554,6 +555,85 @@ impl proto::coop_server::Coop for CoopGrpc {
                 match state_rx.recv().await {
                     Ok(event) => {
                         let proto_event = state_change_to_proto(&event);
+                        if tx.send(Ok(proto_event)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+
+        Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
+    }
+
+    // -----------------------------------------------------------------------
+    // 14. AgentSignal
+    // -----------------------------------------------------------------------
+    async fn agent_signal(
+        &self,
+        request: Request<proto::AgentSignalRequest>,
+    ) -> Result<Response<proto::AgentSignalResponse>, Status> {
+        let req = request.into_inner();
+        let body: serde_json::Value = serde_json::from_str(&req.body_json)
+            .map_err(|e| Status::invalid_argument(format!("invalid JSON: {e}")))?;
+        let stop = &self.state.stop;
+        *stop.signal_body.write().await = Some(body);
+        stop.signaled
+            .store(true, std::sync::atomic::Ordering::Release);
+        Ok(Response::new(proto::AgentSignalResponse { accepted: true }))
+    }
+
+    // -----------------------------------------------------------------------
+    // 15. PutStop
+    // -----------------------------------------------------------------------
+    async fn put_stop(
+        &self,
+        request: Request<proto::PutStopRequest>,
+    ) -> Result<Response<proto::PutStopResponse>, Status> {
+        let req = request.into_inner();
+        let new_config: StopConfig = serde_json::from_str(&req.config_json)
+            .map_err(|e| Status::invalid_argument(format!("invalid config JSON: {e}")))?;
+        *self.state.stop.config.write().await = new_config;
+        Ok(Response::new(proto::PutStopResponse { updated: true }))
+    }
+
+    // -----------------------------------------------------------------------
+    // 16. GetStop
+    // -----------------------------------------------------------------------
+    async fn get_stop(
+        &self,
+        _request: Request<proto::GetStopRequest>,
+    ) -> Result<Response<proto::GetStopResponse>, Status> {
+        let config = self.state.stop.config.read().await;
+        let json = serde_json::to_string(&*config)
+            .map_err(|e| Status::internal(format!("serialize error: {e}")))?;
+        Ok(Response::new(proto::GetStopResponse { config_json: json }))
+    }
+
+    // -----------------------------------------------------------------------
+    // 17. StreamStopEvents
+    // -----------------------------------------------------------------------
+    type StreamStopEventsStream = GrpcStream<proto::StopEvent>;
+
+    async fn stream_stop_events(
+        &self,
+        _request: Request<proto::StreamStopEventsRequest>,
+    ) -> Result<Response<Self::StreamStopEventsStream>, Status> {
+        let (tx, rx) = mpsc::channel(16);
+        let mut stop_rx = self.state.stop.stop_tx.subscribe();
+
+        tokio::spawn(async move {
+            loop {
+                match stop_rx.recv().await {
+                    Ok(event) => {
+                        let proto_event = proto::StopEvent {
+                            stop_type: event.stop_type.as_str().to_owned(),
+                            signal_json: event.signal.map(|v| v.to_string()),
+                            error_detail: event.error_detail,
+                            seq: event.seq,
+                        };
                         if tx.send(Ok(proto_event)).await.is_err() {
                             break;
                         }

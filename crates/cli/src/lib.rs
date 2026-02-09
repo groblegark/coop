@@ -10,5 +10,6 @@ pub mod ring;
 pub mod run;
 pub mod screen;
 pub mod session;
+pub mod stop;
 pub mod test_support;
 pub mod transport;

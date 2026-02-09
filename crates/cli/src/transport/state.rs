@@ -16,6 +16,7 @@ use crate::driver::{
 use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
+use crate::stop::StopState;
 
 /// Shared application state passed to all handlers via axum `State` extractor.
 ///
@@ -37,6 +38,8 @@ pub struct AppState {
     /// Serializes multi-step nudge/respond delivery sequences.
     /// The mutex covers state check + delivery to prevent double-nudge races.
     pub nudge_mutex: Arc<tokio::sync::Mutex<()>>,
+    /// Stop hook gating state. Always present (defaults to mode=allow).
+    pub stop: Arc<StopState>,
 }
 
 /// Terminal I/O: screen, ring buffer, child process.

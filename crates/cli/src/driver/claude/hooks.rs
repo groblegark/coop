@@ -9,13 +9,26 @@ use serde_json::{json, Value};
 ///
 /// The hooks write JSON events to the named pipe at `$COOP_HOOK_PIPE`:
 /// - `PostToolUse`: fires after each tool call, writes tool name
-/// - `Stop`: fires when the agent stops
+/// - `Stop`: curls `$COOP_URL/api/v1/hooks/stop` for a gating verdict
 /// - `Notification`: fires on `idle_prompt` and `permission_prompt`
 /// - `PreToolUse`: fires before `AskUserQuestion`, `ExitPlanMode`, `EnterPlanMode`
 pub fn generate_hook_config(pipe_path: &Path) -> Value {
     // Use $COOP_HOOK_PIPE so the config is portable across processes.
     // The actual path is passed via environment variable.
     let _ = pipe_path; // validated by caller; config uses env var
+
+    // Stop hook uses curl to call coop's gating endpoint. If curl fails
+    // (coop not ready), the hook outputs nothing and exits 0 → agent proceeds.
+    // The -f flag makes curl return non-zero on HTTP errors.
+    let stop_command = concat!(
+        "input=$(cat); ",
+        "printf '{\"event\":\"stop\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\"; ",
+        "response=$(printf '%s' \"$input\" | curl -sf -X POST ",
+        "-H 'Content-Type: application/json' ",
+        "-d @- \"$COOP_URL/api/v1/hooks/stop\" 2>/dev/null); ",
+        "[ -n \"$response\" ] && printf '%s' \"$response\""
+    );
+
     json!({
         "hooks": {
             "PostToolUse": [{
@@ -29,7 +42,7 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
                 "matcher": "",
                 "hooks": [{
                     "type": "command",
-                    "command": "input=$(cat); printf '{\"event\":\"stop\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
+                    "command": stop_command
                 }]
             }],
             "Notification": [{
@@ -51,11 +64,14 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
 }
 
 /// Return environment variables to set on the Claude child process.
-pub fn hook_env_vars(pipe_path: &Path) -> Vec<(String, String)> {
-    vec![(
-        "COOP_HOOK_PIPE".to_string(),
-        pipe_path.display().to_string(),
-    )]
+pub fn hook_env_vars(pipe_path: &Path, coop_url: &str) -> Vec<(String, String)> {
+    vec![
+        (
+            "COOP_HOOK_PIPE".to_string(),
+            pipe_path.display().to_string(),
+        ),
+        ("COOP_URL".to_string(), coop_url.to_string()),
+    ]
 }
 
 /// Write the hook config to a file and return its path.

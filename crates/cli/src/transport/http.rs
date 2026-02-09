@@ -13,11 +13,12 @@ use base64::Engine;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
-use crate::driver::{AgentState, PromptContext, QuestionAnswer};
+use crate::driver::{AgentState, ErrorCategory, PromptContext, QuestionAnswer};
 use crate::error::ErrorCode;
 use crate::event::InputEvent;
 use crate::event::PtySignal;
 use crate::screen::CursorPosition;
+use crate::stop::{generate_block_reason, StopConfig, StopMode, StopType};
 use crate::transport::state::AppState;
 use crate::transport::{
     deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_question_current,
@@ -539,6 +540,143 @@ pub async fn agent_respond(
         reason: None,
     })
     .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Stop hook gating
+// ---------------------------------------------------------------------------
+
+/// Input from the Claude Code Stop hook (piped from stdin via curl).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StopHookInput {
+    /// When `true`, this is a safety-valve invocation that must be allowed.
+    #[serde(default)]
+    pub stop_hook_active: bool,
+}
+
+/// Verdict returned to the hook script.
+///
+/// Empty object `{}` means "allow" (no `decision` field).
+/// `{"decision":"block","reason":"..."}` means "block".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StopHookVerdict {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decision: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// `POST /api/v1/hooks/stop` — called by the hook script, returns verdict.
+pub async fn hooks_stop(
+    State(s): State<Arc<AppState>>,
+    Json(input): Json<StopHookInput>,
+) -> impl IntoResponse {
+    let stop = &s.stop;
+    let config = stop.config.read().await;
+
+    // 1. Mode = Allow → always allow.
+    if config.mode == StopMode::Allow {
+        drop(config);
+        stop.emit(StopType::Allowed, None, None);
+        return Json(StopHookVerdict {
+            decision: None,
+            reason: None,
+        })
+        .into_response();
+    }
+
+    // 2. Safety valve: stop_hook_active = true → must allow.
+    if input.stop_hook_active {
+        drop(config);
+        stop.emit(StopType::SafetyValve, None, None);
+        return Json(StopHookVerdict {
+            decision: None,
+            reason: None,
+        })
+        .into_response();
+    }
+
+    // 3. Unrecoverable error → allow.
+    {
+        let error_cat = s.driver.error_category.read().await;
+        if let Some(cat) = &*error_cat {
+            let is_unrecoverable = matches!(
+                cat,
+                ErrorCategory::Unauthorized | ErrorCategory::OutOfCredits
+            );
+            if is_unrecoverable {
+                let detail = s.driver.error_detail.read().await.clone();
+                drop(error_cat);
+                drop(config);
+                stop.emit(StopType::Error, None, detail);
+                return Json(StopHookVerdict {
+                    decision: None,
+                    reason: None,
+                })
+                .into_response();
+            }
+        }
+    }
+
+    // 4. Signal received → allow and reset.
+    if stop
+        .signaled
+        .swap(false, std::sync::atomic::Ordering::AcqRel)
+    {
+        let body = stop.signal_body.write().await.take();
+        drop(config);
+        stop.emit(StopType::Signaled, body, None);
+        return Json(StopHookVerdict {
+            decision: None,
+            reason: None,
+        })
+        .into_response();
+    }
+
+    // 5. Block: generate reason and return block verdict.
+    let reason = generate_block_reason(&config, &stop.signal_url);
+    drop(config);
+    stop.emit(StopType::Blocked, None, None);
+    Json(StopHookVerdict {
+        decision: Some("block".to_owned()),
+        reason: Some(reason),
+    })
+    .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Signal endpoint
+// ---------------------------------------------------------------------------
+
+/// `POST /api/v1/agent/signal` — store signal body, set flag.
+pub async fn agent_signal(
+    State(s): State<Arc<AppState>>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let stop = &s.stop;
+    *stop.signal_body.write().await = Some(body);
+    stop.signaled
+        .store(true, std::sync::atomic::Ordering::Release);
+    Json(serde_json::json!({ "accepted": true }))
+}
+
+// ---------------------------------------------------------------------------
+// Stop config endpoints
+// ---------------------------------------------------------------------------
+
+/// `GET /api/v1/stop` — read current stop config.
+pub async fn get_stop_config(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+    let config = s.stop.config.read().await;
+    Json(config.clone())
+}
+
+/// `PUT /api/v1/stop` — update stop config.
+pub async fn put_stop_config(
+    State(s): State<Arc<AppState>>,
+    Json(new_config): Json<StopConfig>,
+) -> impl IntoResponse {
+    *s.stop.config.write().await = new_config;
+    Json(serde_json::json!({ "updated": true }))
 }
 
 #[cfg(test)]

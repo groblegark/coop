@@ -14,7 +14,7 @@ use tracing::{error, info};
 
 use tracing_subscriber::EnvFilter;
 
-use crate::config::Config;
+use crate::config::{self, Config};
 use crate::driver::claude::resume;
 use crate::driver::claude::setup::{self as claude_setup, ClaudeSessionSetup};
 use crate::driver::claude::{ClaudeDriver, ClaudeDriverConfig};
@@ -26,6 +26,7 @@ use crate::pty::Backend;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::session::Session;
+use crate::stop::StopState;
 use crate::transport::grpc::CoopGrpc;
 use crate::transport::state::{
     DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels,
@@ -93,6 +94,16 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let shutdown = CancellationToken::new();
     let agent_enum = config.agent_enum()?;
 
+    // 0. Load agent config file if provided.
+    let agent_file_config = match config.agent_config {
+        Some(ref path) => Some(config::load_agent_config(path)?),
+        None => None,
+    };
+    let stop_config = agent_file_config
+        .as_ref()
+        .and_then(|c| c.stop.clone())
+        .unwrap_or_default();
+
     // 1. Handle --resume: discover session log and build resume state.
     let (resume_state, resume_log_path) = if let Some(ref resume_hint) = config.resume {
         let log_path = resume::discover_session_log(resume_hint)?
@@ -108,12 +119,16 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     //    computes extra args). Must happen BEFORE backend spawn so the child
     //    finds the FIFO and settings file on startup.
     let working_dir = std::env::current_dir()?;
+    // Compute coop_url early so it's available for Claude setup.
+    // Uses port 0 as placeholder if no HTTP port configured.
+    let coop_url_for_setup = format!("http://127.0.0.1:{}", config.port.unwrap_or(0));
+
     let claude_setup: Option<ClaudeSessionSetup> = if agent_enum == AgentType::Claude {
         let setup = if let (Some(ref state), Some(ref log_path)) = (&resume_state, &resume_log_path)
         {
-            claude_setup::prepare_claude_resume(state, log_path)?
+            claude_setup::prepare_claude_resume(state, log_path, &coop_url_for_setup)?
         } else {
-            claude_setup::prepare_claude_session(&working_dir)?
+            claude_setup::prepare_claude_session(&working_dir, &coop_url_for_setup)?
         };
         Some(setup)
     } else {
@@ -188,6 +203,9 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let (output_tx, _) = broadcast::channel(256);
     let (state_tx, _) = broadcast::channel(64);
 
+    let signal_url = format!("{coop_url_for_setup}/api/v1/agent/signal");
+    let stop_state = Arc::new(StopState::new(stop_config, signal_url));
+
     let app_state = Arc::new(AppState {
         terminal,
         driver: Arc::new(DriverState {
@@ -218,6 +236,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         },
         ready: Arc::new(AtomicBool::new(false)),
         nudge_mutex: Arc::new(tokio::sync::Mutex::new(())),
+        stop: stop_state,
     });
 
     // Spawn HTTP server

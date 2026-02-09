@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use clap::Parser;
+use serde::{Deserialize, Serialize};
 
 use crate::driver::AgentType;
+use crate::stop::StopConfig;
 
 /// Terminal session manager for AI coding agents.
 #[derive(Debug, Parser)]
@@ -217,6 +219,27 @@ impl Config {
             other => anyhow::bail!("invalid agent type: {other}"),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Agent config file
+// ---------------------------------------------------------------------------
+
+/// Contents of the `--agent-config` JSON file.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentFileConfig {
+    /// Stop hook configuration. `None` means default allow behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop: Option<StopConfig>,
+}
+
+/// Load and parse the agent config file at `path`.
+///
+/// Returns `AgentFileConfig` with any missing keys set to `None`.
+pub fn load_agent_config(path: &Path) -> anyhow::Result<AgentFileConfig> {
+    let contents = std::fs::read_to_string(path)?;
+    let config: AgentFileConfig = serde_json::from_str(&contents)?;
+    Ok(config)
 }
 
 fn env_duration_ms(var: &str, default: u64) -> Duration {

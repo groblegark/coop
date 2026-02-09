@@ -30,7 +30,10 @@ pub struct ClaudeSessionSetup {
 ///
 /// Generates a UUID for `--session-id`, computes the expected log path,
 /// writes a settings file with hook config, and creates the pipe path.
-pub fn prepare_claude_session(working_dir: &Path) -> anyhow::Result<ClaudeSessionSetup> {
+pub fn prepare_claude_session(
+    working_dir: &Path,
+    coop_url: &str,
+) -> anyhow::Result<ClaudeSessionSetup> {
     let session_id = uuid::Uuid::new_v4().to_string();
     let log_path = session_log_path(working_dir, &session_id);
 
@@ -38,7 +41,7 @@ pub fn prepare_claude_session(working_dir: &Path) -> anyhow::Result<ClaudeSessio
     let hook_pipe_path = session_dir.join("hook.pipe");
     let settings_path = write_settings_file(&session_dir, &hook_pipe_path)?;
 
-    let env_vars = super::hooks::hook_env_vars(&hook_pipe_path);
+    let env_vars = super::hooks::hook_env_vars(&hook_pipe_path, coop_url);
     let extra_args = vec![
         "--session-id".to_owned(),
         session_id,
@@ -62,13 +65,14 @@ pub fn prepare_claude_session(working_dir: &Path) -> anyhow::Result<ClaudeSessio
 pub fn prepare_claude_resume(
     resume_state: &ResumeState,
     existing_log_path: &Path,
+    coop_url: &str,
 ) -> anyhow::Result<ClaudeSessionSetup> {
     let resume_id = resume_state.conversation_id.as_deref().unwrap_or("unknown");
     let session_dir = coop_session_dir(resume_id)?;
     let hook_pipe_path = session_dir.join("hook.pipe");
     let settings_path = write_settings_file(&session_dir, &hook_pipe_path)?;
 
-    let env_vars = super::hooks::hook_env_vars(&hook_pipe_path);
+    let env_vars = super::hooks::hook_env_vars(&hook_pipe_path, coop_url);
 
     let mut extra_args = super::resume::resume_args(resume_state);
     extra_args.push("--settings".to_owned());

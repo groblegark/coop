@@ -22,6 +22,7 @@ use crate::driver::{classify_error_detail, AgentState, PromptContext, QuestionAn
 use crate::error::ErrorCode;
 use crate::event::{InputEvent, OutputEvent, PtySignal, StateChangeEvent};
 use crate::screen::CursorPosition;
+use crate::stop::StopEvent;
 use crate::transport::auth;
 use crate::transport::state::AppState;
 use crate::transport::{
@@ -68,6 +69,14 @@ pub enum ServerMessage {
     Resize {
         cols: u16,
         rows: u16,
+    },
+    Stop {
+        stop_type: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        signal: Option<serde_json::Value>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_detail: Option<String>,
+        seq: u64,
     },
     Pong {},
 }
@@ -192,10 +201,23 @@ async fn handle_connection(
     let (mut ws_tx, mut ws_rx) = socket.split();
     let mut output_rx = state.channels.output_tx.subscribe();
     let mut state_rx = state.channels.state_tx.subscribe();
+    let mut stop_rx = state.stop.stop_tx.subscribe();
     let mut authed = !needs_auth;
 
     loop {
         tokio::select! {
+            event = stop_rx.recv() => {
+                let event = match event {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                if matches!(mode, SubscriptionMode::State | SubscriptionMode::All) {
+                    let msg = stop_event_to_msg(&event);
+                    if send_json(&mut ws_tx, &msg).await.is_err() {
+                        break;
+                    }
+                }
+            }
             event = output_rx.recv() => {
                 let event = match event {
                     Ok(e) => e,
@@ -530,6 +552,16 @@ fn state_change_to_msg(event: &StateChangeEvent) -> ServerMessage {
             error_detail: None,
             error_category: None,
         },
+    }
+}
+
+/// Convert a `StopEvent` to a `ServerMessage`.
+fn stop_event_to_msg(event: &StopEvent) -> ServerMessage {
+    ServerMessage::Stop {
+        stop_type: event.stop_type.as_str().to_owned(),
+        signal: event.signal.clone(),
+        error_detail: event.error_detail.clone(),
+        seq: event.seq,
     }
 }
 

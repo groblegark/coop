@@ -20,6 +20,7 @@ use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
 use crate::pty::Backend;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
+use crate::stop::{StopConfig, StopState};
 use crate::transport::state::{
     AppState, DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels,
 };
@@ -130,6 +131,10 @@ impl AppStateBuilder {
             },
             ready: Arc::new(AtomicBool::new(false)),
             nudge_mutex: Arc::new(tokio::sync::Mutex::new(())),
+            stop: Arc::new(StopState::new(
+                StopConfig::default(),
+                "http://127.0.0.1:0/api/v1/agent/signal".to_owned(),
+            )),
         })
     }
 }

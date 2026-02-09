@@ -48,8 +48,6 @@ pub struct ClaudeDriver {
     pub nudge: ClaudeNudgeEncoder,
     pub respond: ClaudeRespondEncoder,
     pub detectors: Vec<Box<dyn Detector>>,
-    /// Stored for `env_vars()`; the pipe path must stay available.
-    hook_pipe_path: Option<PathBuf>,
 }
 
 impl ClaudeDriver {
@@ -61,7 +59,6 @@ impl ClaudeDriver {
     /// - Tier 3 (StdoutDetector): if `stdout_rx` is provided
     pub fn new(config: ClaudeDriverConfig) -> anyhow::Result<Self> {
         let mut detectors: Vec<Box<dyn Detector>> = Vec::new();
-        let hook_pipe_path = config.hook_pipe_path.clone();
 
         // Tier 1: Hook events (highest confidence)
         if let Some(pipe_path) = config.hook_pipe_path {
@@ -93,20 +90,11 @@ impl ClaudeDriver {
                 input_delay: config.input_delay,
             },
             detectors,
-            hook_pipe_path,
         })
     }
 
     /// Consume the driver and return its detectors.
     pub fn into_detectors(self) -> Vec<Box<dyn Detector>> {
         self.detectors
-    }
-
-    /// Return environment variables needed by the Claude child process.
-    pub fn env_vars(&self) -> Vec<(String, String)> {
-        match &self.hook_pipe_path {
-            Some(path) => hooks::hook_env_vars(path),
-            None => vec![],
-        }
     }
 }

@@ -39,6 +39,17 @@ service Coop {
   rpc Respond(RespondRequest) returns (RespondResponse);
   // Stream agent state transitions in real time.
   rpc StreamState(StreamStateRequest) returns (stream AgentStateEvent);
+
+  // Stop hook management
+
+  // Send a signal to unblock the next stop hook check.
+  rpc AgentSignal(AgentSignalRequest) returns (AgentSignalResponse);
+  // Update the stop hook configuration at runtime.
+  rpc PutStop(PutStopRequest) returns (PutStopResponse);
+  // Read the current stop hook configuration.
+  rpc GetStop(GetStopRequest) returns (GetStopResponse);
+  // Stream stop hook verdict events in real time.
+  rpc StreamStopEvents(StreamStopEventsRequest) returns (stream StopEvent);
 }
 
 // --- Terminal messages ---
@@ -265,6 +276,44 @@ message RespondResponse {
 }
 
 message StreamStateRequest {}
+
+// --- Stop hook messages ---
+
+message AgentSignalRequest {
+  // JSON body of the signal (freeform).
+  string body_json = 1;
+}
+message AgentSignalResponse {
+  bool accepted = 1;
+}
+
+message PutStopRequest {
+  // StopConfig as JSON.
+  string config_json = 1;
+}
+message PutStopResponse {
+  bool updated = 1;
+}
+
+message GetStopRequest {}
+message GetStopResponse {
+  // Current StopConfig as JSON.
+  string config_json = 1;
+}
+
+message StreamStopEventsRequest {}
+// Stop hook verdict event.
+message StopEvent {
+  // Verdict type: signaled, error, safety_valve, blocked, allowed.
+  string stop_type = 1;
+  // Signal body JSON (when stop_type is "signaled").
+  optional string signal_json = 2;
+  // Error description (when stop_type is "error").
+  optional string error_detail = 3;
+  // Monotonic sequence number.
+  uint64 seq = 4;
+}
+
 // Agent state transition event.
 message AgentStateEvent {
   // Previous agent state.

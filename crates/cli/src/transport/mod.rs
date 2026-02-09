@@ -236,6 +236,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/agent/state", get(http::agent_state))
         .route("/api/v1/agent/nudge", post(http::agent_nudge))
         .route("/api/v1/agent/respond", post(http::agent_respond))
+        .route("/api/v1/agent/signal", post(http::agent_signal))
+        .route("/api/v1/hooks/stop", post(http::hooks_stop))
+        .route(
+            "/api/v1/stop",
+            get(http::get_stop_config).put(http::put_stop_config),
+        )
         .route("/ws", get(ws::ws_handler))
         .layer(middleware::from_fn_with_state(
             state.clone(),

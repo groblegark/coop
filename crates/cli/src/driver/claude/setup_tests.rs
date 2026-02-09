@@ -21,7 +21,7 @@ fn project_dir_name_replaces_slashes() {
 #[test]
 fn prepare_session_creates_settings_file() -> anyhow::Result<()> {
     let work_dir = tempfile::tempdir()?;
-    let setup = prepare_claude_session(work_dir.path())?;
+    let setup = prepare_claude_session(work_dir.path(), "http://127.0.0.1:0")?;
 
     // Settings file should exist in the temp dir
     let settings_arg_idx = setup
@@ -42,7 +42,7 @@ fn prepare_session_creates_settings_file() -> anyhow::Result<()> {
 #[test]
 fn prepare_session_has_session_id_arg() -> anyhow::Result<()> {
     let work_dir = tempfile::tempdir()?;
-    let setup = prepare_claude_session(work_dir.path())?;
+    let setup = prepare_claude_session(work_dir.path(), "http://127.0.0.1:0")?;
 
     assert!(setup.extra_args.contains(&"--session-id".to_owned()));
     // Session ID should be a UUID (36 chars with hyphens)
@@ -59,7 +59,7 @@ fn prepare_session_has_session_id_arg() -> anyhow::Result<()> {
 #[test]
 fn prepare_session_has_env_vars() -> anyhow::Result<()> {
     let work_dir = tempfile::tempdir()?;
-    let setup = prepare_claude_session(work_dir.path())?;
+    let setup = prepare_claude_session(work_dir.path(), "http://127.0.0.1:0")?;
 
     assert!(setup.env_vars.iter().any(|(k, _)| k == "COOP_HOOK_PIPE"));
     Ok(())
@@ -68,7 +68,7 @@ fn prepare_session_has_env_vars() -> anyhow::Result<()> {
 #[test]
 fn prepare_session_pipe_path_in_temp_dir() -> anyhow::Result<()> {
     let work_dir = tempfile::tempdir()?;
-    let setup = prepare_claude_session(work_dir.path())?;
+    let setup = prepare_claude_session(work_dir.path(), "http://127.0.0.1:0")?;
 
     assert!(setup.hook_pipe_path.file_name().is_some());
     assert_eq!(

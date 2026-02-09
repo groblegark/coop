@@ -92,9 +92,14 @@ pub async fn auth_layer(
 ) -> Response {
     let path = req.uri().path();
 
-    // Health and WebSocket endpoints skip HTTP auth.
+    // Health, WebSocket, hook, and signal endpoints skip HTTP auth.
     // WebSocket auth is handled in the WS handler via query param or Auth message.
-    if path == "/api/v1/health" || path == "/ws" {
+    // Hook/signal endpoints are called from inside the PTY (same machine, no token).
+    if path == "/api/v1/health"
+        || path == "/ws"
+        || path == "/api/v1/hooks/stop"
+        || path == "/api/v1/agent/signal"
+    {
         return next.run(req).await;
     }
 
