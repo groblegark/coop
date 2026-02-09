@@ -3,22 +3,20 @@
 
 FROM rust:1.92-bookworm AS builder
 ARG TARGETARCH=amd64
-RUN apt-get update && apt-get install -y protobuf-compiler musl-tools \
-    && rustup target add x86_64-unknown-linux-musl \
-    && rustup target add aarch64-unknown-linux-musl
+RUN apt-get update && apt-get install -y protobuf-compiler libssl-dev pkg-config
 ENV RUSTC_WRAPPER=""
 WORKDIR /src
 COPY . .
-RUN case "$TARGETARCH" in \
-      arm64) RUST_TARGET=aarch64-unknown-linux-musl ;; \
-      *)     RUST_TARGET=x86_64-unknown-linux-musl ;; \
-    esac \
-    && cargo build --release --target "$RUST_TARGET" \
-    && strip "target/$RUST_TARGET/release/coop" \
-    && cp "target/$RUST_TARGET/release/coop" /coop-bin
+RUN cargo build --release \
+    && strip target/release/coop \
+    && cp target/release/coop /coop-bin
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -g 65534 nonroot && useradd -u 65534 -g nonroot -s /bin/false nonroot
 COPY --from=builder /coop-bin /coop
+USER 65534:65534
 ENTRYPOINT ["/coop"]
 
 # ---------------------------------------------------------------------------
@@ -27,7 +25,7 @@ ENTRYPOINT ["/coop"]
 FROM debian:bookworm-slim AS test
 ARG TARGETARCH=amd64
 ARG CLAUDELESS_VERSION=0.2.5
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates libssl3 \
     && rm -rf /var/lib/apt/lists/*
 RUN case "$TARGETARCH" in \
       arm64) ARCH=aarch64 ;; \
