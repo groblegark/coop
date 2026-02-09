@@ -98,12 +98,15 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<AgentState> {
         return None;
     }
 
-    // Look for Claude's idle prompt indicator on the last non-empty line.
+    // Look for Claude's idle prompt indicator anywhere in the visible lines.
     // Claude Code renders `❯` (U+276F) at the start of its input line.
-    let last_non_empty = snapshot.lines.iter().rev().find(|l| !l.trim().is_empty())?;
-    let trimmed = last_non_empty.trim();
-    if trimmed.starts_with('\u{276f}') {
-        return Some(AgentState::WaitingForInput);
+    // Status text like "ctrl+t to hide tasks" may appear below the prompt,
+    // so we scan all non-empty lines rather than only the last.
+    for line in snapshot.lines.iter().rev() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() && trimmed.starts_with('\u{276f}') {
+            return Some(AgentState::WaitingForInput);
+        }
     }
 
     None

@@ -57,3 +57,18 @@ fn detects_bare_prompt() {
         Some(AgentState::WaitingForInput)
     );
 }
+
+#[test]
+fn detects_prompt_with_status_text_below() {
+    let snap = snapshot(&[
+        "Claude Code v2.1.37",
+        "",
+        "\u{276f}\u{00a0}Try \"create a util logging.py that...\"",
+        "────────────────────────────────",
+        "  ctrl+t to hide tasks",
+    ]);
+    assert_eq!(
+        classify_claude_screen(&snap),
+        Some(AgentState::WaitingForInput)
+    );
+}
