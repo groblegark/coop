@@ -11,6 +11,7 @@ use bytes::Bytes;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use coop::config::Config;
 use coop::driver::AgentState;
 use coop::event::InputEvent;
 use coop::pty::spawn::NativePty;
@@ -25,19 +26,19 @@ use coop::transport::http::{HealthResponse, InputRequest, ScreenResponse, Status
 
 #[tokio::test]
 async fn session_echo_captures_output_and_exits_zero() -> anyhow::Result<()> {
+    let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new()
         .ring_size(65536)
         .build_with_sender(input_tx);
 
-    let backend = NativePty::spawn(&["echo".into(), "integration".into()], 80, 24)?;
-    let session = Session::new(SessionConfig::test_default(
-        Box::new(backend),
-        Arc::clone(&app_state),
-        consumer_input_rx,
-    ));
+    let backend = NativePty::spawn(&["echo".into(), "integration".into()], 80, 24, &[])?;
+    let session = Session::new(
+        &config,
+        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
+    );
 
-    let status = session.run().await?;
+    let status = session.run(&config).await?;
     assert_eq!(status.code, Some(0));
 
     // Ring should contain output
@@ -60,19 +61,22 @@ async fn session_echo_captures_output_and_exits_zero() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn session_input_roundtrip() -> anyhow::Result<()> {
+    let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new()
         .ring_size(65536)
         .build_with_sender(input_tx.clone());
 
-    let backend = NativePty::spawn(&["/bin/cat".into()], 80, 24)?;
-    let session = Session::new(SessionConfig::test_default(
-        Box::new(backend),
-        Arc::clone(&app_state),
-        consumer_input_rx,
-    ));
+    let backend = NativePty::spawn(&["/bin/cat".into()], 80, 24, &[])?;
+    let session = Session::new(
+        &config,
+        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
+    );
 
-    let session_handle = tokio::spawn(async move { session.run().await });
+    let session_handle = tokio::spawn(async move {
+        let config = Config::test();
+        session.run(&config).await
+    });
 
     // Send input via the channel (simulating transport layer)
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -103,16 +107,23 @@ async fn session_input_roundtrip() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn session_shutdown_terminates_child() -> anyhow::Result<()> {
+    let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new()
         .ring_size(65536)
         .build_with_sender(input_tx);
     let shutdown = CancellationToken::new();
 
-    let backend = NativePty::spawn(&["/bin/sh".into(), "-c".into(), "sleep 60".into()], 80, 24)?;
-    let mut config = SessionConfig::test_default(Box::new(backend), app_state, consumer_input_rx);
-    config.shutdown = shutdown.clone();
-    let session = Session::new(config);
+    let backend = NativePty::spawn(
+        &["/bin/sh".into(), "-c".into(), "sleep 60".into()],
+        80,
+        24,
+        &[],
+    )?;
+    let session = Session::new(
+        &config,
+        SessionConfig::new(app_state, backend, consumer_input_rx).with_shutdown(shutdown.clone()),
+    );
 
     // Cancel after a short delay
     tokio::spawn(async move {
@@ -120,7 +131,7 @@ async fn session_shutdown_terminates_child() -> anyhow::Result<()> {
         shutdown.cancel();
     });
 
-    let status = session.run().await?;
+    let status = session.run(&config).await?;
     assert!(
         status.code.is_some() || status.signal.is_some(),
         "expected exit: {status:?}"
@@ -130,19 +141,19 @@ async fn session_shutdown_terminates_child() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn session_exited_state_broadcast() -> anyhow::Result<()> {
+    let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new()
         .ring_size(65536)
         .build_with_sender(input_tx);
 
-    let backend = NativePty::spawn(&["true".into()], 80, 24)?;
-    let session = Session::new(SessionConfig::test_default(
-        Box::new(backend),
-        Arc::clone(&app_state),
-        consumer_input_rx,
-    ));
+    let backend = NativePty::spawn(&["true".into()], 80, 24, &[])?;
+    let session = Session::new(
+        &config,
+        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
+    );
 
-    let _ = session.run().await?;
+    let _ = session.run(&config).await?;
 
     // After run(), agent_state should be Exited
     let agent = app_state.driver.agent_state.read().await;
@@ -347,20 +358,20 @@ async fn http_agent_state_endpoint() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn full_stack_echo_screen_via_http() -> anyhow::Result<()> {
+    let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new()
         .ring_size(65536)
         .build_with_sender(input_tx);
 
-    let backend = NativePty::spawn(&["echo".into(), "fullstack".into()], 80, 24)?;
-    let session = Session::new(SessionConfig::test_default(
-        Box::new(backend),
-        Arc::clone(&app_state),
-        consumer_input_rx,
-    ));
+    let backend = NativePty::spawn(&["echo".into(), "fullstack".into()], 80, 24, &[])?;
+    let session = Session::new(
+        &config,
+        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
+    );
 
     // Run session to completion
-    let _ = session.run().await?;
+    let _ = session.run(&config).await?;
 
     // Now query the HTTP layer
     let router = build_router(Arc::clone(&app_state));

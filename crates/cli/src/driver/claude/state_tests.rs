@@ -54,7 +54,7 @@ fn state_from_jsonl(entry: serde_json::Value, expected: Option<AgentState>) {
 }
 
 #[test]
-fn assistant_with_ask_user_produces_ask_user() {
+fn assistant_with_ask_user_produces_question() {
     let entry = json!({
         "type": "assistant",
         "message": {
@@ -75,11 +75,11 @@ fn assistant_with_ask_user_produces_ask_user() {
     });
     let state = parse_claude_state(&entry);
     match state {
-        Some(AgentState::AskUser { prompt }) => {
+        Some(AgentState::Question { prompt }) => {
             assert_eq!(prompt.prompt_type, "question");
             assert_eq!(prompt.question.as_deref(), Some("Which database?"));
             assert_eq!(prompt.options, vec!["PostgreSQL", "SQLite"]);
         }
-        other => panic!("expected AskUser, got {other:?}"),
+        other => panic!("expected Question, got {other:?}"),
     }
 }

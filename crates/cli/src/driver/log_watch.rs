@@ -13,17 +13,31 @@ use tokio_util::sync::CancellationToken;
 pub struct LogWatcher {
     path: PathBuf,
     offset: u64,
+    poll_interval: Duration,
 }
 
 impl LogWatcher {
     pub fn new(path: PathBuf) -> Self {
-        Self { path, offset: 0 }
+        Self {
+            path,
+            offset: 0,
+            poll_interval: Duration::from_secs(5),
+        }
     }
 
     /// Create a watcher that starts reading from a specific byte offset.
     /// Used for session resume to skip already-processed entries.
     pub fn with_offset(path: PathBuf, offset: u64) -> Self {
-        Self { path, offset }
+        Self {
+            path,
+            offset,
+            poll_interval: Duration::from_secs(5),
+        }
+    }
+
+    pub fn with_poll_interval(mut self, interval: Duration) -> Self {
+        self.poll_interval = interval;
+        self
     }
 
     /// Current byte offset into the log file.
@@ -69,7 +83,7 @@ impl LogWatcher {
         let (wake_tx, mut wake_rx) = mpsc::channel::<()>(1);
         let _watcher = self.setup_notify_watcher(wake_tx);
 
-        let mut poll_interval = tokio::time::interval(Duration::from_secs(5));
+        let mut poll_interval = tokio::time::interval(self.poll_interval);
 
         loop {
             tokio::select! {

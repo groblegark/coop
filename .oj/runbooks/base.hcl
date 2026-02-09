@@ -1,5 +1,11 @@
-# Shared libraries: wok issue tracking and git merge queue.
-#
+# Shared libraries: GitHub issue tracking pipeline.
+
+import "oj/github" {
+  alias = "github"
+
+  const "check" { value = "make check" }
+}
+
 # Disabled: worker names conflict with oddjobs project.
 # Re-enable once oj supports project-scoped worker names.
 

@@ -74,6 +74,51 @@ fn cursor_position() {
 }
 
 #[test]
+fn alt_screen_toggle_split_across_chunks() {
+    let screen = Screen::new(80, 24);
+    assert!(!screen.is_alt_screen());
+
+    // Split "\x1b[?1049h" across two feed() calls at every possible boundary.
+    let seq = b"\x1b[?1049h";
+    for split in 1..seq.len() {
+        let mut s = Screen::new(80, 24);
+        s.feed(&seq[..split]);
+        s.feed(&seq[split..]);
+        assert!(
+            s.is_alt_screen(),
+            "split at byte {split}: expected alt screen ON"
+        );
+    }
+
+    // Now test disable split: "\x1b[?1049l"
+    let seq_off = b"\x1b[?1049l";
+    for split in 1..seq_off.len() {
+        let mut s = Screen::new(80, 24);
+        s.feed(b"\x1b[?1049h"); // enter alt screen first
+        assert!(s.is_alt_screen());
+
+        s.feed(&seq_off[..split]);
+        s.feed(&seq_off[split..]);
+        assert!(
+            !s.is_alt_screen(),
+            "split at byte {split}: expected alt screen OFF"
+        );
+    }
+}
+
+#[test]
+fn alt_screen_toggle_with_surrounding_data() {
+    let mut screen = Screen::new(80, 24);
+    // Sequence embedded in surrounding output, split right before the final byte
+    let chunk1 = b"hello\x1b[?1049".to_vec();
+    let chunk2 = b"hworld";
+    screen.feed(&chunk1);
+    assert!(!screen.is_alt_screen(), "not yet complete");
+    screen.feed(chunk2);
+    assert!(screen.is_alt_screen(), "should detect split sequence");
+}
+
+#[test]
 fn feed_split_utf8_two_byte() -> anyhow::Result<()> {
     let mut screen = Screen::new(80, 24);
     // é is U+00E9, encoded as [0xC3, 0xA9]

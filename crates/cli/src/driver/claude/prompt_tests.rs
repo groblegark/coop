@@ -5,7 +5,10 @@ use serde_json::json;
 
 use crate::screen::{CursorPosition, ScreenSnapshot};
 
-use super::{extract_ask_user_context, extract_permission_context, extract_plan_context};
+use super::{
+    extract_ask_user_context, extract_ask_user_from_tool_input, extract_permission_context,
+    extract_plan_context,
+};
 
 #[test]
 fn permission_context_extracts_tool_and_preview() {
@@ -118,6 +121,85 @@ fn plan_context_captures_screen_lines() {
     assert_eq!(ctx.prompt_type, "plan");
     assert_eq!(ctx.screen_lines.len(), 3);
     assert_eq!(ctx.screen_lines[0], "Plan: Implement auth system");
+}
+
+#[test]
+fn ask_user_from_tool_input_extracts_question_and_options() {
+    let tool_input = json!({
+        "questions": [{
+            "question": "Which framework?",
+            "options": [
+                { "label": "React", "description": "Popular" },
+                { "label": "Vue", "description": "Progressive" }
+            ]
+        }]
+    });
+    let ctx = extract_ask_user_from_tool_input(Some(&tool_input));
+    assert_eq!(ctx.prompt_type, "question");
+    assert_eq!(ctx.question.as_deref(), Some("Which framework?"));
+    assert_eq!(ctx.options, vec!["React", "Vue"]);
+}
+
+#[test]
+fn ask_user_from_tool_input_with_none() {
+    let ctx = extract_ask_user_from_tool_input(None);
+    assert_eq!(ctx.prompt_type, "question");
+    assert!(ctx.question.is_none());
+    assert!(ctx.options.is_empty());
+}
+
+#[test]
+fn ask_user_extracts_all_questions() {
+    let tool_input = json!({
+        "questions": [
+            {
+                "question": "Which database?",
+                "options": [
+                    { "label": "PostgreSQL" },
+                    { "label": "SQLite" }
+                ]
+            },
+            {
+                "question": "Which framework?",
+                "options": [
+                    { "label": "Axum" },
+                    { "label": "Actix" },
+                    { "label": "Rocket" }
+                ]
+            }
+        ]
+    });
+    let ctx = extract_ask_user_from_tool_input(Some(&tool_input));
+
+    // All questions parsed into the questions vec.
+    assert_eq!(ctx.questions.len(), 2);
+    assert_eq!(ctx.questions[0].question, "Which database?");
+    assert_eq!(ctx.questions[0].options, vec!["PostgreSQL", "SQLite"]);
+    assert_eq!(ctx.questions[1].question, "Which framework?");
+    assert_eq!(ctx.questions[1].options, vec!["Axum", "Actix", "Rocket"]);
+
+    // Backwards compat: top-level fields from first question.
+    assert_eq!(ctx.question.as_deref(), Some("Which database?"));
+    assert_eq!(ctx.options, vec!["PostgreSQL", "SQLite"]);
+
+    assert_eq!(ctx.active_question, 0);
+}
+
+#[test]
+fn ask_user_single_question_populates_questions_vec() {
+    let tool_input = json!({
+        "questions": [{
+            "question": "Which DB?",
+            "options": [
+                { "label": "Postgres" },
+                { "label": "SQLite" }
+            ]
+        }]
+    });
+    let ctx = extract_ask_user_from_tool_input(Some(&tool_input));
+    assert_eq!(ctx.questions.len(), 1);
+    assert_eq!(ctx.questions[0].question, "Which DB?");
+    assert_eq!(ctx.question.as_deref(), Some("Which DB?"));
 }
 
 #[test]

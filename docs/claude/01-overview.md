@@ -27,9 +27,8 @@ provide reliable state classification.
 
 ### Tier 1: Hook Events
 
-Coop creates a named FIFO pipe before spawning Claude and writes a hook
-configuration file to `~/.claude/config/coop-hooks.json`. Claude loads this
-via `--hook-config`.
+Coop creates a named FIFO pipe before spawning Claude and writes a settings
+file containing the hook configuration. Claude loads this via `--settings`.
 
 Two hooks are registered:
 
@@ -42,12 +41,18 @@ The hooks execute shell commands that write JSON to `$COOP_HOOK_PIPE`:
 {
   "hooks": {
     "PostToolUse": [{
-      "type": "command",
-      "command": "echo '{\"event\":\"post_tool_use\",\"tool\":\"'\"$TOOL_NAME\"'\"}' > \"$COOP_HOOK_PIPE\""
+      "matcher": "",
+      "hooks": [{
+        "type": "command",
+        "command": "echo '{\"event\":\"post_tool_use\",\"tool\":\"'\"$TOOL_NAME\"'\"}' > \"$COOP_HOOK_PIPE\""
+      }]
     }],
     "Stop": [{
-      "type": "command",
-      "command": "echo '{\"event\":\"stop\"}' > \"$COOP_HOOK_PIPE\""
+      "matcher": "",
+      "hooks": [{
+        "type": "command",
+        "command": "echo '{\"event\":\"stop\"}' > \"$COOP_HOOK_PIPE\""
+      }]
     }]
   }
 }
@@ -89,9 +94,22 @@ process is alive, whether the PTY has recent activity, and reports the exit
 status. Provides coarse working-vs-idle detection.
 
 
+### Composite Detector
+
+The `CompositeDetector` runs all active tiers concurrently and resolves
+conflicts with these rules:
+
+- **Same or higher confidence tier**: state accepted immediately
+- **Lower confidence tier, non-idle**: accepted immediately
+- **Lower confidence tier, idle**: routed through the grace timer
+- **Terminal state (`Exited`)**: accepted immediately from any tier, cancels grace timer
+- **Duplicate state**: suppressed (updates tier tracking only)
+
+
 ## State Classification
 
-Claude session log entries are classified into `AgentState` values:
+Claude session log entries (Tiers 2 and 3) are classified into `AgentState`
+values by `parse_claude_state()`:
 
 ```
 parse_claude_state(json) ->
@@ -107,17 +125,17 @@ parse_claude_state(json) ->
 
 The full set of agent states:
 
-| State | Meaning |
-|-------|---------|
-| `Starting` | Initial state before first detection |
-| `Working` | Agent is executing (tool calls, thinking) |
-| `WaitingForInput` | Agent is idle, ready for a nudge |
-| `PermissionPrompt` | Agent is requesting tool permission |
-| `PlanPrompt` | Agent is presenting a plan for approval |
-| `AskUser` | Agent invoked `AskUserQuestion` |
-| `Error` | An error occurred (e.g. rate limit) |
-| `AltScreen` | Terminal switched to alternate screen |
-| `Exited` | Child process exited |
+| State | Wire name | Meaning |
+|-------|-----------|---------|
+| `Starting` | `starting` | Initial state before first detection |
+| `Working` | `working` | Executing tool calls or thinking |
+| `WaitingForInput` | `waiting_for_input` | Idle, ready for a nudge |
+| `PermissionPrompt` | `permission_prompt` | Requesting tool permission |
+| `PlanPrompt` | `plan_prompt` | Presenting a plan for approval |
+| `AskUser` | `ask_user` | Invoked `AskUserQuestion` tool |
+| `Error` | `error` | Error occurred (rate limit, auth, etc.) |
+| `AltScreen` | `alt_screen` | Terminal switched to alternate screen |
+| `Exited` | `exited` | Child process exited |
 
 
 ## Prompt Context
@@ -167,37 +185,41 @@ Only succeeds when the agent is in `WaitingForInput`.
 ## Startup Prompts
 
 Claude may present blocking prompts during startup before reaching the idle
-state. When `--skip-startup-prompts` is enabled (default for `--agent claude`),
-coop detects and auto-responds to these:
+state. Coop reports these as permission prompts through the normal state
+detection pipeline. The orchestrator (consumer) is responsible for responding
+via the API, just like any other permission prompt.
 
-| Prompt | Detection pattern | Auto-response |
-|--------|-------------------|---------------|
-| Workspace trust | "Do you trust the files in this folder?" | `y\r` |
-| Permission bypass | "Allow tool use without prompting?" | `y\r` |
-| Login required | "Please sign in" | None (cannot auto-handle) |
-
-Detection scans the last 5 non-empty lines of the rendered screen for known
-keyword patterns.
+| Prompt | Detection pattern |
+|--------|-------------------|
+| Workspace trust | "Do you trust the files in this folder?" |
+| Permission bypass | "Allow tool use without prompting?" |
+| Login required | "Please sign in" |
 
 
 ## Session Resume
 
-When coop restarts, it can reconnect to a previous Claude session. The
+When coop restarts, it can reconnect to a previous Claude conversation. The
 `--resume` flag triggers session discovery:
 
 1. **Discover** the most recent `.jsonl` log in `~/.claude/projects/<workspace-hash>/`
 2. **Parse** the log to recover the last agent state, byte offset, and conversation ID
-3. **Append** `--continue --session-id <id>` to Claude's command-line arguments
-4. **Start** the log watcher from the recovered byte offset
+3. **Append** `--resume <id>` to Claude's command-line arguments (or `--continue` if no ID)
+4. **Append** `--settings <path>` so hooks are active in the new process
+5. **Start** the log watcher from the recovered byte offset
 
-This allows coop to resume monitoring an existing Claude session without
-re-processing the full log history.
+This spawns a new Claude process that loads the previous conversation history,
+then resumes log watching from where the previous coop session left off. The
+conversation ID is extracted from the `sessionId` or `conversationId` field in
+the log's first entry.
 
 
 ## Idle Grace Timer
 
-The grace timer prevents false idle transitions during rapid tool execution.
-When a lower-confidence tier reports idle:
+Between tool calls, Claude briefly enters a text-only state that looks like
+`WaitingForInput` before starting the next tool. The grace timer prevents
+these false idle transitions.
+
+When a lower-confidence tier reports `WaitingForInput`:
 
 1. **Trigger**: record the current session log byte offset
 2. **Wait**: default 60 seconds (configurable via `--idle-grace`)
@@ -208,6 +230,16 @@ When a lower-confidence tier reports idle:
 States from equal-or-higher confidence tiers bypass the grace timer entirely.
 Terminal states (`Exited`) are always accepted immediately.
 
+Activity that cancels the timer:
+
+| Activity | Why it cancels |
+|----------|----------------|
+| Tool calls | `tool_use` block appears in log |
+| Extended thinking | `thinking` block appears in log |
+| Subagent execution | `tool_use` for Task persists throughout |
+| Long Bash commands | `tool_use` block persists until result |
+| Streaming text | Log grows as response is written |
+
 
 ## Environment Variables
 
@@ -217,7 +249,6 @@ Coop sets the following environment variables on the Claude child process:
 |----------|---------|
 | `COOP=1` | Marker that the process is running under coop |
 | `COOP_HOOK_PIPE` | Path to the named FIFO for hook events |
-| `COOP_SOCKET` | Optional socket path for sidecar communication |
 | `TERM=xterm-256color` | Terminal type for the child PTY |
 
 
@@ -229,5 +260,20 @@ Flags relevant to Claude sessions:
 |------|---------|-------------|
 | `--agent claude` | -- | Enable Claude-specific detection and encoding |
 | `--idle-grace SECS` | `60` | Grace timer duration before confirming idle |
-| `--skip-startup-prompts` | `true` (for Claude) | Auto-handle workspace trust and permission prompts |
 | `--resume HINT` | -- | Discover and resume a previous session |
+
+
+## Source Layout
+
+```
+crates/cli/src/driver/claude/
+├── mod.rs         # ClaudeDriver: wires up detectors and encoders
+├── detect.rs      # HookDetector (T1), LogDetector (T2), StdoutDetector (T3)
+├── state.rs       # parse_claude_state() — JSONL → AgentState
+├── hooks.rs       # Hook config generation, environment setup
+├── setup.rs       # Pre-spawn session preparation (FIFO, settings, args)
+├── prompt.rs      # PromptContext extraction (permission, question, plan)
+├── encoding.rs    # ClaudeNudgeEncoder, ClaudeRespondEncoder
+├── startup.rs     # Startup prompt detection patterns
+└── resume.rs      # Session log discovery, state recovery, --resume args
+```

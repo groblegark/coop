@@ -5,9 +5,7 @@ use std::sync::Arc;
 
 use crate::driver::AgentState;
 use crate::test_support::{AnyhowExt, AppStateBuilder, StubNudgeEncoder};
-use crate::transport::ws::{
-    handle_client_message, ClientMessage, LockAction, ServerMessage, SubscriptionMode,
-};
+use crate::transport::ws::{handle_client_message, ClientMessage, ServerMessage, SubscriptionMode};
 
 #[test]
 fn ping_pong_serialization() -> anyhow::Result<()> {
@@ -86,22 +84,6 @@ fn state_change_with_error_serialization() -> anyhow::Result<()> {
 }
 
 #[test]
-fn lock_acquire_release_serialization() -> anyhow::Result<()> {
-    let acquire = ClientMessage::Lock {
-        action: LockAction::Acquire,
-    };
-    let json = serde_json::to_string(&acquire).anyhow()?;
-    assert!(json.contains("\"action\":\"acquire\""));
-
-    let release = ClientMessage::Lock {
-        action: LockAction::Release,
-    };
-    let json = serde_json::to_string(&release).anyhow()?;
-    assert!(json.contains("\"action\":\"release\""));
-    Ok(())
-}
-
-#[test]
 fn subscription_mode_default_is_all() -> anyhow::Result<()> {
     let mode: SubscriptionMode = serde_json::from_str("\"all\"").anyhow()?;
     assert_eq!(mode, SubscriptionMode::All);
@@ -125,12 +107,12 @@ fn subscription_modes_deserialize() -> anyhow::Result<()> {
 #[test]
 fn error_message_serialization() -> anyhow::Result<()> {
     let msg = ServerMessage::Error {
-        code: "WRITER_BUSY".to_owned(),
-        message: "write lock held".to_owned(),
+        code: "BAD_REQUEST".to_owned(),
+        message: "invalid input".to_owned(),
     };
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"error\""));
-    assert!(json.contains("\"code\":\"WRITER_BUSY\""));
+    assert!(json.contains("\"code\":\"BAD_REQUEST\""));
     Ok(())
 }
 
@@ -178,7 +160,6 @@ fn client_message_roundtrip() -> anyhow::Result<()> {
         r#"{"type":"nudge","message":"fix bug"}"#,
         r#"{"type":"respond","accept":true}"#,
         r#"{"type":"replay","offset":0}"#,
-        r#"{"type":"lock","action":"acquire"}"#,
         r#"{"type":"auth","token":"tok"}"#,
         r#"{"type":"signal","name":"SIGINT"}"#,
         r#"{"type":"ping"}"#,
@@ -270,7 +251,6 @@ async fn nudge_rejected_when_agent_working() -> anyhow::Result<()> {
         .ready
         .store(true, std::sync::atomic::Ordering::Release);
     let client_id = "test-ws";
-    state.lifecycle.write_lock.acquire_ws(client_id).anyhow()?;
 
     let msg = ClientMessage::Nudge {
         message: "hello".to_owned(),
@@ -292,7 +272,6 @@ async fn nudge_accepted_when_agent_waiting() -> anyhow::Result<()> {
         .ready
         .store(true, std::sync::atomic::Ordering::Release);
     let client_id = "test-ws";
-    state.lifecycle.write_lock.acquire_ws(client_id).anyhow()?;
 
     let msg = ClientMessage::Nudge {
         message: "hello".to_owned(),
@@ -306,7 +285,6 @@ async fn nudge_accepted_when_agent_waiting() -> anyhow::Result<()> {
 async fn signal_delivers_sigint() -> anyhow::Result<()> {
     let (state, mut rx) = ws_test_state(AgentState::Working);
     let client_id = "test-ws";
-    state.lifecycle.write_lock.acquire_ws(client_id).anyhow()?;
 
     let msg = ClientMessage::Signal {
         name: "SIGINT".to_owned(),
@@ -331,7 +309,6 @@ async fn signal_delivers_sigint() -> anyhow::Result<()> {
 async fn signal_rejects_unknown() -> anyhow::Result<()> {
     let (state, _rx) = ws_test_state(AgentState::Working);
     let client_id = "test-ws";
-    state.lifecycle.write_lock.acquire_ws(client_id).anyhow()?;
 
     let msg = ClientMessage::Signal {
         name: "SIGFOO".to_owned(),
@@ -350,7 +327,6 @@ async fn signal_rejects_unknown() -> anyhow::Result<()> {
 async fn keys_rejects_unknown_key() -> anyhow::Result<()> {
     let (state, _rx) = ws_test_state(AgentState::Working);
     let client_id = "test-ws";
-    state.lifecycle.write_lock.acquire_ws(client_id).anyhow()?;
 
     let msg = ClientMessage::Keys {
         keys: vec!["Enter".to_owned(), "SuperKey".to_owned()],

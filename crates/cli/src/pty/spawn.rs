@@ -5,12 +5,13 @@ use std::ffi::CString;
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{bail, Context};
 use bytes::Bytes;
 use nix::libc;
 use nix::pty::{forkpty, ForkptyResult, Winsize};
-use nix::sys::signal::{kill, Signal};
+use nix::sys::signal::{kill, SigHandler, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{execvp, ForkResult, Pid};
 use tokio::io::unix::AsyncFd;
@@ -26,15 +27,22 @@ pub struct NativePty {
     child_pid: Pid,
     cols: Arc<AtomicU16>,
     rows: Arc<AtomicU16>,
+    reap_interval: Duration,
 }
 
 impl NativePty {
     /// Spawn a child process on a new PTY.
     ///
     /// `command` must have at least one element (the program to run).
+    /// `extra_env` sets additional environment variables in the child.
     // forkpty requires unsafe: post-fork child is partially initialized
     #[allow(unsafe_code)]
-    pub fn spawn(command: &[String], cols: u16, rows: u16) -> anyhow::Result<Self> {
+    pub fn spawn(
+        command: &[String],
+        cols: u16,
+        rows: u16,
+        extra_env: &[(String, String)],
+    ) -> anyhow::Result<Self> {
         let winsize = Winsize {
             ws_col: cols,
             ws_row: rows,
@@ -52,9 +60,20 @@ impl NativePty {
 
         match fork_result {
             ForkResult::Child => {
-                // Child process: set env and exec
+                // Child process: restore default signal handlers and exec.
+                // Tokio sets SIGPIPE to SIG_IGN which the child inherits;
+                // restore it so piped programs behave normally.
+                // SAFETY: signal() is unsafe because it changes process-wide
+                // signal disposition; in the post-fork child before exec this
+                // is the expected place to do so.
+                unsafe {
+                    let _ = nix::sys::signal::signal(Signal::SIGPIPE, SigHandler::SigDfl);
+                }
                 std::env::set_var("TERM", "xterm-256color");
                 std::env::set_var("COOP", "1");
+                for (key, val) in extra_env {
+                    std::env::set_var(key, val);
+                }
 
                 let c_args: Vec<CString> = command
                     .iter()
@@ -73,9 +92,15 @@ impl NativePty {
                     child_pid: child,
                     cols: Arc::new(AtomicU16::new(cols)),
                     rows: Arc::new(AtomicU16::new(rows)),
+                    reap_interval: Duration::from_millis(50),
                 })
             }
         }
+    }
+
+    pub fn with_reap_interval(mut self, interval: Duration) -> Self {
+        self.reap_interval = interval;
+        self
     }
 }
 
@@ -133,7 +158,12 @@ impl Backend for NativePty {
                         input = input_rx.recv() => {
                             match input {
                                 Some(data) => {
-                                    write_all(&self.master, &data).await?;
+                                    if let Err(e) = write_all(&self.master, &data).await {
+                                        if e.raw_os_error() == Some(libc::EIO) {
+                                            break; // Child exited; fall through to wait_for_exit
+                                        }
+                                        return Err(e.into());
+                                    }
                                 }
                                 None => input_closed = true,
                             }
@@ -198,10 +228,11 @@ impl Drop for NativePty {
         let _ = kill(pgid, Signal::SIGHUP);
 
         // Poll for exit up to 500ms before escalating to SIGKILL.
-        for _ in 0..10 {
+        let iterations = (500 / self.reap_interval.as_millis().max(1)) as usize;
+        for _ in 0..iterations.max(1) {
             match waitpid(self.child_pid, Some(WaitPidFlag::WNOHANG)) {
                 Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => return,
-                _ => std::thread::sleep(std::time::Duration::from_millis(50)),
+                _ => std::thread::sleep(self.reap_interval),
             }
         }
 

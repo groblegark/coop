@@ -12,12 +12,36 @@ fn generated_config_has_required_hooks() {
 
     assert!(hooks.get("PostToolUse").is_some());
     assert!(hooks.get("Stop").is_some());
+    assert!(hooks.get("Notification").is_some());
+    assert!(hooks.get("PreToolUse").is_some());
 
+    // Verify nested matcher + hooks structure
     let post_tool = &hooks["PostToolUse"];
     assert!(post_tool.is_array());
+    assert_eq!(post_tool[0]["matcher"], "");
+    assert!(post_tool[0]["hooks"].is_array());
+    assert_eq!(post_tool[0]["hooks"][0]["type"], "command");
 
     let stop = &hooks["Stop"];
     assert!(stop.is_array());
+    assert_eq!(stop[0]["matcher"], "");
+    assert!(stop[0]["hooks"].is_array());
+    assert_eq!(stop[0]["hooks"][0]["type"], "command");
+
+    let notification = &hooks["Notification"];
+    assert!(notification.is_array());
+    assert_eq!(notification[0]["matcher"], "idle_prompt|permission_prompt");
+    assert!(notification[0]["hooks"].is_array());
+    assert_eq!(notification[0]["hooks"][0]["type"], "command");
+
+    let pre_tool = &hooks["PreToolUse"];
+    assert!(pre_tool.is_array());
+    assert_eq!(
+        pre_tool[0]["matcher"],
+        "ExitPlanMode|AskUserQuestion|EnterPlanMode"
+    );
+    assert!(pre_tool[0]["hooks"].is_array());
+    assert_eq!(pre_tool[0]["hooks"][0]["type"], "command");
 }
 
 #[test]

@@ -9,7 +9,6 @@ use std::fmt;
 pub enum ErrorCode {
     NotReady,
     Exited,
-    WriterBusy,
     Unauthorized,
     BadRequest,
     NoDriver,
@@ -23,7 +22,6 @@ impl ErrorCode {
         match self {
             Self::NotReady => 503,
             Self::Exited => 410,
-            Self::WriterBusy => 409,
             Self::Unauthorized => 401,
             Self::BadRequest => 400,
             Self::NoDriver => 404,
@@ -37,7 +35,6 @@ impl ErrorCode {
         match self {
             Self::NotReady => "NOT_READY",
             Self::Exited => "EXITED",
-            Self::WriterBusy => "WRITER_BUSY",
             Self::Unauthorized => "UNAUTHORIZED",
             Self::BadRequest => "BAD_REQUEST",
             Self::NoDriver => "NO_DRIVER",
@@ -54,7 +51,6 @@ impl ErrorCode {
         let code = match self {
             Self::NotReady => tonic::Code::Unavailable,
             Self::Exited => tonic::Code::NotFound,
-            Self::WriterBusy => tonic::Code::ResourceExhausted,
             Self::Unauthorized => tonic::Code::Unauthenticated,
             Self::BadRequest => tonic::Code::InvalidArgument,
             Self::NoDriver => tonic::Code::Unimplemented,

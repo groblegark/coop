@@ -15,50 +15,47 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
-use crate::driver::claude::startup::{detect_startup_prompt, encode_startup_response};
+use crate::config::Config;
 use crate::driver::grace::IdleGraceTimer;
 use crate::driver::{
     classify_error_detail, AgentState, CompositeDetector, DetectedState, Detector, ExitStatus,
 };
 use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
-use crate::pty::Backend;
+use crate::pty::{Backend, Boxed};
 use crate::transport::AppState;
 
-/// Parameters for building a new [`Session`].
+/// Runtime objects for building a new [`Session`] (not derivable from [`Config`]).
 pub struct SessionConfig {
     pub backend: Box<dyn Backend>,
     pub detectors: Vec<Box<dyn Detector>>,
     pub app_state: Arc<AppState>,
     pub consumer_input_rx: mpsc::Receiver<InputEvent>,
-    pub cols: u16,
-    pub rows: u16,
-    pub idle_grace: Duration,
-    pub idle_timeout: Duration,
     pub shutdown: CancellationToken,
-    /// Auto-handle startup prompts (trust, permissions, etc.).
-    pub skip_startup_prompts: bool,
 }
 
 impl SessionConfig {
-    /// Build a `SessionConfig` with test defaults (80x24, no detectors,
-    /// 60s idle grace, no idle timeout, fresh shutdown token).
-    pub fn test_default(
-        backend: Box<dyn Backend>,
+    pub fn new(
         app_state: Arc<AppState>,
+        backend: impl Boxed,
         consumer_input_rx: mpsc::Receiver<InputEvent>,
     ) -> Self {
         Self {
-            backend,
-            detectors: vec![],
+            backend: backend.boxed(),
             app_state,
+            detectors: Vec::new(),
             consumer_input_rx,
-            cols: 80,
-            rows: 24,
-            idle_grace: Duration::from_secs(60),
-            idle_timeout: Duration::ZERO,
             shutdown: CancellationToken::new(),
-            skip_startup_prompts: false,
         }
+    }
+
+    pub fn with_detectors(mut self, detectors: Vec<Box<dyn Detector>>) -> Self {
+        self.detectors = detectors;
+        self
+    }
+
+    pub fn with_shutdown(mut self, shutdown: CancellationToken) -> Self {
+        self.shutdown = shutdown;
+        self
     }
 }
 
@@ -70,10 +67,8 @@ pub struct Session {
     resize_tx: mpsc::Sender<(u16, u16)>,
     consumer_input_rx: mpsc::Receiver<InputEvent>,
     detector_rx: mpsc::Receiver<DetectedState>,
-    idle_timeout: Duration,
     shutdown: CancellationToken,
     backend_handle: JoinHandle<anyhow::Result<ExitStatus>>,
-    skip_startup_prompts: bool,
 }
 
 impl Session {
@@ -84,19 +79,18 @@ impl Session {
     /// 2. Sets initial terminal size via `backend.resize()`
     /// 3. Spawns backend.run() on a separate task
     /// 4. Spawns all detectors
-    pub fn new(config: SessionConfig) -> Self {
+    pub fn new(config: &Config, session: SessionConfig) -> Self {
         let SessionConfig {
             mut backend,
             detectors,
             app_state,
             consumer_input_rx,
-            cols,
-            rows,
-            idle_grace,
-            idle_timeout,
             shutdown,
-            skip_startup_prompts,
-        } = config;
+        } = session;
+
+        let idle_grace = Duration::from_secs(config.idle_grace);
+        let idle_grace_poll = config.idle_grace_poll();
+
         // Set initial PID (Release so signal-delivery loads with Acquire see it)
         if let Some(pid) = backend.child_pid() {
             app_state
@@ -106,7 +100,7 @@ impl Session {
         }
 
         // Set initial terminal size
-        let _ = backend.resize(cols, rows);
+        let _ = backend.resize(config.cols, config.rows);
 
         // Create backend I/O channels
         let (backend_output_tx, backend_output_rx) = mpsc::channel(256);
@@ -126,6 +120,7 @@ impl Session {
         let composite = CompositeDetector {
             tiers: detectors,
             grace_timer,
+            grace_tick_interval: idle_grace_poll,
         };
         let ring_total = Arc::clone(&app_state.terminal.ring_total_written);
         let activity_fn: Arc<dyn Fn() -> u64 + Send + Sync> =
@@ -141,19 +136,18 @@ impl Session {
             resize_tx,
             consumer_input_rx,
             detector_rx,
-            idle_timeout,
             shutdown,
             backend_handle,
-            skip_startup_prompts,
         }
     }
 
     /// Run the session loop until the backend exits or shutdown is triggered.
-    pub async fn run(mut self) -> anyhow::Result<ExitStatus> {
-        let mut screen_debounce = tokio::time::interval(Duration::from_millis(50));
+    pub async fn run(mut self, config: &Config) -> anyhow::Result<ExitStatus> {
+        let idle_timeout = config.idle_timeout_duration();
+        let shutdown_timeout = config.shutdown_timeout();
+        let mut screen_debounce = tokio::time::interval(config.screen_debounce());
         let mut state_seq: u64 = 0;
         let mut idle_since: Option<tokio::time::Instant> = None;
-        let mut startup_complete = false;
 
         loop {
             tokio::select! {
@@ -205,7 +199,7 @@ impl Session {
                             }
                             // Send resize to backend task which calls TIOCSWINSZ on the
                             // PTY fd (the ioctl also delivers SIGWINCH to the child).
-                            let _ = self.resize_tx.send((cols, rows)).await;
+                            let _ = self.resize_tx.try_send((cols, rows));
                         }
                         Some(InputEvent::Signal(sig)) => {
                             let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
@@ -237,7 +231,6 @@ impl Session {
                             self.app_state
                                 .ready
                                 .store(true, std::sync::atomic::Ordering::Release);
-                            startup_complete = true;
                         }
 
                         // Store error detail + category when entering Error state.
@@ -262,7 +255,7 @@ impl Session {
 
                         // Track idle time for idle_timeout.
                         if matches!(detected.state, AgentState::WaitingForInput)
-                            && self.idle_timeout > Duration::ZERO
+                            && idle_timeout > Duration::ZERO
                         {
                             if idle_since.is_none() {
                                 idle_since = Some(tokio::time::Instant::now());
@@ -273,36 +266,14 @@ impl Session {
                     }
                 }
 
-                // 4. Screen debounce timer → broadcast ScreenUpdate if changed,
-                //    and detect startup prompts when auto-handling is enabled.
+                // 4. Screen debounce timer → broadcast ScreenUpdate if changed.
                 _ = screen_debounce.tick() => {
                     let mut screen = self.app_state.terminal.screen.write().await;
                     let changed = screen.changed();
                     if changed {
                         let seq = screen.seq();
                         screen.clear_changed();
-
-                        // Detect and auto-respond to startup prompts while
-                        // the agent is still in the Starting phase.
-                        if self.skip_startup_prompts && !startup_complete {
-                            let snap = screen.snapshot();
-                            drop(screen);
-                            if let Some(prompt) = detect_startup_prompt(&snap.lines) {
-                                debug!(?prompt, "auto-handling startup prompt");
-                                let steps = encode_startup_response(prompt);
-                                for step in &steps {
-                                    let _ = self
-                                        .backend_input_tx
-                                        .send(Bytes::from(step.bytes.clone()))
-                                        .await;
-                                    if let Some(delay) = step.delay_after {
-                                        tokio::time::sleep(delay).await;
-                                    }
-                                }
-                            }
-                        } else {
-                            drop(screen);
-                        }
+                        drop(screen);
 
                         let _ = self.app_state.channels.output_tx.send(OutputEvent::ScreenUpdate { seq });
                     }
@@ -311,7 +282,7 @@ impl Session {
                 // 5. Idle timeout → trigger shutdown when idle too long
                 _ = async {
                     match idle_since {
-                        Some(since) => tokio::time::sleep_until(since + self.idle_timeout).await,
+                        Some(since) => tokio::time::sleep_until(since + idle_timeout).await,
                         None => std::future::pending().await,
                     }
                 }, if idle_since.is_some() => {
@@ -334,12 +305,33 @@ impl Session {
             }
         }
 
+        // Drain any pending output so final bytes are captured.
+        while let Ok(bytes) = self.backend_output_rx.try_recv() {
+            {
+                let mut ring = self.app_state.terminal.ring.write().await;
+                ring.write(&bytes);
+                self.app_state
+                    .terminal
+                    .ring_total_written
+                    .store(ring.total_written(), std::sync::atomic::Ordering::Relaxed);
+            }
+            {
+                let mut screen = self.app_state.terminal.screen.write().await;
+                screen.feed(&bytes);
+            }
+            let _ = self
+                .app_state
+                .channels
+                .output_tx
+                .send(OutputEvent::Raw(bytes));
+        }
+
         // Drop the input sender to signal the backend to stop
         drop(self.backend_input_tx);
 
         // Wait for backend with timeout
         let status = tokio::select! {
-            result = self.backend_handle => {
+            result = &mut self.backend_handle => {
                 match result {
                     Ok(Ok(status)) => status,
                     Ok(Err(e)) => {
@@ -352,13 +344,15 @@ impl Session {
                     }
                 }
             }
-            _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                warn!("backend did not exit within 10s, sending SIGKILL");
+            _ = tokio::time::sleep(shutdown_timeout) => {
+                warn!("backend did not exit within {:?}, sending SIGKILL", shutdown_timeout);
                 let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
                 if pid != 0 {
                     // Signal the process group to also kill grandchildren.
                     let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGKILL);
                 }
+                // Abort the backend task to release the PTY master FD.
+                self.backend_handle.abort();
                 ExitStatus { code: Some(137), signal: Some(9) }
             }
         };

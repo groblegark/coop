@@ -9,6 +9,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use tokio::sync::mpsc;
 
+use coop::config::Config;
 use coop::pty::spawn::NativePty;
 use coop::pty::Backend;
 use coop::session::{Session, SessionConfig};
@@ -24,7 +25,7 @@ async fn child_exit_produces_eof() -> anyhow::Result<()> {
     let (_input_tx, input_rx) = mpsc::channel(64);
     let (_resize_tx, resize_rx) = mpsc::channel(4);
 
-    let mut pty = NativePty::spawn(&["true".into()], 80, 24)?;
+    let mut pty = NativePty::spawn(&["true".into()], 80, 24, &[])?;
     let status = pty.run(output_tx, input_rx, resize_rx).await?;
     assert_eq!(status.code, Some(0));
     assert_eq!(status.signal, None);
@@ -47,7 +48,7 @@ async fn child_killed_produces_signal() -> anyhow::Result<()> {
     let (_input_tx, input_rx) = mpsc::channel(64);
     let (_resize_tx, resize_rx) = mpsc::channel(4);
 
-    let mut pty = NativePty::spawn(&["/bin/sleep".into(), "60".into()], 80, 24)?;
+    let mut pty = NativePty::spawn(&["/bin/sleep".into(), "60".into()], 80, 24, &[])?;
     let pid = pty
         .child_pid()
         .ok_or_else(|| anyhow::anyhow!("no child pid"))?;
@@ -86,6 +87,7 @@ async fn eio_on_child_death() -> anyhow::Result<()> {
         &["/bin/sh".into(), "-c".into(), "echo hi; exit 1".into()],
         80,
         24,
+        &[],
     )?;
 
     let status = pty.run(output_tx, input_rx, resize_rx).await?;
@@ -111,7 +113,7 @@ async fn resize_reflected_in_stty() -> anyhow::Result<()> {
     let (input_tx, input_rx) = mpsc::channel(64);
     let (resize_tx, resize_rx) = mpsc::channel(4);
 
-    let mut pty = NativePty::spawn(&["/bin/sh".into()], 80, 24)?;
+    let mut pty = NativePty::spawn(&["/bin/sh".into()], 80, 24, &[])?;
 
     let handle = tokio::spawn(async move { pty.run(output_tx, input_rx, resize_rx).await });
 
@@ -174,6 +176,7 @@ async fn resize_reflected_in_stty() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn large_output_through_session() -> anyhow::Result<()> {
+    let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new()
         .ring_size(1_048_576) // 1MB
@@ -183,14 +186,14 @@ async fn large_output_through_session() -> anyhow::Result<()> {
         &["/bin/sh".into(), "-c".into(), "seq 1 10000".into()],
         80,
         24,
+        &[],
     )?;
-    let session = Session::new(SessionConfig::test_default(
-        Box::new(backend),
-        Arc::clone(&app_state),
-        consumer_input_rx,
-    ));
+    let session = Session::new(
+        &config,
+        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
+    );
 
-    let status = session.run().await?;
+    let status = session.run(&config).await?;
     assert_eq!(status.code, Some(0));
 
     // Ring should have captured substantial data
@@ -228,6 +231,7 @@ async fn binary_output_no_panic() -> anyhow::Result<()> {
         ],
         80,
         24,
+        &[],
     )?;
 
     let status = pty.run(output_tx, input_rx, resize_rx).await?;
@@ -252,7 +256,7 @@ async fn rapid_input_output() -> anyhow::Result<()> {
     let (input_tx, input_rx) = mpsc::channel(256);
     let (_resize_tx, resize_rx) = mpsc::channel(4);
 
-    let mut pty = NativePty::spawn(&["/bin/cat".into()], 80, 24)?;
+    let mut pty = NativePty::spawn(&["/bin/cat".into()], 80, 24, &[])?;
     let handle = tokio::spawn(async move { pty.run(output_tx, input_rx, resize_rx).await });
 
     // Send 100 short lines rapidly
@@ -289,19 +293,22 @@ async fn rapid_input_output() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn signal_delivery_sigint() -> anyhow::Result<()> {
+    let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new()
         .ring_size(65536)
         .build_with_sender(input_tx.clone());
 
-    let backend = NativePty::spawn(&["/bin/cat".into()], 80, 24)?;
-    let session = Session::new(SessionConfig::test_default(
-        Box::new(backend),
-        Arc::clone(&app_state),
-        consumer_input_rx,
-    ));
+    let backend = NativePty::spawn(&["/bin/cat".into()], 80, 24, &[])?;
+    let session = Session::new(
+        &config,
+        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
+    );
 
-    let session_handle = tokio::spawn(async move { session.run().await });
+    let session_handle = tokio::spawn(async move {
+        let config = Config::test();
+        session.run(&config).await
+    });
 
     // Give cat time to start
     tokio::time::sleep(Duration::from_millis(200)).await;

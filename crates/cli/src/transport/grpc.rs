@@ -12,8 +12,10 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
-use super::{deliver_steps, encode_response, keys_to_bytes, read_ring_combined};
-use crate::driver::{classify_error_detail, AgentState, PromptContext};
+use super::{
+    deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_active_question,
+};
+use crate::driver::{classify_error_detail, AgentState, PromptContext, QuestionAnswer};
 use crate::error::ErrorCode;
 use crate::event::{InputEvent, OutputEvent, PtySignal, StateChangeEvent};
 use crate::transport::state::AppState;
@@ -77,6 +79,15 @@ pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
         options: p.options.clone(),
         summary: p.summary.clone(),
         screen_lines: p.screen_lines.clone(),
+        questions: p
+            .questions
+            .iter()
+            .map(|q| proto::QuestionContext {
+                question: q.question.clone(),
+                options: q.options.clone(),
+            })
+            .collect(),
+        active_question: p.active_question as u32,
     }
 }
 
@@ -209,7 +220,7 @@ impl proto::coop_server::Coop for CoopGrpc {
             .input_tx
             .send(InputEvent::Write(Bytes::from(payload)))
             .await
-            .map_err(|_| ErrorCode::WriterBusy.to_grpc_status("input channel closed"))?;
+            .map_err(|_| ErrorCode::Internal.to_grpc_status("input channel closed"))?;
         Ok(Response::new(proto::SendInputResponse {
             bytes_written: len,
         }))
@@ -232,7 +243,7 @@ impl proto::coop_server::Coop for CoopGrpc {
             .input_tx
             .send(InputEvent::Write(Bytes::from(data)))
             .await
-            .map_err(|_| ErrorCode::WriterBusy.to_grpc_status("input channel closed"))?;
+            .map_err(|_| ErrorCode::Internal.to_grpc_status("input channel closed"))?;
         Ok(Response::new(proto::SendKeysResponse {
             bytes_written: len,
         }))
@@ -256,7 +267,7 @@ impl proto::coop_server::Coop for CoopGrpc {
             .input_tx
             .send(InputEvent::Resize { cols, rows })
             .await
-            .map_err(|_| ErrorCode::WriterBusy.to_grpc_status("input channel closed"))?;
+            .map_err(|_| ErrorCode::Internal.to_grpc_status("input channel closed"))?;
         Ok(Response::new(proto::ResizeResponse {
             cols: cols as i32,
             rows: rows as i32,
@@ -279,7 +290,7 @@ impl proto::coop_server::Coop for CoopGrpc {
             .input_tx
             .send(InputEvent::Signal(sig))
             .await
-            .map_err(|_| ErrorCode::WriterBusy.to_grpc_status("input channel closed"))?;
+            .map_err(|_| ErrorCode::Internal.to_grpc_status("input channel closed"))?;
         Ok(Response::new(proto::SendSignalResponse { delivered: true }))
     }
 
@@ -332,12 +343,7 @@ impl proto::coop_server::Coop for CoopGrpc {
             .as_ref()
             .ok_or_else(|| ErrorCode::NoDriver.to_grpc_status("no nudge encoder configured"))?;
 
-        let _guard = self
-            .state
-            .lifecycle
-            .write_lock
-            .acquire_http()
-            .map_err(|code| code.to_grpc_status("write lock held by another client"))?;
+        let _delivery = self.state.nudge_mutex.lock().await;
 
         let agent = self.state.driver.agent_state.read().await;
         let state_before = agent.as_str().to_owned();
@@ -354,10 +360,8 @@ impl proto::coop_server::Coop for CoopGrpc {
         }
 
         let steps = encoder.encode(&req.message);
-        // Release the read lock before writing
         drop(agent);
 
-        let _delivery = self.state.nudge_mutex.lock().await;
         deliver_steps(&self.state.channels.input_tx, steps)
             .await
             .map_err(|code| code.to_grpc_status("input channel closed"))?;
@@ -387,34 +391,41 @@ impl proto::coop_server::Coop for CoopGrpc {
                 ErrorCode::NoDriver.to_grpc_status("no respond encoder configured")
             })?;
 
-        let _guard = self
-            .state
-            .lifecycle
-            .write_lock
-            .acquire_http()
-            .map_err(|code| code.to_grpc_status("write lock held by another client"))?;
+        let answers: Vec<QuestionAnswer> = req
+            .answers
+            .iter()
+            .map(|a| QuestionAnswer {
+                option: a.option.map(|o| o as u32),
+                text: a.text.clone(),
+            })
+            .collect();
+
+        let _delivery = self.state.nudge_mutex.lock().await;
 
         let agent = self.state.driver.agent_state.read().await;
 
-        let steps = encode_response(
+        let (steps, answers_delivered) = encode_response(
             &agent,
             encoder.as_ref(),
             req.accept,
             req.option,
             req.text.as_deref(),
+            &answers,
         )
         .map_err(|code| {
             code.to_grpc_status(format!("agent is {} (no active prompt)", agent.as_str()))
         })?;
 
         let prompt_type = agent.as_str().to_owned();
-        // Release the read lock before writing
         drop(agent);
 
-        let _delivery = self.state.nudge_mutex.lock().await;
         deliver_steps(&self.state.channels.input_tx, steps)
             .await
             .map_err(|code| code.to_grpc_status("input channel closed"))?;
+
+        if answers_delivered > 0 {
+            update_active_question(&self.state, answers_delivered).await;
+        }
 
         Ok(Response::new(proto::RespondResponse {
             delivered: true,

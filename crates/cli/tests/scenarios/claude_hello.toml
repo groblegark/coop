@@ -1,0 +1,5 @@
+name = "basic"
+
+[[responses]]
+pattern = { type = "any" }
+response = "Hello! I can help you with that."

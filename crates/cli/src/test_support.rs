@@ -22,7 +22,6 @@ use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::transport::state::{
     AppState, DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels,
-    WriteLock,
 };
 
 /// Builder for constructing `AppState` in tests with sensible defaults.
@@ -126,7 +125,6 @@ impl AppStateBuilder {
             },
             lifecycle: LifecycleState {
                 shutdown: CancellationToken::new(),
-                write_lock: Arc::new(WriteLock::new()),
                 ws_client_count: AtomicI32::new(0),
                 bytes_written: AtomicU64::new(0),
             },
@@ -250,28 +248,6 @@ impl NudgeEncoder for StubNudgeEncoder {
     fn encode(&self, message: &str) -> Vec<NudgeStep> {
         vec![NudgeStep {
             bytes: message.as_bytes().to_vec(),
-            delay_after: None,
-        }]
-    }
-}
-
-/// Stub respond encoder for testing permission/plan/question flows.
-pub struct StubRespondEncoder;
-impl RespondEncoder for StubRespondEncoder {
-    fn encode_permission(&self, accept: bool) -> Vec<NudgeStep> {
-        let text = if accept { "y" } else { "n" };
-        vec![NudgeStep {
-            bytes: text.as_bytes().to_vec(),
-            delay_after: None,
-        }]
-    }
-    fn encode_plan(&self, accept: bool, _text: Option<&str>) -> Vec<NudgeStep> {
-        self.encode_permission(accept)
-    }
-    fn encode_question(&self, _option: Option<u32>, text: Option<&str>) -> Vec<NudgeStep> {
-        let t = text.unwrap_or("1");
-        vec![NudgeStep {
-            bytes: t.as_bytes().to_vec(),
             delay_after: None,
         }]
     }

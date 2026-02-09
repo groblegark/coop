@@ -4,6 +4,7 @@
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::time::Duration;
 
 use bytes::Bytes;
 use tokio::sync::mpsc;
@@ -12,9 +13,10 @@ use tokio_util::sync::CancellationToken;
 use crate::driver::hook_recv::HookReceiver;
 use crate::driver::jsonl_stdout::JsonlParser;
 use crate::driver::log_watch::LogWatcher;
-use crate::driver::{AgentState, Detector};
+use crate::driver::{AgentState, Detector, PromptContext};
 use crate::event::HookEvent;
 
+use super::prompt::extract_ask_user_from_tool_input;
 use super::state::parse_claude_state;
 
 /// Tier 1 detector: receives push events from Claude's hook system.
@@ -22,6 +24,11 @@ use super::state::parse_claude_state;
 /// Maps hook events to agent states:
 /// - `AgentStop` / `SessionEnd` → `WaitingForInput`
 /// - `ToolComplete` → `Working`
+/// - `Notification(idle_prompt)` → `WaitingForInput`
+/// - `Notification(permission_prompt)` → `PermissionPrompt`
+/// - `PreToolUse(AskUserQuestion)` → `Question` with context
+/// - `PreToolUse(ExitPlanMode)` → `PlanPrompt`
+/// - `PreToolUse(EnterPlanMode)` → `Working`
 pub struct HookDetector {
     pub receiver: HookReceiver,
 }
@@ -38,15 +45,57 @@ impl Detector for HookDetector {
                 tokio::select! {
                     _ = shutdown.cancelled() => break,
                     event = receiver.next_event() => {
-                        match event {
+                        let state = match event {
                             Some(HookEvent::AgentStop) | Some(HookEvent::SessionEnd) => {
-                                let _ = state_tx.send(AgentState::WaitingForInput).await;
+                                AgentState::WaitingForInput
                             }
                             Some(HookEvent::ToolComplete { .. }) => {
-                                let _ = state_tx.send(AgentState::Working).await;
+                                AgentState::Working
+                            }
+                            Some(HookEvent::Notification { notification_type }) => {
+                                match notification_type.as_str() {
+                                    "idle_prompt" => AgentState::WaitingForInput,
+                                    "permission_prompt" => AgentState::PermissionPrompt {
+                                        prompt: PromptContext {
+                                            prompt_type: "permission".to_string(),
+                                            tool: None,
+                                            input_preview: None,
+                                            question: None,
+                                            options: vec![],
+                                            summary: None,
+                                            screen_lines: vec![],
+                                            questions: vec![],
+                                            active_question: 0,
+                                        },
+                                    },
+                                    _ => continue,
+                                }
+                            }
+                            Some(HookEvent::PreToolUse { ref tool, ref tool_input }) => {
+                                match tool.as_str() {
+                                    "AskUserQuestion" => AgentState::Question {
+                                        prompt: extract_ask_user_from_tool_input(tool_input.as_ref()),
+                                    },
+                                    "ExitPlanMode" => AgentState::PlanPrompt {
+                                        prompt: PromptContext {
+                                            prompt_type: "plan".to_string(),
+                                            tool: None,
+                                            input_preview: None,
+                                            question: None,
+                                            options: vec![],
+                                            summary: None,
+                                            screen_lines: vec![],
+                                            questions: vec![],
+                                            active_question: 0,
+                                        },
+                                    },
+                                    "EnterPlanMode" => AgentState::Working,
+                                    _ => continue,
+                                }
                             }
                             None => break,
-                        }
+                        };
+                        let _ = state_tx.send(state).await;
                     }
                 }
             }
@@ -66,6 +115,8 @@ pub struct LogDetector {
     pub log_path: PathBuf,
     /// Byte offset to start reading from (used for session resume).
     pub start_offset: u64,
+    /// Fallback poll interval for the log watcher.
+    pub poll_interval: Duration,
 }
 
 impl Detector for LogDetector {
@@ -79,7 +130,8 @@ impl Detector for LogDetector {
                 LogWatcher::with_offset(self.log_path, self.start_offset)
             } else {
                 LogWatcher::new(self.log_path)
-            };
+            }
+            .with_poll_interval(self.poll_interval);
             let (line_tx, mut line_rx) = mpsc::channel(32);
             let watch_shutdown = shutdown.clone();
 

@@ -13,13 +13,15 @@ use base64::Engine;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
-use crate::driver::{AgentState, PromptContext};
+use crate::driver::{AgentState, PromptContext, QuestionAnswer};
 use crate::error::ErrorCode;
 use crate::event::InputEvent;
 use crate::event::PtySignal;
 use crate::screen::CursorPosition;
 use crate::transport::state::AppState;
-use crate::transport::{deliver_steps, encode_response, keys_to_bytes, read_ring_combined};
+use crate::transport::{
+    deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_active_question,
+};
 
 // ---------------------------------------------------------------------------
 // Request / Response types
@@ -165,6 +167,15 @@ pub struct RespondRequest {
     pub accept: Option<bool>,
     pub option: Option<i32>,
     pub text: Option<String>,
+    #[serde(default)]
+    pub answers: Vec<HttpQuestionAnswer>,
+}
+
+/// HTTP JSON representation of a question answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpQuestionAnswer {
+    pub option: Option<i32>,
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -307,15 +318,6 @@ pub async fn input(
     State(s): State<Arc<AppState>>,
     Json(req): Json<InputRequest>,
 ) -> impl IntoResponse {
-    let _guard = match s.lifecycle.write_lock.acquire_http() {
-        Ok(g) => g,
-        Err(code) => {
-            return code
-                .to_http_response("write lock held by another client")
-                .into_response()
-        }
-    };
-
     let mut data = req.text.into_bytes();
     if req.enter {
         data.push(b'\r');
@@ -335,15 +337,6 @@ pub async fn input_keys(
     State(s): State<Arc<AppState>>,
     Json(req): Json<KeysRequest>,
 ) -> impl IntoResponse {
-    let _guard = match s.lifecycle.write_lock.acquire_http() {
-        Ok(g) => g,
-        Err(code) => {
-            return code
-                .to_http_response("write lock held by another client")
-                .into_response()
-        }
-    };
-
     let data = match keys_to_bytes(&req.keys) {
         Ok(d) => d,
         Err(bad_key) => {
@@ -457,14 +450,7 @@ pub async fn agent_nudge(
         }
     };
 
-    let _guard = match s.lifecycle.write_lock.acquire_http() {
-        Ok(g) => g,
-        Err(code) => {
-            return code
-                .to_http_response("write lock held by another client")
-                .into_response()
-        }
-    };
+    let _delivery = s.nudge_mutex.lock().await;
 
     let agent = s.driver.agent_state.read().await;
     let state_before = agent.as_str().to_owned();
@@ -480,11 +466,9 @@ pub async fn agent_nudge(
             .into_response();
         }
     }
-    // Release the read lock before writing
     drop(agent);
 
     let steps = encoder.encode(&req.message);
-    let _delivery = s.nudge_mutex.lock().await;
     let _ = deliver_steps(&s.channels.input_tx, steps).await;
 
     Json(NudgeResponse {
@@ -515,34 +499,41 @@ pub async fn agent_respond(
         }
     };
 
-    let _guard = match s.lifecycle.write_lock.acquire_http() {
-        Ok(g) => g,
-        Err(code) => {
-            return code
-                .to_http_response("write lock held by another client")
-                .into_response()
-        }
-    };
+    let answers: Vec<QuestionAnswer> = req
+        .answers
+        .iter()
+        .map(|a| QuestionAnswer {
+            option: a.option.map(|o| o as u32),
+            text: a.text.clone(),
+        })
+        .collect();
+
+    let _delivery = s.nudge_mutex.lock().await;
 
     let agent = s.driver.agent_state.read().await;
     let prompt_type = agent.as_str().to_owned();
 
-    let steps = match encode_response(
+    let (steps, answers_delivered) = match encode_response(
         &agent,
         encoder.as_ref(),
         req.accept,
         req.option,
         req.text.as_deref(),
+        &answers,
     ) {
-        Ok(s) => s,
+        Ok(r) => r,
         Err(code) => {
             return code.to_http_response("no prompt active").into_response();
         }
     };
 
     drop(agent);
-    let _delivery = s.nudge_mutex.lock().await;
     let _ = deliver_steps(&s.channels.input_tx, steps).await;
+
+    // Update active_question tracking for multi-question dialogs.
+    if answers_delivered > 0 {
+        update_active_question(&s, answers_delivered).await;
+    }
 
     Json(RespondResponse {
         delivered: true,

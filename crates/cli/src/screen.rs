@@ -12,6 +12,10 @@ pub struct Screen {
     /// Buffer for incomplete UTF-8 trailing bytes between `feed()` calls.
     utf8_buf: [u8; 3],
     utf8_buf_len: u8,
+    /// Buffer for trailing bytes that may form an incomplete escape sequence
+    /// across `feed()` calls (max sequence length is 8: `\x1b[?1049h`).
+    esc_buf: [u8; 7],
+    esc_buf_len: u8,
 }
 
 impl std::fmt::Debug for Screen {
@@ -28,6 +32,25 @@ impl std::fmt::Debug for Screen {
 const ALT_SCREEN_ON: &[u8] = b"\x1b[?1049h";
 /// DECRST alternate screen buffer disable.
 const ALT_SCREEN_OFF: &[u8] = b"\x1b[?1049l";
+
+/// Scan `data` for alt screen on/off sequences, updating `alt_screen`.
+fn scan_alt_screen(data: &[u8], alt_screen: &mut bool) {
+    if data.len() < ALT_SCREEN_ON.len() {
+        return;
+    }
+    if data
+        .windows(ALT_SCREEN_ON.len())
+        .any(|w| w == ALT_SCREEN_ON)
+    {
+        *alt_screen = true;
+    }
+    if data
+        .windows(ALT_SCREEN_OFF.len())
+        .any(|w| w == ALT_SCREEN_OFF)
+    {
+        *alt_screen = false;
+    }
+}
 
 /// Returns the number of trailing bytes that form an incomplete UTF-8 sequence.
 ///
@@ -70,6 +93,8 @@ impl Screen {
             alt_screen: false,
             utf8_buf: [0; 3],
             utf8_buf_len: 0,
+            esc_buf: [0; 7],
+            esc_buf_len: 0,
         }
     }
 
@@ -77,22 +102,6 @@ impl Screen {
     pub fn feed(&mut self, data: &[u8]) {
         if data.is_empty() {
             return;
-        }
-
-        // Track alt screen transitions from raw escape sequences since
-        // avt::Vt doesn't expose the active buffer type.  Escape sequences
-        // are pure ASCII so they are unaffected by the UTF-8 buffering below.
-        if data
-            .windows(ALT_SCREEN_ON.len())
-            .any(|w| w == ALT_SCREEN_ON)
-        {
-            self.alt_screen = true;
-        }
-        if data
-            .windows(ALT_SCREEN_OFF.len())
-            .any(|w| w == ALT_SCREEN_OFF)
-        {
-            self.alt_screen = false;
         }
 
         // Prepend any buffered incomplete UTF-8 bytes from the previous call.
@@ -105,6 +114,31 @@ impl Screen {
             self.utf8_buf_len = 0;
             &owned
         };
+
+        // Track alt screen transitions from raw escape sequences since
+        // avt::Vt doesn't expose the active buffer type.
+        //
+        // To detect sequences split across PTY read boundaries, we
+        // prepend the esc_buf tail from the previous call to the start
+        // of input, scan that combined region, then also scan the full
+        // input.  Finally, buffer the last 7 bytes for next time.
+        let esc_len = self.esc_buf_len as usize;
+        if esc_len > 0 {
+            // Build a small region: [esc_buf tail | first bytes of input]
+            // that is large enough to complete any split sequence.
+            let take = input.len().min(ALT_SCREEN_ON.len());
+            let mut bridge = [0u8; 15]; // 7 + 8
+            bridge[..esc_len].copy_from_slice(&self.esc_buf[..esc_len]);
+            bridge[esc_len..esc_len + take].copy_from_slice(&input[..take]);
+            let region = &bridge[..esc_len + take];
+            scan_alt_screen(region, &mut self.alt_screen);
+        }
+        scan_alt_screen(input, &mut self.alt_screen);
+
+        // Buffer the last 7 bytes for cross-boundary detection next call.
+        let tail_len = input.len().min(7);
+        self.esc_buf[..tail_len].copy_from_slice(&input[input.len() - tail_len..]);
+        self.esc_buf_len = tail_len as u8;
 
         // Split off any incomplete UTF-8 trailing bytes to buffer for next call.
         let tail = incomplete_utf8_tail_len(input);

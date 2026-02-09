@@ -10,6 +10,8 @@ use serde_json::{json, Value};
 /// The hooks write JSON events to the named pipe at `$COOP_HOOK_PIPE`:
 /// - `PostToolUse`: fires after each tool call, writes tool name
 /// - `Stop`: fires when the agent stops
+/// - `Notification`: fires on `idle_prompt` and `permission_prompt`
+/// - `PreToolUse`: fires before `AskUserQuestion`, `ExitPlanMode`, `EnterPlanMode`
 pub fn generate_hook_config(pipe_path: &Path) -> Value {
     // Use $COOP_HOOK_PIPE so the config is portable across processes.
     // The actual path is passed via environment variable.
@@ -17,12 +19,32 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
     json!({
         "hooks": {
             "PostToolUse": [{
-                "type": "command",
-                "command": "echo '{\"event\":\"post_tool_use\",\"tool\":\"'\"$TOOL_NAME\"'\"}' > \"$COOP_HOOK_PIPE\""
+                "matcher": "",
+                "hooks": [{
+                    "type": "command",
+                    "command": "input=$(cat); printf '{\"event\":\"post_tool_use\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
+                }]
             }],
             "Stop": [{
-                "type": "command",
-                "command": "echo '{\"event\":\"stop\"}' > \"$COOP_HOOK_PIPE\""
+                "matcher": "",
+                "hooks": [{
+                    "type": "command",
+                    "command": "input=$(cat); printf '{\"event\":\"stop\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
+                }]
+            }],
+            "Notification": [{
+                "matcher": "idle_prompt|permission_prompt",
+                "hooks": [{
+                    "type": "command",
+                    "command": "input=$(cat); printf '{\"event\":\"notification\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
+                }]
+            }],
+            "PreToolUse": [{
+                "matcher": "ExitPlanMode|AskUserQuestion|EnterPlanMode",
+                "hooks": [{
+                    "type": "command",
+                    "command": "input=$(cat); printf '{\"event\":\"pre_tool_use\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
+                }]
             }]
         }
     })

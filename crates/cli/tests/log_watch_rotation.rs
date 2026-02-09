@@ -169,7 +169,10 @@ async fn hook_receiver_reads_events() -> anyhow::Result<()> {
         // Open the FIFO for writing (this will block until reader opens)
         tokio::time::sleep(Duration::from_millis(100)).await;
         if let Ok(mut f) = std::fs::OpenOptions::new().write(true).open(&pp) {
-            let _ = writeln!(f, r#"{{"event":"post_tool_use","tool":"bash"}}"#);
+            let _ = writeln!(
+                f,
+                r#"{{"event":"post_tool_use","data":{{"tool_name":"bash"}}}}"#
+            );
             let _ = writeln!(f, r#"{{"event":"stop"}}"#);
         }
     });
