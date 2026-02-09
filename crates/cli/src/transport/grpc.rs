@@ -83,6 +83,7 @@ pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
         options: p.options.clone(),
         options_fallback: p.options_fallback,
         subtype: p.subtype.clone(),
+        ready: p.ready,
     }
 }
 

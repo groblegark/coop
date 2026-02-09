@@ -31,6 +31,7 @@ pub fn extract_permission_context(json: &Value) -> PromptContext {
         options_fallback: false,
         questions: vec![],
         question_current: 0,
+        ready: false,
     }
 }
 
@@ -88,6 +89,7 @@ pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext 
         options_fallback: false,
         questions,
         question_current: 0,
+        ready: true,
     }
 }
 
@@ -106,6 +108,7 @@ pub fn extract_plan_context(_screen: &ScreenSnapshot) -> PromptContext {
         options_fallback: false,
         questions: vec![],
         question_current: 0,
+        ready: false,
     }
 }
 

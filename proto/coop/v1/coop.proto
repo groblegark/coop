@@ -236,6 +236,8 @@ message PromptContext {
   bool options_fallback = 8;
   // Truncated tool input JSON (permission prompts).
   optional string input = 9;
+  // True when all async enrichment (e.g. option parsing) is complete.
+  bool ready = 10;
 }
 
 message GetAgentStateRequest {}

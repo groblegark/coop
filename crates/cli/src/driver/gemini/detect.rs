@@ -60,6 +60,7 @@ impl Detector for HookDetector {
                                             options_fallback: false,
                                             questions: vec![],
                                             question_current: 0,
+                                            ready: false,
                                         },
                                     }, "hook:prompt(permission)".to_owned()),
                                     _ => continue,

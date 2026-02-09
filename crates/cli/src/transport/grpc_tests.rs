@@ -93,6 +93,7 @@ fn prompt_to_proto_converts_all_fields() {
         options_fallback: false,
         questions: vec![],
         question_current: 0,
+        ready: false,
     };
     let p = prompt_to_proto(&prompt);
     assert_eq!(p.r#type, "permission");
@@ -113,6 +114,7 @@ fn prompt_to_proto_maps_subtype() {
         options_fallback: false,
         questions: vec![],
         question_current: 0,
+        ready: true,
     };
     let p = prompt_to_proto(&prompt);
     assert_eq!(p.r#type, "setup");
@@ -133,6 +135,7 @@ fn prompt_to_proto_handles_none_fields() {
         options_fallback: false,
         questions: vec![],
         question_current: 0,
+        ready: true,
     };
     let p = prompt_to_proto(&prompt);
     assert_eq!(p.r#type, "question");
@@ -168,6 +171,7 @@ fn state_change_to_proto_includes_prompt() {
         options_fallback: false,
         questions: vec![],
         question_current: 0,
+        ready: false,
     };
     let event = crate::event::StateChangeEvent {
         prev: AgentState::Working,

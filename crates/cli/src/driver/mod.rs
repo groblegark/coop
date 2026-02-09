@@ -108,6 +108,11 @@ pub struct PromptContext {
     /// 0-indexed active question; == questions.len() means confirm phase.
     #[serde(default)]
     pub question_current: usize,
+    /// True when all async enrichment (e.g. option parsing) is complete.
+    /// Permission/Plan prompts start `false` until enrichment finishes;
+    /// Question and Setup prompts are immediately `true`.
+    #[serde(default)]
+    pub ready: bool,
 }
 
 /// A single question within a multi-question dialog.

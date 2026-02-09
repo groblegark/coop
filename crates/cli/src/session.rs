@@ -414,6 +414,7 @@ async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64) {
             if let AgentState::Prompt { ref mut prompt } = *agent {
                 if matches!(prompt.kind, PromptKind::Permission | PromptKind::Plan) {
                     prompt.options = options;
+                    prompt.ready = true;
 
                     let next = agent.clone();
                     drop(agent);
@@ -444,6 +445,7 @@ async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64) {
         if matches!(prompt.kind, PromptKind::Permission | PromptKind::Plan) {
             prompt.options = vec!["Accept".to_string(), "Cancel".to_string()];
             prompt.options_fallback = true;
+            prompt.ready = true;
 
             let next = agent.clone();
             drop(agent);

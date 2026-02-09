@@ -70,6 +70,7 @@ fn fallback_prompt(kind: PromptKind) -> PromptContext {
         options_fallback: true,
         questions: vec![],
         question_current: 0,
+        ready: true,
     }
 }
 
@@ -105,6 +106,7 @@ fn non_fallback_permission_uses_encoder() {
         options_fallback: false,
         questions: vec![],
         question_current: 0,
+        ready: true,
     };
     let state = AgentState::Prompt { prompt };
     let (steps, _) = encode_response(&state, &encoder, Some(true), None, None, &[]).unwrap();
@@ -130,6 +132,7 @@ fn setup_prompt_defaults_to_option_1() {
         options_fallback: false,
         questions: vec![],
         question_current: 0,
+        ready: true,
     };
     let state = AgentState::Prompt { prompt };
     let (steps, count) = encode_response(&state, &encoder, None, None, None, &[]).unwrap();
@@ -151,6 +154,7 @@ fn setup_prompt_respects_explicit_option() {
         options_fallback: false,
         questions: vec![],
         question_current: 0,
+        ready: true,
     };
     let state = AgentState::Prompt { prompt };
     let (steps, _) = encode_response(&state, &encoder, None, Some(2), None, &[]).unwrap();

@@ -203,6 +203,7 @@ async fn respond_setup_prompt_delivers_option_to_pty() -> anyhow::Result<()> {
             options_fallback: false,
             questions: vec![],
             question_current: 0,
+            ready: true,
         },
     };
     let (state, mut rx) = AppStateBuilder::new()

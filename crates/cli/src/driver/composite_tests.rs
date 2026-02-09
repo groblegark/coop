@@ -161,6 +161,7 @@ fn empty_prompt(kind: PromptKind) -> PromptContext {
         options_fallback: false,
         questions: vec![],
         question_current: 0,
+        ready: false,
     }
 }
 
