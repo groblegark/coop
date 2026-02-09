@@ -10,7 +10,7 @@ By contributing, you acknowledge that contributions are licensed under BSL 1.1 (
 - **protoc** — Protocol Buffers compiler (needed by `prost-build` for gRPC codegen)
   - macOS: `brew install protobuf`
   - Debian/Ubuntu: `apt install protobuf-compiler`
-- **[quench](https://github.com/alfredjeanlab/quench)** — fast linting tool for quality signals, used by `make check`
+- **[quench](https://github.com/nicholasgasior/quench)** — fast linting tool for quality signals, used by `make check`
 - **[claudeless](https://github.com/alfredjeanlab/claudeless)** — Claude CLI mock for integration tests and manual testing
 
 **Optional:**
