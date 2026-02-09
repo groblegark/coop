@@ -63,7 +63,7 @@ pub struct Config {
     pub term: String,
 
     /// Health-check-only HTTP port.
-    #[arg(long, env = "COOP_HEALTH_PORT")]
+    #[arg(long, alias = "health-port", env = "COOP_HEALTH_PORT")]
     pub port_health: Option<u16>,
 
     /// Log format (json or text).

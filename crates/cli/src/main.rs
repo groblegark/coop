@@ -27,6 +27,7 @@ async fn main() {
             std::process::exit(result.status.code.unwrap_or(1));
         }
         Err(e) => {
+            eprintln!("coop: fatal: {e:#}");
             error!("fatal: {e:#}");
             std::process::exit(1);
         }
