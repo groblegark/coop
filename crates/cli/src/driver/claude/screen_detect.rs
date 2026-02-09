@@ -90,11 +90,17 @@ impl Detector for ClaudeScreenDetector {
 }
 
 /// Classify Claude's screen as idle when the prompt indicator is visible
-/// and no startup prompt is blocking.
+/// and no startup/interactive prompt is blocking.
 fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<AgentState> {
     // Skip if a known startup prompt is present — those are handled
     // separately and should not appear as WaitingForInput.
     if detect_startup_prompt(&snapshot.lines).is_some() {
+        return None;
+    }
+
+    // Skip interactive dialogs (workspace trust, permission bypass, etc.)
+    // where `❯` is used as a selection cursor rather than the idle prompt.
+    if is_interactive_dialog(&snapshot.lines) {
         return None;
     }
 
@@ -110,6 +116,88 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<AgentState> {
     }
 
     None
+}
+
+/// A screen that should block idle detection. Each screen defines 2-3
+/// signal phrases; a match requires 2+ signals present on screen.
+/// Signal fields: (phrase, case_insensitive).
+/// Signals are `(phrase, case_insensitive)`.
+type DialogScreen = &'static [(&'static str, bool)];
+
+const DIALOG_SCREENS: &[DialogScreen] = &[
+    // Security notes: "Security notes" + "Claude can make mistakes" + "Press Enter to continue…"
+    &[
+        ("Security notes:", false),
+        ("Claude can make mistakes", false),
+        ("Press Enter to continue", false),
+    ],
+    // Login success: "Logged in as …" + "Login successful. Press Enter to continue…"
+    &[
+        ("Login successful", false),
+        ("Logged in as", false),
+        ("Press Enter to continue", false),
+    ],
+    // OAuth login: "Browser didn't open?" + "Paste code here if prompted >"
+    &[
+        ("Paste code here if prompted", false),
+        ("oauth/authorize", false),
+    ],
+    // Login method picker: "Select login method:" + "Claude account with subscription"
+    &[
+        ("Select login method:", false),
+        ("Claude account with subscription", false),
+        ("Anthropic Console account", false),
+    ],
+    // Workspace trust: "Accessing workspace:" + "1. Yes, I trust this folder" + "Enter to confirm"
+    &[
+        ("Accessing workspace:", false),
+        ("Yes, I trust this folder", false),
+        ("enter to confirm", true),
+    ],
+    // Terminal setup: "terminal setup?" + "recommended settings" + "Enter to confirm"
+    &[
+        ("Use Claude Code's terminal setup?", false),
+        ("Yes, use recommended settings", false),
+        ("enter to confirm", true),
+    ],
+    // Theme picker: "Choose the text style" + "1. Dark mode" + "Enter to confirm"
+    &[
+        ("Choose the text style", false),
+        ("Dark mode", false),
+        ("enter to confirm", true),
+    ],
+];
+
+/// Minimum number of signals that must match to identify a dialog screen.
+const DIALOG_SIGNAL_THRESHOLD: usize = 2;
+
+/// Returns `true` when the screen shows an interactive selection dialog
+/// (e.g. workspace trust, login, theme picker) where `❯` is used as a
+/// list-item cursor rather than the idle input prompt.
+///
+/// Each known dialog screen defines 2-3 signal phrases; a match requires
+/// at least [`DIALOG_SIGNAL_THRESHOLD`] signals present on screen.
+fn is_interactive_dialog(lines: &[String]) -> bool {
+    for screen in DIALOG_SCREENS {
+        let mut hits = 0;
+        for &(phrase, ci) in *screen {
+            let found = lines.iter().any(|line| {
+                let trimmed = line.trim();
+                if ci {
+                    trimmed.to_lowercase().contains(phrase)
+                } else {
+                    trimmed.contains(phrase)
+                }
+            });
+            if found {
+                hits += 1;
+                if hits >= DIALOG_SIGNAL_THRESHOLD {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]

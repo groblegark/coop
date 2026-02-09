@@ -59,6 +59,33 @@ fn detects_bare_prompt() {
 }
 
 #[test]
+fn no_match_on_workspace_trust_dialog() {
+    let snap = snapshot(&[
+        " Accessing workspace:",
+        " /Users/kestred/Developer/foo",
+        "",
+        " \u{276f} 1. Yes, I trust this folder",
+        "   2. No, exit",
+        "",
+        " Enter to confirm \u{00b7} Esc to cancel",
+    ]);
+    assert_eq!(classify_claude_screen(&snap), None);
+}
+
+#[test]
+fn no_match_on_theme_picker() {
+    let snap = snapshot(&[
+        " Choose the text style that looks best with your terminal",
+        "",
+        " \u{276f} 1. Dark mode \u{2714}",
+        "   2. Light mode",
+        "",
+        " Enter to confirm",
+    ]);
+    assert_eq!(classify_claude_screen(&snap), None);
+}
+
+#[test]
 fn detects_prompt_with_status_text_below() {
     let snap = snapshot(&[
         "Claude Code v2.1.37",
