@@ -34,7 +34,7 @@ Opens a browser terminal running coop → claudeless with the given scenario. Us
 - `run::prepare()` sets up the full session (driver, backend, servers) and returns a `PreparedSession` with access to `AppState` before the session loop starts. `run::run()` is the simple wrapper that calls `prepare().run()`.
 - Claude driver detection has three tiers: Tier 1 (hook FIFO), Tier 2 (session log), Tier 3 (stdout JSONL). Hooks are the primary detection path.
 - Session artifacts (FIFO pipe, settings) live at `$XDG_STATE_HOME/coop/sessions/<session-id>/` for debugging and recovery.
-- Integration tests use claudeless (scenario-driven Claude CLI simulator). Tests call `run::prepare()`, subscribe to state broadcasts, spawn the session, `wait_for` expected states, then cancel shutdown.
+- Integration tests use claudeless (scenario-driven Claude CLI mock). Tests call `run::prepare()`, subscribe to state broadcasts, spawn the session, `wait_for` expected states, then cancel shutdown.
 
 ## Working Style
 

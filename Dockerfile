@@ -25,7 +25,7 @@ COPY --from=builder /coop-bin /coop
 ENTRYPOINT ["/coop"]
 
 # ---------------------------------------------------------------------------
-# Claudeless: coop + claudeless simulator + scenario fixtures (for testing)
+# Claudeless: coop + claudeless + scenario fixtures (for testing)
 # ---------------------------------------------------------------------------
 FROM debian:bookworm-slim AS claudeless
 ARG TARGETARCH

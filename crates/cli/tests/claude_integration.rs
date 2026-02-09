@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 //! End-to-end integration tests exercising the Claude driver against claudeless,
-//! a scenario-driven Claude CLI simulator.
+//! a scenario-driven Claude CLI mock.
 //!
 //! Requires `claudeless` in PATH (install via `brew install alfredjeanlab/tap/claudeless`).
 
