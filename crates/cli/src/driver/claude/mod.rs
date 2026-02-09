@@ -17,8 +17,9 @@ use bytes::Bytes;
 use tokio::sync::mpsc;
 
 use super::hook_recv::HookReceiver;
+use super::nats_recv::{NatsConfig, NatsReceiver};
 use super::Detector;
-use detect::{HookDetector, LogDetector, StdoutDetector};
+use detect::{HookDetector, LogDetector, NatsDetector, StdoutDetector};
 use encoding::{ClaudeNudgeEncoder, ClaudeRespondEncoder};
 
 /// Configuration for building a [`ClaudeDriver`].
@@ -38,6 +39,9 @@ pub struct ClaudeDriverConfig {
     pub feedback_delay: Duration,
     /// Delay between keystrokes in multi-question sequences.
     pub input_delay: Duration,
+    /// NATS configuration for Tier 1 event bus detection.
+    /// When set, a NatsDetector is created alongside other detectors.
+    pub nats_config: Option<NatsConfig>,
 }
 
 /// Claude Code agent driver.
@@ -76,6 +80,12 @@ impl ClaudeDriver {
                 start_offset: config.log_start_offset,
                 poll_interval: config.log_poll,
             }));
+        }
+
+        // Tier 1 (NATS): Event bus from bd daemon JetStream
+        if let Some(nats_config) = config.nats_config {
+            let receiver = NatsReceiver::new(nats_config);
+            detectors.push(Box::new(NatsDetector { receiver }));
         }
 
         // Tier 3: Structured stdout JSONL

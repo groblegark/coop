@@ -13,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 use crate::driver::hook_recv::HookReceiver;
 use crate::driver::jsonl_stdout::JsonlParser;
 use crate::driver::log_watch::LogWatcher;
+use crate::driver::nats_recv::NatsReceiver;
 use crate::driver::{AgentState, Detector, PromptContext};
 use crate::event::HookEvent;
 
@@ -41,6 +42,94 @@ impl Detector for HookDetector {
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
             let mut receiver = self.receiver;
+            loop {
+                tokio::select! {
+                    _ = shutdown.cancelled() => break,
+                    event = receiver.next_event() => {
+                        let state = match event {
+                            Some(HookEvent::AgentStop) | Some(HookEvent::SessionEnd) => {
+                                AgentState::WaitingForInput
+                            }
+                            Some(HookEvent::ToolComplete { .. }) => {
+                                AgentState::Working
+                            }
+                            Some(HookEvent::Notification { notification_type }) => {
+                                match notification_type.as_str() {
+                                    "idle_prompt" => AgentState::WaitingForInput,
+                                    "permission_prompt" => AgentState::PermissionPrompt {
+                                        prompt: PromptContext {
+                                            prompt_type: "permission".to_string(),
+                                            tool: None,
+                                            input_preview: None,
+                                            question: None,
+                                            options: vec![],
+                                            summary: None,
+                                            screen_lines: vec![],
+                                            questions: vec![],
+                                            active_question: 0,
+                                        },
+                                    },
+                                    _ => continue,
+                                }
+                            }
+                            Some(HookEvent::PreToolUse { ref tool, ref tool_input }) => {
+                                match tool.as_str() {
+                                    "AskUserQuestion" => AgentState::Question {
+                                        prompt: extract_ask_user_from_tool_input(tool_input.as_ref()),
+                                    },
+                                    "ExitPlanMode" => AgentState::PlanPrompt {
+                                        prompt: PromptContext {
+                                            prompt_type: "plan".to_string(),
+                                            tool: None,
+                                            input_preview: None,
+                                            question: None,
+                                            options: vec![],
+                                            summary: None,
+                                            screen_lines: vec![],
+                                            questions: vec![],
+                                            active_question: 0,
+                                        },
+                                    },
+                                    "EnterPlanMode" => AgentState::Working,
+                                    _ => continue,
+                                }
+                            }
+                            None => break,
+                        };
+                        let _ = state_tx.send(state).await;
+                    }
+                }
+            }
+        })
+    }
+
+    fn tier(&self) -> u8 {
+        1
+    }
+}
+
+/// Tier 1 detector: receives push events from bd daemon's NATS JetStream.
+///
+/// Maps hook events to agent states using the same logic as [`HookDetector`],
+/// but reads from a NATS JetStream durable consumer instead of a named pipe.
+/// This enables detection across the network (K8s sidecars) rather than
+/// requiring a local FIFO.
+pub struct NatsDetector {
+    pub receiver: NatsReceiver,
+}
+
+impl Detector for NatsDetector {
+    fn run(
+        self: Box<Self>,
+        state_tx: mpsc::Sender<AgentState>,
+        shutdown: CancellationToken,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        Box::pin(async move {
+            let mut receiver = self.receiver;
+            if let Err(e) = receiver.connect().await {
+                tracing::error!("NATS connection failed: {e}");
+                return;
+            }
             loop {
                 tokio::select! {
                     _ = shutdown.cancelled() => break,

@@ -368,6 +368,24 @@ fn build_driver(
 ) -> anyhow::Result<DriverComponents> {
     match agent {
         AgentType::Claude => {
+            // Build NATS config from CLI flags, env vars, or auto-discovery.
+            let nats_config = config
+                .nats_url
+                .as_ref()
+                .map(|url| {
+                    crate::driver::nats_recv::NatsConfig {
+                        url: url.clone(),
+                        token: config.nats_token.clone(),
+                        stream: std::env::var("COOP_NATS_STREAM")
+                            .unwrap_or_else(|_| "HOOK_EVENTS".to_string()),
+                        subject: std::env::var("COOP_NATS_SUBJECT")
+                            .unwrap_or_else(|_| "hooks.>".to_string()),
+                        consumer: std::env::var("COOP_NATS_CONSUMER")
+                            .unwrap_or_else(|_| format!("coop-{}", uuid::Uuid::new_v4())),
+                    }
+                })
+                .or_else(crate::driver::nats_recv::NatsConfig::from_env);
+
             let driver = ClaudeDriver::new(ClaudeDriverConfig {
                 session_log_path: claude_setup.map(|s| s.session_log_path.clone()),
                 hook_pipe_path: claude_setup.map(|s| s.hook_pipe_path.clone()),
@@ -376,6 +394,7 @@ fn build_driver(
                 log_poll: config.log_poll(),
                 feedback_delay: config.feedback_delay(),
                 input_delay: config.keyboard_delay(),
+                nats_config,
             })?;
             let nudge: Arc<dyn NudgeEncoder> = Arc::new(driver.nudge);
             let respond: Arc<dyn RespondEncoder> = Arc::new(driver.respond);

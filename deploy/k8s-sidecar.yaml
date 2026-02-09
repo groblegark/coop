@@ -38,6 +38,13 @@ spec:
         - name: CLAUDE_CODE_OAUTH_TOKEN
           valueFrom:
             secretKeyRef: { name: anthropic-credentials, key: oauth-token, optional: true }
+        # NATS event bus integration — connects coop to bd daemon's JetStream
+        # for Tier 1 push-based state detection across the network.
+        - name: COOP_NATS_URL
+          value: "nats://$(BD_DAEMON_SERVICE_HOST):4222"
+        - name: COOP_NATS_TOKEN
+          valueFrom:
+            secretKeyRef: { name: daemon-auth, key: token, optional: true }
       ports:
         - { containerPort: 8080, name: api }
         - { containerPort: 9090, name: health }

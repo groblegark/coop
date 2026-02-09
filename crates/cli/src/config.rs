@@ -84,6 +84,16 @@ pub struct Config {
     #[arg(long, env = "COOP_RESUME")]
     pub resume: Option<String>,
 
+    /// NATS server URL for event bus integration (e.g. "nats://127.0.0.1:4222").
+    /// When set, enables NATS-based Tier 1 detection alongside or instead of
+    /// the hook named pipe.
+    #[arg(long, env = "COOP_NATS_URL")]
+    pub nats_url: Option<String>,
+
+    /// Auth token for NATS connection. Falls back to BD_DAEMON_TOKEN env.
+    #[arg(long, env = "COOP_NATS_TOKEN")]
+    pub nats_token: Option<String>,
+
     /// Command to run (after --).
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub command: Vec<String>,
@@ -203,6 +213,8 @@ impl Config {
             log_format: "json".into(),
             log_level: "debug".into(),
             resume: None,
+            nats_url: None,
+            nats_token: None,
             command: vec!["echo".into()],
         }
     }
