@@ -32,6 +32,8 @@ allow = [
     "Unlicense",
     "Zlib",
     "CC0-1.0",
+    # webpki-roots (Mozilla CA certificates) — permissive data license
+    "CDLA-Permissive-2.0",
 ]
 
 # Our own crate uses BUSL-1.1
@@ -48,6 +50,8 @@ skip = [
     { crate = "bitflags@1" },
     # hashbrown 0.15 pulled by petgraph (via prost-build), while 0.16 is used by indexmap
     { crate = "hashbrown@0.15" },
+    # getrandom 0.2 pulled by tokio-tungstenite (dev), while 0.3 is used by rand/tempfile/uuid
+    { crate = "getrandom@0.2" },
 ]
 
 [sources]
