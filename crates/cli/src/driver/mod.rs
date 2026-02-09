@@ -75,7 +75,7 @@ pub struct PromptContext {
     pub questions: Vec<QuestionContext>,
     /// 0-indexed active question; == questions.len() means confirm phase.
     #[serde(default)]
-    pub active_question: usize,
+    pub question_current: usize,
 }
 
 /// A single question within a multi-question dialog.

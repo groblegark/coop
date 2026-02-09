@@ -20,7 +20,7 @@ use crate::event::PtySignal;
 use crate::screen::CursorPosition;
 use crate::transport::state::AppState;
 use crate::transport::{
-    deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_active_question,
+    deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_question_current,
 };
 
 // ---------------------------------------------------------------------------
@@ -530,9 +530,9 @@ pub async fn agent_respond(
     drop(agent);
     let _ = deliver_steps(&s.channels.input_tx, steps).await;
 
-    // Update active_question tracking for multi-question dialogs.
+    // Update question_current tracking for multi-question dialogs.
     if answers_delivered > 0 {
-        update_active_question(&s, answers_delivered).await;
+        update_question_current(&s, answers_delivered).await;
     }
 
     Json(RespondResponse {

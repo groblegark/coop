@@ -13,7 +13,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use super::{
-    deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_active_question,
+    deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_question_current,
 };
 use crate::driver::{classify_error_detail, AgentState, PromptContext, QuestionAnswer};
 use crate::error::ErrorCode;
@@ -87,7 +87,7 @@ pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
                 options: q.options.clone(),
             })
             .collect(),
-        active_question: p.active_question as u32,
+        question_current: p.question_current as u32,
     }
 }
 
@@ -424,7 +424,7 @@ impl proto::coop_server::Coop for CoopGrpc {
             .map_err(|code| code.to_grpc_status("input channel closed"))?;
 
         if answers_delivered > 0 {
-            update_active_question(&self.state, answers_delivered).await;
+            update_question_current(&self.state, answers_delivered).await;
         }
 
         Ok(Response::new(proto::RespondResponse {

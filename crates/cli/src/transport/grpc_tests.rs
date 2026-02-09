@@ -95,7 +95,7 @@ fn prompt_to_proto_converts_all_fields() {
         summary: Some("dangerous command".to_owned()),
         screen_lines: vec!["$ rm -rf /".to_owned()],
         questions: vec![],
-        active_question: 0,
+        question_current: 0,
     };
     let p = prompt_to_proto(&prompt);
     assert_eq!(p.r#type, "permission");
@@ -118,7 +118,7 @@ fn prompt_to_proto_handles_none_fields() {
         summary: None,
         screen_lines: vec![],
         questions: vec![],
-        active_question: 0,
+        question_current: 0,
     };
     let p = prompt_to_proto(&prompt);
     assert_eq!(p.r#type, "question");
@@ -155,7 +155,7 @@ fn state_change_to_proto_includes_prompt() {
         summary: None,
         screen_lines: vec![],
         questions: vec![],
-        active_question: 0,
+        question_current: 0,
     };
     let event = crate::event::StateChangeEvent {
         prev: AgentState::Working,

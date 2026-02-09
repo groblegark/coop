@@ -182,7 +182,7 @@ fn ask_user_extracts_all_questions() {
     assert_eq!(ctx.question.as_deref(), Some("Which database?"));
     assert_eq!(ctx.options, vec!["PostgreSQL", "SQLite"]);
 
-    assert_eq!(ctx.active_question, 0);
+    assert_eq!(ctx.question_current, 0);
 }
 
 #[test]

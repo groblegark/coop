@@ -25,7 +25,7 @@ use crate::screen::CursorPosition;
 use crate::transport::auth;
 use crate::transport::state::AppState;
 use crate::transport::{
-    deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_active_question,
+    deliver_steps, encode_response, keys_to_bytes, read_ring_combined, update_question_current,
 };
 
 // ---------------------------------------------------------------------------
@@ -475,7 +475,7 @@ async fn handle_client_message(
             drop(agent);
             let _ = deliver_steps(&state.channels.input_tx, steps).await;
             if answers_delivered > 0 {
-                update_active_question(state, answers_delivered).await;
+                update_question_current(state, answers_delivered).await;
             }
             None
         }

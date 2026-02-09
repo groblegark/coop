@@ -94,7 +94,7 @@ pub async fn deliver_steps(
 /// Match the current agent state to the appropriate encoder call.
 ///
 /// Returns `(steps, answers_delivered)` where `answers_delivered` is the
-/// number of question answers that were encoded (for active_question tracking).
+/// number of question answers that were encoded (for question_current tracking).
 pub fn encode_response(
     agent: &AgentState,
     encoder: &dyn RespondEncoder,
@@ -134,23 +134,23 @@ pub fn encode_response(
     }
 }
 
-/// Advance `active_question` on the current `Question` state after answers
+/// Advance `question_current` on the current `Question` state after answers
 /// have been delivered to the PTY.
-pub async fn update_active_question(state: &AppState, answers_delivered: usize) {
+pub async fn update_question_current(state: &AppState, answers_delivered: usize) {
     let mut agent = state.driver.agent_state.write().await;
     if let AgentState::Question { ref mut prompt } = *agent {
-        let prev_aq = prompt.active_question;
-        prompt.active_question = prev_aq
+        let prev_aq = prompt.question_current;
+        prompt.question_current = prev_aq
             .saturating_add(answers_delivered)
             .min(prompt.questions.len());
-        if prompt.active_question != prev_aq {
+        if prompt.question_current != prev_aq {
             let next = agent.clone();
             drop(agent);
             let seq = state
                 .driver
                 .state_seq
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            // Broadcast updated state so clients see active_question progress.
+            // Broadcast updated state so clients see question_current progress.
             let _ = state
                 .channels
                 .state_tx
