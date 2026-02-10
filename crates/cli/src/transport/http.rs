@@ -528,7 +528,17 @@ pub async fn hooks_start(
     drop(config);
 
     let injected = !script.is_empty();
-    start.emit(source, session_id, injected);
+    start.emit(source.clone(), session_id, injected);
+
+    // Save a transcript snapshot before compaction wipes the session log.
+    if source == "compact" {
+        let transcript = Arc::clone(&s.transcript);
+        tokio::spawn(async move {
+            if let Err(e) = transcript.save_snapshot().await {
+                tracing::warn!("transcript snapshot failed: {e}");
+            }
+        });
+    }
 
     ([(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")], script)
 }
@@ -546,6 +556,51 @@ pub async fn put_start_config(
 ) -> impl IntoResponse {
     *s.start.config.write().await = new_config;
     Json(serde_json::json!({ "updated": true }))
+}
+
+// -- Transcripts --------------------------------------------------------------
+
+/// Query parameters for the transcript catchup endpoint.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CatchupQuery {
+    #[serde(default)]
+    pub since_transcript: u32,
+    #[serde(default)]
+    pub since_line: u64,
+}
+
+/// `GET /api/v1/transcripts` — list all transcript snapshots.
+pub async fn list_transcripts(State(s): State<Arc<Store>>) -> impl IntoResponse {
+    let list = s.transcript.list().await;
+    Json(serde_json::json!({ "transcripts": list }))
+}
+
+/// `GET /api/v1/transcripts/catchup` — catch up from a cursor.
+pub async fn catchup_transcripts(
+    State(s): State<Arc<Store>>,
+    Query(q): Query<CatchupQuery>,
+) -> impl IntoResponse {
+    match s.transcript.catchup(q.since_transcript, q.since_line).await {
+        Ok(resp) => Json(serde_json::to_value(resp).unwrap_or_default()).into_response(),
+        Err(e) => {
+            ErrorCode::Internal.to_http_response(format!("catchup failed: {e}")).into_response()
+        }
+    }
+}
+
+/// `GET /api/v1/transcripts/{number}` — get a single transcript's content.
+pub async fn get_transcript(
+    State(s): State<Arc<Store>>,
+    axum::extract::Path(number): axum::extract::Path<u32>,
+) -> impl IntoResponse {
+    match s.transcript.get_content(number).await {
+        Ok(content) => {
+            Json(serde_json::json!({ "number": number, "content": content })).into_response()
+        }
+        Err(_) => ErrorCode::BadRequest
+            .to_http_response(format!("transcript {number} not found"))
+            .into_response(),
+    }
 }
 
 // -- Lifecycle ----------------------------------------------------------------

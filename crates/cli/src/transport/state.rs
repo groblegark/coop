@@ -19,6 +19,7 @@ use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::start::StartState;
 use crate::stop::StopState;
+use crate::transcript::TranscriptState;
 
 /// Shared application state passed to all handlers via axum `State` extractor.
 ///
@@ -41,6 +42,8 @@ pub struct Store {
     pub stop: Arc<StopState>,
     /// Start hook state. Always present (defaults to empty config).
     pub start: Arc<StartState>,
+    /// Transcript snapshot state. Always present.
+    pub transcript: Arc<TranscriptState>,
     /// Serializes structured input delivery (nudge, respond) and enforces
     /// a minimum inter-delivery gap to prevent garbled terminal input.
     pub input_gate: Arc<InputGate>,

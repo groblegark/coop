@@ -3,6 +3,7 @@
 
 //! Top-level session runner — shared by `main` and integration tests.
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64};
 use std::sync::Arc;
 use std::time::Instant;
@@ -33,6 +34,7 @@ use crate::screen::Screen;
 use crate::session::Session;
 use crate::start::StartState;
 use crate::stop::StopState;
+use crate::transcript::TranscriptState;
 use crate::transport::grpc::CoopGrpc;
 use crate::transport::state::{
     DetectionInfo, DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels,
@@ -293,6 +295,13 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let resolve_url = format!("{coop_url_for_setup}/api/v1/hooks/stop/resolve");
     let stop_state = Arc::new(StopState::new(stop_config, resolve_url));
     let start_state = Arc::new(StartState::new(start_config));
+    let transcript_state = Arc::new(TranscriptState::new(
+        setup
+            .as_ref()
+            .map(|s| s.session_dir.join("transcripts"))
+            .unwrap_or_else(|| PathBuf::from("/tmp/coop-transcripts")),
+        setup.as_ref().and_then(|s| s.session_log_path.clone()),
+    )?);
 
     let store = Arc::new(Store {
         terminal,
@@ -329,6 +338,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         input_gate: Arc::new(crate::transport::state::InputGate::new(config.input_delay())),
         stop: stop_state,
         start: start_state,
+        transcript: transcript_state,
         input_activity: Arc::new(tokio::sync::Notify::new()),
     });
 

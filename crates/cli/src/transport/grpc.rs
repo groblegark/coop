@@ -509,6 +509,84 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(stream))
     }
 
+    // -- Transcripts ----------------------------------------------------------
+
+    async fn list_transcripts(
+        &self,
+        _request: Request<proto::ListTranscriptsRequest>,
+    ) -> Result<Response<proto::ListTranscriptsResponse>, Status> {
+        let list = self.state.transcript.list().await;
+        let transcripts = list
+            .into_iter()
+            .map(|m| proto::TranscriptMeta {
+                number: m.number,
+                timestamp: m.timestamp,
+                line_count: m.line_count,
+                byte_size: m.byte_size,
+            })
+            .collect();
+        Ok(Response::new(proto::ListTranscriptsResponse { transcripts }))
+    }
+
+    async fn get_transcript(
+        &self,
+        request: Request<proto::GetTranscriptRequest>,
+    ) -> Result<Response<proto::GetTranscriptResponse>, Status> {
+        let number = request.into_inner().number;
+        let content = self
+            .state
+            .transcript
+            .get_content(number)
+            .await
+            .map_err(|e| Status::not_found(format!("{e}")))?;
+        Ok(Response::new(proto::GetTranscriptResponse { number, content }))
+    }
+
+    async fn catchup_transcripts(
+        &self,
+        request: Request<proto::CatchupTranscriptsRequest>,
+    ) -> Result<Response<proto::CatchupTranscriptsResponse>, Status> {
+        let req = request.into_inner();
+        let resp = self
+            .state
+            .transcript
+            .catchup(req.since_transcript, req.since_line)
+            .await
+            .map_err(|e| Status::internal(format!("{e}")))?;
+        Ok(Response::new(proto::CatchupTranscriptsResponse {
+            transcripts: resp
+                .transcripts
+                .into_iter()
+                .map(|t| proto::CatchupTranscript {
+                    number: t.number,
+                    timestamp: t.timestamp,
+                    lines: t.lines,
+                })
+                .collect(),
+            live_lines: resp.live_lines,
+            current_transcript: resp.current_transcript,
+            current_line: resp.current_line,
+        }))
+    }
+
+    type StreamTranscriptEventsStream = GrpcStream<proto::TranscriptEvent>;
+
+    async fn stream_transcript_events(
+        &self,
+        _request: Request<proto::StreamTranscriptEventsRequest>,
+    ) -> Result<Response<Self::StreamTranscriptEventsStream>, Status> {
+        let transcript_rx = self.state.transcript.transcript_tx.subscribe();
+        let stream = spawn_broadcast_stream(transcript_rx, |event| {
+            Some(proto::TranscriptEvent {
+                number: event.number,
+                timestamp: event.timestamp,
+                line_count: event.line_count,
+                seq: event.seq,
+            })
+        });
+        Ok(Response::new(stream))
+    }
+
     // -- Stop hook ------------------------------------------------------------
 
     async fn get_stop_config(

@@ -15,4 +15,5 @@ pub mod session;
 pub mod start;
 pub mod stop;
 pub mod test_support;
+pub mod transcript;
 pub mod transport;

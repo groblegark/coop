@@ -25,6 +25,7 @@ use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::start::{StartConfig, StartState};
 use crate::stop::{StopConfig, StopState};
+use crate::transcript::TranscriptState;
 use crate::transport::state::{
     DetectionInfo, DriverState, LifecycleState, SessionSettings, Store, TerminalState,
     TransportChannels,
@@ -168,6 +169,12 @@ impl StoreBuilder {
                 "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
             )),
             start: Arc::new(StartState::new(self.start_config.unwrap_or_default())),
+            transcript: Arc::new({
+                let dir = std::env::temp_dir().join("coop-test-transcripts");
+                // OK to panic in test-only code — infra setup failure is fatal.
+                #[allow(clippy::expect_used)]
+                TranscriptState::new(dir, None).expect("create transcript state")
+            }),
             input_activity: Arc::new(tokio::sync::Notify::new()),
         })
     }

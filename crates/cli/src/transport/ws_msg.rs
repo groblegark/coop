@@ -93,6 +93,21 @@ pub enum ClientMessage {
         config: serde_json::Value,
     },
 
+    // Transcripts
+    #[serde(rename = "transcript:list")]
+    ListTranscripts {},
+    #[serde(rename = "transcript:get")]
+    GetTranscript {
+        number: u32,
+    },
+    #[serde(rename = "transcript:catchup")]
+    CatchupTranscripts {
+        #[serde(default)]
+        since_transcript: u32,
+        #[serde(default)]
+        since_line: u64,
+    },
+
     // Lifecycle
     Shutdown {},
 
@@ -263,6 +278,32 @@ pub enum ServerMessage {
     StartConfigured {
         updated: bool,
     },
+
+    // Transcripts
+    #[serde(rename = "transcript:list")]
+    TranscriptList {
+        transcripts: Vec<crate::transcript::TranscriptMeta>,
+    },
+    #[serde(rename = "transcript:content")]
+    TranscriptContent {
+        number: u32,
+        content: String,
+    },
+    #[serde(rename = "transcript:catchup")]
+    TranscriptCatchup {
+        transcripts: Vec<crate::transcript::CatchupTranscript>,
+        live_lines: Vec<String>,
+        current_transcript: u32,
+        current_line: u64,
+    },
+    #[serde(rename = "transcript:saved")]
+    TranscriptSaved {
+        number: u32,
+        timestamp: String,
+        line_count: u64,
+        seq: u64,
+    },
+
     #[serde(rename = "start:outcome")]
     StartOutcome {
         source: String,
@@ -296,6 +337,7 @@ pub struct SubscriptionFlags {
     pub state: bool,
     pub hooks: bool,
     pub messages: bool,
+    pub transcripts: bool,
 }
 
 impl SubscriptionFlags {
@@ -310,6 +352,7 @@ impl SubscriptionFlags {
                 "state" => flags.state = true,
                 "hooks" => flags.hooks = true,
                 "messages" => flags.messages = true,
+                "transcripts" => flags.transcripts = true,
                 _ => {}
             }
         }
@@ -412,6 +455,16 @@ pub fn stop_event_to_msg(event: &StopEvent) -> ServerMessage {
         r#type: event.r#type.as_str().to_owned(),
         signal: event.signal.clone(),
         error_detail: event.error_detail.clone(),
+        seq: event.seq,
+    }
+}
+
+/// Convert a `TranscriptEvent` to a `ServerMessage`.
+pub fn transcript_event_to_msg(event: &crate::transcript::TranscriptEvent) -> ServerMessage {
+    ServerMessage::TranscriptSaved {
+        number: event.number,
+        timestamp: event.timestamp.clone(),
+        line_count: event.line_count,
         seq: event.seq,
     }
 }

@@ -90,10 +90,23 @@ async fn handle_connection(
     let mut start_rx = state.start.start_tx.subscribe();
     let mut hook_rx = state.channels.hook_tx.subscribe();
     let mut message_rx = state.channels.message_tx.subscribe();
+    let mut transcript_rx = state.transcript.transcript_tx.subscribe();
     let mut authed = !needs_auth;
 
     loop {
         tokio::select! {
+            event = transcript_rx.recv() => {
+                let event = match event {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                if flags.transcripts {
+                    let msg = transcript_event_to_msg(&event);
+                    if send_json(&mut ws_tx, &msg).await.is_err() {
+                        break;
+                    }
+                }
+            }
             event = prompt_rx.recv() => {
                 let event = match event {
                     Ok(e) => e,
@@ -430,6 +443,34 @@ async fn handle_client_message(
                 Err(e) => {
                     Some(ws_error(ErrorCode::BadRequest, &format!("invalid start config: {e}")))
                 }
+            }
+        }
+
+        // Transcripts
+        ClientMessage::ListTranscripts {} => {
+            require_auth!(authed);
+            let list = state.transcript.list().await;
+            Some(ServerMessage::TranscriptList { transcripts: list })
+        }
+
+        ClientMessage::GetTranscript { number } => {
+            require_auth!(authed);
+            match state.transcript.get_content(number).await {
+                Ok(content) => Some(ServerMessage::TranscriptContent { number, content }),
+                Err(e) => Some(ws_error(ErrorCode::BadRequest, &format!("{e}"))),
+            }
+        }
+
+        ClientMessage::CatchupTranscripts { since_transcript, since_line } => {
+            require_auth!(authed);
+            match state.transcript.catchup(since_transcript, since_line).await {
+                Ok(resp) => Some(ServerMessage::TranscriptCatchup {
+                    transcripts: resp.transcripts,
+                    live_lines: resp.live_lines,
+                    current_transcript: resp.current_transcript,
+                    current_line: resp.current_line,
+                }),
+                Err(e) => Some(ws_error(ErrorCode::Internal, &format!("{e}"))),
             }
         }
 
