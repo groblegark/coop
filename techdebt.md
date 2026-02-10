@@ -131,4 +131,79 @@
   3. Wrap error-state writes in a single lock to prevent torn reads
   4. Extract shared test utilities to eliminate ~48 instances of duplicated setup
 
+  ---                                                                                                                                                                                
+  Transport Audit: HTTP / WebSocket / gRPC
+                                                                                                                                                                                     
+  Functionality Gaps                                                                                                                                                                 
+  ┌───────────────────────────────┬────────────────────────────┬──────────────────────────────┬─────────────────────────────────┐
+  │            Feature            │            HTTP            │              WS              │              gRPC               │
+  ├───────────────────────────────┼────────────────────────────┼──────────────────────────────┼─────────────────────────────────┤
+  │ Health check                  │       /api/v1/health       │              --              │            GetHealth            │
+  ├───────────────────────────────┼────────────────────────────┼──────────────────────────────┼─────────────────────────────────┤
+  │ Ready probe                   │       /api/v1/ready        │              --              │               --                │
+  ├───────────────────────────────┼────────────────────────────┼──────────────────────────────┼─────────────────────────────────┤
+  │ Screen (text)                 │    /api/v1/screen/text     │              --              │               --                │
+  ├───────────────────────────────┼────────────────────────────┼──────────────────────────────┼─────────────────────────────────┤
+  │ Raw input (base64)            │     /api/v1/input/raw      │           InputRaw           │               --                │
+  ├───────────────────────────────┼────────────────────────────┼──────────────────────────────┼─────────────────────────────────┤
+  │ Output polling (offset+limit) │       /api/v1/output       │ Replay (no limit/pagination) │  StreamOutput (replay+stream)   │
+  ├───────────────────────────────┼────────────────────────────┼──────────────────────────────┼─────────────────────────────────┤
+  │ Config: stop (get/put)        │    /api/v1/config/stop     │              --              │  GetStopConfig / PutStopConfig  │
+  ├───────────────────────────────┼────────────────────────────┼──────────────────────────────┼─────────────────────────────────┤
+  │ Config: start (get/put)       │    /api/v1/config/start    │              --              │ GetStartConfig / PutStartConfig │
+  ├───────────────────────────────┼────────────────────────────┼──────────────────────────────┼─────────────────────────────────┤
+  │ Resolve stop                  │ /api/v1/hooks/stop/resolve │              --              │           ResolveStop           │
+  ├───────────────────────────────┼────────────────────────────┼──────────────────────────────┼─────────────────────────────────┤
+  │ Prompt events (push)          │             --             │         PromptAction         │               --                │
+  └───────────────────────────────┴────────────────────────────┴──────────────────────────────┴─────────────────────────────────┘
+  Hooks (/api/v1/hooks/stop, /api/v1/hooks/start) are internal endpoints called from inside the PTY via curl, so their absence from WS/gRPC is by design.
+
+  Naming Differences
+
+  1. Cursor parameter — HTTP: cursor: bool, gRPC: include_cursor: bool
+  2. Health terminal size — HTTP nests: terminal: { cols, rows }, gRPC flattens: terminal_cols, terminal_rows
+  3. Stop event signal — WS: signal: Option<Value> (inline JSON), gRPC: signal_json: Option<String> (serialized)
+  4. Agent state response — WS reuses StateChange message for StateRequest; HTTP/gRPC have dedicated AgentStateResponse / GetAgentStateResponse types
+
+  Behavioral Gaps
+
+  1. Authentication is inconsistent across all three transports
+
+  - HTTP: Bearer token, middleware exempts /api/v1/health, /ws, and hook endpoints.
+  - WS: Token via ?token= query param or Auth message. Read-only operations (ScreenRequest, StateRequest, StatusRequest, Replay) skip the require_auth! check — so they work without
+  auth even when a token is configured. HTTP requires auth for the equivalent /screen, /status, /agent/state, /output endpoints.
+  - gRPC: No authentication at all. CoopGrpc::into_router() at grpc.rs:143 adds no interceptor or auth layer.
+
+  2. WS StateRequest response is incomplete vs HTTP/gRPC GetAgentState
+
+  WS returns a synthetic StateChange (ws.rs:437-452), which is missing three fields that HTTP (http.rs:308-323) and gRPC (grpc.rs:243-267) include:
+  - agent (agent type)
+  - since_seq (state sequence number — WS returns screen.seq() instead, conflating screen and state seq)
+  - detection_tier
+
+  3. WS write operations return no success response
+
+  Input, InputRaw, Keys, Resize, Signal, and Shutdown all return None on success (ws.rs:465-527). HTTP and gRPC return typed responses with bytes_written, delivered, cols/rows, or
+  accepted. A WS client has no way to confirm a write succeeded unless an error comes back.
+
+  4. WS ScreenRequest always includes cursor
+
+  snapshot_to_msg at ws.rs:227 hardcodes cursor: Some(snap.cursor). HTTP defaults to cursor: None unless ?cursor=true. gRPC defaults to no cursor unless include_cursor: true.
+  There's no way for a WS client to opt out.
+
+  5. WS Replay response lacks pagination metadata
+
+  HTTP OutputResponse (http.rs:77-83) includes next_offset and total_written for pagination. WS Replay just returns Output { data, offset } — no way to know if more data is
+  available or where to resume.
+
+  6. Screen format param accepted but ignored everywhere
+
+  HTTP defines ScreenFormat (text/ansi) at http.rs:52-58 and gRPC defines a Format enum in the proto at line 89, but neither implementation reads the value — both just call
+  screen.snapshot(). WS has no format parameter at all. This is consistent (all ignore it) but the HTTP/gRPC definitions imply support that doesn't exist.
+
+  7. gRPC StreamState doesn't emit PromptAction or Exit as distinct events
+
+  WS broadcasts PromptAction events (respond source, prompt type, option chosen) and synthesizes a separate Exit message on process exit. gRPC's StreamState only emits
+  AgentStateEvent — prompt responses and exit are folded into state transitions. There's no StreamPromptEvents in the proto.
+
 
