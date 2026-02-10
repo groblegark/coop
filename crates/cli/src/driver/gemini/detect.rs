@@ -18,8 +18,8 @@ use super::parse::{format_gemini_cause, parse_gemini_state};
 /// Tier 1 detector: receives push events from Gemini's hook system.
 ///
 /// Maps hook events to agent states:
-/// - `AgentStart` / `PreToolUse` / `ToolComplete` -> `Working`
-/// - `AgentStop` / `SessionEnd` -> `WaitingForInput`
+/// - `TurnStart` / `ToolBefore` / `ToolAfter` -> `Working`
+/// - `TurnEnd` / `SessionEnd` -> `WaitingForInput`
 /// - `Notification("ToolPermission")` -> `Prompt(Permission)`
 pub struct HookDetector {
     pub receiver: HookReceiver,
@@ -38,13 +38,13 @@ impl Detector for HookDetector {
                     _ = shutdown.cancelled() => break,
                     event = receiver.next_event() => {
                         let (state, cause) = match event {
-                            Some(HookEvent::AgentStart) => {
+                            Some(HookEvent::TurnStart) => {
                                 (AgentState::Working, "hook:working".to_owned())
                             }
                             Some(HookEvent::SessionEnd) => {
                                 (AgentState::WaitingForInput, "hook:idle".to_owned())
                             }
-                            Some(HookEvent::ToolComplete { .. }) => {
+                            Some(HookEvent::ToolAfter { .. }) => {
                                 (AgentState::Working, "hook:working".to_owned())
                             }
                             Some(HookEvent::Notification { notification_type }) => {
@@ -66,9 +66,9 @@ impl Detector for HookDetector {
                                     _ => continue,
                                 }
                             }
-                            Some(HookEvent::AgentStop) => (AgentState::WaitingForInput, "hook:idle".to_owned()),
+                            Some(HookEvent::TurnEnd) => (AgentState::WaitingForInput, "hook:idle".to_owned()),
                             Some(HookEvent::SessionStart) => continue,
-                            Some(HookEvent::PreToolUse { .. }) | Some(HookEvent::UserPromptSubmit) => {
+                            Some(HookEvent::ToolBefore { .. }) => {
                                 // BeforeTool fires for every tool call (including
                                 // auto-approved ones). Map to Working; actual
                                 // permission prompts are detected via Notification.

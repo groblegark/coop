@@ -10,7 +10,7 @@ fn parses_tool_complete_event() {
     let event = parse_hook_line(
         r#"{"event":"post_tool_use","data":{"tool_name":"Bash","tool_input":{"command":"ls"}}}"#,
     );
-    assert_eq!(event, Some(HookEvent::ToolComplete { tool: "Bash".to_string() }));
+    assert_eq!(event, Some(HookEvent::ToolAfter { tool: "Bash".to_string() }));
 }
 
 #[test]
@@ -18,7 +18,7 @@ fn parses_before_agent_event() {
     let event = parse_hook_line(
         r#"{"event":"before_agent","data":{"prompt":"Fix the bug","hook_event_name":"BeforeAgent"}}"#,
     );
-    assert_eq!(event, Some(HookEvent::AgentStart));
+    assert_eq!(event, Some(HookEvent::TurnStart));
 }
 
 #[test]
@@ -26,7 +26,7 @@ fn parses_stop_event() {
     let event = parse_hook_line(
         r#"{"event":"stop","data":{"hook_event_name":"Stop","stop_hook_active":false}}"#,
     );
-    assert_eq!(event, Some(HookEvent::AgentStop));
+    assert_eq!(event, Some(HookEvent::TurnEnd));
 }
 
 #[test]
@@ -62,13 +62,13 @@ fn parses_pre_tool_use_ask_user() {
         r#"{"event":"pre_tool_use","data":{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which DB?"}]}}}"#,
     );
     match event {
-        Some(HookEvent::PreToolUse { tool, tool_input }) => {
+        Some(HookEvent::ToolBefore { tool, tool_input }) => {
             assert_eq!(tool, "AskUserQuestion");
             assert!(tool_input.is_some());
             let input = tool_input.unwrap();
             assert!(input.get("questions").is_some());
         }
-        other => panic!("expected PreToolUse, got {other:?}"),
+        other => panic!("expected ToolBefore, got {other:?}"),
     }
 }
 
@@ -78,11 +78,11 @@ fn parses_pre_tool_use_exit_plan() {
         r#"{"event":"pre_tool_use","data":{"tool_name":"ExitPlanMode","tool_input":{}}}"#,
     );
     match event {
-        Some(HookEvent::PreToolUse { tool, tool_input }) => {
+        Some(HookEvent::ToolBefore { tool, tool_input }) => {
             assert_eq!(tool, "ExitPlanMode");
             assert!(tool_input.is_some());
         }
-        other => panic!("expected PreToolUse, got {other:?}"),
+        other => panic!("expected ToolBefore, got {other:?}"),
     }
 }
 
@@ -90,11 +90,11 @@ fn parses_pre_tool_use_exit_plan() {
 fn parses_pre_tool_use_without_tool_input() {
     let event = parse_hook_line(r#"{"event":"pre_tool_use","data":{"tool_name":"EnterPlanMode"}}"#);
     match event {
-        Some(HookEvent::PreToolUse { tool, tool_input }) => {
+        Some(HookEvent::ToolBefore { tool, tool_input }) => {
             assert_eq!(tool, "EnterPlanMode");
             assert!(tool_input.is_none());
         }
-        other => panic!("expected PreToolUse, got {other:?}"),
+        other => panic!("expected ToolBefore, got {other:?}"),
     }
 }
 
@@ -107,7 +107,7 @@ fn notification_missing_type_returns_none() {
 #[test]
 fn pre_tool_use_missing_tool_name_returns_empty() {
     let event = parse_hook_line(r#"{"event":"pre_tool_use","data":{}}"#);
-    assert_eq!(event, Some(HookEvent::PreToolUse { tool: "".to_string(), tool_input: None }));
+    assert_eq!(event, Some(HookEvent::ToolBefore { tool: "".to_string(), tool_input: None }));
 }
 
 #[test]
@@ -115,26 +115,26 @@ fn parses_after_tool_event() {
     let event = parse_hook_line(
         r#"{"event":"after_tool","data":{"tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":{"llmContent":"output"}}}"#,
     );
-    assert_eq!(event, Some(HookEvent::ToolComplete { tool: "Bash".to_string() }));
+    assert_eq!(event, Some(HookEvent::ToolAfter { tool: "Bash".to_string() }));
 }
 
 #[test]
 fn after_tool_missing_tool_name_returns_empty() {
     let event = parse_hook_line(r#"{"event":"after_tool","data":{}}"#);
-    assert_eq!(event, Some(HookEvent::ToolComplete { tool: "".to_string() }));
+    assert_eq!(event, Some(HookEvent::ToolAfter { tool: "".to_string() }));
 }
 
 #[test]
 fn parses_user_prompt_submit_event() {
     let event =
         parse_hook_line(r#"{"event":"user_prompt_submit","data":{"prompt":"Fix the bug"}}"#);
-    assert_eq!(event, Some(HookEvent::UserPromptSubmit));
+    assert_eq!(event, Some(HookEvent::TurnStart));
 }
 
 #[test]
 fn parses_user_prompt_submit_without_data() {
     let event = parse_hook_line(r#"{"event":"user_prompt_submit"}"#);
-    assert_eq!(event, Some(HookEvent::UserPromptSubmit));
+    assert_eq!(event, Some(HookEvent::TurnStart));
 }
 
 #[test]
@@ -197,6 +197,6 @@ async fn reads_event_from_pipe() -> anyhow::Result<()> {
     });
 
     let event = recv.next_event().await;
-    assert_eq!(event, Some(HookEvent::AgentStop));
+    assert_eq!(event, Some(HookEvent::TurnEnd));
     Ok(())
 }

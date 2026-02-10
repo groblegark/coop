@@ -176,14 +176,13 @@ pub trait RespondEncoder: Send + Sync {
 /// Lifecycle events for hook integrations.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum HookEvent {
-    AgentStart,
-    ToolComplete { tool: String },
-    AgentStop,
-    SessionEnd,
     SessionStart,
+    SessionEnd,
+    TurnStart,
+    TurnEnd,
+    ToolAfter { tool: String },
+    ToolBefore { tool: String, tool_input: Option<serde_json::Value> },
     Notification { notification_type: String },
-    PreToolUse { tool: String, tool_input: Option<serde_json::Value> },
-    UserPromptSubmit,
 }
 
 /// Driver-provided function that parses numbered option labels from rendered

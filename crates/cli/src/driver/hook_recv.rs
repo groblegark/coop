@@ -139,10 +139,10 @@ fn parse_hook_line(line: &str) -> Option<HookEvent> {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
-            Some(HookEvent::ToolComplete { tool })
+            Some(HookEvent::ToolAfter { tool })
         }
-        "before_agent" => Some(HookEvent::AgentStart),
-        "stop" => Some(HookEvent::AgentStop),
+        "before_agent" | "user_prompt_submit" => Some(HookEvent::TurnStart),
+        "stop" => Some(HookEvent::TurnEnd),
         "session_end" => Some(HookEvent::SessionEnd),
         "notification" => {
             let data = raw.data?;
@@ -155,9 +155,8 @@ fn parse_hook_line(line: &str) -> Option<HookEvent> {
             let tool =
                 data.get("tool_name").and_then(|v| v.as_str()).unwrap_or_default().to_string();
             let tool_input = data.get("tool_input").cloned();
-            Some(HookEvent::PreToolUse { tool, tool_input })
+            Some(HookEvent::ToolBefore { tool, tool_input })
         }
-        "user_prompt_submit" => Some(HookEvent::UserPromptSubmit),
         "start" => Some(HookEvent::SessionStart),
         _ => None,
     }

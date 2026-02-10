@@ -233,10 +233,10 @@ async fn tier5_can_escalate_to_prompt() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Regression: Claude fires both `PreToolUse(ExitPlanMode)` → Prompt(Plan) and
+/// Regression: Claude fires both `ToolBefore(ExitPlanMode)` → Prompt(Plan) and
 /// `Notification(permission_prompt)` → Prompt(Permission) for the same user-facing
 /// plan approval moment. When the permission notification arrives after the
-/// PreToolUse event, the composite detector must not let the generic
+/// ToolBefore event, the composite detector must not let the generic
 /// Permission prompt overwrite the more specific Plan prompt.
 #[tokio::test]
 async fn plan_prompt_not_overwritten_by_permission_prompt() -> anyhow::Result<()> {

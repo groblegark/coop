@@ -44,7 +44,7 @@ pub fn extract_ask_user_context(block: &Value) -> PromptContext {
 
 /// Extract question context directly from the tool input value.
 ///
-/// Used by the `PreToolUse` hook path where `tool_input` is provided
+/// Used by the `ToolBefore` hook path where `tool_input` is provided
 /// directly (not wrapped in a `tool_use` block).
 ///
 /// Parses all questions from `input.questions[]` into the `questions` vec.

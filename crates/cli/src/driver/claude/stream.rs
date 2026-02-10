@@ -23,13 +23,13 @@ use super::prompt::extract_ask_user_from_tool_input;
 /// Tier 1 detector: receives push events from Claude's hook system.
 ///
 /// Maps hook events to agent states:
-/// - `AgentStop` / `SessionEnd` → `WaitingForInput`
-/// - `ToolComplete` → `Working`
+/// - `TurnEnd` / `SessionEnd` → `WaitingForInput`
 /// - `Notification(idle_prompt)` → `WaitingForInput`
 /// - `Notification(permission_prompt)` → `Prompt(Permission)`
-/// - `PreToolUse(AskUserQuestion)` → `Prompt(Question)` with context
-/// - `PreToolUse(ExitPlanMode)` → `Prompt(Plan)`
-/// - `PreToolUse(EnterPlanMode)` → `Working`
+/// - `ToolBefore(AskUserQuestion)` → `Prompt(Question)` with context
+/// - `ToolBefore(ExitPlanMode)` → `Prompt(Plan)`
+/// - `ToolBefore(EnterPlanMode)` → `Working`
+/// - `ToolAfter` → `Working`
 pub struct HookDetector {
     pub receiver: HookReceiver,
 }
@@ -47,10 +47,10 @@ impl Detector for HookDetector {
                     _ = shutdown.cancelled() => break,
                     event = receiver.next_event() => {
                         let (state, cause) = match event {
-                            Some(HookEvent::AgentStop) | Some(HookEvent::SessionEnd) => {
+                            Some(HookEvent::TurnEnd) | Some(HookEvent::SessionEnd) => {
                                 (AgentState::WaitingForInput, "hook:idle".to_owned())
                             }
-                            Some(HookEvent::ToolComplete { .. }) => {
+                            Some(HookEvent::ToolAfter { .. }) => {
                                 (AgentState::Working, "hook:working".to_owned())
                             }
                             Some(HookEvent::Notification { notification_type }) => {
@@ -73,7 +73,7 @@ impl Detector for HookDetector {
                                     _ => continue,
                                 }
                             }
-                            Some(HookEvent::PreToolUse { ref tool, ref tool_input }) => {
+                            Some(HookEvent::ToolBefore { ref tool, ref tool_input }) => {
                                 match tool.as_str() {
                                     "AskUserQuestion" => (AgentState::Prompt {
                                         prompt: extract_ask_user_from_tool_input(tool_input.as_ref()),
@@ -96,11 +96,10 @@ impl Detector for HookDetector {
                                     _ => continue,
                                 }
                             }
-                            Some(HookEvent::UserPromptSubmit) => {
+                            Some(HookEvent::TurnStart) => {
                                 (AgentState::Working, "hook:working".to_owned())
                             }
                             Some(HookEvent::SessionStart) => continue,
-                            Some(_) => continue,
                             None => break,
                         };
                         let _ = state_tx.send((state, cause)).await;

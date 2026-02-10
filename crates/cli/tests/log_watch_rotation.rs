@@ -154,16 +154,16 @@ async fn hook_receiver_reads_events() -> anyhow::Result<()> {
     // Read events
     let event1 = tokio::time::timeout(Duration::from_secs(5), receiver.next_event()).await?;
     match event1 {
-        Some(coop::driver::HookEvent::ToolComplete { tool }) => {
+        Some(coop::driver::HookEvent::ToolAfter { tool }) => {
             assert_eq!(tool, "bash");
         }
-        other => anyhow::bail!("expected ToolComplete, got {other:?}"),
+        other => anyhow::bail!("expected ToolAfter, got {other:?}"),
     }
 
     let event2 = tokio::time::timeout(Duration::from_secs(5), receiver.next_event()).await?;
     match event2 {
-        Some(coop::driver::HookEvent::AgentStop) => {}
-        other => anyhow::bail!("expected AgentStop, got {other:?}"),
+        Some(coop::driver::HookEvent::TurnEnd) => {}
+        other => anyhow::bail!("expected TurnEnd, got {other:?}"),
     }
 
     Ok(())
@@ -189,8 +189,8 @@ async fn hook_receiver_skips_malformed() -> anyhow::Result<()> {
     // Should skip malformed lines and return the valid event
     let event = tokio::time::timeout(Duration::from_secs(5), receiver.next_event()).await?;
     match event {
-        Some(coop::driver::HookEvent::AgentStop) => {}
-        other => anyhow::bail!("expected AgentStop after skipping malformed, got {other:?}"),
+        Some(coop::driver::HookEvent::TurnEnd) => {}
+        other => anyhow::bail!("expected TurnEnd after skipping malformed, got {other:?}"),
     }
 
     Ok(())
