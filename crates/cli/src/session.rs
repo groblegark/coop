@@ -338,8 +338,9 @@ impl Session {
                                         let prompt_type = prompt.kind.as_str().to_owned();
                                         let prompt_subtype = prompt.subtype.clone();
                                         let groom_option = if prompt.options.is_empty() { None } else { Some(option) };
+                                        let dismiss_delay = config.groom_dismiss_delay();
                                         tokio::spawn(async move {
-                                            tokio::time::sleep(Duration::from_millis(500)).await;
+                                            tokio::time::sleep(dismiss_delay).await;
                                             // Guard: skip if state changed (someone already responded).
                                             let current = driver.state_seq.load(std::sync::atomic::Ordering::Acquire);
                                             if current != expected_seq {

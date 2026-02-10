@@ -154,6 +154,8 @@ pub struct Config {
     pub nudge_timeout_ms: Option<u64>,
     #[clap(skip)]
     pub idle_timeout_ms: Option<u64>,
+    #[clap(skip)]
+    pub groom_dismiss_delay_ms: Option<u64>,
 }
 
 fn env_duration_ms(var: &str, default: u64) -> Duration {
@@ -233,6 +235,12 @@ impl Config {
     duration_field!(nudge_timeout, nudge_timeout_ms, "COOP_NUDGE_TIMEOUT_MS", 4_000);
     duration_field!(idle_timeout, idle_timeout_ms, "COOP_IDLE_TIMEOUT_MS", 0);
     duration_field!(drain_timeout, drain_timeout_ms, "COOP_DRAIN_TIMEOUT_MS", 20_000);
+    duration_field!(
+        groom_dismiss_delay,
+        groom_dismiss_delay_ms,
+        "COOP_GROOM_DISMISS_DELAY_MS",
+        500
+    );
 
     /// Build a minimal `Config` for tests (port 0, `echo` command).
     #[doc(hidden)]
@@ -269,6 +277,7 @@ impl Config {
             input_delay_max_ms: Some(50),
             nudge_timeout_ms: Some(100),
             idle_timeout_ms: Some(0),
+            groom_dismiss_delay_ms: Some(50),
         }
     }
 

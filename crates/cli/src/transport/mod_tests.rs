@@ -148,7 +148,7 @@ async fn enter_retry_cancelled_by_state_transition() -> anyhow::Result<()> {
     let activity = Arc::new(tokio::sync::Notify::new());
 
     let _cancel =
-        spawn_enter_retry(input_tx, state_rx, activity, std::time::Duration::from_millis(200));
+        spawn_enter_retry(input_tx, state_rx, activity, std::time::Duration::from_millis(100));
 
     // Send a Working state transition — should cancel the retry
     let _ = state_tx.send(TransitionEvent {
@@ -160,7 +160,7 @@ async fn enter_retry_cancelled_by_state_transition() -> anyhow::Result<()> {
     });
 
     // The retry should NOT fire
-    let result = tokio::time::timeout(std::time::Duration::from_millis(300), input_rx.recv()).await;
+    let result = tokio::time::timeout(std::time::Duration::from_millis(150), input_rx.recv()).await;
 
     assert!(result.is_err(), "expected timeout (no retry), got {result:?}");
     Ok(())
@@ -178,7 +178,7 @@ async fn enter_retry_cancelled_by_input_activity() -> anyhow::Result<()> {
         input_tx,
         state_rx,
         Arc::clone(&activity),
-        std::time::Duration::from_millis(200),
+        std::time::Duration::from_millis(100),
     );
 
     // Give the spawned task time to register the notified() future
@@ -188,7 +188,7 @@ async fn enter_retry_cancelled_by_input_activity() -> anyhow::Result<()> {
     activity.notify_waiters();
 
     // The retry should NOT fire
-    let result = tokio::time::timeout(std::time::Duration::from_millis(300), input_rx.recv()).await;
+    let result = tokio::time::timeout(std::time::Duration::from_millis(150), input_rx.recv()).await;
 
     assert!(result.is_err(), "expected timeout (no retry), got {result:?}");
     Ok(())
@@ -203,13 +203,13 @@ async fn enter_retry_cancelled_by_token() -> anyhow::Result<()> {
     let activity = Arc::new(tokio::sync::Notify::new());
 
     let cancel =
-        spawn_enter_retry(input_tx, state_rx, activity, std::time::Duration::from_millis(200));
+        spawn_enter_retry(input_tx, state_rx, activity, std::time::Duration::from_millis(100));
 
     // Cancel via the token (simulates next InputGate::acquire)
     cancel.cancel();
 
     // The retry should NOT fire
-    let result = tokio::time::timeout(std::time::Duration::from_millis(300), input_rx.recv()).await;
+    let result = tokio::time::timeout(std::time::Duration::from_millis(150), input_rx.recv()).await;
 
     assert!(result.is_err(), "expected timeout (no retry), got {result:?}");
     Ok(())

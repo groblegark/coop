@@ -58,10 +58,10 @@ async fn log_watcher_run_receives_batches() -> anyhow::Result<()> {
         watcher.run(line_tx, sd).await;
     });
 
-    // Append lines after a short delay
+    // Append lines after a brief yield to let the watcher start
     let p = path.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::task::yield_now().await;
         let mut f = std::fs::OpenOptions::new().append(true).open(&p).ok();
         if let Some(ref mut f) = f {
             let _ = writeln!(f, "batch_line1");
@@ -70,7 +70,7 @@ async fn log_watcher_run_receives_batches() -> anyhow::Result<()> {
     });
 
     // Wait for the batch to arrive
-    let batch = tokio::time::timeout(Duration::from_secs(10), line_rx.recv()).await?;
+    let batch = tokio::time::timeout(Duration::from_secs(2), line_rx.recv()).await?;
     let batch = batch.ok_or_else(|| anyhow::anyhow!("expected batch"))?;
     assert!(batch.contains(&"batch_line1".to_string()), "batch: {batch:?}");
 
@@ -144,7 +144,7 @@ async fn hook_receiver_reads_events() -> anyhow::Result<()> {
     let pp = pipe_path.clone();
     tokio::spawn(async move {
         // Open the FIFO for writing (this will block until reader opens)
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::task::yield_now().await;
         if let Ok(mut f) = std::fs::OpenOptions::new().write(true).open(&pp) {
             let _ = writeln!(f, r#"{{"event":"post_tool_use","data":{{"tool_name":"bash"}}}}"#);
             let _ = writeln!(f, r#"{{"event":"stop"}}"#);
@@ -178,7 +178,7 @@ async fn hook_receiver_skips_malformed() -> anyhow::Result<()> {
 
     let pp = pipe_path.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::task::yield_now().await;
         if let Ok(mut f) = std::fs::OpenOptions::new().write(true).open(&pp) {
             let _ = writeln!(f, "not json at all");
             let _ = writeln!(f, r#"{{"invalid":"object"}}"#);

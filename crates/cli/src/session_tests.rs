@@ -220,10 +220,10 @@ async fn groom_auto_dismisses_disruption() -> anyhow::Result<()> {
             .with_detectors(vec![Box::new(detector)]),
     );
 
-    // Give enough time for the 500ms auto-dismiss delay + delivery, then shut down.
+    // Give enough time for the 50ms test auto-dismiss delay + delivery, then shut down.
     let sd = shutdown.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(1200)).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
         sd.cancel();
     });
 
@@ -265,7 +265,7 @@ async fn groom_manual_does_not_dismiss() -> anyhow::Result<()> {
 
     let sd = shutdown.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(800)).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
         sd.cancel();
     });
 

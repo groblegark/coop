@@ -13,18 +13,13 @@ use super::LogDetector;
 async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let log_path = dir.path().join("session.jsonl");
-    std::fs::write(
-        &log_path,
-        concat!(
-            "{\"type\":\"system\",\"message\":{\"content\":[]}}\n",
-            "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"done\"}]}}\n",
-        ),
-    )?;
+    // Create empty file so the watcher can start
+    std::fs::write(&log_path, "")?;
 
     let detector = Box::new(LogDetector {
         log_path: log_path.clone(),
         start_offset: 0,
-        poll_interval: std::time::Duration::from_secs(5),
+        poll_interval: std::time::Duration::from_millis(50),
         last_message: None,
         raw_message_tx: None,
         usage: None,
@@ -39,9 +34,20 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
         detector.run(state_tx, shutdown_clone).await;
     });
 
+    // Brief sleep to let the spawned detector complete its first empty poll,
+    // then write data so the next 50ms poll tick finds it.
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    std::fs::write(
+        &log_path,
+        concat!(
+            "{\"type\":\"system\",\"message\":{\"content\":[]}}\n",
+            "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"done\"}]}}\n",
+        ),
+    )?;
+
     // Wait for states to arrive
     let mut states = Vec::new();
-    let timeout = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+    let timeout = tokio::time::timeout(std::time::Duration::from_secs(2), async {
         while let Some((state, _cause)) = state_rx.recv().await {
             states.push(state.clone());
             if matches!(state, AgentState::Idle) {
@@ -65,12 +71,13 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
 async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let log_path = dir.path().join("session.jsonl");
-    std::fs::write(&log_path, "{\"type\":\"user\",\"message\":{\"content\":[]}}\n")?;
+    // Create empty file so the watcher can start
+    std::fs::write(&log_path, "")?;
 
     let detector = Box::new(LogDetector {
         log_path: log_path.clone(),
         start_offset: 0,
-        poll_interval: std::time::Duration::from_secs(5),
+        poll_interval: std::time::Duration::from_millis(50),
         last_message: None,
         raw_message_tx: None,
         usage: None,
@@ -83,9 +90,14 @@ async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
         detector.run(state_tx, shutdown_clone).await;
     });
 
+    // Brief sleep to let the spawned detector complete its first empty poll,
+    // then write data so the next 50ms poll tick finds it.
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    std::fs::write(&log_path, "{\"type\":\"user\",\"message\":{\"content\":[]}}\n")?;
+
     // User messages produce Working (not Idle)
     let timeout =
-        tokio::time::timeout(std::time::Duration::from_secs(10), async { state_rx.recv().await })
+        tokio::time::timeout(std::time::Duration::from_secs(2), async { state_rx.recv().await })
             .await;
 
     shutdown.cancel();
@@ -118,7 +130,7 @@ async fn stdout_detector_parses_jsonl_bytes() -> anyhow::Result<()> {
         ))
         .await?;
 
-    let state = tokio::time::timeout(std::time::Duration::from_secs(5), state_rx.recv()).await;
+    let state = tokio::time::timeout(std::time::Duration::from_secs(2), state_rx.recv()).await;
 
     shutdown.cancel();
     let _ = handle.await;
@@ -165,7 +177,7 @@ async fn run_hook_detector(events: Vec<&str>) -> anyhow::Result<Vec<AgentState>>
     });
 
     let mut states = Vec::new();
-    let timeout = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    let timeout = tokio::time::timeout(std::time::Duration::from_secs(2), async {
         while let Some((state, _cause)) = state_rx.recv().await {
             states.push(state);
             if states.len() >= events.len() {

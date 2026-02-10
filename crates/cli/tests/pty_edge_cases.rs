@@ -92,7 +92,7 @@ async fn resize_reflected_in_stty() -> anyhow::Result<()> {
     let handle = tokio::spawn(async move { pty.run(output_tx, input_rx, resize_rx).await });
 
     // Give the shell time to start
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     // Drain initial shell prompt output
     while tokio::time::timeout(Duration::from_millis(100), output_rx.recv()).await.is_ok() {}
@@ -206,15 +206,17 @@ async fn rapid_input_output() -> anyhow::Result<()> {
     let mut pty = NativePty::spawn(&["/bin/cat".into()], 80, 24, &[])?;
     let handle = tokio::spawn(async move { pty.run(output_tx, input_rx, resize_rx).await });
 
-    // Send 100 short lines rapidly
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // Give cat time to start, then send 100 short lines rapidly
+    tokio::time::sleep(Duration::from_millis(50)).await;
     for i in 0..100 {
         let line = format!("line{i}\n");
         input_tx.send(BackendInput::Write(Bytes::from(line))).await?;
     }
 
-    // Wait for output to settle then send EOF
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Send EOF after a drain to ensure all input is processed
+    let (drain_tx, drain_rx) = tokio::sync::oneshot::channel();
+    input_tx.send(BackendInput::Drain(drain_tx)).await?;
+    let _ = drain_rx.await;
     input_tx.send(BackendInput::Write(Bytes::from_static(b"\x04"))).await?;
     drop(input_tx);
 
@@ -249,7 +251,7 @@ async fn signal_delivery_sigint() -> anyhow::Result<()> {
     });
 
     // Give cat time to start
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Send SIGINT via InputEvent
     input_tx.send(coop::event::InputEvent::Signal(coop::event::PtySignal::Int)).await?;

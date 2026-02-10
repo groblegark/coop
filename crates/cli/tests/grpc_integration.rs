@@ -21,13 +21,9 @@ async fn grpc_client(
     Arc<coop::transport::Store>,
 )> {
     let (addr, _handle) = spawn_grpc_server(Arc::clone(&store)).await?;
-    // Brief pause for the server to start accepting
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    let channel = tonic::transport::Channel::from_shared(format!("http://{addr}"))
-        .map_err(|e| anyhow::anyhow!("{e}"))?
-        .connect()
-        .await
-        .map_err(|e| anyhow::anyhow!("grpc connect: {e}"))?;
+    let endpoint = tonic::transport::Channel::from_shared(format!("http://{addr}"))
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let channel = endpoint.connect().await.map_err(|e| anyhow::anyhow!("grpc connect: {e}"))?;
     Ok((proto::coop_client::CoopClient::new(channel), store))
 }
 

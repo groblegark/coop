@@ -51,7 +51,7 @@ async fn higher_confidence_wins() -> anyhow::Result<()> {
         Box::new(MockDetector::new(3, vec![(Duration::from_millis(100), AgentState::Idle)])),
     ];
 
-    let results = run_composite(detectors, Duration::from_millis(500)).await?;
+    let results = run_composite(detectors, Duration::from_millis(250)).await?;
 
     assert!(!results.is_empty(), "expected at least one state emission");
     assert_eq!(results[0].state, AgentState::Working);
@@ -84,7 +84,7 @@ async fn lower_confidence_downgrade_rejected() -> anyhow::Result<()> {
         Box::new(MockDetector::new(3, vec![(Duration::from_millis(100), AgentState::Idle)])),
     ];
 
-    let results = run_composite(detectors, Duration::from_millis(500)).await?;
+    let results = run_composite(detectors, Duration::from_millis(250)).await?;
 
     let working = results.iter().any(|s| s.state == AgentState::Working);
     assert!(working, "expected Working state");
@@ -156,7 +156,7 @@ async fn tier1_supersedes_tier5_screen_idle() -> anyhow::Result<()> {
         Box::new(MockDetector::new(5, vec![(Duration::from_millis(100), AgentState::Idle)])),
     ];
 
-    let results = run_composite(detectors, Duration::from_millis(500)).await?;
+    let results = run_composite(detectors, Duration::from_millis(250)).await?;
 
     assert!(!results.is_empty(), "expected at least one state emission");
     assert_eq!(results[0].state, AgentState::Working);
@@ -174,7 +174,7 @@ async fn tier2_supersedes_tier5_screen_idle() -> anyhow::Result<()> {
         Box::new(MockDetector::new(5, vec![(Duration::from_millis(100), AgentState::Idle)])),
     ];
 
-    let results = run_composite(detectors, Duration::from_millis(500)).await?;
+    let results = run_composite(detectors, Duration::from_millis(250)).await?;
 
     assert!(!results.is_empty(), "expected at least one state emission");
     assert_eq!(results[0].state, AgentState::Working);
@@ -200,7 +200,7 @@ async fn tier5_can_escalate_to_prompt() -> anyhow::Result<()> {
         )),
     ];
 
-    let results = run_composite(detectors, Duration::from_millis(500)).await?;
+    let results = run_composite(detectors, Duration::from_millis(250)).await?;
 
     let has_prompt = results.iter().any(|s| matches!(s.state, AgentState::Prompt { .. }));
     assert!(has_prompt, "tier 5 Prompt should be accepted as escalation from Idle");
@@ -231,7 +231,7 @@ async fn setup_to_permission_transition_accepted() -> anyhow::Result<()> {
         ],
     ))];
 
-    let results = run_composite(detectors, Duration::from_millis(500)).await?;
+    let results = run_composite(detectors, Duration::from_millis(250)).await?;
 
     assert!(results.len() >= 2, "expected both Setup and Permission: {results:?}");
     let has_permission = results.iter().any(|s| {

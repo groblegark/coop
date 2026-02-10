@@ -44,7 +44,7 @@ async fn input_delivery() {
     // Write data with newline, then Ctrl-D on empty line to signal EOF
     input_tx.send(BackendInput::Write(Bytes::from_static(b"ping\n"))).await.expect("send failed");
     // Short delay so cat processes the line before we send EOF
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     input_tx.send(BackendInput::Write(Bytes::from_static(b"\x04"))).await.expect("send eof failed");
     drop(input_tx);
 
@@ -89,7 +89,7 @@ async fn resize_via_channel() -> anyhow::Result<()> {
     let handle = tokio::spawn(async move { pty.run(output_tx, input_rx, resize_rx).await });
 
     // Give the shell time to set up the trap
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     // Send resize through the channel (like session would)
     resize_tx.send((120, 40)).await?;

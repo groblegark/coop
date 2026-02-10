@@ -64,9 +64,9 @@ async fn session_input_roundtrip() -> anyhow::Result<()> {
     });
 
     // Send input via the channel (simulating transport layer)
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     input_tx.send(InputEvent::Write(Bytes::from_static(b"roundtrip\n"))).await?;
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     // Send Ctrl-D to close cat
     input_tx.send(InputEvent::Write(Bytes::from_static(b"\x04"))).await?;
