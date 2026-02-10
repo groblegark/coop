@@ -277,8 +277,10 @@ async fn agent_state_includes_error_fields() -> anyhow::Result<()> {
         .agent_state(AgentState::Error { detail: "rate_limit_error".to_owned() })
         .build();
     // Populate error fields as session loop would
-    *state.driver.error_detail.write().await = Some("rate_limit_error".to_owned());
-    *state.driver.error_category.write().await = Some(crate::driver::ErrorCategory::RateLimited);
+    *state.driver.error.write().await = Some(crate::transport::state::ErrorInfo {
+        detail: "rate_limit_error".to_owned(),
+        category: crate::driver::ErrorCategory::RateLimited,
+    });
 
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
@@ -510,8 +512,10 @@ async fn hooks_stop_unrecoverable_error_allows() -> anyhow::Result<()> {
     let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
     let (state, _rx) = stop_state(config);
     // Set unrecoverable error state.
-    *state.driver.error_category.write().await = Some(crate::driver::ErrorCategory::Unauthorized);
-    *state.driver.error_detail.write().await = Some("invalid api key".to_owned());
+    *state.driver.error.write().await = Some(crate::transport::state::ErrorInfo {
+        detail: "invalid api key".to_owned(),
+        category: crate::driver::ErrorCategory::Unauthorized,
+    });
 
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;

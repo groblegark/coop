@@ -316,8 +316,14 @@ pub async fn agent_state(State(s): State<Arc<AppState>>) -> impl IntoResponse {
         screen_seq: screen.seq(),
         detection_tier: s.driver.detection_tier_str(),
         prompt: state.prompt().cloned(),
-        error_detail: s.driver.error_detail.read().await.clone(),
-        error_category: s.driver.error_category.read().await.map(|c| c.as_str().to_owned()),
+        error_detail: s.driver.error.read().await.as_ref().map(|e| e.detail.clone()),
+        error_category: s
+            .driver
+            .error
+            .read()
+            .await
+            .as_ref()
+            .map(|e| e.category.as_str().to_owned()),
         last_message: s.driver.last_message.read().await.clone(),
     })
     .into_response()
@@ -408,13 +414,15 @@ pub async fn hooks_stop(
 
     // 3. Unrecoverable error → allow.
     {
-        let error_cat = s.driver.error_category.read().await;
-        if let Some(cat) = &*error_cat {
-            let is_unrecoverable =
-                matches!(cat, ErrorCategory::Unauthorized | ErrorCategory::OutOfCredits);
+        let error = s.driver.error.read().await;
+        if let Some(ref info) = *error {
+            let is_unrecoverable = matches!(
+                info.category,
+                ErrorCategory::Unauthorized | ErrorCategory::OutOfCredits
+            );
             if is_unrecoverable {
-                let detail = s.driver.error_detail.read().await.clone();
-                drop(error_cat);
+                let detail = Some(info.detail.clone());
+                drop(error);
                 drop(config);
                 stop.emit(StopType::Error, None, detail);
                 return Json(StopHookVerdict { decision: None, reason: None, last_message })

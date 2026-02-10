@@ -248,11 +248,14 @@ impl Session {
                         // Store error detail + category when entering Error state.
                         if let AgentState::Error { ref detail } = detected.state {
                             let category = classify_error_detail(detail);
-                            *self.app_state.driver.error_detail.write().await = Some(detail.clone());
-                            *self.app_state.driver.error_category.write().await = Some(category);
+                            *self.app_state.driver.error.write().await = Some(
+                                crate::transport::state::ErrorInfo {
+                                    detail: detail.clone(),
+                                    category,
+                                },
+                            );
                         } else {
-                            *self.app_state.driver.error_detail.write().await = None;
-                            *self.app_state.driver.error_category.write().await = None;
+                            *self.app_state.driver.error.write().await = None;
                         }
 
                         // Store metadata for the HTTP/gRPC API.

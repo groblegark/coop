@@ -64,6 +64,13 @@ pub struct TerminalState {
     pub exit_status: RwLock<Option<ExitStatus>>,
 }
 
+/// Classified error detail and category, stored atomically under a single lock.
+#[derive(Debug, Clone)]
+pub struct ErrorInfo {
+    pub detail: String,
+    pub category: ErrorCategory,
+}
+
 /// Driver detection state.
 pub struct DriverState {
     pub agent_state: RwLock<AgentState>,
@@ -71,10 +78,10 @@ pub struct DriverState {
     pub detection_tier: AtomicU8,
     /// Freeform cause string from the detector that produced the current state.
     pub detection_cause: RwLock<String>,
-    /// Error detail string when agent is in `Error` state, `None` otherwise.
-    pub error_detail: RwLock<Option<String>>,
-    /// Classified error category when agent is in `Error` state, `None` otherwise.
-    pub error_category: RwLock<Option<ErrorCategory>>,
+    /// Error detail + category when agent is in `Error` state, `None` otherwise.
+    /// Combined into a single lock to prevent readers from seeing a torn state
+    /// (e.g. detail=Some with category=None).
+    pub error: RwLock<Option<ErrorInfo>>,
     /// Last assistant message text (concatenated text blocks from the most recent
     /// assistant JSONL entry). Written directly by log/stdout detectors.
     pub last_message: Arc<RwLock<Option<String>>>,

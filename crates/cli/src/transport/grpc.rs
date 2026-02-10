@@ -257,14 +257,22 @@ impl proto::coop_server::Coop for CoopGrpc {
             screen_seq: screen.seq(),
             detection_tier: self.state.driver.detection_tier_str(),
             prompt: agent.prompt().map(prompt_to_proto),
-            error_detail: self.state.driver.error_detail.read().await.clone(),
+            error_detail: self
+                .state
+                .driver
+                .error
+                .read()
+                .await
+                .as_ref()
+                .map(|e| e.detail.clone()),
             error_category: self
                 .state
                 .driver
-                .error_category
+                .error
                 .read()
                 .await
-                .map(|c| c.as_str().to_owned()),
+                .as_ref()
+                .map(|e| e.category.as_str().to_owned()),
             last_message: self.state.driver.last_message.read().await.clone(),
         }))
     }
