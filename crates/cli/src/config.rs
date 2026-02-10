@@ -195,6 +195,12 @@ impl Config {
         env_duration_secs("COOP_IDLE_TIMEOUT_SECS", 0)
     }
 
+    /// Graceful shutdown timeout: how long to wait for the agent to reach idle
+    /// after receiving SIGTERM before force-killing (0 = disabled, immediate kill).
+    pub fn graceful_shutdown_timeout(&self) -> Duration {
+        env_duration_secs("COOP_GRACEFUL_SHUTDOWN_SECS", 20)
+    }
+
     /// Build a minimal `Config` for tests (port 0, `echo` command).
     #[doc(hidden)]
     pub fn test() -> Self {

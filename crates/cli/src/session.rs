@@ -123,9 +123,14 @@ impl Session {
     pub async fn run(mut self, config: &Config) -> anyhow::Result<ExitStatus> {
         let idle_timeout = config.idle_timeout();
         let shutdown_timeout = config.shutdown_timeout();
+        let graceful_timeout = config.graceful_shutdown_timeout();
         let mut screen_debounce = tokio::time::interval(config.screen_debounce());
         let mut state_seq: u64 = 0;
         let mut idle_since: Option<tokio::time::Instant> = None;
+        // Graceful shutdown: when set, we're draining — sending Escape and
+        // waiting for idle before killing the child.
+        let mut draining_deadline: Option<tokio::time::Instant> = None;
+        let mut next_escape_at: Option<tokio::time::Instant> = None;
 
         loop {
             tokio::select! {
@@ -255,6 +260,19 @@ impl Session {
                         } else {
                             idle_since = None;
                         }
+
+                        // Graceful drain: if we're draining and just reached idle,
+                        // shut down now.
+                        if draining_deadline.is_some()
+                            && matches!(detected.state, AgentState::WaitingForInput)
+                        {
+                            debug!("graceful drain: agent is idle, shutting down");
+                            let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
+                            if pid != 0 {
+                                let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGHUP);
+                            }
+                            break;
+                        }
                     }
                 }
 
@@ -283,16 +301,56 @@ impl Session {
                     break;
                 }
 
-                // 6. Shutdown signal
-                _ = self.shutdown.cancelled() => {
-                    debug!("shutdown signal received");
-                    // Send SIGHUP to the process group (negative PID) to also
-                    // clean up grandchildren spawned by the agent.
+                // 6. Graceful drain: periodically send Escape to abort in-flight work.
+                _ = async {
+                    match next_escape_at {
+                        Some(at) => tokio::time::sleep_until(at).await,
+                        None => std::future::pending().await,
+                    }
+                }, if next_escape_at.is_some() => {
+                    debug!("graceful drain: sending Escape");
+                    let esc = Bytes::from_static(b"\x1b");
+                    let _ = self.backend_input_tx.send(esc).await;
+                    next_escape_at = Some(tokio::time::Instant::now() + Duration::from_secs(2));
+                }
+
+                // 7. Graceful drain deadline expired — force shutdown.
+                _ = async {
+                    match draining_deadline {
+                        Some(at) => tokio::time::sleep_until(at).await,
+                        None => std::future::pending().await,
+                    }
+                }, if draining_deadline.is_some() => {
+                    warn!("graceful drain deadline expired, forcing shutdown");
                     let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
                     if pid != 0 {
                         let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGHUP);
                     }
                     break;
+                }
+
+                // 8. Shutdown signal — enter graceful drain or force-kill.
+                _ = self.shutdown.cancelled(), if draining_deadline.is_none() => {
+                    debug!("shutdown signal received");
+                    // Check if agent is already idle — if so, shut down immediately.
+                    let current_state = self.app_state.driver.agent_state.read().await;
+                    let is_idle = matches!(*current_state, AgentState::WaitingForInput);
+                    drop(current_state);
+
+                    if is_idle || graceful_timeout == Duration::ZERO {
+                        debug!("agent is idle (or graceful timeout disabled), shutting down immediately");
+                        let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
+                        if pid != 0 {
+                            let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGHUP);
+                        }
+                        break;
+                    }
+
+                    // Enter draining mode: send Escape to abort current work,
+                    // wait for idle state before killing.
+                    debug!("entering graceful drain (timeout: {graceful_timeout:?})");
+                    draining_deadline = Some(tokio::time::Instant::now() + graceful_timeout);
+                    next_escape_at = Some(tokio::time::Instant::now());
                 }
             }
         }
