@@ -40,6 +40,26 @@ pub fn format_claude_cause(json: &Value, prefix: &str) -> String {
     format!("{prefix}:idle")
 }
 
+/// Extract the concatenated text content from an assistant JSONL entry.
+///
+/// Returns `None` for non-assistant entries (caller must NOT clear existing value)
+/// or assistant messages with no `type: "text"` blocks.
+pub fn extract_assistant_text(json: &Value) -> Option<String> {
+    if json.get("type").and_then(|v| v.as_str()) != Some("assistant") {
+        return None;
+    }
+    let content = json.get("message")?.get("content")?.as_array()?;
+    let texts: Vec<&str> = content
+        .iter()
+        .filter(|b| b.get("type").and_then(|v| v.as_str()) == Some("text"))
+        .filter_map(|b| b.get("text").and_then(|v| v.as_str()))
+        .collect();
+    if texts.is_empty() {
+        return None;
+    }
+    Some(texts.join("\n"))
+}
+
 /// Parse a Claude session log JSONL entry into an [`AgentState`].
 ///
 /// Returns `None` if the entry cannot be meaningfully classified (e.g.

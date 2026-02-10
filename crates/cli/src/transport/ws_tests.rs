@@ -46,6 +46,7 @@ fn state_change_serialization() -> anyhow::Result<()> {
         error_detail: None,
         error_category: None,
         cause: String::new(),
+        last_message: None,
     };
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"state_change\""));
@@ -56,6 +57,8 @@ fn state_change_serialization() -> anyhow::Result<()> {
     assert!(!json.contains("error_category"), "json: {json}");
     // Cause should be absent when empty (skip_serializing_if)
     assert!(!json.contains("cause"), "json: {json}");
+    // last_message should be absent when None
+    assert!(!json.contains("last_message"), "json: {json}");
     Ok(())
 }
 
@@ -69,6 +72,7 @@ fn state_change_with_error_serialization() -> anyhow::Result<()> {
         error_detail: Some("rate_limit_error".to_owned()),
         error_category: Some("rate_limited".to_owned()),
         cause: "log:error".to_owned(),
+        last_message: None,
     };
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"state_change\""));

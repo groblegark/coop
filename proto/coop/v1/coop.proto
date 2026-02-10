@@ -259,6 +259,8 @@ message GetAgentStateResponse {
   optional string error_detail = 7;
   // Error classification (when state is "error").
   optional string error_category = 8;
+  // Last assistant message text (concatenated text blocks).
+  optional string last_message = 9;
 }
 
 message NudgeRequest {
@@ -359,4 +361,6 @@ message AgentStateEvent {
   optional string error_category = 6;
   // What caused this transition (e.g. "hook:idle", "log:tool(Bash)").
   optional string cause = 7;
+  // Last assistant message text (concatenated text blocks).
+  optional string last_message = 8;
 }

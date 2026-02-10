@@ -4,10 +4,11 @@
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::hook_recv::HookReceiver;
@@ -17,7 +18,7 @@ use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
 use crate::event::HookEvent;
 
 use super::prompt::extract_ask_user_from_tool_input;
-use super::state::{format_claude_cause, parse_claude_state};
+use super::state::{extract_assistant_text, format_claude_cause, parse_claude_state};
 
 /// Tier 1 detector: receives push events from Claude's hook system.
 ///
@@ -120,6 +121,8 @@ pub struct LogDetector {
     pub start_offset: u64,
     /// Fallback poll interval for the log watcher.
     pub poll_interval: Duration,
+    /// Shared last assistant message text (written directly, bypasses detector pipeline).
+    pub last_message: Option<Arc<RwLock<Option<String>>>>,
 }
 
 impl Detector for LogDetector {
@@ -137,6 +140,7 @@ impl Detector for LogDetector {
             .with_poll_interval(self.poll_interval);
             let (line_tx, mut line_rx) = mpsc::channel(32);
             let watch_shutdown = shutdown.clone();
+            let last_message = self.last_message;
 
             tokio::spawn(async move {
                 watcher.run(line_tx, watch_shutdown).await;
@@ -150,6 +154,11 @@ impl Detector for LogDetector {
                             Some(lines) => {
                                 for line in &lines {
                                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+                                        if let Some(text) = extract_assistant_text(&json) {
+                                            if let Some(ref lm) = last_message {
+                                                *lm.write().await = Some(text);
+                                            }
+                                        }
                                         if let Some(state) = parse_claude_state(&json) {
                                             let cause = format_claude_cause(&json, "log");
                                             let _ = state_tx.send((state, cause)).await;
@@ -177,6 +186,8 @@ impl Detector for LogDetector {
 /// and classifies each parsed entry.
 pub struct StdoutDetector {
     pub stdout_rx: mpsc::Receiver<Bytes>,
+    /// Shared last assistant message text (written directly, bypasses detector pipeline).
+    pub last_message: Option<Arc<RwLock<Option<String>>>>,
 }
 
 impl Detector for StdoutDetector {
@@ -188,6 +199,7 @@ impl Detector for StdoutDetector {
         Box::pin(async move {
             let mut parser = JsonlParser::new();
             let mut stdout_rx = self.stdout_rx;
+            let last_message = self.last_message;
 
             loop {
                 tokio::select! {
@@ -196,6 +208,11 @@ impl Detector for StdoutDetector {
                         match data {
                             Some(bytes) => {
                                 for json in parser.feed(&bytes) {
+                                    if let Some(text) = extract_assistant_text(&json) {
+                                        if let Some(ref lm) = last_message {
+                                            *lm.write().await = Some(text);
+                                        }
+                                    }
                                     if let Some(state) = parse_claude_state(&json) {
                                         let cause = format_claude_cause(&json, "stdout");
                                         let _ = state_tx.send((state, cause)).await;

@@ -25,6 +25,7 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
         log_path: log_path.clone(),
         start_offset: 0,
         poll_interval: std::time::Duration::from_secs(5),
+        last_message: None,
     });
     assert_eq!(detector.tier(), 2);
 
@@ -68,6 +69,7 @@ async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
         log_path: log_path.clone(),
         start_offset: 0,
         poll_interval: std::time::Duration::from_secs(5),
+        last_message: None,
     });
     let (state_tx, mut state_rx) = mpsc::channel(32);
     let shutdown = CancellationToken::new();
@@ -94,7 +96,7 @@ async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
 #[tokio::test]
 async fn stdout_detector_parses_jsonl_bytes() -> anyhow::Result<()> {
     let (bytes_tx, bytes_rx) = mpsc::channel(32);
-    let detector = Box::new(StdoutDetector { stdout_rx: bytes_rx });
+    let detector = Box::new(StdoutDetector { stdout_rx: bytes_rx, last_message: None });
     assert_eq!(detector.tier(), 3);
 
     let (state_tx, mut state_rx) = mpsc::channel(32);

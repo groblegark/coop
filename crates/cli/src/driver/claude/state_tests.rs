@@ -5,7 +5,7 @@ use serde_json::json;
 
 use crate::driver::AgentState;
 
-use super::parse_claude_state;
+use super::{extract_assistant_text, parse_claude_state};
 
 #[yare::parameterized(
     error_string = {
@@ -83,4 +83,56 @@ fn assistant_with_ask_user_produces_question() {
         }
         other => panic!("expected Prompt(Question), got {other:?}"),
     }
+}
+
+#[yare::parameterized(
+    non_assistant_returns_none = {
+        json!({ "type": "user", "message": { "content": [{ "type": "text", "text": "hello" }] } }),
+        None
+    },
+    error_returns_none = {
+        json!({ "error": "rate_limit_exceeded" }),
+        None
+    },
+    single_text_block = {
+        json!({ "type": "assistant", "message": { "content": [{ "type": "text", "text": "Hello world" }] } }),
+        Some("Hello world".to_owned())
+    },
+    multiple_text_blocks = {
+        json!({ "type": "assistant", "message": { "content": [
+            { "type": "text", "text": "Line one" },
+            { "type": "text", "text": "Line two" }
+        ] } }),
+        Some("Line one\nLine two".to_owned())
+    },
+    tool_use_only = {
+        json!({ "type": "assistant", "message": { "content": [
+            { "type": "tool_use", "name": "Bash", "input": {} }
+        ] } }),
+        None
+    },
+    thinking_only = {
+        json!({ "type": "assistant", "message": { "content": [
+            { "type": "thinking", "thinking": "hmm" }
+        ] } }),
+        None
+    },
+    mixed_text_and_tool = {
+        json!({ "type": "assistant", "message": { "content": [
+            { "type": "text", "text": "Let me run that." },
+            { "type": "tool_use", "name": "Bash", "input": {} }
+        ] } }),
+        Some("Let me run that.".to_owned())
+    },
+    empty_content = {
+        json!({ "type": "assistant", "message": { "content": [] } }),
+        None
+    },
+    missing_message = {
+        json!({ "type": "assistant" }),
+        None
+    },
+)]
+fn assistant_text_extraction(entry: serde_json::Value, expected: Option<String>) {
+    assert_eq!(extract_assistant_text(&entry), expected);
 }

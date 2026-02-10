@@ -177,6 +177,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let log_start_offset = resume_state.as_ref().map(|s| s.log_offset).unwrap_or(0);
     let pid_terminal = Arc::clone(&terminal);
     let rtw_for_driver = Arc::clone(&terminal.ring_total_written);
+    let last_message: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     let (nudge_encoder, respond_encoder, mut detectors) = build_driver(
         &config,
         agent_enum,
@@ -192,6 +193,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         }),
         Arc::new(move || rtw_for_driver.load(std::sync::atomic::Ordering::Relaxed)),
         log_start_offset,
+        &last_message,
     )?;
 
     // Tier 5: Claude screen detector for idle prompt detection.
@@ -261,6 +263,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             detection_cause: RwLock::new(String::new()),
             error_detail: RwLock::new(None),
             error_category: RwLock::new(None),
+            last_message,
         }),
         channels: TransportChannels { input_tx, output_tx, state_tx },
         config: SessionSettings {
@@ -407,6 +410,8 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 type DriverComponents =
     (Option<Arc<dyn NudgeEncoder>>, Option<Arc<dyn RespondEncoder>>, Vec<Box<dyn Detector>>);
 
+// TODO(refactor): group build_driver params into a struct when adding more
+#[allow(clippy::too_many_arguments)]
 fn build_driver(
     config: &Config,
     agent: AgentType,
@@ -415,6 +420,7 @@ fn build_driver(
     child_pid_fn: Arc<dyn Fn() -> Option<u32> + Send + Sync>,
     ring_total_written_fn: Arc<dyn Fn() -> u64 + Send + Sync>,
     log_start_offset: u64,
+    last_message: &Arc<RwLock<Option<String>>>,
 ) -> anyhow::Result<DriverComponents> {
     match agent {
         AgentType::Claude => {
@@ -424,6 +430,7 @@ fn build_driver(
                 claude_setup.map(|s| s.session_log_path.clone()),
                 None,
                 log_start_offset,
+                Some(Arc::clone(last_message)),
             )?;
             let nudge: Arc<dyn NudgeEncoder> = Arc::new(driver.nudge);
             let respond: Arc<dyn RespondEncoder> = Arc::new(driver.respond);

@@ -441,6 +441,7 @@ fn test_state_with_stop(
             detection_cause: tokio::sync::RwLock::new(String::new()),
             error_detail: tokio::sync::RwLock::new(None),
             error_category: tokio::sync::RwLock::new(None),
+            last_message: Arc::new(tokio::sync::RwLock::new(None)),
         }),
         channels: crate::transport::state::TransportChannels { input_tx, output_tx, state_tx },
         config: crate::transport::state::SessionSettings {
@@ -701,6 +702,7 @@ async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
             detection_cause: tokio::sync::RwLock::new(String::new()),
             error_detail: tokio::sync::RwLock::new(None),
             error_category: tokio::sync::RwLock::new(None),
+            last_message: Arc::new(tokio::sync::RwLock::new(None)),
         }),
         channels: crate::transport::state::TransportChannels { input_tx, output_tx, state_tx },
         config: crate::transport::state::SessionSettings {

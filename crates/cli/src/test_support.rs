@@ -110,6 +110,7 @@ impl AppStateBuilder {
                 detection_cause: RwLock::new(String::new()),
                 error_detail: RwLock::new(None),
                 error_category: RwLock::new(None),
+                last_message: Arc::new(RwLock::new(None)),
             }),
             channels: TransportChannels { input_tx, output_tx, state_tx },
             config: SessionSettings {

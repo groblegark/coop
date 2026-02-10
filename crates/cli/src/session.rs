@@ -226,11 +226,13 @@ impl Session {
                         self.app_state.driver.detection_tier.store(detected.tier, std::sync::atomic::Ordering::Relaxed);
                         *self.app_state.driver.detection_cause.write().await = detected.cause.clone();
 
+                        let last_message = self.app_state.driver.last_message.read().await.clone();
                         let _ = self.app_state.channels.state_tx.send(StateChangeEvent {
                             prev,
                             next: detected.state.clone(),
                             seq: state_seq,
                             cause: detected.cause,
+                            last_message,
                         });
 
                         // Spawn deferred option enrichment for Permission/Plan prompts.
@@ -358,11 +360,13 @@ impl Session {
         *current = AgentState::Exited { status };
         drop(current);
         state_seq += 1;
+        let last_message = self.app_state.driver.last_message.read().await.clone();
         let _ = self.app_state.channels.state_tx.send(StateChangeEvent {
             prev,
             next: AgentState::Exited { status },
             seq: state_seq,
             cause: String::new(),
+            last_message,
         });
 
         Ok(status)
@@ -419,11 +423,13 @@ async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64) {
                     let next = agent.clone();
                     drop(agent);
 
+                    let last_message = app.driver.last_message.read().await.clone();
                     let _ = app.channels.state_tx.send(StateChangeEvent {
                         prev: next.clone(),
                         next,
                         seq: expected_seq,
                         cause: "enriched".to_owned(),
+                        last_message,
                     });
                 }
             }
@@ -450,11 +456,13 @@ async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64) {
             let next = agent.clone();
             drop(agent);
 
+            let last_message = app.driver.last_message.read().await.clone();
             let _ = app.channels.state_tx.send(StateChangeEvent {
                 prev: next.clone(),
                 next,
                 seq: expected_seq,
                 cause: "enriched".to_owned(),
+                last_message,
             });
         }
     }

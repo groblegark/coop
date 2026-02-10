@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-//! Startup prompt detection and auto-response for Claude Code.
+//! Startup prompt detection for Claude Code.
 //!
-//! Claude may present prompts during startup (workspace trust, permission
-//! bypass, login/onboarding) that block the agent before reaching the idle
-//! `WaitingForInput` state. In headless/orchestrated mode these must be
-//! auto-handled.
-
-use crate::driver::NudgeStep;
+//! Claude may present text-based prompts during startup (workspace trust,
+//! permission bypass, login/onboarding) that block the agent before reaching
+//! the idle `WaitingForInput` state. The screen detector uses these patterns
+//! to suppress false idle signals when a startup prompt is visible.
 
 /// Known startup prompts that Claude Code may present.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,25 +65,6 @@ pub fn detect_startup_prompt(screen_lines: &[String]) -> Option<StartupPrompt> {
     }
 
     None
-}
-
-/// Encode the auto-response for a given startup prompt.
-pub fn encode_startup_response(prompt: StartupPrompt) -> Vec<NudgeStep> {
-    match prompt {
-        StartupPrompt::WorkspaceTrust => {
-            // Accept trust: press 'y' + enter
-            vec![NudgeStep { bytes: b"y\r".to_vec(), delay_after: None }]
-        }
-        StartupPrompt::BypassPermissions => {
-            // Accept permission bypass: press 'y' + enter
-            vec![NudgeStep { bytes: b"y\r".to_vec(), delay_after: None }]
-        }
-        StartupPrompt::LoginRequired => {
-            // Nothing we can auto-handle for login; return empty to let it
-            // time out or be handled by the operator.
-            vec![]
-        }
-    }
 }
 
 #[cfg(test)]

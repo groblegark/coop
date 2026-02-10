@@ -189,11 +189,13 @@ pub async fn update_question_current(state: &AppState, answers_delivered: usize)
             drop(agent);
             let seq = state.driver.state_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             // Broadcast updated state so clients see question_current progress.
+            let last_message = state.driver.last_message.read().await.clone();
             let _ = state.channels.state_tx.send(crate::event::StateChangeEvent {
                 prev: next.clone(),
                 next,
                 seq,
                 cause: String::new(),
+                last_message,
             });
         }
     }

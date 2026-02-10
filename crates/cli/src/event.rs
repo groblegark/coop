@@ -21,6 +21,8 @@ pub struct StateChangeEvent {
     pub next: AgentState,
     pub seq: u64,
     pub cause: String,
+    /// Snapshot of the last assistant message text at the time of this transition.
+    pub last_message: Option<String>,
 }
 
 /// Input sent to the child process through the PTY.

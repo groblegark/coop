@@ -67,6 +67,9 @@ pub struct DriverState {
     pub error_detail: RwLock<Option<String>>,
     /// Classified error category when agent is in `Error` state, `None` otherwise.
     pub error_category: RwLock<Option<ErrorCategory>>,
+    /// Last assistant message text (concatenated text blocks from the most recent
+    /// assistant JSONL entry). Written directly by log/stdout detectors.
+    pub last_message: Arc<RwLock<Option<String>>>,
 }
 
 impl DriverState {

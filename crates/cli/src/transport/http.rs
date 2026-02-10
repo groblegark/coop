@@ -141,6 +141,8 @@ pub struct AgentStateResponse {
     pub error_detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -323,6 +325,7 @@ pub async fn agent_state(State(s): State<Arc<AppState>>) -> impl IntoResponse {
         prompt: state.prompt().cloned(),
         error_detail: s.driver.error_detail.read().await.clone(),
         error_category: s.driver.error_category.read().await.map(|c| c.as_str().to_owned()),
+        last_message: s.driver.last_message.read().await.clone(),
     })
     .into_response()
 }
@@ -371,6 +374,8 @@ pub struct StopHookVerdict {
     pub decision: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_message: Option<String>,
 }
 
 /// `POST /api/v1/hooks/stop` — called by the hook script, returns verdict.
@@ -380,19 +385,22 @@ pub async fn hooks_stop(
 ) -> impl IntoResponse {
     let stop = &s.stop;
     let config = stop.config.read().await;
+    let last_message = s.driver.last_message.read().await.clone();
 
     // 1. Mode = Allow → always allow.
     if config.mode == StopMode::Allow {
         drop(config);
         stop.emit(StopType::Allowed, None, None);
-        return Json(StopHookVerdict { decision: None, reason: None }).into_response();
+        return Json(StopHookVerdict { decision: None, reason: None, last_message })
+            .into_response();
     }
 
     // 2. Safety valve: stop_hook_active = true → must allow.
     if input.stop_hook_active {
         drop(config);
         stop.emit(StopType::SafetyValve, None, None);
-        return Json(StopHookVerdict { decision: None, reason: None }).into_response();
+        return Json(StopHookVerdict { decision: None, reason: None, last_message })
+            .into_response();
     }
 
     // 3. Unrecoverable error → allow.
@@ -406,7 +414,8 @@ pub async fn hooks_stop(
                 drop(error_cat);
                 drop(config);
                 stop.emit(StopType::Error, None, detail);
-                return Json(StopHookVerdict { decision: None, reason: None }).into_response();
+                return Json(StopHookVerdict { decision: None, reason: None, last_message })
+                    .into_response();
             }
         }
     }
@@ -416,14 +425,15 @@ pub async fn hooks_stop(
         let body = stop.signal_body.write().await.take();
         drop(config);
         stop.emit(StopType::Signaled, body, None);
-        return Json(StopHookVerdict { decision: None, reason: None }).into_response();
+        return Json(StopHookVerdict { decision: None, reason: None, last_message })
+            .into_response();
     }
 
     // 5. Block: generate reason and return block verdict.
     let reason = generate_block_reason(&config);
     drop(config);
     stop.emit(StopType::Blocked, None, None);
-    Json(StopHookVerdict { decision: Some("block".to_owned()), reason: Some(reason) })
+    Json(StopHookVerdict { decision: Some("block".to_owned()), reason: Some(reason), last_message })
         .into_response()
 }
 

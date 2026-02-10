@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use super::{detect_startup_prompt, encode_startup_response, StartupPrompt};
+use super::{detect_startup_prompt, StartupPrompt};
 
 #[test]
 fn detect_workspace_trust_prompt() {
@@ -52,25 +52,4 @@ fn no_prompt_on_normal_output() {
         "Let me start by reading the file.".to_owned(),
     ];
     assert_eq!(detect_startup_prompt(&lines), None);
-}
-
-#[test]
-fn encode_workspace_trust_response() {
-    let steps = encode_startup_response(StartupPrompt::WorkspaceTrust);
-    assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"y\r");
-    assert!(steps[0].delay_after.is_none());
-}
-
-#[test]
-fn encode_bypass_permissions_response() {
-    let steps = encode_startup_response(StartupPrompt::BypassPermissions);
-    assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"y\r");
-}
-
-#[test]
-fn encode_login_response_is_empty() {
-    let steps = encode_startup_response(StartupPrompt::LoginRequired);
-    assert!(steps.is_empty());
 }

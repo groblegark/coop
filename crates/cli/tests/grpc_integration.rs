@@ -252,6 +252,7 @@ async fn grpc_stream_state() -> anyhow::Result<()> {
         next: AgentState::Working,
         seq: 1,
         cause: String::new(),
+        last_message: None,
     });
 
     let event = tokio::time::timeout(Duration::from_secs(5), stream.next())

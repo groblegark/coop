@@ -12,9 +12,10 @@ pub mod startup;
 pub mod state;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use bytes::Bytes;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 
 use crate::config::Config;
 
@@ -46,6 +47,7 @@ impl ClaudeDriver {
         session_log_path: Option<PathBuf>,
         stdout_rx: Option<mpsc::Receiver<Bytes>>,
         log_start_offset: u64,
+        last_message: Option<Arc<RwLock<Option<String>>>>,
     ) -> anyhow::Result<Self> {
         let mut detectors: Vec<Box<dyn Detector>> = Vec::new();
 
@@ -61,12 +63,13 @@ impl ClaudeDriver {
                 log_path,
                 start_offset: log_start_offset,
                 poll_interval: config.log_poll(),
+                last_message: last_message.clone(),
             }));
         }
 
         // Tier 3: Structured stdout JSONL
         if let Some(stdout_rx) = stdout_rx {
-            detectors.push(Box::new(StdoutDetector { stdout_rx }));
+            detectors.push(Box::new(StdoutDetector { stdout_rx, last_message }));
         }
 
         // Sort by tier (lowest number = highest priority)

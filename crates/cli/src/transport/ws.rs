@@ -61,6 +61,8 @@ pub enum ServerMessage {
         error_category: Option<String>,
         #[serde(default, skip_serializing_if = "String::is_empty")]
         cause: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        last_message: Option<String>,
     },
     Exit {
         code: Option<i32>,
@@ -410,6 +412,7 @@ async fn handle_client_message(
             let screen = state.terminal.screen.read().await;
             let cause = state.driver.detection_cause.read().await.clone();
             let (error_detail, error_category) = extract_error_fields(&agent);
+            let last_message = state.driver.last_message.read().await.clone();
             Some(ServerMessage::StateChange {
                 prev: agent.as_str().to_owned(),
                 next: agent.as_str().to_owned(),
@@ -418,6 +421,7 @@ async fn handle_client_message(
                 error_detail,
                 error_category,
                 cause,
+                last_message,
             })
         }
 
@@ -513,6 +517,7 @@ fn state_change_to_msg(event: &StateChangeEvent) -> ServerMessage {
         error_detail,
         error_category,
         cause: event.cause.clone(),
+        last_message: event.last_message.clone(),
     }
 }
 

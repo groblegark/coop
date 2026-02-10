@@ -99,6 +99,7 @@ pub fn state_change_to_proto(e: &StateChangeEvent) -> proto::AgentStateEvent {
         error_detail,
         error_category,
         cause,
+        last_message: e.last_message.clone(),
     }
 }
 
@@ -272,6 +273,7 @@ impl proto::coop_server::Coop for CoopGrpc {
                 .read()
                 .await
                 .map(|c| c.as_str().to_owned()),
+            last_message: self.state.driver.last_message.read().await.clone(),
         }))
     }
 
