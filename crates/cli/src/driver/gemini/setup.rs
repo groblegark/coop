@@ -10,53 +10,84 @@
 use std::path::{Path, PathBuf};
 
 use super::hooks::generate_hook_config;
+use crate::driver::SessionSetup;
 
-/// Everything needed to spawn a Gemini session.
-pub struct GeminiSessionSetup {
-    /// Path to the named FIFO pipe (for Tier 1 hook detection).
-    pub hook_pipe_path: PathBuf,
-    /// Environment variables to set on the child process.
-    pub env_vars: Vec<(String, String)>,
-    /// Extra CLI arguments to append to the Gemini command.
-    pub extra_args: Vec<String>,
-    /// Keeps the temp directory (pipe + settings) alive for the session.
-    _temp_dir: tempfile::TempDir,
-}
-
-/// Prepare a fresh Gemini session.
+/// Prepare a Gemini session setup.
 ///
-/// Writes a settings file with hook config and creates the pipe path.
-/// The settings file is injected via `GEMINI_CLI_SYSTEM_SETTINGS_PATH`
-/// so hooks are active without modifying user or project settings.
-/// If `base_settings` is provided, orchestrator hooks are layered
-/// beneath coop's detection hooks in the merged settings file.
-/// If `mcp_config` is provided, its `mcpServers` are included in the
-/// settings file (Gemini reads MCP servers from settings, not a separate file).
-pub fn prepare_gemini_session(
-    _working_dir: &Path,
+/// Dispatches to the appropriate preparation path based on mode:
+/// - **pristine**: no FIFO or hooks, optional settings passthrough.
+/// - **fresh**: generates new session ID, hooks, and settings.
+pub fn prepare(
     coop_url: &str,
     base_settings: Option<&serde_json::Value>,
     mcp_config: Option<&serde_json::Value>,
-) -> anyhow::Result<GeminiSessionSetup> {
-    let temp_dir = tempfile::tempdir()?;
-    let hook_pipe_path = temp_dir.path().join("hook.pipe");
-    let settings_path =
-        write_settings_file(temp_dir.path(), &hook_pipe_path, base_settings, mcp_config)?;
+    pristine: bool,
+) -> anyhow::Result<SessionSetup> {
+    if pristine {
+        prepare_pristine(coop_url, base_settings, mcp_config)
+    } else {
+        prepare_fresh(coop_url, base_settings, mcp_config)
+    }
+}
 
-    let mut env_vars = super::hooks::hook_env_vars(&hook_pipe_path, coop_url);
-    // Inject settings file via system settings path so Gemini loads our hooks
+/// Prepare a fresh Gemini session with hook detection.
+fn prepare_fresh(
+    coop_url: &str,
+    base_settings: Option<&serde_json::Value>,
+    mcp_config: Option<&serde_json::Value>,
+) -> anyhow::Result<SessionSetup> {
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let session_dir = crate::driver::coop_session_dir(&session_id)?;
+    let hook_pipe_path = session_dir.join("hook.pipe");
+    let settings_path =
+        write_settings_file(&session_dir, &hook_pipe_path, base_settings, mcp_config)?;
+
+    let mut env_vars = crate::driver::hook_env_vars(&hook_pipe_path, coop_url);
     env_vars
         .push(("GEMINI_CLI_SYSTEM_SETTINGS_PATH".to_string(), settings_path.display().to_string()));
 
-    Ok(GeminiSessionSetup { hook_pipe_path, env_vars, extra_args: vec![], _temp_dir: temp_dir })
+    Ok(SessionSetup {
+        hook_pipe_path: Some(hook_pipe_path),
+        session_log_path: None,
+        session_dir,
+        env_vars,
+        extra_args: vec![],
+    })
+}
+
+/// Prepare a Gemini session in pristine mode (no FIFO, no hooks).
+fn prepare_pristine(
+    coop_url: &str,
+    base_settings: Option<&serde_json::Value>,
+    mcp_config: Option<&serde_json::Value>,
+) -> anyhow::Result<SessionSetup> {
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let session_dir = crate::driver::coop_session_dir(&session_id)?;
+
+    let mut env_vars = vec![("COOP_URL".to_string(), coop_url.to_string())];
+
+    if base_settings.is_some() || mcp_config.is_some() {
+        let mut settings = base_settings.cloned().unwrap_or(serde_json::json!({}));
+        if let Some(mcp) = mcp_config {
+            if let Some(obj) = settings.as_object_mut() {
+                obj.insert("mcpServers".to_string(), mcp.clone());
+            }
+        }
+        let path = session_dir.join("coop-gemini-settings.json");
+        std::fs::write(&path, serde_json::to_string_pretty(&settings)?)?;
+        env_vars.push(("GEMINI_CLI_SYSTEM_SETTINGS_PATH".to_string(), path.display().to_string()));
+    }
+
+    Ok(SessionSetup {
+        hook_pipe_path: None,
+        session_log_path: None,
+        session_dir,
+        env_vars,
+        extra_args: vec![],
+    })
 }
 
 /// Write a Gemini settings JSON file containing the hook configuration.
-///
-/// If `base_settings` is provided, merges orchestrator hooks (base)
-/// with coop's hooks (appended). If `mcp_config` is provided, its
-/// `mcpServers` key is included in the settings file. Returns the path
-/// to the written file.
 fn write_settings_file(
     dir: &Path,
     pipe_path: &Path,
@@ -68,8 +99,6 @@ fn write_settings_file(
         Some(orch) => crate::config::merge_settings(orch, coop_config),
         None => coop_config,
     };
-    // Gemini reads mcpServers from settings.json (not a separate file).
-    // The `mcp` field holds the server map directly.
     if let Some(mcp) = mcp_config {
         if let Some(obj) = merged.as_object_mut() {
             obj.insert("mcpServers".to_string(), mcp.clone());

@@ -22,6 +22,7 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::future::Future;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -375,6 +376,48 @@ impl std::fmt::Display for AgentState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
+}
+
+/// Shared session setup produced by agent-specific setup modules.
+///
+/// Wraps the artifacts (FIFO path, log path, env vars, CLI args) that
+/// `run::prepare()` needs to spawn the backend and build the driver.
+/// Agent-specific setup functions return this type.
+pub struct SessionSetup {
+    /// Tier 1 FIFO path. `None` in pristine mode.
+    pub hook_pipe_path: Option<PathBuf>,
+    /// Tier 2 session log path. `None` for agents without log detection.
+    pub session_log_path: Option<PathBuf>,
+    /// Session artifact directory (settings, MCP config, FIFO).
+    pub session_dir: PathBuf,
+    /// Environment variables for the child process.
+    pub env_vars: Vec<(String, String)>,
+    /// Extra CLI arguments to append to the command.
+    pub extra_args: Vec<String>,
+}
+
+/// Create and return a coop session directory for the given session ID.
+///
+/// Session artifacts (FIFO pipe, settings file) live at
+/// `$XDG_STATE_HOME/coop/sessions/<session-id>/` (defaulting to
+/// `~/.local/state/coop/sessions/<session-id>/`) so they survive for
+/// debugging and session recovery.
+pub fn coop_session_dir(session_id: &str) -> anyhow::Result<PathBuf> {
+    let state_home = std::env::var("XDG_STATE_HOME").unwrap_or_else(|_| {
+        let home = std::env::var("HOME").unwrap_or_default();
+        format!("{home}/.local/state")
+    });
+    let dir = PathBuf::from(state_home).join("coop").join("sessions").join(session_id);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Return environment variables for hook communication with the agent child process.
+pub fn hook_env_vars(pipe_path: &Path, coop_url: &str) -> Vec<(String, String)> {
+    vec![
+        ("COOP_HOOK_PIPE".to_string(), pipe_path.display().to_string()),
+        ("COOP_URL".to_string(), coop_url.to_string()),
+    ]
 }
 
 #[cfg(test)]

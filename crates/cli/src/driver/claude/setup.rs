@@ -11,84 +11,145 @@ use std::path::{Path, PathBuf};
 
 use super::hooks::generate_hook_config;
 use super::resume::ResumeState;
+use crate::driver::SessionSetup;
 
-/// Everything needed to spawn (or resume) a Claude session.
-pub struct ClaudeSessionSetup {
-    /// Path to Claude's session log file (for Tier 2 log detection).
-    pub session_log_path: PathBuf,
-    /// Path to the named FIFO pipe (for Tier 1 hook detection).
-    pub hook_pipe_path: PathBuf,
-    /// Environment variables to set on the child process.
-    pub env_vars: Vec<(String, String)>,
-    /// Extra CLI arguments to append to the Claude command.
-    pub extra_args: Vec<String>,
-    /// Session directory containing the FIFO pipe and settings file.
-    pub session_dir: PathBuf,
-}
-
-/// Prepare a fresh Claude session.
+/// Prepare a Claude session setup.
 ///
-/// Generates a UUID for `--session-id`, computes the expected log path,
-/// writes a settings file with hook config, and creates the pipe path.
-/// If `base_settings` is provided, orchestrator hooks are layered
-/// beneath coop's detection hooks in the merged settings file.
-pub fn prepare_claude_session(
+/// Dispatches to the appropriate preparation path based on mode:
+/// - **pristine**: no FIFO or hooks, but keeps session-id + log path for Tier 2.
+/// - **resume**: reuses existing log path and conversation ID.
+/// - **fresh**: generates new session ID, hooks, and settings.
+pub fn prepare(
     working_dir: &Path,
     coop_url: &str,
     base_settings: Option<&serde_json::Value>,
-) -> anyhow::Result<ClaudeSessionSetup> {
+    mcp_config: Option<&serde_json::Value>,
+    pristine: bool,
+    resume: Option<(&ResumeState, &Path)>,
+) -> anyhow::Result<SessionSetup> {
+    if pristine {
+        prepare_pristine(working_dir, coop_url, base_settings, mcp_config)
+    } else if let Some((state, log_path)) = resume {
+        prepare_resume(state, log_path, coop_url, base_settings, mcp_config)
+    } else {
+        prepare_fresh(working_dir, coop_url, base_settings, mcp_config)
+    }
+}
+
+/// Prepare a fresh Claude session.
+fn prepare_fresh(
+    working_dir: &Path,
+    coop_url: &str,
+    base_settings: Option<&serde_json::Value>,
+    mcp_config: Option<&serde_json::Value>,
+) -> anyhow::Result<SessionSetup> {
     let session_id = uuid::Uuid::new_v4().to_string();
     let log_path = session_log_path(working_dir, &session_id);
 
-    let session_dir = coop_session_dir(&session_id)?;
+    let session_dir = crate::driver::coop_session_dir(&session_id)?;
     let hook_pipe_path = session_dir.join("hook.pipe");
     let settings_path = write_settings_file(&session_dir, &hook_pipe_path, base_settings)?;
 
-    let env_vars = super::hooks::hook_env_vars(&hook_pipe_path, coop_url);
-    let extra_args = vec![
+    let env_vars = crate::driver::hook_env_vars(&hook_pipe_path, coop_url);
+    let mut extra_args = vec![
         "--session-id".to_owned(),
         session_id,
         "--settings".to_owned(),
         settings_path.display().to_string(),
     ];
 
-    Ok(ClaudeSessionSetup {
-        session_log_path: log_path,
-        hook_pipe_path,
+    if let Some(mcp) = mcp_config {
+        write_mcp_config(&session_dir, mcp, &mut extra_args)?;
+    }
+
+    Ok(SessionSetup {
+        hook_pipe_path: Some(hook_pipe_path),
+        session_log_path: Some(log_path),
+        session_dir,
         env_vars,
         extra_args,
-        session_dir,
     })
 }
 
 /// Prepare a resumed Claude session.
-///
-/// Reuses the discovered log path and conversation ID. Writes a fresh
-/// settings file so hooks are active in the new process.
-pub fn prepare_claude_resume(
+fn prepare_resume(
     resume_state: &ResumeState,
     existing_log_path: &Path,
     coop_url: &str,
     base_settings: Option<&serde_json::Value>,
-) -> anyhow::Result<ClaudeSessionSetup> {
+    mcp_config: Option<&serde_json::Value>,
+) -> anyhow::Result<SessionSetup> {
     let resume_id = resume_state.conversation_id.as_deref().unwrap_or("unknown");
-    let session_dir = coop_session_dir(resume_id)?;
+    let session_dir = crate::driver::coop_session_dir(resume_id)?;
     let hook_pipe_path = session_dir.join("hook.pipe");
     let settings_path = write_settings_file(&session_dir, &hook_pipe_path, base_settings)?;
 
-    let env_vars = super::hooks::hook_env_vars(&hook_pipe_path, coop_url);
+    let env_vars = crate::driver::hook_env_vars(&hook_pipe_path, coop_url);
 
     let mut extra_args = super::resume::resume_args(resume_state);
     extra_args.push("--settings".to_owned());
     extra_args.push(settings_path.display().to_string());
 
-    Ok(ClaudeSessionSetup {
-        session_log_path: existing_log_path.to_path_buf(),
-        hook_pipe_path,
+    if let Some(mcp) = mcp_config {
+        write_mcp_config(&session_dir, mcp, &mut extra_args)?;
+    }
+
+    Ok(SessionSetup {
+        hook_pipe_path: Some(hook_pipe_path),
+        session_log_path: Some(existing_log_path.to_path_buf()),
+        session_dir,
         env_vars,
         extra_args,
-        session_dir,
     })
+}
+
+/// Prepare a Claude session in pristine mode (no FIFO, no hooks).
+fn prepare_pristine(
+    working_dir: &Path,
+    coop_url: &str,
+    base_settings: Option<&serde_json::Value>,
+    mcp_config: Option<&serde_json::Value>,
+) -> anyhow::Result<SessionSetup> {
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let log_path = session_log_path(working_dir, &session_id);
+    let session_dir = crate::driver::coop_session_dir(&session_id)?;
+
+    let mut extra_args = vec!["--session-id".to_owned(), session_id];
+
+    // Write orchestrator settings as-is (no coop hooks merged).
+    if let Some(settings) = base_settings {
+        let path = session_dir.join("coop-settings.json");
+        std::fs::write(&path, serde_json::to_string_pretty(settings)?)?;
+        extra_args.push("--settings".to_owned());
+        extra_args.push(path.display().to_string());
+    }
+
+    if let Some(mcp) = mcp_config {
+        write_mcp_config(&session_dir, mcp, &mut extra_args)?;
+    }
+
+    Ok(SessionSetup {
+        hook_pipe_path: None,
+        session_log_path: Some(log_path),
+        session_dir,
+        env_vars: vec![("COOP_URL".to_string(), coop_url.to_string())],
+        extra_args,
+    })
+}
+
+/// Write Claude MCP config file and append `--mcp-config` to extra args.
+fn write_mcp_config(
+    session_dir: &Path,
+    mcp: &serde_json::Value,
+    extra_args: &mut Vec<String>,
+) -> anyhow::Result<()> {
+    let wrapped = serde_json::json!({ "mcpServers": mcp });
+    let mcp_path = session_dir.join("mcp.json");
+    std::fs::write(&mcp_path, serde_json::to_string_pretty(&wrapped)?)?;
+    tracing::info!("wrote Claude MCP config to {}", mcp_path.display());
+    extra_args.push("--mcp-config".to_owned());
+    extra_args.push(mcp_path.display().to_string());
+    Ok(())
 }
 
 /// Write a Claude settings JSON file containing the hook configuration.
@@ -136,22 +197,6 @@ fn inject_coop_permissions(config: &mut serde_json::Value) {
             arr.push(rule);
         }
     }
-}
-
-/// Create and return the coop session directory for the given session ID.
-///
-/// Session artifacts (FIFO pipe, settings file) live at
-/// `$XDG_STATE_HOME/coop/sessions/<session-id>/` (defaulting to
-/// `~/.local/state/coop/sessions/<session-id>/`) so they survive for
-/// debugging and session recovery.
-pub(crate) fn coop_session_dir(session_id: &str) -> anyhow::Result<PathBuf> {
-    let state_home = std::env::var("XDG_STATE_HOME").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_default();
-        format!("{home}/.local/state")
-    });
-    let dir = Path::new(&state_home).join("coop").join("sessions").join(session_id);
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
 }
 
 /// Compute the expected session log path for a given working directory

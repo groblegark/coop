@@ -102,12 +102,7 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
 }
 
 /// Return environment variables to set on the Gemini child process.
-pub fn hook_env_vars(pipe_path: &Path, coop_url: &str) -> Vec<(String, String)> {
-    vec![
-        ("COOP_HOOK_PIPE".to_string(), pipe_path.display().to_string()),
-        ("COOP_URL".to_string(), coop_url.to_string()),
-    ]
-}
+pub use crate::driver::hook_env_vars;
 
 /// Write the hook config to a settings file and return its path.
 ///
