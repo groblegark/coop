@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use clap::Parser;
+use futures_util::future::Either;
 use futures_util::{SinkExt, StreamExt};
 use nix::sys::termios;
 use tokio::sync::mpsc;
@@ -74,6 +75,13 @@ const DEFAULT_STATUSLINE_INTERVAL: u64 = 5;
 
 /// Ping keepalive interval.
 const PING_INTERVAL: Duration = Duration::from_secs(30);
+
+/// WebSocket stream over a TCP (possibly TLS) connection.
+type TcpWs =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// WebSocket stream over a Unix domain socket.
+type UnixWs = tokio_tungstenite::WebSocketStream<tokio::net::UnixStream>;
 
 struct StatuslineConfig {
     /// Shell command to run for statusline content. None = built-in.
@@ -277,27 +285,31 @@ fn build_ws_url(base_url: &str) -> String {
 }
 
 /// Establish a WebSocket connection over TCP or Unix socket.
+///
+/// When `socket` is `Some`, connects over a Unix domain socket (UDS takes
+/// priority). The `ws://localhost` URI is a formality — tungstenite needs a
+/// valid WS URI for the HTTP upgrade handshake, but the Host header is
+/// meaningless over UDS. The path+query (`/ws?subscribe=...`) is what the
+/// server routes on.
 async fn connect_ws(
     url: Option<&str>,
     socket: Option<&str>,
-) -> Result<
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
-    String,
-> {
+) -> Result<Either<TcpWs, UnixWs>, String> {
     // Unix socket takes priority when both are provided.
-    if let Some(_path) = socket {
-        // TODO: Unix socket support requires `client_async` with a raw stream.
-        // For now, fall through to TCP if a URL is also available.
-        if url.is_none() {
-            return Err("Unix socket support not yet implemented without a URL fallback".to_owned());
-        }
+    if let Some(path) = socket {
+        let stream =
+            tokio::net::UnixStream::connect(path).await.map_err(|e| format!("{path}: {e}"))?;
+        let ws_url = "ws://localhost/ws?subscribe=pty,state";
+        let (ws_stream, _response) =
+            tokio_tungstenite::client_async(ws_url, stream).await.map_err(|e| format!("{e}"))?;
+        return Ok(Either::Right(ws_stream));
     }
 
     let base_url = url.ok_or("no URL or socket provided")?;
     let ws_url = build_ws_url(base_url);
     let (stream, _response) =
         tokio_tungstenite::connect_async(&ws_url).await.map_err(|e| format!("{e}"))?;
-    Ok(stream)
+    Ok(Either::Left(stream))
 }
 
 async fn attach(

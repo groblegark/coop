@@ -475,3 +475,143 @@ mod ws_integration {
         }
     }
 }
+
+// ===== Unix Domain Socket integration tests =================================
+
+mod uds_integration {
+    use base64::Engine;
+    use bytes::Bytes;
+    use futures_util::{SinkExt, StreamExt};
+
+    use crate::event::OutputEvent;
+    use crate::test_support::{StoreBuilder, StoreCtx};
+    use crate::transport::ws::{ClientMessage, ServerMessage};
+
+    use super::*;
+
+    /// Helper: spawn a coop UDS server with pre-loaded output chunks.
+    async fn spawn_test_uds_server(
+        output_chunks: Vec<&str>,
+        socket_path: &std::path::Path,
+    ) -> std::sync::Arc<crate::transport::state::Store> {
+        let StoreCtx { store: state, .. } = StoreBuilder::new().ring_size(65536).build();
+
+        // Write output chunks to ring buffer and broadcast them.
+        {
+            let mut ring = state.terminal.ring.write().await;
+            for chunk in &output_chunks {
+                let data = Bytes::from(chunk.as_bytes().to_vec());
+                ring.write(&data);
+                let _ = state.channels.output_tx.send(OutputEvent::Raw(data));
+            }
+        }
+
+        let _handle =
+            crate::test_support::spawn_uds_server(std::sync::Arc::clone(&state), socket_path)
+                .await
+                .unwrap_or_else(|e| panic!("failed to spawn UDS server: {e}"));
+
+        // Small delay for the server to be ready.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        state
+    }
+
+    /// Read the next ServerMessage of a specific type, skipping others (e.g.
+    /// initial Transition broadcast). Times out after 2 seconds.
+    async fn recv_until<R, F, T>(rx: &mut R, pred: F) -> anyhow::Result<T>
+    where
+        R: StreamExt<
+                Item = Result<
+                    tokio_tungstenite::tungstenite::Message,
+                    tokio_tungstenite::tungstenite::Error,
+                >,
+            > + Unpin,
+        F: Fn(ServerMessage) -> Option<T>,
+    {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            match tokio::time::timeout_at(deadline, rx.next()).await {
+                Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text)))) => {
+                    if let Ok(msg) = serde_json::from_str::<ServerMessage>(&text) {
+                        if let Some(val) = pred(msg) {
+                            return Ok(val);
+                        }
+                    }
+                }
+                Ok(Some(Ok(_))) => continue,
+                other => anyhow::bail!("expected matching message, got {other:?}"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn uds_connect_and_replay() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let sock = dir.path().join("coop.sock");
+        let _state = spawn_test_uds_server(vec!["hello via uds"], &sock).await;
+
+        let ws = super::connect_ws(None, Some(sock.to_str().unwrap_or_default())).await;
+        let ws_stream = ws.map_err(|e| anyhow::anyhow!("{e}"))?;
+        let (mut tx, mut rx) = ws_stream.split();
+
+        // Request replay.
+        let msg = ClientMessage::GetReplay { offset: 0, limit: None };
+        let json = serde_json::to_string(&msg)?;
+        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await;
+
+        // Read Replay response, skipping the initial Transition broadcast.
+        let (data, offset) = recv_until(&mut rx, |msg| match msg {
+            ServerMessage::Replay { data, offset, .. } => Some((data, offset)),
+            _ => None,
+        })
+        .await?;
+
+        assert_eq!(offset, 0);
+        let decoded = base64::engine::general_purpose::STANDARD.decode(&data)?;
+        let text = String::from_utf8_lossy(&decoded);
+        assert!(text.contains("hello via uds"), "expected 'hello via uds' in replay, got: {text}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn uds_connect_nonexistent_socket_returns_error() {
+        let result = super::connect_ws(None, Some("/tmp/coop-nonexistent-test.sock")).await;
+        assert!(result.is_err(), "expected error for nonexistent socket");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("/tmp/coop-nonexistent-test.sock"),
+            "error should mention socket path: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn uds_preferred_over_url() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let sock = dir.path().join("coop.sock");
+        let _state = spawn_test_uds_server(vec!["uds-wins"], &sock).await;
+
+        // Pass a bogus TCP URL alongside the real socket path.
+        // If UDS is preferred, the connection succeeds via the socket.
+        let ws =
+            super::connect_ws(Some("http://127.0.0.1:1"), Some(sock.to_str().unwrap_or_default()))
+                .await;
+        let ws_stream = ws.map_err(|e| anyhow::anyhow!("{e}"))?;
+        let (mut tx, mut rx) = ws_stream.split();
+
+        let msg = ClientMessage::GetReplay { offset: 0, limit: None };
+        let json = serde_json::to_string(&msg)?;
+        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await;
+
+        let (data, _) = recv_until(&mut rx, |msg| match msg {
+            ServerMessage::Replay { data, offset, .. } => Some((data, offset)),
+            _ => None,
+        })
+        .await?;
+
+        let decoded = base64::engine::general_purpose::STANDARD.decode(&data)?;
+        let text = String::from_utf8_lossy(&decoded);
+        assert!(text.contains("uds-wins"), "expected UDS data, got: {text}");
+        Ok(())
+    }
+}

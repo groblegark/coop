@@ -412,6 +412,37 @@ pub async fn spawn_http_server(
     Ok((addr, handle))
 }
 
+/// Spawn an HTTP server on a Unix domain socket for integration testing.
+///
+/// Returns a join handle for the server task. Uses the same `hyper_util` UDS
+/// serving approach as `run.rs`.
+pub async fn spawn_uds_server(
+    store: Arc<Store>,
+    socket_path: &std::path::Path,
+) -> anyhow::Result<tokio::task::JoinHandle<()>> {
+    // Remove stale socket if present.
+    let _ = std::fs::remove_file(socket_path);
+    let uds_listener = tokio::net::UnixListener::bind(socket_path)?;
+    let router = crate::transport::build_router(store);
+    let handle = tokio::spawn(async move {
+        let mut make_svc = router.into_make_service();
+        while let Ok((stream, _)) = uds_listener.accept().await {
+            let svc_future = <_ as tower::Service<_>>::call(&mut make_svc, ());
+            tokio::spawn(async move {
+                let Ok(svc) = svc_future.await;
+                let io = hyper_util::rt::TokioIo::new(stream);
+                let hyper_svc = hyper_util::service::TowerToHyperService::new(svc);
+                let _ = hyper_util::server::conn::auto::Builder::new(
+                    hyper_util::rt::TokioExecutor::new(),
+                )
+                .serve_connection_with_upgrades(io, hyper_svc)
+                .await;
+            });
+        }
+    });
+    Ok(handle)
+}
+
 /// Spawn a gRPC server on a random port for integration testing.
 ///
 /// Returns the bound address and a join handle for the server task.
