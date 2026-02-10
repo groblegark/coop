@@ -612,5 +612,13 @@ pub async fn shutdown(State(s): State<Arc<Store>>) -> impl IntoResponse {
 }
 
 #[cfg(test)]
-#[path = "http_tests.rs"]
-mod tests;
+mod screen_tests;
+
+#[cfg(test)]
+mod agent_tests;
+
+#[cfg(test)]
+mod hooks_tests;
+
+#[cfg(test)]
+mod transcript_tests;

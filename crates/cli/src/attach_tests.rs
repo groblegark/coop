@@ -287,7 +287,7 @@ mod ws_integration {
             > + Unpin,
     {
         let json = serde_json::to_string(msg).unwrap_or_default();
-        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json)).await;
+        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await;
 
         // Read with a timeout.
         match tokio::time::timeout(Duration::from_secs(2), rx.next()).await {
@@ -353,7 +353,7 @@ mod ws_integration {
         let data = base64::engine::general_purpose::STANDARD.encode(b"ls\n");
         let msg = ClientMessage::SendInputRaw { data };
         let json = serde_json::to_string(&msg).unwrap_or_default();
-        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json)).await;
+        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await;
 
         // The server should forward it as an InputEvent::Write.
         let event = tokio::time::timeout(Duration::from_secs(2), input_rx.recv()).await;
@@ -379,7 +379,7 @@ mod ws_integration {
 
         let msg = ClientMessage::Resize { cols: 120, rows: 39 };
         let json = serde_json::to_string(&msg).unwrap_or_default();
-        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json)).await;
+        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await;
 
         let event = tokio::time::timeout(Duration::from_secs(2), input_rx.recv()).await;
         match event {
@@ -458,14 +458,14 @@ mod ws_integration {
         // Authenticate first.
         let auth = ClientMessage::Auth { token: "secret123".to_owned() };
         let json = serde_json::to_string(&auth).unwrap_or_default();
-        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json)).await;
+        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Now send input.
         let data = base64::engine::general_purpose::STANDARD.encode(b"hello");
         let msg = ClientMessage::SendInputRaw { data };
         let json = serde_json::to_string(&msg).unwrap_or_default();
-        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json)).await;
+        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await;
 
         let event = tokio::time::timeout(Duration::from_secs(2), input_rx.recv()).await;
         match event {

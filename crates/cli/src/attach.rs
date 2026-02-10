@@ -681,7 +681,7 @@ where
     S: SinkExt<tokio_tungstenite::tungstenite::Message> + Unpin,
 {
     let text = serde_json::to_string(msg).map_err(|e| e.to_string())?;
-    tx.send(tokio_tungstenite::tungstenite::Message::Text(text))
+    tx.send(tokio_tungstenite::tungstenite::Message::Text(text.into()))
         .await
         .map_err(|_| "WebSocket send failed".to_owned())
 }

@@ -41,6 +41,7 @@ pub struct StoreBuilder {
     respond_encoder: Option<Arc<dyn RespondEncoder>>,
     stop_config: Option<StopConfig>,
     start_config: Option<StartConfig>,
+    transcript_state: Option<Arc<TranscriptState>>,
     groom: GroomLevel,
 }
 
@@ -61,6 +62,7 @@ impl StoreBuilder {
             respond_encoder: None,
             stop_config: None,
             start_config: None,
+            transcript_state: None,
             groom: GroomLevel::Manual,
         }
     }
@@ -102,6 +104,11 @@ impl StoreBuilder {
 
     pub fn start_config(mut self, c: StartConfig) -> Self {
         self.start_config = Some(c);
+        self
+    }
+
+    pub fn transcript(mut self, t: Arc<TranscriptState>) -> Self {
+        self.transcript_state = Some(t);
         self
     }
 
@@ -169,11 +176,13 @@ impl StoreBuilder {
                 "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
             )),
             start: Arc::new(StartState::new(self.start_config.unwrap_or_default())),
-            transcript: Arc::new({
-                let dir = std::env::temp_dir().join("coop-test-transcripts");
-                // OK to panic in test-only code — infra setup failure is fatal.
-                #[allow(clippy::expect_used)]
-                TranscriptState::new(dir, None).expect("create transcript state")
+            transcript: self.transcript_state.unwrap_or_else(|| {
+                Arc::new({
+                    let dir = std::env::temp_dir().join("coop-test-transcripts");
+                    // OK to panic in test-only code — infra setup failure is fatal.
+                    #[allow(clippy::expect_used)]
+                    TranscriptState::new(dir, None).expect("create transcript state")
+                })
             }),
             input_activity: Arc::new(tokio::sync::Notify::new()),
         })
