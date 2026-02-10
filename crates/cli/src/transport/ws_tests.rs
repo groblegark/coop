@@ -450,3 +450,18 @@ fn input_with_enter_serialization() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn input_raw_rejects_bad_base64() -> anyhow::Result<()> {
+    let (state, _rx) = ws_test_state(AgentState::Working);
+    let msg = ClientMessage::InputRaw { data: "not-valid-base64!!!".to_owned() };
+    let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
+    match reply {
+        Some(ServerMessage::Error { code, message }) => {
+            assert_eq!(code, "BAD_REQUEST");
+            assert!(message.contains("base64"), "message: {message}");
+        }
+        other => anyhow::bail!("expected Error, got {other:?}"),
+    }
+    Ok(())
+}

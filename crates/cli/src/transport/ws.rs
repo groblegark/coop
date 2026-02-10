@@ -470,8 +470,12 @@ async fn handle_client_message(
 
         ClientMessage::InputRaw { data } => {
             require_auth!(authed);
-            let decoded =
-                base64::engine::general_purpose::STANDARD.decode(&data).unwrap_or_default();
+            let decoded = match base64::engine::general_purpose::STANDARD.decode(&data) {
+                Ok(d) => d,
+                Err(_) => {
+                    return Some(ws_error(ErrorCode::BadRequest, "invalid base64 data"))
+                }
+            };
             let _ = handle_input_raw(state, decoded).await;
             None
         }
