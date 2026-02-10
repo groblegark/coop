@@ -397,6 +397,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "coop-specs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "coop",
+ "futures-util",
+ "reqwest",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "tonic",
+]
+
+[[package]]
 name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

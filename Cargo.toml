@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/cli",
+    "tests/specs",
 ]
 
 [workspace.dependencies]

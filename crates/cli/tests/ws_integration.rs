@@ -159,6 +159,15 @@ async fn ws_subscription_mode_state() -> anyhow::Result<()> {
 
     let (mut _tx, mut rx) = ws_connect(&addr, "subscribe=state").await?;
 
+    // First frame: initial state snapshot sent on connect.
+    let initial = ws_recv(&mut rx, RECV_TIMEOUT).await?;
+    assert_eq!(
+        initial.get("event").and_then(|t| t.as_str()),
+        Some("transition"),
+        "initial state should be a transition frame: {initial}"
+    );
+    assert_eq!(initial.get("next").and_then(|n| n.as_str()), Some("starting"));
+
     // Push state change
     let _ = store.channels.state_tx.send(TransitionEvent {
         prev: AgentState::Starting,
@@ -249,6 +258,12 @@ async fn ws_concurrent_readers() -> anyhow::Result<()> {
         clients.push((tx, rx));
     }
 
+    // Drain the initial state frame sent on connect for each client.
+    for (_tx, ref mut rx) in &mut clients {
+        let initial = ws_recv(rx, RECV_TIMEOUT).await?;
+        assert_eq!(initial.get("event").and_then(|t| t.as_str()), Some("transition"));
+    }
+
     // Push one state change
     let _ = store.channels.state_tx.send(TransitionEvent {
         prev: AgentState::Starting,
@@ -267,6 +282,30 @@ async fn ws_concurrent_readers() -> anyhow::Result<()> {
             "all clients should receive state change"
         );
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn ws_state_subscribe_sends_initial_exited() -> anyhow::Result<()> {
+    // Simulate a client connecting after the process already exited.
+    let StoreCtx { store, .. } = StoreBuilder::new()
+        .agent_state(AgentState::Exited {
+            status: coop::driver::ExitStatus { code: Some(0), signal: None },
+        })
+        .build();
+    let (addr, _handle) = spawn_http_server(Arc::clone(&store)).await?;
+
+    let (mut _tx, mut rx) = ws_connect(&addr, "subscribe=state").await?;
+
+    // First frame should be exit (the current state at connect time).
+    let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
+    assert_eq!(
+        resp.get("event").and_then(|t| t.as_str()),
+        Some("exit"),
+        "late-connecting client should see exit state: {resp}"
+    );
+    assert_eq!(resp.get("code").and_then(|c| c.as_i64()), Some(0));
 
     Ok(())
 }

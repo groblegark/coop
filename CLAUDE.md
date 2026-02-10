@@ -73,7 +73,7 @@ crates/cli/               # Single crate (binary + lib)
 │   │   ├── http.rs        # HTTP endpoints
 │   │   ├── ws.rs          # WebSocket handler
 │   │   ├── ws_msg.rs      # WebSocket message types
-│   │   └── grpc.rs        # gRPC server
+│   │   └── grpc/           # gRPC server
 │   └── driver/
 │       ├── mod.rs          # AgentState, Detector, DetectorSinks, traits
 │       ├── composite.rs    # CompositeDetector (tier-priority resolution)

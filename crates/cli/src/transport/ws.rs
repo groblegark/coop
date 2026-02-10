@@ -21,7 +21,7 @@ use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 
 use crate::error::ErrorCode;
-use crate::event::OutputEvent;
+use crate::event::{OutputEvent, TransitionEvent};
 use crate::start::StartConfig;
 use crate::stop::StopConfig;
 use crate::transport::auth;
@@ -93,6 +93,22 @@ async fn handle_connection(
     let mut transcript_rx = state.transcript.transcript_tx.subscribe();
     let mut usage_rx = state.usage.usage_tx.subscribe();
     let mut authed = !needs_auth;
+
+    // Send current state immediately so late-connecting clients don't miss
+    // transitions that already happened (e.g. process already exited).
+    if flags.state && authed {
+        let agent = state.driver.agent_state.read().await;
+        let seq = state.driver.state_seq.load(Ordering::Acquire);
+        let last_message = state.driver.last_message.read().await.clone();
+        let initial = TransitionEvent {
+            prev: agent.clone(),
+            next: agent.clone(),
+            seq,
+            cause: String::new(),
+            last_message,
+        };
+        let _ = send_json(&mut ws_tx, &transition_to_msg(&initial)).await;
+    }
 
     loop {
         tokio::select! {
