@@ -682,6 +682,28 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(stream))
     }
 
+    // -- Session management ---------------------------------------------------
+
+    async fn switch_session(
+        &self,
+        request: Request<proto::SwitchSessionRequest>,
+    ) -> Result<Response<proto::SwitchSessionResponse>, Status> {
+        let req = request.into_inner();
+        let switch_req = crate::switch::SwitchRequest {
+            credentials: if req.credentials.is_empty() { None } else { Some(req.credentials) },
+            force: req.force,
+        };
+        match self.state.switch.switch_tx.try_send(switch_req) {
+            Ok(()) => Ok(Response::new(proto::SwitchSessionResponse { scheduled: true })),
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                Err(ErrorCode::SwitchInProgress.to_grpc_status("a switch is already in progress"))
+            }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                Err(ErrorCode::Internal.to_grpc_status("switch channel closed"))
+            }
+        }
+    }
+
     // -- Lifecycle ------------------------------------------------------------
 
     async fn shutdown(

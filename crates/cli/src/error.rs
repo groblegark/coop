@@ -14,6 +14,7 @@ pub enum ErrorCode {
     NoDriver,
     AgentBusy,
     NoPrompt,
+    SwitchInProgress,
     Internal,
 }
 
@@ -27,6 +28,7 @@ impl ErrorCode {
             Self::NoDriver => 404,
             Self::AgentBusy => 409,
             Self::NoPrompt => 409,
+            Self::SwitchInProgress => 409,
             Self::Internal => 500,
         }
     }
@@ -40,6 +42,7 @@ impl ErrorCode {
             Self::NoDriver => "NO_DRIVER",
             Self::AgentBusy => "AGENT_BUSY",
             Self::NoPrompt => "NO_PROMPT",
+            Self::SwitchInProgress => "SWITCH_IN_PROGRESS",
             Self::Internal => "INTERNAL",
         }
     }
@@ -56,6 +59,7 @@ impl ErrorCode {
             Self::NoDriver => tonic::Code::Unimplemented,
             Self::AgentBusy => tonic::Code::FailedPrecondition,
             Self::NoPrompt => tonic::Code::FailedPrecondition,
+            Self::SwitchInProgress => tonic::Code::FailedPrecondition,
             Self::Internal => tonic::Code::Internal,
         };
         tonic::Status::new(code, message)

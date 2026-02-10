@@ -17,6 +17,7 @@ use crate::error::ErrorCode;
 use crate::screen::CursorPosition;
 use crate::start::{compose_start_script, StartConfig};
 use crate::stop::{generate_block_reason, StopConfig, StopMode, StopType};
+use crate::switch::SwitchRequest;
 use crate::transport::handler::{
     compute_health, compute_status, error_message, handle_input, handle_input_raw, handle_keys,
     handle_nudge, handle_resize, handle_respond, handle_signal, TransportQuestionAnswer,
@@ -600,6 +601,24 @@ pub async fn get_transcript(
         Err(_) => ErrorCode::BadRequest
             .to_http_response(format!("transcript {number} not found"))
             .into_response(),
+    }
+}
+
+// -- Session switch -----------------------------------------------------------
+
+/// `POST /api/v1/session/switch` — schedule a credential switch (202 Accepted).
+pub async fn switch_session(
+    State(s): State<Arc<Store>>,
+    Json(req): Json<SwitchRequest>,
+) -> impl IntoResponse {
+    match s.switch.switch_tx.try_send(req) {
+        Ok(()) => axum::http::StatusCode::ACCEPTED.into_response(),
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => ErrorCode::SwitchInProgress
+            .to_http_response("a switch is already in progress")
+            .into_response(),
+        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+            ErrorCode::Internal.to_http_response("switch channel closed").into_response()
+        }
     }
 }
 

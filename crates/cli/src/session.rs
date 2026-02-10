@@ -22,14 +22,23 @@ use crate::driver::{
 };
 use crate::event::{InputEvent, OutputEvent, PromptOutcome, TransitionEvent};
 use crate::pty::{Backend, BackendInput, Boxed};
+use crate::switch::SwitchRequest;
 use crate::transport::Store;
+
+/// What happened when the session loop exited.
+pub enum SessionOutcome {
+    /// The backend exited (process terminated).
+    Exit(ExitStatus),
+    /// A switch was requested and the backend has been drained.
+    /// The caller should respawn with new credentials.
+    Switch(SwitchRequest),
+}
 
 /// Runtime objects for building a new [`Session`] (not derivable from [`Config`]).
 pub struct SessionConfig {
     pub backend: Box<dyn Backend>,
     pub detectors: Vec<Box<dyn Detector>>,
     pub store: Arc<Store>,
-    pub consumer_input_rx: mpsc::Receiver<InputEvent>,
     pub shutdown: CancellationToken,
     /// Driver-provided parser for extracting numbered option labels from
     /// rendered screen lines during prompt enrichment.
@@ -37,16 +46,11 @@ pub struct SessionConfig {
 }
 
 impl SessionConfig {
-    pub fn new(
-        store: Arc<Store>,
-        backend: impl Boxed,
-        consumer_input_rx: mpsc::Receiver<InputEvent>,
-    ) -> Self {
+    pub fn new(store: Arc<Store>, backend: impl Boxed) -> Self {
         Self {
             backend: backend.boxed(),
             store,
             detectors: Vec::new(),
-            consumer_input_rx,
             shutdown: CancellationToken::new(),
             option_parser: None,
         }
@@ -74,7 +78,6 @@ pub struct Session {
     backend_output_rx: mpsc::Receiver<Bytes>,
     backend_input_tx: mpsc::Sender<BackendInput>,
     resize_tx: mpsc::Sender<(u16, u16)>,
-    consumer_input_rx: mpsc::Receiver<InputEvent>,
     detector_rx: mpsc::Receiver<DetectedState>,
     shutdown: CancellationToken,
     backend_handle: JoinHandle<anyhow::Result<ExitStatus>>,
@@ -90,14 +93,7 @@ impl Session {
     /// 3. Spawns backend.run() on a separate task
     /// 4. Spawns all detectors
     pub fn new(config: &Config, session: SessionConfig) -> Self {
-        let SessionConfig {
-            mut backend,
-            detectors,
-            store,
-            consumer_input_rx,
-            shutdown,
-            option_parser,
-        } = session;
+        let SessionConfig { mut backend, detectors, store, shutdown, option_parser } = session;
 
         // Set initial PID (Release so signal-delivery loads with Acquire see it)
         if let Some(pid) = backend.child_pid() {
@@ -128,7 +124,6 @@ impl Session {
             backend_output_rx,
             backend_input_tx,
             resize_tx,
-            consumer_input_rx,
             detector_rx,
             shutdown,
             backend_handle,
@@ -136,8 +131,31 @@ impl Session {
         }
     }
 
+    /// Run the session without switch support, returning the exit status.
+    ///
+    /// Convenience wrapper for tests that don't need credential switching.
+    pub async fn run_to_exit(
+        self,
+        config: &Config,
+        input_rx: &mut mpsc::Receiver<InputEvent>,
+    ) -> anyhow::Result<ExitStatus> {
+        let (_, mut switch_rx) = mpsc::channel(1);
+        match self.run(config, input_rx, &mut switch_rx).await? {
+            SessionOutcome::Exit(status) => Ok(status),
+            SessionOutcome::Switch(_) => anyhow::bail!("unexpected switch during run_to_exit"),
+        }
+    }
+
     /// Run the session loop until the backend exits or shutdown is triggered.
-    pub async fn run(mut self, config: &Config) -> anyhow::Result<ExitStatus> {
+    ///
+    /// Receivers are borrowed — the caller retains ownership so they survive
+    /// across switch iterations in [`PreparedSession::run`].
+    pub async fn run(
+        mut self,
+        config: &Config,
+        input_rx: &mut mpsc::Receiver<InputEvent>,
+        switch_rx: &mut mpsc::Receiver<SwitchRequest>,
+    ) -> anyhow::Result<SessionOutcome> {
         let idle_timeout = config.idle_timeout();
         let shutdown_timeout = config.shutdown_timeout();
         let graceful_timeout = config.drain_timeout();
@@ -147,6 +165,8 @@ impl Session {
         let mut last_state = AgentState::Starting;
         let mut drain_deadline: Option<tokio::time::Instant> = None;
         let mut next_escape_at: Option<tokio::time::Instant> = None;
+        let mut pending_switch: Option<SwitchRequest> = None;
+        let mut switch_open = true;
 
         loop {
             tokio::select! {
@@ -180,7 +200,7 @@ impl Session {
                 }
 
                 // 2. Consumer input → forward to backend or handle resize/signal
-                event = self.consumer_input_rx.recv() => {
+                event = input_rx.recv() => {
                     // Notify the enter-retry monitor that input activity occurred.
                     // WaitForDrain is excluded because it's an internal sync
                     // marker, not user/transport-initiated input.
@@ -389,13 +409,17 @@ impl Session {
                             idle_since = None;
                         }
 
+                        // Switch check: agent reached idle during pending switch → SIGHUP now.
+                        if pending_switch.is_some() && matches!(detected.state, AgentState::Idle) {
+                            debug!("switch: agent reached idle, sending SIGHUP");
+                            broadcast_switching(&self.store, &mut state_seq, &mut last_state).await;
+                            sighup_child_group(&self.store);
+                        }
+
                         // Drain check: agent reached idle during drain → kill now.
                         if drain_deadline.is_some() && matches!(detected.state, AgentState::Idle) {
                             debug!("drain: agent reached idle, sending SIGHUP");
-                            let pid = self.store.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
-                            if pid != 0 {
-                                let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGHUP);
-                            }
+                            sighup_child_group(&self.store);
                             break;
                         }
                     }
@@ -449,17 +473,38 @@ impl Session {
                     }
                 }, if drain_deadline.is_some() => {
                     debug!("drain: deadline reached, force-killing");
-                    let pid = self.store.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
-                    if pid != 0 {
-                        let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGHUP);
-                    }
+                    sighup_child_group(&self.store);
                     break;
+                }
+
+                // 9. Switch request from transport
+                req = switch_rx.recv(), if pending_switch.is_none() && switch_open => {
+                    match req {
+                        Some(req) => {
+                            // If agent already exited, backend is gone — break immediately
+                            // so the post-loop logic returns SessionOutcome::Switch.
+                            if matches!(last_state, AgentState::Exited { .. }) {
+                                pending_switch = Some(req);
+                                break;
+                            }
+
+                            if req.force || matches!(last_state, AgentState::Idle) {
+                                // Immediate switch: broadcast Switching, SIGHUP child
+                                pending_switch = Some(req);
+                                broadcast_switching(&self.store, &mut state_seq, &mut last_state).await;
+                                sighup_child_group(&self.store);
+                            } else {
+                                // Graceful: wait indefinitely for idle
+                                pending_switch = Some(req);
+                            }
+                        }
+                        None => { switch_open = false; }
+                    }
                 }
 
                 // 8. Shutdown signal (disabled once drain mode is active)
                 _ = self.shutdown.cancelled(), if drain_deadline.is_none() => {
                     debug!("shutdown signal received");
-                    let pid = self.store.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
                     if graceful_timeout > Duration::ZERO
                         && !matches!(last_state, AgentState::Idle)
                     {
@@ -468,9 +513,7 @@ impl Session {
                         next_escape_at = Some(tokio::time::Instant::now());
                     } else {
                         // Immediate kill (graceful disabled or agent already idle)
-                        if pid != 0 {
-                            let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGHUP);
-                        }
+                        sighup_child_group(&self.store);
                         break;
                     }
                 }
@@ -525,6 +568,11 @@ impl Session {
             }
         };
 
+        // If a switch is pending, return Switch outcome — don't broadcast Exited.
+        if let Some(req) = pending_switch.take() {
+            return Ok(SessionOutcome::Switch(req));
+        }
+
         // Store exit status and broadcast exited state.
         // ORDERING: exit_status must be written before agent_state so that
         // any reader who observes AgentState::Exited is guaranteed to find
@@ -547,13 +595,39 @@ impl Session {
             last_message,
         });
 
-        Ok(status)
+        Ok(SessionOutcome::Exit(status))
     }
 
     /// Get a reference to the shared application state.
     pub fn store(&self) -> &Arc<Store> {
         &self.store
     }
+}
+
+/// Send SIGHUP to the child process group.
+fn sighup_child_group(store: &Store) {
+    let pid = store.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
+    if pid != 0 {
+        let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGHUP);
+    }
+}
+
+/// Broadcast an `AgentState::Switching` transition and update tracking state.
+async fn broadcast_switching(store: &Store, state_seq: &mut u64, last_state: &mut AgentState) {
+    *state_seq += 1;
+    let mut current = store.driver.agent_state.write().await;
+    let prev = current.clone();
+    *current = AgentState::Switching;
+    drop(current);
+    *last_state = AgentState::Switching;
+    let last_message = store.driver.last_message.read().await.clone();
+    let _ = store.channels.state_tx.send(TransitionEvent {
+        prev,
+        next: AgentState::Switching,
+        seq: *state_seq,
+        cause: "switch".to_owned(),
+        last_message,
+    });
 }
 
 /// Wait for the screen to render prompt options, parse them, and re-broadcast the enriched prompt context.

@@ -25,6 +25,7 @@ use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::start::{StartConfig, StartState};
 use crate::stop::{StopConfig, StopState};
+use crate::switch::SwitchState;
 use crate::transcript::TranscriptState;
 use crate::transport::state::{
     DetectionInfo, DriverState, LifecycleState, SessionSettings, Store, TerminalState,
@@ -176,6 +177,12 @@ impl StoreBuilder {
                 "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
             )),
             start: Arc::new(StartState::new(self.start_config.unwrap_or_default())),
+            switch: Arc::new(SwitchState {
+                switch_tx: tokio::sync::mpsc::channel(1).0,
+                session_log_path: RwLock::new(None),
+                base_settings: None,
+                mcp_config: None,
+            }),
             transcript: self.transcript_state.unwrap_or_else(|| {
                 Arc::new({
                     let dir = std::env::temp_dir().join("coop-test-transcripts");

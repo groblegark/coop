@@ -82,6 +82,11 @@ service Coop {
   // Stream start hook events in real time.
   rpc StreamStartEvents(StreamStartEventsRequest) returns (stream StartEvent);
 
+  // Session management
+
+  // Switch credentials and restart the agent process.
+  rpc SwitchSession(SwitchSessionRequest) returns (SwitchSessionResponse);
+
   // Lifecycle
 
   // Initiate graceful coop shutdown.
@@ -520,6 +525,23 @@ message RawMessageEvent {
   string json = 1;
   // Origin: "stdout" (Tier 3) or "log" (Tier 2).
   string source = 2;
+}
+
+
+// -- Session management -------------------------------------------------------
+
+// Switch credentials and restart the agent process.
+// New credentials are merged into the child env. The agent is resumed
+// with --resume to continue the conversation.
+message SwitchSessionRequest {
+  // Credential env vars to merge into the new child process.
+  map<string, string> credentials = 1;
+  // Skip waiting for idle — SIGHUP immediately.
+  bool force = 2;
+}
+message SwitchSessionResponse {
+  // Whether the switch was scheduled.
+  bool scheduled = 1;
 }
 
 

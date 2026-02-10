@@ -19,6 +19,7 @@ use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::start::StartState;
 use crate::stop::StopState;
+use crate::switch::SwitchState;
 use crate::transcript::TranscriptState;
 
 /// Shared application state passed to all handlers via axum `State` extractor.
@@ -40,6 +41,8 @@ pub struct Store {
     pub ready: Arc<AtomicBool>,
     /// Stop hook gating state. Always present (defaults to mode=allow).
     pub stop: Arc<StopState>,
+    /// Session switch state. Always present.
+    pub switch: Arc<SwitchState>,
     /// Start hook state. Always present (defaults to empty config).
     pub start: Arc<StartState>,
     /// Transcript snapshot state. Always present.
@@ -67,6 +70,72 @@ pub struct TerminalState {
     /// ORDERING: must be written before `DriverState.agent_state` is set to
     /// `Exited` so readers who see the exited state always find this populated.
     pub exit_status: RwLock<Option<ExitStatus>>,
+}
+
+impl TerminalState {
+    /// Build a closure that captures `self` and returns a screen snapshot.
+    ///
+    /// Used by detectors that need periodic screen access without holding a
+    /// reference to the full `TerminalState`.
+    pub fn snapshot_fn(
+        self: &Arc<Self>,
+    ) -> Arc<dyn Fn() -> crate::screen::ScreenSnapshot + Send + Sync> {
+        let terminal = Arc::clone(self);
+        Arc::new(move || {
+            terminal.screen.try_read().map(|s| s.snapshot()).unwrap_or_else(|_| {
+                crate::screen::ScreenSnapshot {
+                    lines: vec![],
+                    cols: 0,
+                    rows: 0,
+                    alt_screen: false,
+                    cursor: crate::screen::CursorPosition { row: 0, col: 0 },
+                    sequence: 0,
+                }
+            })
+        })
+    }
+
+    /// Build a closure that returns the child PID (or `None` if not yet spawned).
+    pub fn child_pid_fn(self: &Arc<Self>) -> Arc<dyn Fn() -> Option<u32> + Send + Sync> {
+        let terminal = Arc::clone(self);
+        Arc::new(move || {
+            let v = terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
+            if v == 0 {
+                None
+            } else {
+                Some(v)
+            }
+        })
+    }
+
+    /// Build a closure that returns the current `ring_total_written` value.
+    pub fn ring_total_written_fn(self: &Arc<Self>) -> Arc<dyn Fn() -> u64 + Send + Sync> {
+        let rtw = Arc::clone(&self.ring_total_written);
+        Arc::new(move || rtw.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// Reset terminal state for a new session iteration (switch).
+    pub async fn reset(&self, cols: u16, rows: u16, ring_size: usize) {
+        *self.screen.write().await = Screen::new(cols, rows);
+        {
+            let mut ring = self.ring.write().await;
+            *ring = RingBuffer::new(ring_size);
+            self.ring_total_written.store(0, std::sync::atomic::Ordering::Relaxed);
+        }
+        self.child_pid.store(0, std::sync::atomic::Ordering::Release);
+        *self.exit_status.write().await = None;
+    }
+}
+
+impl DriverState {
+    /// Reset driver state for a new session iteration (switch).
+    pub async fn reset(&self) {
+        *self.agent_state.write().await = AgentState::Starting;
+        self.state_seq.store(0, std::sync::atomic::Ordering::Release);
+        *self.detection.write().await = DetectionInfo { tier: u8::MAX, cause: String::new() };
+        *self.error.write().await = None;
+        *self.last_message.write().await = None;
+    }
 }
 
 /// Classified error detail and category, stored atomically under a single lock.

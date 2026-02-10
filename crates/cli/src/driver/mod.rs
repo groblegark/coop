@@ -60,6 +60,7 @@ pub enum AgentState {
     Idle,
     Prompt { prompt: PromptContext },
     Error { detail: String },
+    Switching,
     Exited { status: ExitStatus },
     Unknown,
 }
@@ -335,6 +336,7 @@ impl AgentState {
             Self::Idle => "idle",
             Self::Prompt { .. } => "prompt",
             Self::Error { .. } => "error",
+            Self::Switching => "switching",
             Self::Exited { .. } => "exited",
             Self::Unknown => "unknown",
         }
@@ -359,7 +361,7 @@ impl AgentState {
             Self::Error { .. } => 2,
             Self::Working => 3,
             Self::Prompt { .. } => 4,
-            Self::Exited { .. } => 5,
+            Self::Switching | Self::Exited { .. } => 5,
         }
     }
 
@@ -418,6 +420,57 @@ pub fn hook_env_vars(pipe_path: &Path, coop_url: &str) -> Vec<(String, String)> 
         ("COOP_HOOK_PIPE".to_string(), pipe_path.display().to_string()),
         ("COOP_URL".to_string(), coop_url.to_string()),
     ]
+}
+
+/// Bundle of driver outputs consumed by `run::prepare()` and `execute_switch()`.
+pub struct DriverContext {
+    pub nudge_encoder: Option<Arc<dyn NudgeEncoder>>,
+    pub respond_encoder: Option<Arc<dyn RespondEncoder>>,
+    pub detectors: Vec<Box<dyn Detector>>,
+    pub option_parser: Option<OptionParser>,
+}
+
+/// Build a Claude-specific driver (Tier 1 hooks + Tier 2 log watcher).
+pub fn build_claude_driver(
+    config: &crate::config::Config,
+    setup: Option<&SessionSetup>,
+    log_start_offset: u64,
+    sinks: DetectorSinks,
+) -> anyhow::Result<DriverContext> {
+    let hook_pipe = setup.and_then(|s| s.hook_pipe_path.as_deref());
+    let log_path = setup.and_then(|s| s.session_log_path.clone());
+    let driver = claude::ClaudeDriver::new(config, hook_pipe, log_path, log_start_offset, sinks)?;
+    Ok(DriverContext {
+        nudge_encoder: Some(Arc::new(driver.nudge)),
+        respond_encoder: Some(Arc::new(driver.respond)),
+        detectors: driver.detectors,
+        option_parser: Some(Arc::new(claude::screen::parse_options_from_screen)),
+    })
+}
+
+/// Build a Gemini-specific driver (Tier 1 hooks + Tier 4 process monitor).
+pub fn build_gemini_driver(
+    config: &crate::config::Config,
+    setup: Option<&SessionSetup>,
+    child_pid_fn: Arc<dyn Fn() -> Option<u32> + Send + Sync>,
+    ring_total_written_fn: Arc<dyn Fn() -> u64 + Send + Sync>,
+    sinks: DetectorSinks,
+) -> anyhow::Result<DriverContext> {
+    let hook_path = setup.and_then(|s| s.hook_pipe_path.as_deref());
+    let driver = gemini::GeminiDriver::new(config, hook_path, sinks)?;
+    let mut detectors = driver.detectors;
+    // Tier 4: ProcessMonitor fallback for basic Working/Exited detection
+    detectors.push(Box::new(
+        process::ProcessMonitor::new(child_pid_fn, ring_total_written_fn)
+            .with_poll_interval(config.process_poll()),
+    ));
+    detectors.sort_by_key(|d| d.tier());
+    Ok(DriverContext {
+        nudge_encoder: Some(Arc::new(driver.nudge)),
+        respond_encoder: Some(Arc::new(driver.respond)),
+        detectors,
+        option_parser: Some(Arc::new(gemini::screen::parse_options_from_screen)),
+    })
 }
 
 #[cfg(test)]

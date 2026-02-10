@@ -108,6 +108,15 @@ pub enum ClientMessage {
         since_line: u64,
     },
 
+    // Session switch
+    #[serde(rename = "session:switch")]
+    SwitchSession {
+        #[serde(default)]
+        credentials: Option<std::collections::HashMap<String, String>>,
+        #[serde(default)]
+        force: bool,
+    },
+
     // Lifecycle
     Shutdown {},
 
@@ -311,6 +320,12 @@ pub enum ServerMessage {
         session_id: Option<String>,
         injected: bool,
         seq: u64,
+    },
+
+    // Session switch
+    #[serde(rename = "session:switched")]
+    SessionSwitched {
+        scheduled: bool,
     },
 
     // Lifecycle
