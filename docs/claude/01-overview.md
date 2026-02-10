@@ -264,18 +264,24 @@ Only succeeds when the agent is in `WaitingForInput`.
 
 ## Startup Prompts
 
-Claude may present blocking text prompts during startup (workspace trust,
-permission bypass, login). Coop auto-responds to these where possible:
+Claude may present blocking prompts during startup before reaching the idle
+state. Coop handles these through Tier 5 screen detection:
 
-| Prompt | Detection pattern | Auto-response |
+**Text-based prompts** (workspace trust y/n, permission bypass y/n, login)
+are detected to suppress false idle signals — the `❯` idle check is skipped
+when a startup prompt is on screen. Coop does **not** auto-respond to these;
+the orchestrator must respond via the API.
+
+| Prompt | Detection pattern | Coop behavior |
 |--------|-------------------|---------------|
-| Workspace trust | "trust the files", "do you trust" | `y\r` (accept) |
-| Permission bypass | "skip permissions", "allow tool use without prompting" | `y\r` (accept) |
-| Login required | "please sign in", "login required" | None (operator must handle) |
+| Workspace trust | "trust the files", "do you trust" | Suppressed from idle detection |
+| Permission bypass | "skip permissions", "allow tool use without prompting" | Suppressed from idle detection |
+| Login required | "please sign in", "login required" | Suppressed from idle detection |
 
-Interactive setup dialogs (theme picker, terminal setup, OAuth login, etc.) are
-detected by Tier 5 and reported as `Prompt(Setup)` states with subtypes. The
-orchestrator responds via the API.
+**Interactive dialogs** (theme picker, terminal setup, OAuth login, workspace
+trust picker, etc.) are classified by Tier 5 signal-phrase matching and
+reported as `Prompt(Setup)` or `Prompt(Permission)` states with subtypes.
+The orchestrator responds via the API.
 
 
 ## Session Resume
@@ -334,7 +340,7 @@ Flags relevant to Claude sessions:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--agent claude` | -- | Enable Claude-specific detection and encoding |
-| `--idle-grace SECS` | `60` | Grace timer duration before confirming idle |
+| `--idle-timeout SECS` | `0` (disabled) | Session-level idle timeout (shuts down after N seconds idle) |
 | `--resume HINT` | -- | Discover and resume a previous session |
 
 

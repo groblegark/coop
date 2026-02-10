@@ -67,7 +67,7 @@ uses PostToolUse hooks and the session log as fallback tiers.
 
 | Aspect | Oddjobs | Coop |
 |--------|---------|------|
-| Grace timer | 60s default (`OJ_IDLE_GRACE_MS`) | 60s default (`--idle-grace`) |
+| Grace timer | 60s default (`OJ_IDLE_GRACE_MS`) | N/A (no grace timer; composite detector uses tier-priority resolution) |
 | Confirmation | Log file size unchanged + state still WaitingForInput | Log byte offset unchanged + state still idle |
 | Cancellation | Agent transitions to Working → immediate cancel | Any activity (log growth) → cancel |
 | Self-trigger prevention | Suppresses auto-resume for 60s after nudge | N/A (consumer's responsibility) |
@@ -87,15 +87,15 @@ the confirmed idle state.
 
 | Prompt | Oddjobs response | Coop response |
 |--------|------------------|---------------|
-| Bypass permissions | Sends `"2"` (accept numbered option) | Auto-responds `y\r` (accept) |
-| Workspace trust (text) | Sends `"1"` (trust numbered option) | Auto-responds `y\r` (accept) |
+| Bypass permissions | Sends `"2"` (accept numbered option) | Suppressed from idle detection; orchestrator responds via API |
+| Workspace trust (text) | Sends `"1"` (trust numbered option) | Suppressed from idle detection; orchestrator responds via API |
 | Workspace trust (dialog) | Sends `"1"` (trust numbered option) | Reported as `Prompt(Permission, subtype="trust")`; orchestrator responds |
 | Login/onboarding | Kills session, returns `SpawnFailed` | Reported as `Prompt(Setup)`; orchestrator decides |
 
-Coop auto-handles simple text-based startup prompts (workspace trust y/n,
-permission bypass y/n). Interactive dialogs (workspace trust picker, login
-method, OAuth flow) are reported as `Prompt` states for the orchestrator to
-handle.
+Coop does not auto-handle startup prompts. Text-based prompts (workspace
+trust, permission bypass) are detected by Tier 5 to suppress false idle
+signals, but not auto-responded to. Interactive dialogs are reported as
+`Prompt` states. The orchestrator is responsible for responding via the API.
 
 ### Prompt handling
 
