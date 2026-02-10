@@ -10,14 +10,10 @@ pub mod setup;
 
 use std::path::Path;
 
-use bytes::Bytes;
-use tokio::sync::{broadcast, mpsc};
-
 use crate::config::Config;
-use crate::event::{RawHookEvent, RawMessageEvent};
 
 use super::hook_recv::HookReceiver;
-use super::Detector;
+use super::{Detector, DetectorSinks};
 use encoding::{GeminiNudgeEncoder, GeminiRespondEncoder};
 
 /// Gemini CLI agent driver.
@@ -35,14 +31,13 @@ impl GeminiDriver {
     ///
     /// Constructs detectors based on available tiers:
     /// - Tier 1 (HookDetector): if `hook_pipe_path` is set
-    /// - Tier 3 (StdoutDetector): if `stdout_rx` is provided
+    /// - Tier 3 (StdoutDetector): if `sinks.stdout_rx` is provided
     pub fn new(
         config: &Config,
         hook_pipe_path: Option<&Path>,
-        stdout_rx: Option<mpsc::Receiver<Bytes>>,
-        raw_hook_tx: Option<broadcast::Sender<RawHookEvent>>,
-        raw_message_tx: Option<broadcast::Sender<RawMessageEvent>>,
+        sinks: DetectorSinks,
     ) -> anyhow::Result<Self> {
+        let DetectorSinks { raw_hook_tx, raw_message_tx, stdout_rx, .. } = sinks;
         let mut detectors: Vec<Box<dyn Detector>> = Vec::new();
 
         // Tier 1: Hook events (highest confidence)

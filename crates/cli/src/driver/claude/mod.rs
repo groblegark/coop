@@ -11,16 +11,11 @@ pub mod setup;
 pub mod stream;
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
-use bytes::Bytes;
-use tokio::sync::{broadcast, mpsc, RwLock};
 
 use crate::config::Config;
-use crate::event::{RawHookEvent, RawMessageEvent};
 
 use super::hook_recv::HookReceiver;
-use super::Detector;
+use super::{Detector, DetectorSinks};
 use encoding::{ClaudeNudgeEncoder, ClaudeRespondEncoder};
 use stream::LogDetector;
 
@@ -40,19 +35,15 @@ impl ClaudeDriver {
     /// Constructs detectors based on available tiers:
     /// - Tier 1 (HookDetector): if `hook_pipe_path` is set
     /// - Tier 2 (LogDetector): if `session_log_path` is set
-    /// - Tier 3 (StdoutDetector): if `stdout_rx` is provided
-    // TODO(refactor): group build params into a struct when adding more
-    #[allow(clippy::too_many_arguments)]
+    /// - Tier 3 (StdoutDetector): if `sinks.stdout_rx` is provided
     pub fn new(
         config: &Config,
         hook_pipe_path: Option<&Path>,
         session_log_path: Option<PathBuf>,
-        stdout_rx: Option<mpsc::Receiver<Bytes>>,
         log_start_offset: u64,
-        last_message: Option<Arc<RwLock<Option<String>>>>,
-        raw_hook_tx: Option<broadcast::Sender<RawHookEvent>>,
-        raw_message_tx: Option<broadcast::Sender<RawMessageEvent>>,
+        sinks: DetectorSinks,
     ) -> anyhow::Result<Self> {
+        let DetectorSinks { last_message, raw_hook_tx, raw_message_tx, stdout_rx } = sinks;
         let mut detectors: Vec<Box<dyn Detector>> = Vec::new();
 
         // Tier 1: Hook events (highest confidence)

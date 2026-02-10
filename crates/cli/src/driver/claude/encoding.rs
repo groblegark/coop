@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::driver::{NudgeStep, QuestionAnswer, RespondEncoder};
 
-pub use crate::driver::nudge::StandardNudgeEncoder as ClaudeNudgeEncoder;
+pub use crate::driver::nudge::SafeNudgeEncoder as ClaudeNudgeEncoder;
 
 /// Encodes prompt responses for Claude Code's terminal input.
 pub struct ClaudeRespondEncoder {

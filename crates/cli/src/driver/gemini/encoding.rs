@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::driver::{NudgeStep, QuestionAnswer, RespondEncoder};
 
-pub use crate::driver::nudge::StandardNudgeEncoder as GeminiNudgeEncoder;
+pub use crate::driver::nudge::SafeNudgeEncoder as GeminiNudgeEncoder;
 
 /// Encodes prompt responses for Gemini CLI's terminal input.
 pub struct GeminiRespondEncoder {

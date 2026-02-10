@@ -7,10 +7,8 @@ use std::time::Duration;
 
 use crate::driver::{NudgeEncoder, NudgeStep};
 
-/// Standard nudge encoder: types the message, waits a scaled delay, then presses Enter.
-///
-/// Used by both Claude and Gemini drivers (the nudge encoding is agent-agnostic).
-pub struct StandardNudgeEncoder {
+/// Basic nudge encoder: types the message, waits a scaled delay, then presses Enter.
+pub struct SafeNudgeEncoder {
     /// Base delay between typing the message and pressing enter to send.
     pub input_delay: Duration,
     /// Per-byte delay added for messages longer than 256 bytes.
@@ -19,7 +17,7 @@ pub struct StandardNudgeEncoder {
     pub input_delay_max: Duration,
 }
 
-impl NudgeEncoder for StandardNudgeEncoder {
+impl NudgeEncoder for SafeNudgeEncoder {
     fn encode(&self, message: &str) -> Vec<NudgeStep> {
         let delay = crate::driver::compute_nudge_delay(
             self.input_delay,

@@ -18,14 +18,17 @@ pub mod unknown;
 pub use composite::{CompositeDetector, DetectedState};
 pub use error_category::{classify_error_detail, ErrorCategory};
 
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
+
+use crate::event::{RawHookEvent, RawMessageEvent};
 
 /// Known agent types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -249,6 +252,41 @@ pub enum HookEvent {
 /// Driver-provided function that parses numbered option labels from rendered
 /// screen lines. Used by the session's prompt enrichment loop.
 pub type OptionParser = Arc<dyn Fn(&[String]) -> Vec<String> + Send + Sync>;
+
+/// Channels for detectors to broadcast observations to the transport layer.
+#[derive(Default)]
+pub struct DetectorSinks {
+    /// Shared last assistant message text (written by log/stdout detectors).
+    pub last_message: Option<Arc<RwLock<Option<String>>>>,
+    /// Raw hook event JSON from hook detectors.
+    pub raw_hook_tx: Option<broadcast::Sender<RawHookEvent>>,
+    /// Raw agent message JSON from log/stdout detectors.
+    pub raw_message_tx: Option<broadcast::Sender<RawMessageEvent>>,
+    /// Structured stdout JSONL from the agent process (Tier 3).
+    pub stdout_rx: Option<mpsc::Receiver<Bytes>>,
+}
+
+impl DetectorSinks {
+    pub fn with_last_message(mut self, lm: Arc<RwLock<Option<String>>>) -> Self {
+        self.last_message = Some(lm);
+        self
+    }
+
+    pub fn with_hook_tx(mut self, tx: broadcast::Sender<RawHookEvent>) -> Self {
+        self.raw_hook_tx = Some(tx);
+        self
+    }
+
+    pub fn with_message_tx(mut self, tx: broadcast::Sender<RawMessageEvent>) -> Self {
+        self.raw_message_tx = Some(tx);
+        self
+    }
+
+    pub fn with_stdout_rx(mut self, rx: mpsc::Receiver<Bytes>) -> Self {
+        self.stdout_rx = Some(rx);
+        self
+    }
+}
 
 /// Compute a scaled nudge delay based on message length.
 ///

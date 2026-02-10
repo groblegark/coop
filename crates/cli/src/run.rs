@@ -22,7 +22,9 @@ use crate::driver::gemini::setup::{self as gemini_setup, GeminiSessionSetup};
 use crate::driver::gemini::GeminiDriver;
 use crate::driver::process::ProcessMonitor;
 use crate::driver::AgentType;
-use crate::driver::{AgentState, Detector, NudgeEncoder, OptionParser, RespondEncoder};
+use crate::driver::{
+    AgentState, Detector, DetectorSinks, NudgeEncoder, OptionParser, RespondEncoder,
+};
 use crate::pty::adapter::{AttachSpec, TmuxBackend};
 use crate::pty::spawn::NativePty;
 use crate::pty::Backend;
@@ -228,6 +230,12 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let (message_tx, _) = broadcast::channel(64);
 
     let last_message: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    let sinks = || {
+        DetectorSinks::default()
+            .with_last_message(Arc::clone(&last_message))
+            .with_hook_tx(hook_tx.clone())
+            .with_message_tx(message_tx.clone())
+    };
     let mut driver = match agent_enum {
         AgentType::Claude => {
             let log_start_offset = resume_state.as_ref().map(|s| s.log_offset).unwrap_or(0);
@@ -236,9 +244,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
                 claude_setup.as_ref(),
                 pristine_log_path,
                 log_start_offset,
-                &last_message,
-                &hook_tx,
-                &message_tx,
+                sinks(),
             )?
         }
         AgentType::Gemini => {
@@ -256,8 +262,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
                     }
                 }),
                 Arc::new(move || rtw_for_driver.load(std::sync::atomic::Ordering::Relaxed)),
-                &hook_tx,
-                &message_tx,
+                sinks(),
             )?
         }
         AgentType::Unknown => {
@@ -527,23 +532,12 @@ fn build_claude_driver(
     claude_setup: Option<&ClaudeSessionSetup>,
     pristine_log_path: Option<std::path::PathBuf>,
     log_start_offset: u64,
-    last_message: &Arc<RwLock<Option<String>>>,
-    hook_tx: &broadcast::Sender<crate::event::RawHookEvent>,
-    message_tx: &broadcast::Sender<crate::event::RawMessageEvent>,
+    sinks: DetectorSinks,
 ) -> anyhow::Result<DriverContext> {
     // In pristine mode: no hook pipe (Tier 1), but keep session log (Tier 2).
     let hook_pipe = claude_setup.map(|s| s.hook_pipe_path.as_path());
     let log_path = claude_setup.map(|s| s.session_log_path.clone()).or(pristine_log_path);
-    let driver = ClaudeDriver::new(
-        config,
-        hook_pipe,
-        log_path,
-        None,
-        log_start_offset,
-        Some(Arc::clone(last_message)),
-        Some(hook_tx.clone()),
-        Some(message_tx.clone()),
-    )?;
+    let driver = ClaudeDriver::new(config, hook_pipe, log_path, log_start_offset, sinks)?;
     Ok(DriverContext {
         nudge_encoder: Some(Arc::new(driver.nudge)),
         respond_encoder: Some(Arc::new(driver.respond)),
@@ -557,16 +551,10 @@ fn build_gemini_driver(
     gemini_setup: Option<&GeminiSessionSetup>,
     child_pid_fn: Arc<dyn Fn() -> Option<u32> + Send + Sync>,
     ring_total_written_fn: Arc<dyn Fn() -> u64 + Send + Sync>,
-    hook_tx: &broadcast::Sender<crate::event::RawHookEvent>,
-    message_tx: &broadcast::Sender<crate::event::RawMessageEvent>,
+    sinks: DetectorSinks,
 ) -> anyhow::Result<DriverContext> {
-    let driver = GeminiDriver::new(
-        config,
-        gemini_setup.map(|s| s.hook_pipe_path.as_path()),
-        None,
-        Some(hook_tx.clone()),
-        Some(message_tx.clone()),
-    )?;
+    let hook_path = gemini_setup.map(|s| s.hook_pipe_path.as_path());
+    let driver = GeminiDriver::new(config, hook_path, sinks)?;
     let mut detectors = driver.detectors;
     // Tier 4: ProcessMonitor fallback for basic Working/Exited detection
     detectors.push(Box::new(
