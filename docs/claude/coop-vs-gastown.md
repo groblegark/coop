@@ -1,7 +1,7 @@
-# Coop vs Goblintown
+# Coop vs Gastown
 
 Coop provides the **session layer** (spawn, monitor, encode input).
-Goblintown provides the **orchestration layer** (polecats, witness, beads,
+Gastown provides the **orchestration layer** (polecats, witness, beads,
 merge queue, multi-agent coordination).
 
 ```
@@ -15,9 +15,9 @@ After:   Witness/Deacon → CoopAdapter → HTTP/gRPC → coop → PTY → Claud
                                                 multi-tier detection
 ```
 
-**Key difference**: Goblintown agents are autonomous workers that self-report
+**Key difference**: Gastown agents are autonomous workers that self-report
 milestones (`gt done`, `gt help`). Coop provides passive observation with
-structured state classification. These are complementary — Goblintown's
+structured state classification. These are complementary — Gastown's
 self-reporting protocol would run inside a coop-managed PTY.
 
 
@@ -36,7 +36,7 @@ self-reporting protocol would run inside a coop-managed PTY.
 
 ## State Detection
 
-Goblintown uses hooks for **workflow orchestration** (context injection, mail, decisions).
+Gastown uses hooks for **workflow orchestration** (context injection, mail, decisions).
 Coop uses hooks for **state detection**.
 
 The hook types overlap but serve completely different purposes.
@@ -59,7 +59,7 @@ The hook types overlap but serve completely different purposes.
 
 ## Prompt Handling
 
-Goblintown agents run `--dangerously-skip-permissions` and don't encounter permission prompts during normal operation.
+Gastown agents run `--dangerously-skip-permissions` and don't encounter permission prompts during normal operation.
 Coop supports that but is also designed to support scenarios where prompts need consumer approval.
 
 | Prompt                    | GT | Coop |
@@ -124,6 +124,34 @@ Coop's `--resume` discovers the log file and passes `--resume <id>` to Claude.
 These are complementary — GT's beacon injection would work inside a coop-managed session.
 
 
+## Context Continuity
+
+Coop and Gastown each address context loss, but at different boundaries.
+
+**Coop — transcript snapshots** preserve raw conversation history within a
+session. When Claude compacts its context window, coop copies the session log
+to a numbered snapshot file. Clients retrieve snapshots via HTTP, gRPC, or
+WebSocket, with cursor-based catchup for incremental sync.
+
+**Gastown — seance** recovers context across sessions. When a rig is "cold"
+(no activity for >24h), `gt prime` spawns `claude --fork-session --resume <id>`
+against the predecessor session, asks a structured handoff prompt, and injects
+the summary into the successor's startup context. Results are cached for 1 hour.
+
+| Aspect | Coop (Transcript) | GT (Seance) |
+|--------|-------------------|-------------|
+| Boundary | Intra-session (compaction) | Inter-session (handoff) |
+| Trigger | `SessionStart` hook with `source="compact"` | `gt prime` on cold rig (>24h idle) |
+| Output | Raw JSONL snapshot (full conversation) | LLM-generated 5-point summary (<500 words) |
+| Storage | `sessions/<id>/transcripts/{N}.jsonl` (persistent) | `.beads-wisp/seance-cache.json` (1h TTL) |
+| Access | HTTP/gRPC/WS APIs | Consumed internally by `gt prime` |
+| Consumer | Orchestrators, UIs, external clients | The successor agent |
+
+Note: seance uses `--fork-session --resume` which only loads the
+post-compaction context. Transcript snapshots preserve pre-compaction history
+that fork-session cannot see.
+
+
 ## Hooks & Settings Merging
 
 GT passes hooks, permissions, env, plugins, and MCP servers via `--agent-config`.
@@ -134,7 +162,7 @@ passed via `--mcp-config`.
 
 ## Out of Scope for Coop
 
-These remain orchestrator-level concerns in Goblintown:
+These remain orchestrator-level concerns in Gastown:
 
 | Component                   | Description |
 | --------------------------- | ----------- |
