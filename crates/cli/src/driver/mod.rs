@@ -30,6 +30,7 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::event::{RawHookEvent, RawMessageEvent};
+use crate::usage::UsageState;
 
 /// Known agent types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -266,6 +267,8 @@ pub struct DetectorSinks {
     pub raw_message_tx: Option<broadcast::Sender<RawMessageEvent>>,
     /// Structured stdout JSONL from the agent process (Tier 3).
     pub stdout_rx: Option<mpsc::Receiver<Bytes>>,
+    /// Usage tracking state (token counts, cost).
+    pub usage: Option<Arc<UsageState>>,
 }
 
 impl DetectorSinks {
@@ -286,6 +289,11 @@ impl DetectorSinks {
 
     pub fn with_stdout_rx(mut self, rx: mpsc::Receiver<Bytes>) -> Self {
         self.stdout_rx = Some(rx);
+        self
+    }
+
+    pub fn with_usage(mut self, u: Arc<UsageState>) -> Self {
+        self.usage = Some(u);
         self
     }
 }

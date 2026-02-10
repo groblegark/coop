@@ -21,6 +21,7 @@ use crate::start::StartState;
 use crate::stop::StopState;
 use crate::switch::SwitchState;
 use crate::transcript::TranscriptState;
+use crate::usage::UsageState;
 
 /// Shared application state passed to all handlers via axum `State` extractor.
 ///
@@ -47,6 +48,8 @@ pub struct Store {
     pub start: Arc<StartState>,
     /// Transcript snapshot state. Always present.
     pub transcript: Arc<TranscriptState>,
+    /// Per-session API usage tracking. Always present.
+    pub usage: Arc<UsageState>,
     /// Serializes structured input delivery (nudge, respond) and enforces
     /// a minimum inter-delivery gap to prevent garbled terminal input.
     pub input_gate: Arc<InputGate>,

@@ -40,6 +40,7 @@ use crate::transport::state::{
     DetectionInfo, DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels,
 };
 use crate::transport::{build_health_router, build_router, Store};
+use crate::usage::UsageState;
 
 /// Result of a completed session.
 pub struct RunResult {
@@ -189,6 +190,7 @@ impl PreparedSession {
                 .with_last_message(Arc::clone(&self.store.driver.last_message))
                 .with_hook_tx(self.store.channels.hook_tx.clone())
                 .with_message_tx(self.store.channels.message_tx.clone())
+                .with_usage(Arc::clone(&self.store.usage))
         };
         let driver = match agent_enum {
             AgentType::Claude => build_claude_driver(&self.config, setup.as_ref(), 0, sinks())?,
@@ -359,11 +361,13 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let (message_tx, _) = broadcast::channel(64);
 
     let last_message: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    let usage_state = Arc::new(UsageState::new());
     let sinks = || {
         DetectorSinks::default()
             .with_last_message(Arc::clone(&last_message))
             .with_hook_tx(hook_tx.clone())
             .with_message_tx(message_tx.clone())
+            .with_usage(Arc::clone(&usage_state))
     };
     let mut driver = match agent_enum {
         AgentType::Claude => {
@@ -487,6 +491,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         switch: switch_state,
         start: start_state,
         transcript: transcript_state,
+        usage: usage_state,
         input_activity: Arc::new(tokio::sync::Notify::new()),
     });
 

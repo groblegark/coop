@@ -325,6 +325,7 @@ pub fn build_router(state: Arc<Store>) -> Router {
         .route("/api/v1/agent/respond", post(http::agent_respond))
         .route("/api/v1/hooks/stop", post(http::hooks_stop))
         .route("/api/v1/hooks/stop/resolve", post(http::resolve_stop))
+        .route("/api/v1/session/usage", get(http::session_usage))
         .route("/api/v1/session/switch", post(http::switch_session))
         .route("/api/v1/shutdown", post(http::shutdown))
         .route("/api/v1/config/stop", get(http::get_stop_config).put(http::put_stop_config))

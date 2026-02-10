@@ -18,3 +18,4 @@ pub mod switch;
 pub mod test_support;
 pub mod transcript;
 pub mod transport;
+pub mod usage;

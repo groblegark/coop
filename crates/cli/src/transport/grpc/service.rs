@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-//! gRPC transport implementing the `Coop` service defined in `coop.v1`.
+//! `Coop` trait implementation — all gRPC RPC handlers.
 
-use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -11,182 +10,19 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
-use super::read_ring_combined;
-use crate::driver::PromptContext;
+use super::convert::{
+    prompt_to_proto, screen_snapshot_to_proto, screen_snapshot_to_response, transition_to_proto,
+};
+use super::{proto, spawn_broadcast_stream, CoopGrpc, GrpcStream};
 use crate::error::ErrorCode;
-use crate::event::{OutputEvent, TransitionEvent};
+use crate::event::OutputEvent;
 use crate::start::StartConfig;
 use crate::stop::StopConfig;
 use crate::transport::handler::{
-    compute_health, compute_status, error_message, extract_error_fields, handle_input,
-    handle_input_raw, handle_keys, handle_nudge, handle_resize, handle_respond, handle_signal,
-    TransportQuestionAnswer,
+    compute_health, compute_status, error_message, handle_input, handle_input_raw, handle_keys,
+    handle_nudge, handle_resize, handle_respond, handle_signal, TransportQuestionAnswer,
 };
-use crate::transport::state::Store;
-
-/// Generated protobuf types for the `coop.v1` package.
-pub mod proto {
-    tonic::include_proto!("coop.v1");
-}
-
-/// Convert a domain [`crate::screen::CursorPosition`] to proto.
-pub fn cursor_to_proto(c: &crate::screen::CursorPosition) -> proto::CursorPosition {
-    proto::CursorPosition { row: c.row as i32, col: c.col as i32 }
-}
-
-/// Convert a domain [`crate::screen::ScreenSnapshot`] to proto [`proto::ScreenSnapshot`].
-pub fn screen_snapshot_to_proto(s: &crate::screen::ScreenSnapshot) -> proto::ScreenSnapshot {
-    proto::ScreenSnapshot {
-        lines: s.lines.clone(),
-        cols: s.cols as i32,
-        rows: s.rows as i32,
-        alt_screen: s.alt_screen,
-        cursor: Some(cursor_to_proto(&s.cursor)),
-        seq: s.sequence,
-    }
-}
-
-/// Convert a domain [`crate::screen::ScreenSnapshot`] to a [`proto::GetScreenResponse`],
-/// optionally omitting the cursor.
-pub fn screen_snapshot_to_response(
-    s: &crate::screen::ScreenSnapshot,
-    cursor: bool,
-) -> proto::GetScreenResponse {
-    proto::GetScreenResponse {
-        lines: s.lines.clone(),
-        cols: s.cols as i32,
-        rows: s.rows as i32,
-        alt_screen: s.alt_screen,
-        cursor: if cursor { Some(cursor_to_proto(&s.cursor)) } else { None },
-        seq: s.sequence,
-    }
-}
-
-/// Convert a domain [`PromptContext`] to proto.
-pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
-    proto::PromptContext {
-        r#type: p.kind.as_str().to_owned(),
-        tool: p.tool.clone(),
-        input: p.input.clone(),
-        auth_url: p.auth_url.clone(),
-        questions: p
-            .questions
-            .iter()
-            .map(|q| proto::QuestionContext {
-                question: q.question.clone(),
-                options: q.options.clone(),
-            })
-            .collect(),
-        question_current: p.question_current as u32,
-        options: p.options.clone(),
-        options_fallback: p.options_fallback,
-        subtype: p.subtype.clone(),
-        ready: p.ready,
-    }
-}
-
-/// Convert a domain [`TransitionEvent`] to proto [`proto::TransitionEvent`].
-pub fn transition_to_proto(e: &TransitionEvent) -> proto::TransitionEvent {
-    let (error_detail, error_category) = extract_error_fields(&e.next);
-    let cause = if e.cause.is_empty() { None } else { Some(e.cause.clone()) };
-    proto::TransitionEvent {
-        prev: e.prev.as_str().to_owned(),
-        next: e.next.as_str().to_owned(),
-        seq: e.seq,
-        prompt: e.next.prompt().map(prompt_to_proto),
-        error_detail,
-        error_category,
-        cause,
-        last_message: e.last_message.clone(),
-    }
-}
-
-/// Spawn a task that reads from a broadcast receiver, maps each event through
-/// `map_fn`, and forwards the result into a gRPC response stream.
-fn spawn_broadcast_stream<E, T, F>(rx: broadcast::Receiver<E>, map_fn: F) -> GrpcStream<T>
-where
-    E: Clone + Send + 'static,
-    T: Send + 'static,
-    F: Fn(E) -> Option<T> + Send + 'static,
-{
-    let (tx, receiver) = mpsc::channel(16);
-    tokio::spawn(async move {
-        let mut rx = rx;
-        loop {
-            match rx.recv().await {
-                Ok(event) => {
-                    if let Some(item) = map_fn(event) {
-                        if tx.send(Ok(item)).await.is_err() {
-                            break;
-                        }
-                    }
-                }
-                Err(broadcast::error::RecvError::Lagged(_)) => {}
-                Err(broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
-    Box::pin(ReceiverStream::new(receiver))
-}
-
-/// gRPC implementation of the `coop.v1.Coop` service.
-pub struct CoopGrpc {
-    state: Arc<Store>,
-}
-
-impl CoopGrpc {
-    /// Create a new gRPC service backed by the given shared state.
-    pub fn new(state: Arc<Store>) -> Self {
-        Self { state }
-    }
-
-    /// Build a [`tonic`] router for this service.
-    ///
-    /// When an auth token is configured, an interceptor validates Bearer
-    /// tokens on all RPCs except `GetHealth` and `GetReady`.
-    pub fn into_router(self) -> tonic::transport::server::Router {
-        let auth_token = self.state.config.auth_token.clone();
-        let mut server = tonic::transport::Server::builder();
-        if let Some(token) = auth_token {
-            let interceptor = GrpcAuthInterceptor { token };
-            server.add_service(proto::coop_server::CoopServer::with_interceptor(self, interceptor))
-        } else {
-            server.add_service(proto::coop_server::CoopServer::new(self))
-        }
-    }
-}
-
-/// gRPC interceptor that validates Bearer tokens on all RPCs.
-///
-/// Unlike the HTTP auth middleware which exempts health/ready probes,
-/// gRPC auth applies uniformly — gRPC clients are orchestration tools
-/// that always have the auth token available.
-#[derive(Clone)]
-struct GrpcAuthInterceptor {
-    token: String,
-}
-
-impl tonic::service::Interceptor for GrpcAuthInterceptor {
-    fn call(&mut self, req: Request<()>) -> Result<Request<()>, Status> {
-        let header = req
-            .metadata()
-            .get("authorization")
-            .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| Status::unauthenticated("missing authorization header"))?;
-
-        let bearer = header
-            .strip_prefix("Bearer ")
-            .ok_or_else(|| Status::unauthenticated("invalid authorization scheme"))?;
-
-        if crate::transport::auth::constant_time_eq(bearer, &self.token) {
-            Ok(req)
-        } else {
-            Err(Status::unauthenticated("invalid token"))
-        }
-    }
-}
-
-type GrpcStream<T> = Pin<Box<dyn tokio_stream::Stream<Item = Result<T, Status>> + Send + 'static>>;
+use crate::transport::read_ring_combined;
 
 #[tonic::async_trait]
 impl proto::coop_server::Coop for CoopGrpc {
@@ -682,6 +518,48 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(stream))
     }
 
+    // -- Usage tracking -------------------------------------------------------
+
+    async fn get_session_usage(
+        &self,
+        _request: Request<proto::GetSessionUsageRequest>,
+    ) -> Result<Response<proto::GetSessionUsageResponse>, Status> {
+        let snap = self.state.usage.snapshot().await;
+        Ok(Response::new(proto::GetSessionUsageResponse {
+            input_tokens: snap.input_tokens,
+            output_tokens: snap.output_tokens,
+            cache_read_tokens: snap.cache_read_tokens,
+            cache_write_tokens: snap.cache_write_tokens,
+            total_cost_usd: snap.total_cost_usd,
+            request_count: snap.request_count,
+            total_api_ms: snap.total_api_ms,
+            uptime_secs: self.state.config.started_at.elapsed().as_secs() as i64,
+        }))
+    }
+
+    type StreamUsageEventsStream = GrpcStream<proto::UsageEvent>;
+
+    async fn stream_usage_events(
+        &self,
+        _request: Request<proto::StreamUsageEventsRequest>,
+    ) -> Result<Response<Self::StreamUsageEventsStream>, Status> {
+        let usage_rx = self.state.usage.usage_tx.subscribe();
+        let stream = spawn_broadcast_stream(usage_rx, |event| {
+            let snap = &event.cumulative;
+            Some(proto::UsageEvent {
+                input_tokens: snap.input_tokens,
+                output_tokens: snap.output_tokens,
+                cache_read_tokens: snap.cache_read_tokens,
+                cache_write_tokens: snap.cache_write_tokens,
+                total_cost_usd: snap.total_cost_usd,
+                request_count: snap.request_count,
+                total_api_ms: snap.total_api_ms,
+                seq: event.seq,
+            })
+        });
+        Ok(Response::new(stream))
+    }
+
     // -- Session management ---------------------------------------------------
 
     async fn switch_session(
@@ -714,7 +592,3 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(proto::ShutdownResponse { accepted: true }))
     }
 }
-
-#[cfg(test)]
-#[path = "grpc_tests.rs"]
-mod tests;

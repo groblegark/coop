@@ -43,7 +43,7 @@ impl ClaudeDriver {
         log_start_offset: u64,
         sinks: DetectorSinks,
     ) -> anyhow::Result<Self> {
-        let DetectorSinks { last_message, raw_hook_tx, raw_message_tx, stdout_rx } = sinks;
+        let DetectorSinks { last_message, raw_hook_tx, raw_message_tx, stdout_rx, usage } = sinks;
         let mut detectors: Vec<Box<dyn Detector>> = Vec::new();
 
         // Tier 1: Hook events (highest confidence)
@@ -60,6 +60,7 @@ impl ClaudeDriver {
                 poll_interval: config.log_poll(),
                 last_message: last_message.clone(),
                 raw_message_tx: raw_message_tx.clone(),
+                usage,
             }));
         }
 

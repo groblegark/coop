@@ -31,6 +31,7 @@ use crate::transport::state::{
     DetectionInfo, DriverState, LifecycleState, SessionSettings, Store, TerminalState,
     TransportChannels,
 };
+use crate::usage::UsageState;
 
 /// Test-only handle returned by [`StoreBuilder::build`], bundling the shared
 /// store with all receiver ends that would normally be consumed by the session
@@ -187,6 +188,7 @@ impl StoreBuilder {
                 base_settings: None,
                 mcp_config: None,
             }),
+            usage: Arc::new(UsageState::new()),
             transcript: self.transcript_state.unwrap_or_else(|| {
                 Arc::new({
                     let dir = std::env::temp_dir().join("coop-test-transcripts");

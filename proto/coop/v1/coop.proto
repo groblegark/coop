@@ -82,6 +82,13 @@ service Coop {
   // Stream start hook events in real time.
   rpc StreamStartEvents(StreamStartEventsRequest) returns (stream StartEvent);
 
+  // Usage tracking
+
+  // Get cumulative API usage for the current session.
+  rpc GetSessionUsage(GetSessionUsageRequest) returns (GetSessionUsageResponse);
+  // Stream usage update events in real time.
+  rpc StreamUsageEvents(StreamUsageEventsRequest) returns (stream UsageEvent);
+
   // Session management
 
   // Switch credentials and restart the agent process.
@@ -525,6 +532,34 @@ message RawMessageEvent {
   string json = 1;
   // Origin: "stdout" (Tier 3) or "log" (Tier 2).
   string source = 2;
+}
+
+
+// -- Usage tracking -----------------------------------------------------------
+
+message GetSessionUsageRequest {}
+message GetSessionUsageResponse {
+  uint64 input_tokens = 1;
+  uint64 output_tokens = 2;
+  uint64 cache_read_tokens = 3;
+  uint64 cache_write_tokens = 4;
+  double total_cost_usd = 5;
+  uint64 request_count = 6;
+  uint64 total_api_ms = 7;
+  int64 uptime_secs = 8;
+}
+
+message StreamUsageEventsRequest {}
+// Cumulative usage snapshot emitted after each API response.
+message UsageEvent {
+  uint64 input_tokens = 1;
+  uint64 output_tokens = 2;
+  uint64 cache_read_tokens = 3;
+  uint64 cache_write_tokens = 4;
+  double total_cost_usd = 5;
+  uint64 request_count = 6;
+  uint64 total_api_ms = 7;
+  uint64 seq = 8;
 }
 
 

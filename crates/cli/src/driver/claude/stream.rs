@@ -17,6 +17,7 @@ use crate::driver::log_watch::LogWatcher;
 use crate::driver::HookEvent;
 use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
 use crate::event::{RawHookEvent, RawMessageEvent};
+use crate::usage::UsageState;
 
 use super::parse::{extract_assistant_text, format_claude_cause, parse_claude_state};
 use super::prompt::extract_ask_user_from_tool_input;
@@ -87,6 +88,8 @@ pub struct LogDetector {
     pub last_message: Option<Arc<RwLock<Option<String>>>>,
     /// Optional sender for raw message JSON broadcast.
     pub raw_message_tx: Option<broadcast::Sender<RawMessageEvent>>,
+    /// Optional usage tracking state.
+    pub usage: Option<Arc<UsageState>>,
 }
 
 impl Detector for LogDetector {
@@ -106,6 +109,7 @@ impl Detector for LogDetector {
             let watch_shutdown = shutdown.clone();
             let last_message = self.last_message;
             let raw_message_tx = self.raw_message_tx;
+            let usage = self.usage;
 
             tokio::spawn(async move {
                 watcher.run(line_tx, watch_shutdown).await;
@@ -133,6 +137,11 @@ impl Detector for LogDetector {
                                         if let Some(state) = parse_claude_state(&json) {
                                             let cause = format_claude_cause(&json, "log");
                                             let _ = state_tx.send((state, cause)).await;
+                                        }
+                                        if let Some(ref u) = usage {
+                                            if let Some(delta) = crate::usage::extract_usage_delta(&json) {
+                                                u.accumulate(delta).await;
+                                            }
                                         }
                                     }
                                 }
