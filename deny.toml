@@ -50,9 +50,14 @@ skip = [
     { crate = "hashbrown@0.15" },
     # getrandom 0.2 pulled by ring (via rustls), while 0.3 is used by rand/tempfile/uuid
     { crate = "getrandom@0.2" },
-    # thiserror 1.x pulled by async-nats, while 2.x is used by the rest of the codebase
+    # async-nats pins older versions of these crates
     { crate = "thiserror@1" },
     { crate = "thiserror-impl@1" },
+    { crate = "rand@0.8" },
+    { crate = "rand_chacha@0.3" },
+    { crate = "rand_core@0.6" },
+    # rustls-webpki 0.102 pulled by older rustls in async-nats dependency chain
+    { crate = "rustls-webpki@0.102" },
 ]
 
 [sources]
