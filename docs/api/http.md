@@ -56,6 +56,7 @@ All errors use a standard envelope:
 | `NOT_READY` | 503 | Agent still starting up |
 | `AGENT_BUSY` | 409 | Agent is not in the expected state for this operation |
 | `NO_PROMPT` | 409 | No active prompt to respond to |
+| `SWITCH_IN_PROGRESS` | 409 | A session switch is already in progress |
 | `EXITED` | 410 | Agent process has exited |
 | `INTERNAL` | 500 | Internal server error |
 
@@ -118,7 +119,6 @@ Rendered terminal screen content.
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `format` | string | `"text"` | `"text"` for plain text, `"ansi"` for ANSI escape sequences |
 | `cursor` | bool | `false` | Include cursor position in response |
 
 **Response:**
@@ -407,6 +407,7 @@ Current agent state and prompt context.
   "since_seq": 15,
   "screen_seq": 42,
   "detection_tier": "tier1_hooks",
+  "detection_cause": "hook:permission",
   "prompt": {
     "type": "permission",
     "subtype": "tool",
@@ -431,6 +432,7 @@ Current agent state and prompt context.
 | `since_seq` | int | Sequence number when this state was entered |
 | `screen_seq` | int | Current screen sequence number |
 | `detection_tier` | string | Which detection tier produced this state |
+| `detection_cause` | string | Freeform cause string from the detector that produced the current state |
 | `prompt` | PromptContext or null | Prompt context (present when state is `"prompt"`) |
 | `error_detail` | string or null | Error description (when state is `"error"`) |
 | `error_category` | string or null | Error classification (when state is `"error"`) |
@@ -767,6 +769,128 @@ Update the start hook configuration.
   "updated": true
 }
 ```
+
+
+## Transcript Endpoints
+
+
+### `GET /api/v1/transcripts`
+
+List all transcript snapshots.
+
+**Response:**
+
+```json
+{
+  "transcripts": [
+    {
+      "number": 1,
+      "timestamp": "2026-02-10T14:35:00Z",
+      "line_count": 150,
+      "byte_size": 8192
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `transcripts` | TranscriptMeta[] | List of transcript metadata |
+| `transcripts[].number` | int | Transcript number (monotonically increasing) |
+| `transcripts[].timestamp` | string | Timestamp when the snapshot was taken |
+| `transcripts[].line_count` | int | Number of lines in the transcript |
+| `transcripts[].byte_size` | int | Size in bytes |
+
+
+### `GET /api/v1/transcripts/{number}`
+
+Get a single transcript's content.
+
+**Response:**
+
+```json
+{
+  "number": 1,
+  "content": "{\"type\":\"assistant\",...}\n{\"type\":\"tool\",...}\n"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `number` | int | Transcript number |
+| `content` | string | Full JSONL content of the transcript |
+
+**Errors:** `BAD_REQUEST` if the transcript number is not found.
+
+
+### `GET /api/v1/transcripts/catchup`
+
+Catch up from a cursor (transcript number + line offset).
+
+**Query parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `since_transcript` | int | `0` | Return transcripts after this number |
+| `since_line` | int | `0` | Return live lines after this offset |
+
+**Response:**
+
+```json
+{
+  "transcripts": [
+    {
+      "number": 2,
+      "timestamp": "2026-02-10T14:40:00Z",
+      "lines": ["{\"type\":\"assistant\",...}"]
+    }
+  ],
+  "live_lines": ["{\"type\":\"tool\",...}"],
+  "current_transcript": 2,
+  "current_line": 45
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `transcripts` | object[] | Completed transcripts since the cursor |
+| `transcripts[].number` | int | Transcript number |
+| `transcripts[].timestamp` | string | Timestamp when saved |
+| `transcripts[].lines` | string[] | Full lines of the transcript |
+| `live_lines` | string[] | Lines from the current (unsaved) transcript |
+| `current_transcript` | int | Current transcript number |
+| `current_line` | int | Current line offset in the live transcript |
+
+
+## Session Endpoints
+
+
+### `POST /api/v1/session/switch`
+
+Switch credentials and restart the agent process. The agent is SIGHUP'd and
+resumed with `--resume` to continue the conversation with new credentials.
+
+**Request:**
+
+```json
+{
+  "credentials": {
+    "ANTHROPIC_API_KEY": "sk-ant-..."
+  },
+  "force": false
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `credentials` | object or null | `null` | Credential env vars to merge into the new child process |
+| `force` | bool | `false` | Skip waiting for idle — SIGHUP immediately |
+
+**Response:** `202 Accepted` (empty body) when the switch is scheduled.
+
+**Errors:**
+- `SWITCH_IN_PROGRESS` (409) -- a switch is already in progress
+- `INTERNAL` (500) -- switch channel closed
 
 
 ## Lifecycle Endpoints

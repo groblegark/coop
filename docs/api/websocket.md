@@ -43,9 +43,10 @@ Set via the `subscribe` query parameter on the upgrade URL (comma-separated flag
 |------|---------------|
 | `output` | `output` messages with base64-encoded PTY bytes |
 | `screen` | `screen` messages with rendered terminal state |
-| `state` | `transition`, `exit`, `prompt:outcome`, `stop:outcome`, `start:outcome` |
+| `state` | `transition`, `exit`, `prompt:outcome`, `stop:outcome`, `start:outcome` messages |
 | `hooks` | `hook:raw` messages with raw hook FIFO JSON |
 | `messages` | `message:raw` messages with raw agent JSONL |
+| `transcripts` | `transcript:saved` messages with transcript save events |
 
 Default (no `subscribe` param) = no push events (request-reply only).
 
@@ -159,14 +160,14 @@ This replaces `transition` for the terminal `exited` state.
 | `signal` | int or null | Signal number that killed the process |
 
 
-### `prompt:action`
+### `prompt:outcome`
 
 Prompt action event.
 Sent when `state` is subscribed, when a prompt is responded to via the API.
 
 ```json
 {
-  "event": "prompt:action",
+  "event": "prompt:outcome",
   "source": "api",
   "type": "permission",
   "subtype": "tool",
@@ -236,6 +237,62 @@ Sent when `state` is subscribed, whenever a session lifecycle event fires.
 | `session_id` | string or null | Session identifier if available |
 | `injected` | bool | Whether a non-empty script was injected |
 | `seq` | int | Monotonic start event sequence number |
+
+
+### `hook:raw`
+
+Raw hook FIFO JSON event. Sent when `hooks` is subscribed.
+
+```json
+{
+  "event": "hook:raw",
+  "data": { "event": "BeforeTool", "tool_name": "Bash" }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `data` | object | The full JSON object from the hook FIFO pipe |
+
+
+### `message:raw`
+
+Raw agent JSONL message from stdout or log. Sent when `messages` is subscribed.
+
+```json
+{
+  "event": "message:raw",
+  "data": { "type": "assistant", "message": "..." },
+  "source": "stdout"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `data` | object | The full JSON object from stdout or the session log |
+| `source` | string | Origin: `"stdout"` (Tier 3) or `"log"` (Tier 2) |
+
+
+### `transcript:saved`
+
+Transcript save event. Sent when `transcripts` is subscribed.
+
+```json
+{
+  "event": "transcript:saved",
+  "number": 1,
+  "timestamp": "2026-02-10T14:35:00Z",
+  "line_count": 150,
+  "seq": 42
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `number` | int | Transcript number |
+| `timestamp` | string | Timestamp when the snapshot was taken |
+| `line_count` | int | Number of lines in the transcript |
+| `seq` | int | Monotonic sequence number |
 
 
 ### `health`
@@ -350,7 +407,7 @@ Session status summary. Sent in response to `status:get`.
 
 ### `replay`
 
-Replay response. Sent in reply to a `replay` request.
+Replay response. Sent in reply to a `replay:get` request.
 
 ```json
 {
@@ -425,6 +482,119 @@ Result of a respond request.
 | `delivered` | bool | Whether the response was written to the PTY |
 | `prompt_type` | string or null | Prompt type at the time of the request |
 | `reason` | string or null | Why the response was not delivered |
+
+
+### `signal:sent`
+
+Confirmation that a signal was sent. Sent in reply to `signal:send`.
+
+```json
+{
+  "event": "signal:sent",
+  "delivered": true
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `delivered` | bool | Whether the signal was delivered to the process |
+
+
+### `resized`
+
+Confirmation that the PTY was resized. Sent in reply to `resize`.
+
+```json
+{
+  "event": "resized",
+  "cols": 120,
+  "rows": 40
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `cols` | int | New column count |
+| `rows` | int | New row count |
+
+
+### `transcript:list`
+
+Transcript list response. Sent in reply to `transcript:list`.
+
+```json
+{
+  "event": "transcript:list",
+  "transcripts": [
+    {
+      "number": 1,
+      "timestamp": "2026-02-10T14:35:00Z",
+      "line_count": 150,
+      "byte_size": 8192
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `transcripts` | TranscriptMeta[] | List of transcript metadata |
+
+
+### `transcript:content`
+
+Single transcript content. Sent in reply to `transcript:get`.
+
+```json
+{
+  "event": "transcript:content",
+  "number": 1,
+  "content": "{\"type\":\"assistant\",...}\n"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `number` | int | Transcript number |
+| `content` | string | Full JSONL content of the transcript |
+
+
+### `transcript:catchup`
+
+Transcript catchup response. Sent in reply to `transcript:catchup`.
+
+```json
+{
+  "event": "transcript:catchup",
+  "transcripts": [],
+  "live_lines": ["{\"type\":\"tool\",...}"],
+  "current_transcript": 2,
+  "current_line": 45
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `transcripts` | object[] | Completed transcripts since the cursor |
+| `live_lines` | string[] | Lines from the current (unsaved) transcript |
+| `current_transcript` | int | Current transcript number |
+| `current_line` | int | Current line offset |
+
+
+### `session:switched`
+
+Session switch confirmation. Sent in reply to `session:switch`.
+
+```json
+{
+  "event": "session:switched",
+  "scheduled": true
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `scheduled` | bool | Whether the switch was scheduled |
 
 
 ### `stop:config`
@@ -621,13 +791,13 @@ Request the current session status. Requires auth.
 Server replies with a `status` message.
 
 
-### `replay`
+### `replay:get`
 
 Request raw output from a specific byte offset. **Requires auth.**
 
 ```json
 {
-  "event": "replay",
+  "event": "replay:get",
   "offset": 0
 }
 ```
@@ -797,6 +967,80 @@ Initiate graceful shutdown of the coop process. **Requires auth.**
 
 Server replies with a `shutdown` confirmation message. The connection will
 close as the server shuts down.
+
+
+### `transcript:list`
+
+List all transcript snapshots. **Requires auth.**
+
+```json
+{
+  "event": "transcript:list"
+}
+```
+
+Server replies with a `transcript:list` message.
+
+
+### `transcript:get`
+
+Get a single transcript's content. **Requires auth.**
+
+```json
+{
+  "event": "transcript:get",
+  "number": 1
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `number` | int | Transcript number to retrieve |
+
+Server replies with a `transcript:content` message.
+
+
+### `transcript:catchup`
+
+Catch up from a cursor (transcript number + line offset). **Requires auth.**
+
+```json
+{
+  "event": "transcript:catchup",
+  "since_transcript": 0,
+  "since_line": 0
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `since_transcript` | int | `0` | Return transcripts after this number |
+| `since_line` | int | `0` | Return live lines after this offset |
+
+Server replies with a `transcript:catchup` message.
+
+
+### `session:switch`
+
+Switch credentials and restart the agent process. **Requires auth.**
+
+```json
+{
+  "event": "session:switch",
+  "credentials": {
+    "ANTHROPIC_API_KEY": "sk-ant-..."
+  },
+  "force": false
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `credentials` | object or null | Credential env vars to merge into the new child process |
+| `force` | bool | Skip waiting for idle — SIGHUP immediately |
+
+Server replies with a `session:switched` message. Error with
+`SWITCH_IN_PROGRESS` if a switch is already in progress.
 
 
 ### `stop:config:get`
