@@ -117,6 +117,8 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     };
     let stop_config = agent_file_config.as_ref().and_then(|c| c.stop.clone()).unwrap_or_default();
     let start_config = agent_file_config.as_ref().and_then(|c| c.start.clone()).unwrap_or_default();
+    let extra_settings = agent_file_config.as_ref().and_then(|c| c.settings.clone());
+    let mcp_config = agent_file_config.as_ref().and_then(|c| c.mcp.clone());
 
     // 1. Handle --resume: discover session log and build resume state.
     let (resume_state, resume_log_path) = if let Some(ref resume_hint) = config.resume {
@@ -140,9 +142,18 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let claude_setup: Option<ClaudeSessionSetup> = if agent_enum == AgentType::Claude {
         let setup = if let (Some(ref state), Some(ref log_path)) = (&resume_state, &resume_log_path)
         {
-            claude_setup::prepare_claude_resume(state, log_path, &coop_url_for_setup)?
+            claude_setup::prepare_claude_resume(
+                state,
+                log_path,
+                &coop_url_for_setup,
+                extra_settings.as_ref(),
+            )?
         } else {
-            claude_setup::prepare_claude_session(&working_dir, &coop_url_for_setup)?
+            claude_setup::prepare_claude_session(
+                &working_dir,
+                &coop_url_for_setup,
+                extra_settings.as_ref(),
+            )?
         };
         Some(setup)
     } else {
@@ -151,15 +162,35 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     // 2b. Prepare Gemini session setup (creates FIFO pipe path, writes settings).
     let gemini_setup: Option<GeminiSessionSetup> = if agent_enum == AgentType::Gemini {
-        Some(gemini_setup::prepare_gemini_session(&working_dir, &coop_url_for_setup)?)
+        Some(gemini_setup::prepare_gemini_session(
+            &working_dir,
+            &coop_url_for_setup,
+            extra_settings.as_ref(),
+            mcp_config.as_ref(),
+        )?)
     } else {
         None
     };
+
+    // 2c. Write MCP config for Claude (file in session dir + --mcp-config arg).
+    // The `mcp` field holds the server map; Claude expects `{"mcpServers": ...}`.
+    if let (Some(ref setup), Some(ref mcp)) = (&claude_setup, &mcp_config) {
+        let wrapped = serde_json::json!({ "mcpServers": mcp });
+        let mcp_path = setup.session_dir.join("mcp.json");
+        std::fs::write(&mcp_path, serde_json::to_string_pretty(&wrapped)?)?;
+        info!("wrote Claude MCP config to {}", mcp_path.display());
+    }
 
     // 3. Build the command with extra args from setup.
     let mut command = config.command.clone();
     if let Some(ref setup) = claude_setup {
         command.extend(setup.extra_args.clone());
+        // Append --mcp-config if MCP was provided
+        if mcp_config.is_some() {
+            let mcp_path = setup.session_dir.join("mcp.json");
+            command.push("--mcp-config".to_owned());
+            command.push(mcp_path.display().to_string());
+        }
     }
     if let Some(ref setup) = gemini_setup {
         command.extend(setup.extra_args.clone());

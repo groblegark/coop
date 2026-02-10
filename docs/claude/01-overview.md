@@ -371,6 +371,60 @@ runtime via `PUT /api/v1/config/start`.
 `/api/v1/hooks/start` is auth-exempt since it is called from inside the PTY.
 
 
+## Programmatic Settings & MCP Configuration
+
+Orchestrators can inject agent-level configuration — hooks, permissions, MCP
+servers, plugins — via the `--agent-config` JSON file. Two fields control this:
+
+### `settings` (Agent Settings)
+
+Orchestrator settings (hooks, permissions, env, plugins) are merged with coop's
+generated hook configuration. Orchestrator hooks form the **base layer**; coop's
+detection hooks are **appended on top**.
+
+```json
+{
+  "settings": {
+    "hooks": {
+      "SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": "gt-prime-context"}]}],
+      "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "gt-sandbox-guard"}]}]
+    },
+    "permissions": { "allow": ["Bash", "Read", "Write"] },
+    "env": { "GT_WORKSPACE_ID": "ws-123" }
+  }
+}
+```
+
+Merge rules:
+- **`hooks`**: per hook type, arrays are concatenated (orchestrator first, coop second)
+- **All other keys** (`permissions`, `env`, `enabledPlugins`, etc.): pass through unchanged
+
+### `mcp` (MCP Server Definitions)
+
+A map of server name to server config. Coop handles the agent-specific plumbing:
+
+- **Claude**: writes `{"mcpServers": ...}` to the session dir and passes it
+  via `--mcp-config` (avoids polluting the project root)
+- **Gemini**: merges as `mcpServers` into the settings file delivered via
+  `GEMINI_CLI_SYSTEM_SETTINGS_PATH`
+
+```json
+{
+  "mcp": {
+    "my-server": {
+      "command": "node",
+      "args": ["server.js"],
+      "env": {}
+    }
+  }
+}
+```
+
+Both fields are structural — the agent reads them once at startup from files.
+There are no runtime API endpoints for settings or MCP; changes require a
+session restart.
+
+
 ## Environment Variables
 
 Coop sets the following environment variables on the Claude child process:
@@ -396,7 +450,7 @@ Flags relevant to Claude sessions:
 
 ## Source Layout
 
-```
+```toc
 crates/cli/src/driver/claude/
 ├── mod.rs           # ClaudeDriver: wires up detectors and encoders
 ├── stream.rs        # HookDetector (T1), LogDetector (T2), StdoutDetector (T3)

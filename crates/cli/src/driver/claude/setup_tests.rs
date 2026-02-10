@@ -3,6 +3,8 @@
 
 use std::path::Path;
 
+use serde_json::json;
+
 use super::{prepare_claude_session, project_dir_name};
 
 #[test]
@@ -21,7 +23,7 @@ fn project_dir_name_replaces_slashes() {
 #[test]
 fn prepare_session_creates_settings_file() -> anyhow::Result<()> {
     let work_dir = tempfile::tempdir()?;
-    let setup = prepare_claude_session(work_dir.path(), "http://127.0.0.1:0")?;
+    let setup = prepare_claude_session(work_dir.path(), "http://127.0.0.1:0", None)?;
 
     // Settings file should exist in the temp dir
     let settings_arg_idx = setup
@@ -42,7 +44,7 @@ fn prepare_session_creates_settings_file() -> anyhow::Result<()> {
 #[test]
 fn prepare_session_has_session_id_arg() -> anyhow::Result<()> {
     let work_dir = tempfile::tempdir()?;
-    let setup = prepare_claude_session(work_dir.path(), "http://127.0.0.1:0")?;
+    let setup = prepare_claude_session(work_dir.path(), "http://127.0.0.1:0", None)?;
 
     assert!(setup.extra_args.contains(&"--session-id".to_owned()));
     // Session ID should be a UUID (36 chars with hyphens)
@@ -59,7 +61,7 @@ fn prepare_session_has_session_id_arg() -> anyhow::Result<()> {
 #[test]
 fn prepare_session_has_env_vars() -> anyhow::Result<()> {
     let work_dir = tempfile::tempdir()?;
-    let setup = prepare_claude_session(work_dir.path(), "http://127.0.0.1:0")?;
+    let setup = prepare_claude_session(work_dir.path(), "http://127.0.0.1:0", None)?;
 
     assert!(setup.env_vars.iter().any(|(k, _)| k == "COOP_HOOK_PIPE"));
     Ok(())
@@ -68,9 +70,46 @@ fn prepare_session_has_env_vars() -> anyhow::Result<()> {
 #[test]
 fn prepare_session_pipe_path_in_temp_dir() -> anyhow::Result<()> {
     let work_dir = tempfile::tempdir()?;
-    let setup = prepare_claude_session(work_dir.path(), "http://127.0.0.1:0")?;
+    let setup = prepare_claude_session(work_dir.path(), "http://127.0.0.1:0", None)?;
 
     assert!(setup.hook_pipe_path.file_name().is_some());
     assert_eq!(setup.hook_pipe_path.file_name().and_then(|n| n.to_str()), Some("hook.pipe"));
+    Ok(())
+}
+
+#[test]
+fn prepare_session_with_extra_settings_merges_hooks() -> anyhow::Result<()> {
+    let work_dir = tempfile::tempdir()?;
+    let orchestrator = json!({
+        "hooks": {
+            "SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": "gt-prime"}]}],
+            "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "gt-guard"}]}]
+        },
+        "permissions": { "allow": ["Bash", "Read"] }
+    });
+    let setup = prepare_claude_session(work_dir.path(), "http://127.0.0.1:0", Some(&orchestrator))?;
+
+    let settings_arg_idx = setup
+        .extra_args
+        .iter()
+        .position(|a| a == "--settings")
+        .ok_or_else(|| anyhow::anyhow!("no --settings arg"))?;
+    let settings_path = Path::new(&setup.extra_args[settings_arg_idx + 1]);
+    let content = std::fs::read_to_string(settings_path)?;
+    let parsed: serde_json::Value = serde_json::from_str(&content)?;
+
+    // SessionStart: orchestrator entry first, coop entry second
+    let session_start = parsed["hooks"]["SessionStart"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("no SessionStart hooks"))?;
+    assert!(session_start.len() >= 2);
+    assert_eq!(session_start[0]["hooks"][0]["command"], "gt-prime");
+
+    // Permissions pass through from orchestrator
+    assert_eq!(parsed["permissions"]["allow"][0], "Bash");
+
+    // Coop-only hook types present
+    assert!(parsed["hooks"]["PostToolUse"].as_array().is_some());
+    assert!(parsed["hooks"]["Stop"].as_array().is_some());
     Ok(())
 }

@@ -243,6 +243,15 @@ pub struct AgentFileConfig {
     /// Start hook configuration. `None` means no injection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start: Option<StartConfig>,
+    /// Agent settings (hooks, permissions, env, plugins) merged with coop's hooks.
+    /// Orchestrator settings form the base layer; coop's detection hooks are appended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<serde_json::Value>,
+    /// MCP server definitions (`{"server-name": {"command": ...}, ...}`).
+    /// For Claude, wrapped in `{"mcpServers": ...}` and passed via `--mcp-config`.
+    /// For Gemini, inserted as `mcpServers` in the settings file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp: Option<serde_json::Value>,
 }
 
 /// Load and parse the agent config file at `path`.
@@ -252,6 +261,55 @@ pub fn load_agent_config(path: &Path) -> anyhow::Result<AgentFileConfig> {
     let contents = std::fs::read_to_string(path)?;
     let config: AgentFileConfig = serde_json::from_str(&contents)?;
     Ok(config)
+}
+
+/// Merge orchestrator settings with coop's generated hook config.
+///
+/// Rules:
+/// 1. `hooks`: per hook type, concatenate arrays (orchestrator entries first, coop entries appended)
+/// 2. All other top-level keys: orchestrator values pass through unchanged (coop never sets these)
+///
+/// Returns the merged settings as a JSON value.
+pub fn merge_settings(
+    orchestrator: &serde_json::Value,
+    coop: serde_json::Value,
+) -> serde_json::Value {
+    let mut merged = orchestrator.clone();
+
+    let Some(coop_hooks) = coop.get("hooks").and_then(|h| h.as_object()) else {
+        return merged;
+    };
+
+    // Ensure merged has a hooks object
+    let merged_obj = match merged.as_object_mut() {
+        Some(obj) => obj,
+        None => return coop,
+    };
+    if !merged_obj.contains_key("hooks") {
+        merged_obj.insert("hooks".to_string(), serde_json::json!({}));
+    }
+    let merged_hooks = merged_obj.get_mut("hooks").and_then(|h| h.as_object_mut());
+    let Some(merged_hooks) = merged_hooks else {
+        return merged;
+    };
+
+    for (hook_type, coop_entries) in coop_hooks {
+        let Some(coop_arr) = coop_entries.as_array() else {
+            continue;
+        };
+        match merged_hooks.get_mut(hook_type) {
+            Some(existing) => {
+                if let Some(existing_arr) = existing.as_array_mut() {
+                    existing_arr.extend(coop_arr.iter().cloned());
+                }
+            }
+            None => {
+                merged_hooks.insert(hook_type.clone(), coop_entries.clone());
+            }
+        }
+    }
+
+    merged
 }
 
 fn env_duration_secs(var: &str, default: u64) -> Duration {

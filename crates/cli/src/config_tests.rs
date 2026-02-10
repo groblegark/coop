@@ -4,8 +4,9 @@
 use std::time::Duration;
 
 use clap::Parser;
+use serde_json::json;
 
-use super::{AgentType, Config};
+use super::{merge_settings, AgentFileConfig, AgentType, Config};
 
 fn parse(args: &[&str]) -> Config {
     Config::parse_from(args)
@@ -94,4 +95,176 @@ fn env_duration_defaults() {
     assert_eq!(config.keyboard_delay_max(), Duration::from_millis(5000));
     assert_eq!(config.nudge_timeout(), Duration::from_millis(4000));
     assert_eq!(config.idle_timeout(), Duration::ZERO);
+}
+
+// -- AgentFileConfig deserialization --
+
+#[test]
+fn agent_file_config_deserializes_settings_and_mcp() -> anyhow::Result<()> {
+    let input = json!({
+        "settings": {
+            "hooks": { "PostToolUse": [{"matcher": "", "hooks": []}] },
+            "permissions": { "allow": ["Bash"] }
+        },
+        "mcp": {
+            "my-server": { "command": "node", "args": ["server.js"] }
+        }
+    });
+    let config: AgentFileConfig = serde_json::from_value(input)?;
+    assert!(config.settings.is_some());
+    assert!(config.mcp.is_some());
+    let mcp = config.mcp.as_ref().unwrap();
+    assert!(mcp.get("my-server").is_some());
+    Ok(())
+}
+
+#[test]
+fn agent_file_config_missing_settings_and_mcp() -> anyhow::Result<()> {
+    let input = json!({});
+    let config: AgentFileConfig = serde_json::from_value(input)?;
+    assert!(config.settings.is_none());
+    assert!(config.mcp.is_none());
+    Ok(())
+}
+
+// -- merge_settings --
+
+#[test]
+fn merge_no_orchestrator_returns_coop_config() {
+    let coop = json!({
+        "hooks": {
+            "PostToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "coop-detect"}]}],
+            "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "coop-gate"}]}]
+        }
+    });
+    // When orchestrator has no hooks, coop hooks should appear as-is.
+    let orchestrator = json!({});
+    let merged = merge_settings(&orchestrator, coop.clone());
+    assert_eq!(merged["hooks"]["PostToolUse"], coop["hooks"]["PostToolUse"]);
+    assert_eq!(merged["hooks"]["Stop"], coop["hooks"]["Stop"]);
+}
+
+#[test]
+fn merge_concatenates_hook_arrays_orchestrator_first() {
+    let orchestrator = json!({
+        "hooks": {
+            "SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": "gt-prime"}]}]
+        }
+    });
+    let coop = json!({
+        "hooks": {
+            "SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": "coop-detect"}]}]
+        }
+    });
+    let merged = merge_settings(&orchestrator, coop);
+    let arr = merged["hooks"]["SessionStart"].as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+    // Orchestrator entry first
+    assert_eq!(arr[0]["hooks"][0]["command"], "gt-prime");
+    // Coop entry second
+    assert_eq!(arr[1]["hooks"][0]["command"], "coop-detect");
+}
+
+#[test]
+fn merge_preserves_non_hook_keys() {
+    let orchestrator = json!({
+        "permissions": { "allow": ["Bash", "Read"] },
+        "env": { "MY_VAR": "hello" },
+        "hooks": {}
+    });
+    let coop = json!({
+        "hooks": {
+            "Stop": [{"matcher": "", "hooks": []}]
+        }
+    });
+    let merged = merge_settings(&orchestrator, coop);
+    assert_eq!(merged["permissions"]["allow"][0], "Bash");
+    assert_eq!(merged["env"]["MY_VAR"], "hello");
+}
+
+#[test]
+fn merge_orchestrator_only_hook_types_pass_through() {
+    let orchestrator = json!({
+        "hooks": {
+            "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "gt-guard"}]}]
+        }
+    });
+    let coop = json!({
+        "hooks": {
+            "PostToolUse": [{"matcher": "", "hooks": []}]
+        }
+    });
+    let merged = merge_settings(&orchestrator, coop);
+    // Orchestrator-only hook type preserved
+    assert_eq!(merged["hooks"]["PreToolUse"][0]["hooks"][0]["command"], "gt-guard");
+    // Coop-only hook type added
+    assert!(merged["hooks"]["PostToolUse"].as_array().is_some());
+}
+
+#[test]
+fn merge_coop_only_hook_types_appear_in_result() {
+    let orchestrator = json!({
+        "hooks": {
+            "SessionStart": [{"matcher": "", "hooks": []}]
+        }
+    });
+    let coop = json!({
+        "hooks": {
+            "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "coop-gate"}]}],
+            "Notification": [{"matcher": "idle_prompt", "hooks": []}]
+        }
+    });
+    let merged = merge_settings(&orchestrator, coop);
+    assert!(merged["hooks"]["Stop"].as_array().is_some());
+    assert!(merged["hooks"]["Notification"].as_array().is_some());
+    // Original orchestrator hook still there
+    assert!(merged["hooks"]["SessionStart"].as_array().is_some());
+}
+
+#[test]
+fn merge_realistic_gt_config() {
+    let orchestrator = json!({
+        "hooks": {
+            "SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": "gt-prime-context"}]}],
+            "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "gt-sandbox-guard"}]}]
+        },
+        "permissions": {
+            "allow": ["Bash", "Read", "Write", "Edit"],
+            "deny": []
+        },
+        "env": { "GT_WORKSPACE_ID": "ws-123" }
+    });
+    let coop = json!({
+        "hooks": {
+            "SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": "coop-start-hook"}]}],
+            "PostToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "coop-post-tool"}]}],
+            "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "coop-stop-gate"}]}],
+            "Notification": [{"matcher": "idle_prompt|permission_prompt", "hooks": [{"type": "command", "command": "coop-notify"}]}],
+            "PreToolUse": [{"matcher": "ExitPlanMode|AskUserQuestion|EnterPlanMode", "hooks": [{"type": "command", "command": "coop-pre-tool"}]}],
+            "UserPromptSubmit": [{"matcher": "", "hooks": [{"type": "command", "command": "coop-prompt-submit"}]}]
+        }
+    });
+    let merged = merge_settings(&orchestrator, coop);
+
+    // SessionStart: gt-prime first, coop second
+    let session_start = merged["hooks"]["SessionStart"].as_array().unwrap();
+    assert_eq!(session_start.len(), 2);
+    assert_eq!(session_start[0]["hooks"][0]["command"], "gt-prime-context");
+    assert_eq!(session_start[1]["hooks"][0]["command"], "coop-start-hook");
+
+    // PreToolUse: gt-guard first, coop second
+    let pre_tool = merged["hooks"]["PreToolUse"].as_array().unwrap();
+    assert_eq!(pre_tool.len(), 2);
+    assert_eq!(pre_tool[0]["hooks"][0]["command"], "gt-sandbox-guard");
+    assert_eq!(pre_tool[1]["hooks"][0]["command"], "coop-pre-tool");
+
+    // Coop-only hooks present
+    assert!(merged["hooks"]["PostToolUse"].as_array().is_some());
+    assert!(merged["hooks"]["Stop"].as_array().is_some());
+    assert!(merged["hooks"]["Notification"].as_array().is_some());
+    assert!(merged["hooks"]["UserPromptSubmit"].as_array().is_some());
+
+    // Non-hook keys pass through
+    assert_eq!(merged["permissions"]["allow"][0], "Bash");
+    assert_eq!(merged["env"]["GT_WORKSPACE_ID"], "ws-123");
 }
