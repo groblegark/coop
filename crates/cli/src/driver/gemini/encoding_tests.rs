@@ -9,9 +9,9 @@ use super::{GeminiNudgeEncoder, GeminiRespondEncoder};
 
 fn test_nudge_encoder() -> GeminiNudgeEncoder {
     GeminiNudgeEncoder {
-        keyboard_delay: Duration::from_millis(200),
-        keyboard_delay_per_byte: Duration::from_millis(1),
-        keyboard_delay_max: Duration::from_millis(5000),
+        input_delay: Duration::from_millis(200),
+        input_delay_per_byte: Duration::from_millis(1),
+        input_delay_max: Duration::from_millis(5000),
     }
 }
 

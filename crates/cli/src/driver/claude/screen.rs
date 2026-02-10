@@ -17,14 +17,9 @@ use crate::screen::ScreenSnapshot;
 ///
 /// Detects the idle prompt (`❯`) on the last non-empty line, anti-matching
 /// known startup prompts that should be handled separately.
-///
-/// Polls frequently during the startup window to quickly detect the initial
-/// idle prompt, then backs off to a slower cadence.
 pub struct ClaudeScreenDetector {
     snapshot_fn: Arc<dyn Fn() -> ScreenSnapshot + Send + Sync>,
-    startup_poll: Duration,
-    steady_poll: Duration,
-    startup_window: Duration,
+    poll: Duration,
 }
 
 impl ClaudeScreenDetector {
@@ -32,12 +27,7 @@ impl ClaudeScreenDetector {
         config: &Config,
         snapshot_fn: Arc<dyn Fn() -> ScreenSnapshot + Send + Sync>,
     ) -> Self {
-        Self {
-            snapshot_fn,
-            startup_poll: config.screen_startup_poll(),
-            steady_poll: config.screen_steady_poll(),
-            startup_window: config.screen_startup_window(),
-        }
+        Self { snapshot_fn, poll: config.screen_poll() }
     }
 }
 
@@ -48,23 +38,13 @@ impl Detector for ClaudeScreenDetector {
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
-            let start = tokio::time::Instant::now();
-            let mut interval = tokio::time::interval(self.startup_poll);
-            let mut in_startup = true;
+            let mut interval = tokio::time::interval(self.poll);
             let mut last_state: Option<AgentState> = None;
 
             loop {
                 tokio::select! {
                     _ = shutdown.cancelled() => break,
                     _ = interval.tick() => {}
-                }
-
-                // Switch to slower cadence after the startup window.
-                if in_startup && start.elapsed() >= self.startup_window {
-                    in_startup = false;
-                    interval = tokio::time::interval(self.steady_poll);
-                    // Consume the immediate first tick.
-                    interval.tick().await;
                 }
 
                 let snapshot = (self.snapshot_fn)();

@@ -140,7 +140,7 @@ impl Session {
     pub async fn run(mut self, config: &Config) -> anyhow::Result<ExitStatus> {
         let idle_timeout = config.idle_timeout();
         let shutdown_timeout = config.shutdown_timeout();
-        let graceful_timeout = config.graceful_shutdown_timeout();
+        let graceful_timeout = config.drain_timeout();
         let mut screen_debounce = tokio::time::interval(config.screen_debounce());
         let mut state_seq: u64 = 0;
         let mut idle_since: Option<tokio::time::Instant> = None;

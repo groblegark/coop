@@ -62,7 +62,7 @@ async fn output_captured_in_ring_and_screen() -> anyhow::Result<()> {
 #[tokio::test]
 async fn shutdown_cancels_session() -> anyhow::Result<()> {
     let mut config = Config::test();
-    config.graceful_shutdown_ms = Some(0);
+    config.drain_timeout_ms = Some(0);
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
     let shutdown = CancellationToken::new();
@@ -91,7 +91,7 @@ async fn shutdown_cancels_session() -> anyhow::Result<()> {
 #[tokio::test]
 async fn graceful_drain_kills_when_already_idle() -> anyhow::Result<()> {
     let mut config = Config::test();
-    config.graceful_shutdown_ms = Some(2000);
+    config.drain_timeout_ms = Some(2000);
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
     let shutdown = CancellationToken::new();
@@ -128,7 +128,7 @@ async fn graceful_drain_kills_when_already_idle() -> anyhow::Result<()> {
 #[tokio::test]
 async fn graceful_drain_timeout_force_kills() -> anyhow::Result<()> {
     let mut config = Config::test();
-    config.graceful_shutdown_ms = Some(500);
+    config.drain_timeout_ms = Some(500);
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
     let shutdown = CancellationToken::new();
@@ -164,11 +164,11 @@ async fn graceful_drain_timeout_force_kills() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// graceful_shutdown_ms=0 disables drain → immediate SIGHUP like pre-feature.
+/// drain_timeout_ms=0 disables drain → immediate SIGHUP like pre-feature.
 #[tokio::test]
 async fn graceful_drain_disabled_when_zero() -> anyhow::Result<()> {
     let mut config = Config::test();
-    config.graceful_shutdown_ms = Some(0);
+    config.drain_timeout_ms = Some(0);
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
     let shutdown = CancellationToken::new();
@@ -223,7 +223,7 @@ fn disruption_prompt() -> AgentState {
 #[tokio::test]
 async fn groom_auto_dismisses_disruption() -> anyhow::Result<()> {
     let mut config = Config::test();
-    config.graceful_shutdown_ms = Some(0);
+    config.drain_timeout_ms = Some(0);
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new()
         .ring_size(65536)
@@ -268,7 +268,7 @@ async fn groom_auto_dismisses_disruption() -> anyhow::Result<()> {
 #[tokio::test]
 async fn groom_manual_does_not_dismiss() -> anyhow::Result<()> {
     let mut config = Config::test();
-    config.graceful_shutdown_ms = Some(0);
+    config.drain_timeout_ms = Some(0);
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new()
         .ring_size(65536)

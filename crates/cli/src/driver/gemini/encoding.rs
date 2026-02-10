@@ -8,19 +8,19 @@ use crate::driver::{NudgeEncoder, NudgeStep, QuestionAnswer, RespondEncoder};
 /// Encodes nudge messages for Gemini CLI's terminal input.
 pub struct GeminiNudgeEncoder {
     /// Base delay between typing the message and pressing enter to send.
-    pub keyboard_delay: Duration,
+    pub input_delay: Duration,
     /// Per-byte delay added for messages longer than 256 bytes.
-    pub keyboard_delay_per_byte: Duration,
+    pub input_delay_per_byte: Duration,
     /// Maximum nudge delay (caps the base + per-byte scaling).
-    pub keyboard_delay_max: Duration,
+    pub input_delay_max: Duration,
 }
 
 impl NudgeEncoder for GeminiNudgeEncoder {
     fn encode(&self, message: &str) -> Vec<NudgeStep> {
         let delay = crate::driver::compute_nudge_delay(
-            self.keyboard_delay,
-            self.keyboard_delay_per_byte,
-            self.keyboard_delay_max,
+            self.input_delay,
+            self.input_delay_per_byte,
+            self.input_delay_max,
             message.len(),
         );
         vec![

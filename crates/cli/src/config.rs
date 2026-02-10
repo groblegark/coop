@@ -127,9 +127,9 @@ pub struct Config {
     pub groom: String,
 
     // -- Duration overrides (skip from CLI; set in Config::test()) --------
-    /// Graceful shutdown timeout in ms (0 = disabled, immediate kill).
+    /// Drain timeout in ms (0 = disabled, immediate kill on shutdown).
     #[clap(skip)]
-    pub graceful_shutdown_ms: Option<u64>,
+    pub drain_timeout_ms: Option<u64>,
     #[clap(skip)]
     pub shutdown_timeout_ms: Option<u64>,
     #[clap(skip)]
@@ -139,23 +139,17 @@ pub struct Config {
     #[clap(skip)]
     pub screen_poll_ms: Option<u64>,
     #[clap(skip)]
-    pub screen_startup_poll_ms: Option<u64>,
-    #[clap(skip)]
-    pub screen_steady_poll_ms: Option<u64>,
-    #[clap(skip)]
-    pub screen_startup_window_ms: Option<u64>,
-    #[clap(skip)]
     pub log_poll_ms: Option<u64>,
     #[clap(skip)]
     pub tmux_poll_ms: Option<u64>,
     #[clap(skip)]
-    pub pty_reap_ms: Option<u64>,
+    pub reap_poll_ms: Option<u64>,
     #[clap(skip)]
-    pub keyboard_delay_ms: Option<u64>,
+    pub input_delay_ms: Option<u64>,
     #[clap(skip)]
-    pub keyboard_delay_per_byte_ms: Option<u64>,
+    pub input_delay_per_byte_ms: Option<u64>,
     #[clap(skip)]
-    pub keyboard_delay_max_ms: Option<u64>,
+    pub input_delay_max_ms: Option<u64>,
     #[clap(skip)]
     pub nudge_timeout_ms: Option<u64>,
     #[clap(skip)]
@@ -223,45 +217,22 @@ impl Config {
 
     duration_field!(shutdown_timeout, shutdown_timeout_ms, "COOP_SHUTDOWN_TIMEOUT_MS", 10_000);
     duration_field!(screen_debounce, screen_debounce_ms, "COOP_SCREEN_DEBOUNCE_MS", 50);
-    duration_field!(process_poll, process_poll_ms, "COOP_PROCESS_POLL_MS", 5_000);
-    duration_field!(screen_poll, screen_poll_ms, "COOP_SCREEN_POLL_MS", 2_000);
-    duration_field!(
-        screen_startup_poll,
-        screen_startup_poll_ms,
-        "COOP_SCREEN_STARTUP_POLL_MS",
-        3_000
-    );
-    duration_field!(
-        screen_steady_poll,
-        screen_steady_poll_ms,
-        "COOP_SCREEN_STEADY_POLL_MS",
-        15_000
-    );
-    duration_field!(
-        screen_startup_window,
-        screen_startup_window_ms,
-        "COOP_SCREEN_STARTUP_WINDOW_MS",
-        15_000
-    );
-    duration_field!(log_poll, log_poll_ms, "COOP_LOG_POLL_MS", 5_000);
+    duration_field!(process_poll, process_poll_ms, "COOP_PROCESS_POLL_MS", 10_000);
+    duration_field!(screen_poll, screen_poll_ms, "COOP_SCREEN_POLL_MS", 3_000);
+    duration_field!(log_poll, log_poll_ms, "COOP_LOG_POLL_MS", 3_000);
     duration_field!(tmux_poll, tmux_poll_ms, "COOP_TMUX_POLL_MS", 1_000);
-    duration_field!(pty_reap, pty_reap_ms, "COOP_PTY_REAP_MS", 50);
-    duration_field!(keyboard_delay, keyboard_delay_ms, "COOP_KEYBOARD_DELAY_MS", 200);
+    duration_field!(reap_poll, reap_poll_ms, "COOP_REAP_POLL_MS", 50);
+    duration_field!(input_delay, input_delay_ms, "COOP_INPUT_DELAY_MS", 200);
     duration_field!(
-        keyboard_delay_per_byte,
-        keyboard_delay_per_byte_ms,
-        "COOP_KEYBOARD_DELAY_PER_BYTE_MS",
+        input_delay_per_byte,
+        input_delay_per_byte_ms,
+        "COOP_INPUT_DELAY_PER_BYTE_MS",
         1
     );
-    duration_field!(keyboard_delay_max, keyboard_delay_max_ms, "COOP_KEYBOARD_DELAY_MAX_MS", 5_000);
+    duration_field!(input_delay_max, input_delay_max_ms, "COOP_INPUT_DELAY_MAX_MS", 5_000);
     duration_field!(nudge_timeout, nudge_timeout_ms, "COOP_NUDGE_TIMEOUT_MS", 4_000);
     duration_field!(idle_timeout, idle_timeout_ms, "COOP_IDLE_TIMEOUT_MS", 0);
-    duration_field!(
-        graceful_shutdown_timeout,
-        graceful_shutdown_ms,
-        "COOP_GRACEFUL_SHUTDOWN_MS",
-        20_000
-    );
+    duration_field!(drain_timeout, drain_timeout_ms, "COOP_DRAIN_TIMEOUT_MS", 20_000);
 
     /// Build a minimal `Config` for tests (port 0, `echo` command).
     #[doc(hidden)]
@@ -285,20 +256,17 @@ impl Config {
             resume: None,
             groom: "manual".into(),
             command: vec!["echo".into()],
-            graceful_shutdown_ms: Some(100),
+            drain_timeout_ms: Some(100),
             shutdown_timeout_ms: Some(100),
             screen_debounce_ms: Some(10),
             process_poll_ms: Some(50),
             screen_poll_ms: Some(50),
-            screen_startup_poll_ms: Some(50),
-            screen_steady_poll_ms: Some(50),
-            screen_startup_window_ms: Some(100),
             log_poll_ms: Some(50),
             tmux_poll_ms: Some(50),
-            pty_reap_ms: Some(10),
-            keyboard_delay_ms: Some(10),
-            keyboard_delay_per_byte_ms: Some(0),
-            keyboard_delay_max_ms: Some(50),
+            reap_poll_ms: Some(10),
+            input_delay_ms: Some(10),
+            input_delay_per_byte_ms: Some(0),
+            input_delay_max_ms: Some(50),
             nudge_timeout_ms: Some(100),
             idle_timeout_ms: Some(0),
         }

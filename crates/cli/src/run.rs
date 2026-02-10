@@ -275,7 +275,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         }
         Box::new(
             NativePty::spawn(&command, config.cols, config.rows, extra_env)?
-                .with_reap_interval(config.pty_reap()),
+                .with_reap_interval(config.reap_poll()),
         )
     };
 
@@ -315,9 +315,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             bytes_written: AtomicU64::new(0),
         },
         ready: Arc::new(AtomicBool::new(false)),
-        delivery_gate: Arc::new(crate::transport::state::DeliveryGate::new(
-            config.keyboard_delay(),
-        )),
+        delivery_gate: Arc::new(crate::transport::state::DeliveryGate::new(config.input_delay())),
         stop: stop_state,
         start: start_state,
         input_activity: Arc::new(tokio::sync::Notify::new()),

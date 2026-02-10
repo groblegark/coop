@@ -59,11 +59,11 @@ impl GeminiDriver {
 
         Ok(Self {
             nudge: GeminiNudgeEncoder {
-                keyboard_delay: config.keyboard_delay(),
-                keyboard_delay_per_byte: config.keyboard_delay_per_byte(),
-                keyboard_delay_max: config.keyboard_delay_max(),
+                input_delay: config.input_delay(),
+                input_delay_per_byte: config.input_delay_per_byte(),
+                input_delay_max: config.input_delay_max(),
             },
-            respond: GeminiRespondEncoder { input_delay: config.keyboard_delay() },
+            respond: GeminiRespondEncoder { input_delay: config.input_delay() },
             detectors,
         })
     }
