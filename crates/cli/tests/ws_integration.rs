@@ -12,7 +12,7 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use coop::driver::AgentState;
 use coop::event::{OutputEvent, TransitionEvent};
-use coop::test_support::{spawn_http_server, AppStateBuilder};
+use coop::test_support::{spawn_http_server, StoreBuilder};
 
 type WsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
@@ -60,8 +60,8 @@ const RECV_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[tokio::test]
 async fn ws_connect_and_receive_pong() -> anyhow::Result<()> {
-    let (app_state, _rx) = AppStateBuilder::new().build();
-    let (addr, _handle) = spawn_http_server(app_state).await?;
+    let (store, _rx) = StoreBuilder::new().build();
+    let (addr, _handle) = spawn_http_server(store).await?;
 
     let (mut tx, mut rx) = ws_connect(&addr, "").await?;
 
@@ -77,8 +77,8 @@ async fn ws_connect_and_receive_pong() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_auth_query_param() -> anyhow::Result<()> {
-    let (app_state, _rx) = AppStateBuilder::new().auth_token("test-secret").build();
-    let (addr, _handle) = spawn_http_server(app_state).await?;
+    let (store, _rx) = StoreBuilder::new().auth_token("test-secret").build();
+    let (addr, _handle) = spawn_http_server(store).await?;
 
     // Connect with correct token
     let (mut tx, mut rx) = ws_connect(&addr, "token=test-secret").await?;
@@ -96,8 +96,8 @@ async fn ws_auth_query_param() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_auth_message() -> anyhow::Result<()> {
-    let (app_state, _rx) = AppStateBuilder::new().auth_token("auth-secret").build();
-    let (addr, _handle) = spawn_http_server(app_state).await?;
+    let (store, _rx) = StoreBuilder::new().auth_token("auth-secret").build();
+    let (addr, _handle) = spawn_http_server(store).await?;
 
     // Connect without token (WS upgrade succeeds; needs auth via message)
     let (mut tx, mut rx) = ws_connect(&addr, "").await?;
@@ -120,18 +120,18 @@ async fn ws_auth_message() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_subscription_mode_raw() -> anyhow::Result<()> {
-    let (app_state, _rx) = AppStateBuilder::new().ring_size(65536).build();
-    let (addr, _handle) = spawn_http_server(Arc::clone(&app_state)).await?;
+    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let (addr, _handle) = spawn_http_server(Arc::clone(&store)).await?;
 
     let (mut _tx, mut rx) = ws_connect(&addr, "mode=raw").await?;
 
     // Push raw output via broadcast
     let data = bytes::Bytes::from("hello raw");
     {
-        let mut ring = app_state.terminal.ring.write().await;
+        let mut ring = store.terminal.ring.write().await;
         ring.write(&data);
     }
-    let _ = app_state.channels.output_tx.send(OutputEvent::Raw(data));
+    let _ = store.channels.output_tx.send(OutputEvent::Raw(data));
 
     // Should receive Output message
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
@@ -142,7 +142,7 @@ async fn ws_subscription_mode_raw() -> anyhow::Result<()> {
     );
 
     // Push a ScreenUpdate — should NOT be forwarded in raw mode
-    let _ = app_state.channels.output_tx.send(OutputEvent::ScreenUpdate { seq: 1 });
+    let _ = store.channels.output_tx.send(OutputEvent::ScreenUpdate { seq: 1 });
 
     // Try to read — should timeout (no message)
     let result =
@@ -154,13 +154,13 @@ async fn ws_subscription_mode_raw() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_subscription_mode_state() -> anyhow::Result<()> {
-    let (app_state, _rx) = AppStateBuilder::new().ring_size(65536).build();
-    let (addr, _handle) = spawn_http_server(Arc::clone(&app_state)).await?;
+    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let (addr, _handle) = spawn_http_server(Arc::clone(&store)).await?;
 
     let (mut _tx, mut rx) = ws_connect(&addr, "mode=state").await?;
 
     // Push state change
-    let _ = app_state.channels.state_tx.send(TransitionEvent {
+    let _ = store.channels.state_tx.send(TransitionEvent {
         prev: AgentState::Starting,
         next: AgentState::Working,
         seq: 1,
@@ -178,7 +178,7 @@ async fn ws_subscription_mode_state() -> anyhow::Result<()> {
     assert_eq!(resp.get("next").and_then(|n| n.as_str()), Some("working"));
 
     // Push raw output — should NOT be forwarded in state mode
-    let _ = app_state.channels.output_tx.send(OutputEvent::Raw(bytes::Bytes::from("ignored")));
+    let _ = store.channels.output_tx.send(OutputEvent::Raw(bytes::Bytes::from("ignored")));
 
     let result =
         tokio::time::timeout(Duration::from_millis(200), ws_recv(&mut rx, RECV_TIMEOUT)).await;
@@ -189,13 +189,13 @@ async fn ws_subscription_mode_state() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_subscription_mode_screen() -> anyhow::Result<()> {
-    let (app_state, _rx) = AppStateBuilder::new().ring_size(65536).build();
-    let (addr, _handle) = spawn_http_server(Arc::clone(&app_state)).await?;
+    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let (addr, _handle) = spawn_http_server(Arc::clone(&store)).await?;
 
     let (mut _tx, mut rx) = ws_connect(&addr, "mode=screen").await?;
 
     // Push screen update
-    let _ = app_state.channels.output_tx.send(OutputEvent::ScreenUpdate { seq: 42 });
+    let _ = store.channels.output_tx.send(OutputEvent::ScreenUpdate { seq: 42 });
 
     // Should receive Screen message
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
@@ -210,15 +210,15 @@ async fn ws_subscription_mode_screen() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_replay_from_offset() -> anyhow::Result<()> {
-    let (app_state, _rx) = AppStateBuilder::new().ring_size(65536).build();
+    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
 
     // Write known data to ring buffer
     {
-        let mut ring = app_state.terminal.ring.write().await;
+        let mut ring = store.terminal.ring.write().await;
         ring.write(b"replay-data-here");
     }
 
-    let (addr, _handle) = spawn_http_server(Arc::clone(&app_state)).await?;
+    let (addr, _handle) = spawn_http_server(Arc::clone(&store)).await?;
     let (mut tx, mut rx) = ws_connect(&addr, "").await?;
 
     // Send replay from offset 0
@@ -239,8 +239,8 @@ async fn ws_replay_from_offset() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_concurrent_readers() -> anyhow::Result<()> {
-    let (app_state, _rx) = AppStateBuilder::new().ring_size(65536).build();
-    let (addr, _handle) = spawn_http_server(Arc::clone(&app_state)).await?;
+    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let (addr, _handle) = spawn_http_server(Arc::clone(&store)).await?;
 
     // Connect 5 clients with state mode
     let mut clients = Vec::new();
@@ -250,7 +250,7 @@ async fn ws_concurrent_readers() -> anyhow::Result<()> {
     }
 
     // Push one state change
-    let _ = app_state.channels.state_tx.send(TransitionEvent {
+    let _ = store.channels.state_tx.send(TransitionEvent {
         prev: AgentState::Starting,
         next: AgentState::Working,
         seq: 1,
@@ -273,8 +273,8 @@ async fn ws_concurrent_readers() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_resize_sends_event() -> anyhow::Result<()> {
-    let (app_state, mut rx) = AppStateBuilder::new().build();
-    let (addr, _handle) = spawn_http_server(app_state).await?;
+    let (store, mut rx) = StoreBuilder::new().build();
+    let (addr, _handle) = spawn_http_server(store).await?;
 
     let (mut tx, _ws_rx) = ws_connect(&addr, "").await?;
 

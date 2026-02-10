@@ -28,7 +28,7 @@ use crate::transport::Store;
 pub struct SessionConfig {
     pub backend: Box<dyn Backend>,
     pub detectors: Vec<Box<dyn Detector>>,
-    pub app_state: Arc<Store>,
+    pub store: Arc<Store>,
     pub consumer_input_rx: mpsc::Receiver<InputEvent>,
     pub shutdown: CancellationToken,
     /// Driver-provided parser for extracting numbered option labels from
@@ -38,13 +38,13 @@ pub struct SessionConfig {
 
 impl SessionConfig {
     pub fn new(
-        app_state: Arc<Store>,
+        store: Arc<Store>,
         backend: impl Boxed,
         consumer_input_rx: mpsc::Receiver<InputEvent>,
     ) -> Self {
         Self {
             backend: backend.boxed(),
-            app_state,
+            store,
             detectors: Vec::new(),
             consumer_input_rx,
             shutdown: CancellationToken::new(),
@@ -70,7 +70,7 @@ impl SessionConfig {
 
 /// Core session that runs the select-loop multiplexer.
 pub struct Session {
-    app_state: Arc<Store>,
+    store: Arc<Store>,
     backend_output_rx: mpsc::Receiver<Bytes>,
     backend_input_tx: mpsc::Sender<BackendInput>,
     resize_tx: mpsc::Sender<(u16, u16)>,
@@ -93,7 +93,7 @@ impl Session {
         let SessionConfig {
             mut backend,
             detectors,
-            app_state,
+            store,
             consumer_input_rx,
             shutdown,
             option_parser,
@@ -101,7 +101,7 @@ impl Session {
 
         // Set initial PID (Release so signal-delivery loads with Acquire see it)
         if let Some(pid) = backend.child_pid() {
-            app_state.terminal.child_pid.store(pid, std::sync::atomic::Ordering::Release);
+            store.terminal.child_pid.store(pid, std::sync::atomic::Ordering::Release);
         }
 
         // Set initial terminal size
@@ -124,7 +124,7 @@ impl Session {
         tokio::spawn(composite.run(detector_tx, detector_shutdown));
 
         Self {
-            app_state,
+            store,
             backend_output_rx,
             backend_input_tx,
             resize_tx,
@@ -156,21 +156,21 @@ impl Session {
                         Some(bytes) => {
                             // Write to ring buffer
                             {
-                                let mut ring = self.app_state.terminal.ring.write().await;
+                                let mut ring = self.store.terminal.ring.write().await;
                                 ring.write(&bytes);
                                 // Update atomic counter for lock-free activity tracking.
-                                self.app_state.terminal.ring_total_written.store(
+                                self.store.terminal.ring_total_written.store(
                                     ring.total_written(),
                                     std::sync::atomic::Ordering::Relaxed,
                                 );
                             }
                             // Feed screen
                             {
-                                let mut screen = self.app_state.terminal.screen.write().await;
+                                let mut screen = self.store.terminal.screen.write().await;
                                 screen.feed(&bytes);
                             }
                             // Broadcast raw output
-                            let _ = self.app_state.channels.output_tx.send(OutputEvent::Raw(bytes));
+                            let _ = self.store.channels.output_tx.send(OutputEvent::Raw(bytes));
                         }
                         None => {
                             // Backend channel closed — backend exited
@@ -185,12 +185,12 @@ impl Session {
                     // WaitForDrain is excluded because it's an internal sync
                     // marker, not user/transport-initiated input.
                     if !matches!(event, Some(InputEvent::WaitForDrain(_)) | None) {
-                        self.app_state.input_activity.notify_waiters();
+                        self.store.input_activity.notify_waiters();
                     }
                     match event {
                         Some(InputEvent::Write(data)) => {
                             let len = data.len() as u64;
-                            self.app_state.lifecycle.bytes_written.fetch_add(len, std::sync::atomic::Ordering::Relaxed);
+                            self.store.lifecycle.bytes_written.fetch_add(len, std::sync::atomic::Ordering::Relaxed);
                             if self.backend_input_tx.send(BackendInput::Write(data)).await.is_err() {
                                 debug!("backend input channel closed");
                                 break;
@@ -205,7 +205,7 @@ impl Session {
                         Some(InputEvent::Resize { cols, rows }) => {
                             // Resize screen model
                             {
-                                let mut screen = self.app_state.terminal.screen.write().await;
+                                let mut screen = self.store.terminal.screen.write().await;
                                 screen.resize(cols, rows);
                             }
                             // Send resize to backend task which calls TIOCSWINSZ on the
@@ -213,7 +213,7 @@ impl Session {
                             let _ = self.resize_tx.try_send((cols, rows));
                         }
                         Some(InputEvent::Signal(sig)) => {
-                            let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
+                            let pid = self.store.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
                             if pid != 0 {
                                 let _ = kill(Pid::from_raw(pid as i32), sig.to_nix());
                             }
@@ -230,7 +230,7 @@ impl Session {
                 detected = self.detector_rx.recv() => {
                     if let Some(detected) = detected {
                         state_seq += 1;
-                        let mut current = self.app_state.driver.agent_state.write().await;
+                        let mut current = self.store.driver.agent_state.write().await;
                         let prev = current.clone();
                         *current = detected.state.clone();
                         drop(current);
@@ -240,7 +240,7 @@ impl Session {
                         if matches!(prev, AgentState::Starting)
                             && !matches!(detected.state, AgentState::Starting)
                         {
-                            self.app_state
+                            self.store
                                 .ready
                                 .store(true, std::sync::atomic::Ordering::Release);
                         }
@@ -248,25 +248,25 @@ impl Session {
                         // Store error detail + category when entering Error state.
                         if let AgentState::Error { ref detail } = detected.state {
                             let category = classify_error_detail(detail);
-                            *self.app_state.driver.error.write().await = Some(
+                            *self.store.driver.error.write().await = Some(
                                 crate::transport::state::ErrorInfo {
                                     detail: detail.clone(),
                                     category,
                                 },
                             );
                         } else {
-                            *self.app_state.driver.error.write().await = None;
+                            *self.store.driver.error.write().await = None;
                         }
 
                         // Store metadata for the HTTP/gRPC API.
-                        self.app_state.driver.state_seq.store(state_seq, std::sync::atomic::Ordering::Release);
-                        *self.app_state.driver.detection.write().await = crate::transport::state::DetectionInfo {
+                        self.store.driver.state_seq.store(state_seq, std::sync::atomic::Ordering::Release);
+                        *self.store.driver.detection.write().await = crate::transport::state::DetectionInfo {
                             tier: detected.tier,
                             cause: detected.cause.clone(),
                         };
 
-                        let last_message = self.app_state.driver.last_message.read().await.clone();
-                        let _ = self.app_state.channels.state_tx.send(TransitionEvent {
+                        let last_message = self.store.driver.last_message.read().await.clone();
+                        let _ = self.store.channels.state_tx.send(TransitionEvent {
                             prev,
                             next: detected.state.clone(),
                             seq: state_seq,
@@ -281,7 +281,7 @@ impl Session {
                         if let AgentState::Prompt { ref prompt } = detected.state {
                             if matches!(prompt.kind, PromptKind::Permission | PromptKind::Plan) {
                                 if let Some(ref parser) = self.option_parser {
-                                    let app = Arc::clone(&self.app_state);
+                                    let app = Arc::clone(&self.store);
                                     let seq = state_seq;
                                     let parser = Arc::clone(parser);
                                     tokio::spawn(enrich_prompt_options(app, seq, parser));
@@ -293,12 +293,12 @@ impl Session {
                         // The prompt state is broadcast BEFORE auto-dismiss so API
                         // clients see the action transparently.
                         if let AgentState::Prompt { ref prompt } = detected.state {
-                            if self.app_state.config.groom == GroomLevel::Auto {
+                            if self.store.config.groom == GroomLevel::Auto {
                                 if let Some(option) = disruption_option(prompt) {
                                     if prompt.subtype.as_deref() == Some("settings_error") {
                                         warn!("auto-dismissing settings error dialog (option {option})");
                                     }
-                                    if let Some(ref encoder) = self.app_state.config.respond_encoder {
+                                    if let Some(ref encoder) = self.store.config.respond_encoder {
                                         // "Press Enter to continue" screens have no numbered
                                         // options — just send Enter instead of "N" + delay + Enter.
                                         let steps = if prompt.options.is_empty() {
@@ -308,12 +308,12 @@ impl Session {
                                         } else {
                                             encoder.encode_setup(option)
                                         };
-                                        let tx = self.app_state.channels.input_tx.clone();
-                                        let gate = Arc::clone(&self.app_state.input_gate);
+                                        let tx = self.store.channels.input_tx.clone();
+                                        let gate = Arc::clone(&self.store.input_gate);
                                         let expected_seq = state_seq;
-                                        let driver = Arc::clone(&self.app_state.driver);
-                                        let terminal = Arc::clone(&self.app_state.terminal);
-                                        let prompt_tx = self.app_state.channels.prompt_tx.clone();
+                                        let driver = Arc::clone(&self.store.driver);
+                                        let terminal = Arc::clone(&self.store.terminal);
+                                        let prompt_tx = self.store.channels.prompt_tx.clone();
                                         let prompt_type = prompt.kind.as_str().to_owned();
                                         let prompt_subtype = prompt.subtype.clone();
                                         let groom_option = if prompt.options.is_empty() { None } else { Some(option) };
@@ -392,7 +392,7 @@ impl Session {
                         // Drain check: agent reached idle during drain → kill now.
                         if drain_deadline.is_some() && matches!(detected.state, AgentState::Idle) {
                             debug!("drain: agent reached idle, sending SIGHUP");
-                            let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
+                            let pid = self.store.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
                             if pid != 0 {
                                 let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGHUP);
                             }
@@ -403,14 +403,14 @@ impl Session {
 
                 // 4. Screen debounce timer → broadcast ScreenUpdate if changed.
                 _ = screen_debounce.tick() => {
-                    let mut screen = self.app_state.terminal.screen.write().await;
+                    let mut screen = self.store.terminal.screen.write().await;
                     let changed = screen.changed();
                     if changed {
                         let seq = screen.seq();
                         screen.clear_changed();
                         drop(screen);
 
-                        let _ = self.app_state.channels.output_tx.send(OutputEvent::ScreenUpdate { seq });
+                        let _ = self.store.channels.output_tx.send(OutputEvent::ScreenUpdate { seq });
                     }
                 }
 
@@ -435,8 +435,8 @@ impl Session {
                 }, if next_escape_at.is_some() => {
                     debug!("drain: sending Escape");
                     let esc = Bytes::from_static(b"\x1b");
-                    self.app_state.lifecycle.bytes_written.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    self.app_state.input_activity.notify_waiters();
+                    self.store.lifecycle.bytes_written.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    self.store.input_activity.notify_waiters();
                     let _ = self.backend_input_tx.send(BackendInput::Write(esc)).await;
                     next_escape_at = Some(tokio::time::Instant::now() + Duration::from_secs(2));
                 }
@@ -449,7 +449,7 @@ impl Session {
                     }
                 }, if drain_deadline.is_some() => {
                     debug!("drain: deadline reached, force-killing");
-                    let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
+                    let pid = self.store.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
                     if pid != 0 {
                         let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGHUP);
                     }
@@ -459,7 +459,7 @@ impl Session {
                 // 8. Shutdown signal (disabled once drain mode is active)
                 _ = self.shutdown.cancelled(), if drain_deadline.is_none() => {
                     debug!("shutdown signal received");
-                    let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
+                    let pid = self.store.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
                     if graceful_timeout > Duration::ZERO
                         && !matches!(last_state, AgentState::Idle)
                     {
@@ -480,18 +480,18 @@ impl Session {
         // Drain any pending output so final bytes are captured.
         while let Ok(bytes) = self.backend_output_rx.try_recv() {
             {
-                let mut ring = self.app_state.terminal.ring.write().await;
+                let mut ring = self.store.terminal.ring.write().await;
                 ring.write(&bytes);
-                self.app_state
+                self.store
                     .terminal
                     .ring_total_written
                     .store(ring.total_written(), std::sync::atomic::Ordering::Relaxed);
             }
             {
-                let mut screen = self.app_state.terminal.screen.write().await;
+                let mut screen = self.store.terminal.screen.write().await;
                 screen.feed(&bytes);
             }
-            let _ = self.app_state.channels.output_tx.send(OutputEvent::Raw(bytes));
+            let _ = self.store.channels.output_tx.send(OutputEvent::Raw(bytes));
         }
 
         // Drop the input sender to signal the backend to stop
@@ -514,7 +514,7 @@ impl Session {
             }
             _ = tokio::time::sleep(shutdown_timeout) => {
                 warn!("backend did not exit within {:?}, sending SIGKILL", shutdown_timeout);
-                let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
+                let pid = self.store.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
                 if pid != 0 {
                     // Signal the process group to also kill grandchildren.
                     let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGKILL);
@@ -530,16 +530,16 @@ impl Session {
         // any reader who observes AgentState::Exited is guaranteed to find
         // exit_status populated.
         {
-            let mut exit = self.app_state.terminal.exit_status.write().await;
+            let mut exit = self.store.terminal.exit_status.write().await;
             *exit = Some(status);
         }
-        let mut current = self.app_state.driver.agent_state.write().await;
+        let mut current = self.store.driver.agent_state.write().await;
         let prev = current.clone();
         *current = AgentState::Exited { status };
         drop(current);
         state_seq += 1;
-        let last_message = self.app_state.driver.last_message.read().await.clone();
-        let _ = self.app_state.channels.state_tx.send(TransitionEvent {
+        let last_message = self.store.driver.last_message.read().await.clone();
+        let _ = self.store.channels.state_tx.send(TransitionEvent {
             prev,
             next: AgentState::Exited { status },
             seq: state_seq,
@@ -551,8 +551,8 @@ impl Session {
     }
 
     /// Get a reference to the shared application state.
-    pub fn app_state(&self) -> &Arc<Store> {
-        &self.app_state
+    pub fn store(&self) -> &Arc<Store> {
+        &self.store
     }
 }
 

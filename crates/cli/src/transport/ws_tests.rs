@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use crate::driver::AgentState;
-use crate::test_support::{AnyhowExt, AppStateBuilder, StubNudgeEncoder};
+use crate::test_support::{AnyhowExt, StoreBuilder, StubNudgeEncoder};
 use crate::transport::ws::{handle_client_message, ClientMessage, ServerMessage, SubscriptionMode};
 
 #[test]
@@ -196,7 +196,7 @@ fn shutdown_message_serialization() -> anyhow::Result<()> {
 fn ws_test_state(
     agent: AgentState,
 ) -> (Arc<crate::transport::state::Store>, tokio::sync::mpsc::Receiver<crate::event::InputEvent>) {
-    AppStateBuilder::new()
+    StoreBuilder::new()
         .child_pid(1234)
         .agent_state(agent)
         .nudge_encoder(Arc::new(StubNudgeEncoder))
@@ -205,7 +205,7 @@ fn ws_test_state(
 
 #[tokio::test]
 async fn state_request_returns_agent_state() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new()
+    let (state, _rx) = StoreBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Error { detail: "authentication_error".to_owned() })
         .build();

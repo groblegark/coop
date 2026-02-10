@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use coop::ring::RingBuffer;
-use coop::test_support::AppStateBuilder;
+use coop::test_support::StoreBuilder;
 use coop::transport::build_router;
 use coop::transport::http::OutputResponse;
 
@@ -65,16 +65,16 @@ async fn ring_buffer_wrap_preserves_recent() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn http_output_endpoint_large_response() -> anyhow::Result<()> {
-    let (app_state, _rx) = AppStateBuilder::new().ring_size(1_048_576).build();
+    let (store, _rx) = StoreBuilder::new().ring_size(1_048_576).build();
 
     // Write 128KB of known data directly to the ring buffer
     let pattern: Vec<u8> = (0..128 * 1024).map(|i| (i % 256) as u8).collect();
     {
-        let mut ring = app_state.terminal.ring.write().await;
+        let mut ring = store.terminal.ring.write().await;
         ring.write(&pattern);
     }
 
-    let router = build_router(Arc::clone(&app_state));
+    let router = build_router(Arc::clone(&store));
     let server = axum_test::TestServer::new(router)?;
 
     let resp = server.get("/api/v1/output?offset=0").await;
@@ -98,16 +98,16 @@ async fn ws_replay_large_offset() -> anyhow::Result<()> {
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-    let (app_state, _rx) = AppStateBuilder::new().ring_size(1_048_576).build();
+    let (store, _rx) = StoreBuilder::new().ring_size(1_048_576).build();
 
     // Write 256KB
     let data: Vec<u8> = (0..256 * 1024).map(|i| (i % 256) as u8).collect();
     {
-        let mut ring = app_state.terminal.ring.write().await;
+        let mut ring = store.terminal.ring.write().await;
         ring.write(&data);
     }
 
-    let (addr, _handle) = spawn_http_server(Arc::clone(&app_state)).await?;
+    let (addr, _handle) = spawn_http_server(Arc::clone(&store)).await?;
 
     // Connect WebSocket
     let url = format!("ws://{addr}/ws");
@@ -153,8 +153,8 @@ async fn ws_replay_large_offset() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn concurrent_readers_during_write() -> anyhow::Result<()> {
-    let (app_state, _rx) = AppStateBuilder::new().ring_size(1_048_576).build();
-    let state = Arc::clone(&app_state);
+    let (store, _rx) = StoreBuilder::new().ring_size(1_048_576).build();
+    let state = Arc::clone(&store);
 
     // Writer task: pump data into ring buffer
     let writer_state = Arc::clone(&state);

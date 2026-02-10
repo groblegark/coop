@@ -11,16 +11,16 @@ use crate::config::{Config, GroomLevel};
 use crate::driver::{AgentState, PromptContext, PromptKind};
 use crate::pty::spawn::NativePty;
 use crate::session::{Session, SessionConfig};
-use crate::test_support::{AppStateBuilder, MockDetector, MockPty, StubRespondEncoder};
+use crate::test_support::{MockDetector, MockPty, StoreBuilder, StubRespondEncoder};
 
 #[tokio::test]
 async fn echo_exits_with_zero() -> anyhow::Result<()> {
     let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
 
     let backend = NativePty::spawn(&["echo".into(), "hello".into()], 80, 24, &[])?;
-    let session = Session::new(&config, SessionConfig::new(app_state, backend, consumer_input_rx));
+    let session = Session::new(&config, SessionConfig::new(store, backend, consumer_input_rx));
 
     let status = session.run(&config).await?;
     assert_eq!(status.code, Some(0));
@@ -31,18 +31,16 @@ async fn echo_exits_with_zero() -> anyhow::Result<()> {
 async fn output_captured_in_ring_and_screen() -> anyhow::Result<()> {
     let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
 
     let backend = NativePty::spawn(&["echo".into(), "hello-ring".into()], 80, 24, &[])?;
-    let session = Session::new(
-        &config,
-        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
-    );
+    let session =
+        Session::new(&config, SessionConfig::new(Arc::clone(&store), backend, consumer_input_rx));
 
     let _ = session.run(&config).await?;
 
     // Check ring buffer
-    let ring = app_state.terminal.ring.read().await;
+    let ring = store.terminal.ring.read().await;
     assert!(ring.total_written() > 0);
     let (a, b) = ring.read_from(0).ok_or(anyhow::anyhow!("no data"))?;
     let mut data = a.to_vec();
@@ -51,7 +49,7 @@ async fn output_captured_in_ring_and_screen() -> anyhow::Result<()> {
     assert!(text.contains("hello-ring"), "ring: {text:?}");
 
     // Check screen
-    let screen = app_state.terminal.screen.read().await;
+    let screen = store.terminal.screen.read().await;
     let snap = screen.snapshot();
     let lines = snap.lines.join("\n");
     assert!(lines.contains("hello-ring"), "screen: {lines:?}");
@@ -64,7 +62,7 @@ async fn shutdown_cancels_session() -> anyhow::Result<()> {
     let mut config = Config::test();
     config.drain_timeout_ms = Some(0);
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
     let shutdown = CancellationToken::new();
 
     // Long-running command
@@ -72,7 +70,7 @@ async fn shutdown_cancels_session() -> anyhow::Result<()> {
         NativePty::spawn(&["/bin/sh".into(), "-c".into(), "sleep 60".into()], 80, 24, &[])?;
     let session = Session::new(
         &config,
-        SessionConfig::new(app_state, backend, consumer_input_rx).with_shutdown(shutdown.clone()),
+        SessionConfig::new(store, backend, consumer_input_rx).with_shutdown(shutdown.clone()),
     );
 
     // Cancel after a short delay
@@ -93,7 +91,7 @@ async fn graceful_drain_kills_when_already_idle() -> anyhow::Result<()> {
     let mut config = Config::test();
     config.drain_timeout_ms = Some(2000);
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
     let shutdown = CancellationToken::new();
 
     let backend = MockPty::new().drain_input();
@@ -102,7 +100,7 @@ async fn graceful_drain_kills_when_already_idle() -> anyhow::Result<()> {
 
     let session = Session::new(
         &config,
-        SessionConfig::new(app_state, backend, consumer_input_rx)
+        SessionConfig::new(store, backend, consumer_input_rx)
             .with_shutdown(shutdown.clone())
             .with_detectors(vec![Box::new(detector)]),
     );
@@ -129,7 +127,7 @@ async fn graceful_drain_timeout_force_kills() -> anyhow::Result<()> {
     let mut config = Config::test();
     config.drain_timeout_ms = Some(500);
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
     let shutdown = CancellationToken::new();
 
     let backend = MockPty::new().drain_input();
@@ -137,7 +135,7 @@ async fn graceful_drain_timeout_force_kills() -> anyhow::Result<()> {
 
     let session = Session::new(
         &config,
-        SessionConfig::new(app_state, backend, consumer_input_rx).with_shutdown(shutdown.clone()),
+        SessionConfig::new(store, backend, consumer_input_rx).with_shutdown(shutdown.clone()),
     );
 
     // Cancel after a short delay; no detector → state stays Starting → drain entered.
@@ -169,7 +167,7 @@ async fn graceful_drain_disabled_when_zero() -> anyhow::Result<()> {
     let mut config = Config::test();
     config.drain_timeout_ms = Some(0);
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
     let shutdown = CancellationToken::new();
 
     let backend = MockPty::new().drain_input();
@@ -177,7 +175,7 @@ async fn graceful_drain_disabled_when_zero() -> anyhow::Result<()> {
 
     let session = Session::new(
         &config,
-        SessionConfig::new(app_state, backend, consumer_input_rx).with_shutdown(shutdown.clone()),
+        SessionConfig::new(store, backend, consumer_input_rx).with_shutdown(shutdown.clone()),
     );
 
     let sd = shutdown.clone();
@@ -216,7 +214,7 @@ async fn groom_auto_dismisses_disruption() -> anyhow::Result<()> {
     let mut config = Config::test();
     config.drain_timeout_ms = Some(0);
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = AppStateBuilder::new()
+    let store = StoreBuilder::new()
         .ring_size(65536)
         .groom(GroomLevel::Auto)
         .respond_encoder(Arc::new(StubRespondEncoder))
@@ -231,7 +229,7 @@ async fn groom_auto_dismisses_disruption() -> anyhow::Result<()> {
     let shutdown = CancellationToken::new();
     let session = Session::new(
         &config,
-        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx)
+        SessionConfig::new(Arc::clone(&store), backend, consumer_input_rx)
             .with_shutdown(shutdown.clone())
             .with_detectors(vec![Box::new(detector)]),
     );
@@ -261,7 +259,7 @@ async fn groom_manual_does_not_dismiss() -> anyhow::Result<()> {
     let mut config = Config::test();
     config.drain_timeout_ms = Some(0);
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = AppStateBuilder::new()
+    let store = StoreBuilder::new()
         .ring_size(65536)
         .groom(GroomLevel::Manual)
         .respond_encoder(Arc::new(StubRespondEncoder))
@@ -275,7 +273,7 @@ async fn groom_manual_does_not_dismiss() -> anyhow::Result<()> {
     let shutdown = CancellationToken::new();
     let session = Session::new(
         &config,
-        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx)
+        SessionConfig::new(Arc::clone(&store), backend, consumer_input_rx)
             .with_shutdown(shutdown.clone())
             .with_detectors(vec![Box::new(detector)]),
     );

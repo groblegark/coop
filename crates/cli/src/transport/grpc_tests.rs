@@ -5,7 +5,7 @@ use super::*;
 use crate::driver::AgentState;
 use crate::event::PtySignal;
 use crate::screen::{CursorPosition, ScreenSnapshot};
-use crate::test_support::AppStateBuilder;
+use crate::test_support::StoreBuilder;
 use crate::transport::encode_key;
 
 #[test]
@@ -254,7 +254,7 @@ fn pty_signal_from_name_case_insensitive() {
 
 #[test]
 fn service_instantiation_compiles() {
-    let state = AppStateBuilder::new().build().0;
+    let state = StoreBuilder::new().build().0;
     let service = CoopGrpc::new(state);
     // Verify we can construct a tonic server from the service
     let _router = service.into_router();
@@ -262,7 +262,7 @@ fn service_instantiation_compiles() {
 
 #[test]
 fn service_with_auth_compiles() {
-    let (state, _rx) = AppStateBuilder::new().child_pid(1234).auth_token("secret").build();
+    let (state, _rx) = StoreBuilder::new().child_pid(1234).auth_token("secret").build();
     let service = CoopGrpc::new(state);
     // Verify we can build the router with auth interceptor
     let _router = service.into_router();
@@ -271,7 +271,7 @@ fn service_with_auth_compiles() {
 #[tokio::test]
 async fn send_input_raw_writes_bytes() -> anyhow::Result<()> {
     use crate::event::InputEvent;
-    let (state, mut rx) = AppStateBuilder::new().child_pid(1234).build();
+    let (state, mut rx) = StoreBuilder::new().child_pid(1234).build();
     let svc = CoopGrpc::new(state);
 
     let req = tonic::Request::new(proto::SendInputRawRequest { data: b"hello".to_vec() });
@@ -285,7 +285,7 @@ async fn send_input_raw_writes_bytes() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn get_ready_returns_readiness() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new().child_pid(1234).build();
+    let (state, _rx) = StoreBuilder::new().child_pid(1234).build();
     let svc = CoopGrpc::new(state.clone());
 
     let req = tonic::Request::new(proto::GetReadyRequest {});

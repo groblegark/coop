@@ -218,7 +218,7 @@ mod ws_integration {
     use futures_util::{SinkExt, StreamExt};
 
     use crate::event::OutputEvent;
-    use crate::test_support::AppStateBuilder;
+    use crate::test_support::StoreBuilder;
     use crate::transport::ws::{ClientMessage, ServerMessage};
 
     use super::*;
@@ -229,7 +229,7 @@ mod ws_integration {
     async fn spawn_test_server(
         output_chunks: Vec<&str>,
     ) -> (std::net::SocketAddr, std::sync::Arc<crate::transport::state::Store>) {
-        let (state, _input_rx) = AppStateBuilder::new().ring_size(65536).build();
+        let (state, _input_rx) = StoreBuilder::new().ring_size(65536).build();
 
         // Write output chunks to ring buffer and broadcast them.
         {
@@ -340,7 +340,7 @@ mod ws_integration {
     #[tokio::test]
     async fn input_raw_reaches_server() {
         let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(64);
-        let state = AppStateBuilder::new().ring_size(4096).build_with_sender(input_tx);
+        let state = StoreBuilder::new().ring_size(4096).build_with_sender(input_tx);
 
         let (addr, _handle) = crate::test_support::spawn_http_server(std::sync::Arc::clone(&state))
             .await
@@ -368,7 +368,7 @@ mod ws_integration {
     #[tokio::test]
     async fn resize_reaches_server() {
         let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(64);
-        let state = AppStateBuilder::new().ring_size(4096).build_with_sender(input_tx);
+        let state = StoreBuilder::new().ring_size(4096).build_with_sender(input_tx);
 
         let (addr, _handle) = crate::test_support::spawn_http_server(std::sync::Arc::clone(&state))
             .await
@@ -394,7 +394,7 @@ mod ws_integration {
     #[tokio::test]
     async fn auth_required_blocks_input_raw() {
         let (state, _input_rx) =
-            AppStateBuilder::new().ring_size(4096).auth_token("secret123").build();
+            StoreBuilder::new().ring_size(4096).auth_token("secret123").build();
 
         let (addr, _handle) = crate::test_support::spawn_http_server(std::sync::Arc::clone(&state))
             .await
@@ -420,7 +420,7 @@ mod ws_integration {
     #[tokio::test]
     async fn auth_required_blocks_resize() {
         let (state, _input_rx) =
-            AppStateBuilder::new().ring_size(4096).auth_token("secret123").build();
+            StoreBuilder::new().ring_size(4096).auth_token("secret123").build();
 
         let (addr, _handle) = crate::test_support::spawn_http_server(std::sync::Arc::clone(&state))
             .await
@@ -445,10 +445,8 @@ mod ws_integration {
     #[tokio::test]
     async fn auth_then_input_raw_succeeds() {
         let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(64);
-        let state = AppStateBuilder::new()
-            .ring_size(4096)
-            .auth_token("secret123")
-            .build_with_sender(input_tx);
+        let state =
+            StoreBuilder::new().ring_size(4096).auth_token("secret123").build_with_sender(input_tx);
 
         let (addr, _handle) = crate::test_support::spawn_http_server(std::sync::Arc::clone(&state))
             .await

@@ -40,7 +40,7 @@ use crate::transport::{build_health_router, build_router, Store};
 /// Result of a completed session.
 pub struct RunResult {
     pub status: crate::driver::ExitStatus,
-    pub app_state: Arc<Store>,
+    pub store: Arc<Store>,
 }
 
 /// A fully-prepared session ready to run.
@@ -49,7 +49,7 @@ pub struct RunResult {
 /// [`AppState`] — including broadcast channels and the shutdown token — before
 /// the blocking session loop starts.
 pub struct PreparedSession {
-    pub app_state: Arc<Store>,
+    pub store: Arc<Store>,
     session: Session,
     config: Config,
 }
@@ -65,15 +65,15 @@ impl PreparedSession {
 
         // Agent exited — wait for explicit shutdown signal.
         // Skip if shutdown was already triggered (SIGTERM/SIGINT/idle timeout).
-        if !self.app_state.lifecycle.shutdown.is_cancelled() {
+        if !self.store.lifecycle.shutdown.is_cancelled() {
             info!(
                 "agent exited (code={:?}, signal={:?}), awaiting shutdown",
                 status.code, status.signal
             );
-            self.app_state.lifecycle.shutdown.cancelled().await;
+            self.store.lifecycle.shutdown.cancelled().await;
         }
 
-        Ok(RunResult { status, app_state: self.app_state })
+        Ok(RunResult { status, store: self.store })
     }
 }
 
@@ -310,7 +310,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let stop_state = Arc::new(StopState::new(stop_config, resolve_url));
     let start_state = Arc::new(StartState::new(start_config));
 
-    let app_state = Arc::new(Store {
+    let store = Arc::new(Store {
         terminal,
         driver: Arc::new(DriverState {
             agent_state: RwLock::new(AgentState::Starting),
@@ -343,7 +343,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     // Spawn HTTP server
     if let Some(port) = config.port {
-        let router = build_router(Arc::clone(&app_state));
+        let router = build_router(Arc::clone(&store));
         let addr = format!("{}:{}", config.host, port);
         let listener = TcpListener::bind(&addr).await?;
         info!("HTTP listening on {addr}");
@@ -359,7 +359,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     // Spawn Unix socket server
     if let Some(ref socket_path) = config.socket {
-        let router = build_router(Arc::clone(&app_state));
+        let router = build_router(Arc::clone(&store));
         let path = socket_path.clone();
         // Remove stale socket
         let _ = std::fs::remove_file(&path);
@@ -399,7 +399,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     // Spawn gRPC server
     if let Some(grpc_port) = config.port_grpc {
-        let grpc = CoopGrpc::new(Arc::clone(&app_state));
+        let grpc = CoopGrpc::new(Arc::clone(&store));
         let addr = format!("{}:{}", config.host, grpc_port).parse()?;
         info!("gRPC listening on {addr}");
         let sd = shutdown.clone();
@@ -413,7 +413,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     // Spawn health probe
     if let Some(health_port) = config.port_health {
-        let health_router = build_health_router(Arc::clone(&app_state));
+        let health_router = build_health_router(Arc::clone(&store));
         let addr = format!("{}:{}", config.host, health_port);
         let listener = TcpListener::bind(&addr).await?;
         info!("health probe listening on {addr}");
@@ -454,9 +454,9 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         });
     }
 
-    // Build session (but don't run yet — caller may need app_state first)
+    // Build session (but don't run yet — caller may need store first)
     let mut session_config =
-        crate::session::SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx)
+        crate::session::SessionConfig::new(Arc::clone(&store), backend, consumer_input_rx)
             .with_detectors(detectors)
             .with_shutdown(shutdown);
     if let Some(parser) = option_parser {
@@ -464,7 +464,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     }
     let session = Session::new(&config, session_config);
 
-    Ok(PreparedSession { app_state, session, config })
+    Ok(PreparedSession { store, session, config })
 }
 
 type DriverComponents = (

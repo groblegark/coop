@@ -13,7 +13,7 @@ use coop::config::Config;
 use coop::pty::spawn::NativePty;
 use coop::pty::{Backend, BackendInput};
 use coop::session::{Session, SessionConfig};
-use coop::test_support::AppStateBuilder;
+use coop::test_support::StoreBuilder;
 
 #[tokio::test]
 async fn child_exit_produces_eof() -> anyhow::Result<()> {
@@ -145,22 +145,20 @@ async fn resize_reflected_in_stty() -> anyhow::Result<()> {
 async fn large_output_through_session() -> anyhow::Result<()> {
     let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = AppStateBuilder::new()
+    let store = StoreBuilder::new()
         .ring_size(1_048_576) // 1MB
         .build_with_sender(input_tx);
 
     let backend =
         NativePty::spawn(&["/bin/sh".into(), "-c".into(), "seq 1 10000".into()], 80, 24, &[])?;
-    let session = Session::new(
-        &config,
-        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
-    );
+    let session =
+        Session::new(&config, SessionConfig::new(Arc::clone(&store), backend, consumer_input_rx));
 
     let status = session.run(&config).await?;
     assert_eq!(status.code, Some(0));
 
     // Ring should have captured substantial data
-    let ring = app_state.terminal.ring.read().await;
+    let ring = store.terminal.ring.read().await;
     assert!(
         ring.total_written() > 1000,
         "expected significant output, got {} bytes",
@@ -168,7 +166,7 @@ async fn large_output_through_session() -> anyhow::Result<()> {
     );
 
     // Screen should have content
-    let screen = app_state.terminal.screen.read().await;
+    let screen = store.terminal.screen.read().await;
     let snap = screen.snapshot();
     let text = snap.lines.join("\n");
     assert!(!text.trim().is_empty(), "screen should have content");
@@ -242,13 +240,11 @@ async fn rapid_input_output() -> anyhow::Result<()> {
 async fn signal_delivery_sigint() -> anyhow::Result<()> {
     let config = Config::test();
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
-    let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx.clone());
+    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx.clone());
 
     let backend = NativePty::spawn(&["/bin/cat".into()], 80, 24, &[])?;
-    let session = Session::new(
-        &config,
-        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx),
-    );
+    let session =
+        Session::new(&config, SessionConfig::new(Arc::clone(&store), backend, consumer_input_rx));
 
     let session_handle = tokio::spawn(async move {
         let config = Config::test();

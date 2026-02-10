@@ -29,7 +29,7 @@ use crate::transport::state::{
 };
 
 /// Builder for constructing `AppState` in tests with sensible defaults.
-pub struct AppStateBuilder {
+pub struct StoreBuilder {
     ring_size: usize,
     child_pid: u32,
     auth_token: Option<String>,
@@ -41,13 +41,13 @@ pub struct AppStateBuilder {
     groom: GroomLevel,
 }
 
-impl Default for AppStateBuilder {
+impl Default for StoreBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl AppStateBuilder {
+impl StoreBuilder {
     pub fn new() -> Self {
         Self {
             ring_size: 4096,
@@ -356,9 +356,9 @@ impl Detector for MockDetector {
 ///
 /// Returns the bound address and a join handle for the server task.
 pub async fn spawn_http_server(
-    app_state: Arc<Store>,
+    store: Arc<Store>,
 ) -> anyhow::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
-    let router = crate::transport::build_router(app_state);
+    let router = crate::transport::build_router(store);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
     let handle = tokio::spawn(async move {
@@ -371,11 +371,11 @@ pub async fn spawn_http_server(
 ///
 /// Returns the bound address and a join handle for the server task.
 pub async fn spawn_grpc_server(
-    app_state: Arc<Store>,
+    store: Arc<Store>,
 ) -> anyhow::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
-    let grpc = crate::transport::grpc::CoopGrpc::new(app_state);
+    let grpc = crate::transport::grpc::CoopGrpc::new(store);
     let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
     let handle = tokio::spawn(async move {
         let _ = grpc.into_router().serve_with_incoming(incoming).await;

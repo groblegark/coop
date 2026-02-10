@@ -77,8 +77,8 @@ async fn claude_basic_session_lifecycle() -> anyhow::Result<()> {
     expect_claudeless();
 
     let prepared = run::prepare(claude_config("claude_hello.toml", "hello")).await?;
-    let mut rx = prepared.app_state.channels.state_tx.subscribe();
-    let shutdown = prepared.app_state.lifecycle.shutdown.clone();
+    let mut rx = prepared.store.channels.state_tx.subscribe();
+    let shutdown = prepared.store.lifecycle.shutdown.clone();
     let handle = tokio::spawn(prepared.run());
 
     wait_for(&mut rx, |s| matches!(s, AgentState::Idle)).await?;
@@ -94,8 +94,8 @@ async fn claude_tool_use_session_lifecycle() -> anyhow::Result<()> {
     expect_claudeless();
 
     let prepared = run::prepare(claude_config("claude_tool_use.toml", "read a file")).await?;
-    let mut rx = prepared.app_state.channels.state_tx.subscribe();
-    let shutdown = prepared.app_state.lifecycle.shutdown.clone();
+    let mut rx = prepared.store.channels.state_tx.subscribe();
+    let shutdown = prepared.store.lifecycle.shutdown.clone();
     let handle = tokio::spawn(prepared.run());
 
     wait_for(&mut rx, |s| matches!(s, AgentState::Working)).await?;
@@ -112,9 +112,9 @@ async fn claude_ask_user_session_lifecycle() -> anyhow::Result<()> {
     expect_claudeless();
 
     let prepared = run::prepare(claude_config("claude_ask_user.toml", "help me choose")).await?;
-    let mut rx = prepared.app_state.channels.state_tx.subscribe();
-    let shutdown = prepared.app_state.lifecycle.shutdown.clone();
-    let input_tx = prepared.app_state.channels.input_tx.clone();
+    let mut rx = prepared.store.channels.state_tx.subscribe();
+    let shutdown = prepared.store.lifecycle.shutdown.clone();
+    let input_tx = prepared.store.channels.input_tx.clone();
     let handle = tokio::spawn(prepared.run());
 
     wait_for(&mut rx, |s| matches!(s, AgentState::Prompt { .. })).await?;
@@ -137,9 +137,9 @@ async fn claude_multi_question_session_lifecycle() -> anyhow::Result<()> {
 
     let prepared =
         run::prepare(claude_config("claude_multi_question.toml", "help me decide")).await?;
-    let mut rx = prepared.app_state.channels.state_tx.subscribe();
-    let shutdown = prepared.app_state.lifecycle.shutdown.clone();
-    let input_tx = prepared.app_state.channels.input_tx.clone();
+    let mut rx = prepared.store.channels.state_tx.subscribe();
+    let shutdown = prepared.store.lifecycle.shutdown.clone();
+    let input_tx = prepared.store.channels.input_tx.clone();
     let handle = tokio::spawn(prepared.run());
 
     // Multi-question is a single dialog with tabs: Q1 → Q2 → Confirm.
@@ -171,9 +171,9 @@ async fn claude_ask_user_respond_api() -> anyhow::Result<()> {
     expect_claudeless();
 
     let prepared = run::prepare(claude_config("claude_ask_user.toml", "help me choose")).await?;
-    let mut rx = prepared.app_state.channels.state_tx.subscribe();
-    let shutdown = prepared.app_state.lifecycle.shutdown.clone();
-    let app = prepared.app_state.clone();
+    let mut rx = prepared.store.channels.state_tx.subscribe();
+    let shutdown = prepared.store.lifecycle.shutdown.clone();
+    let app = prepared.store.clone();
     let handle = tokio::spawn(prepared.run());
 
     wait_for(&mut rx, |s| matches!(s, AgentState::Prompt { .. })).await?;
@@ -205,9 +205,9 @@ async fn claude_multi_question_respond_api() -> anyhow::Result<()> {
 
     let prepared =
         run::prepare(claude_config("claude_multi_question.toml", "help me decide")).await?;
-    let mut rx = prepared.app_state.channels.state_tx.subscribe();
-    let shutdown = prepared.app_state.lifecycle.shutdown.clone();
-    let app = prepared.app_state.clone();
+    let mut rx = prepared.store.channels.state_tx.subscribe();
+    let shutdown = prepared.store.lifecycle.shutdown.clone();
+    let app = prepared.store.clone();
     let handle = tokio::spawn(prepared.run());
 
     wait_for(&mut rx, |s| matches!(s, AgentState::Prompt { .. })).await?;
@@ -241,9 +241,9 @@ async fn claude_plan_mode_session_lifecycle() -> anyhow::Result<()> {
     expect_claudeless();
 
     let prepared = run::prepare(claude_config("claude_plan_mode.toml", "plan a feature")).await?;
-    let mut rx = prepared.app_state.channels.state_tx.subscribe();
-    let shutdown = prepared.app_state.lifecycle.shutdown.clone();
-    let input_tx = prepared.app_state.channels.input_tx.clone();
+    let mut rx = prepared.store.channels.state_tx.subscribe();
+    let shutdown = prepared.store.lifecycle.shutdown.clone();
+    let input_tx = prepared.store.channels.input_tx.clone();
     let handle = tokio::spawn(prepared.run());
 
     // EnterPlanMode → Working.

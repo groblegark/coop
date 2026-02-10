@@ -8,11 +8,11 @@ use base64::Engine;
 
 use crate::driver::AgentState;
 use crate::event::InputEvent;
-use crate::test_support::{AnyhowExt, AppStateBuilder, StubNudgeEncoder};
+use crate::test_support::{AnyhowExt, StoreBuilder, StubNudgeEncoder};
 use crate::transport::build_router;
 
 fn test_state() -> (Arc<crate::transport::state::Store>, tokio::sync::mpsc::Receiver<InputEvent>) {
-    AppStateBuilder::new().child_pid(1234).build()
+    StoreBuilder::new().child_pid(1234).build()
 }
 
 #[tokio::test]
@@ -271,7 +271,7 @@ async fn agent_respond_no_driver_404() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn auth_rejects_without_token() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new().child_pid(1234).auth_token("secret").build();
+    let (state, _rx) = StoreBuilder::new().child_pid(1234).auth_token("secret").build();
 
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
@@ -299,7 +299,7 @@ async fn auth_rejects_without_token() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn agent_state_includes_error_fields() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new()
+    let (state, _rx) = StoreBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Error { detail: "rate_limit_error".to_owned() })
         .build();
@@ -322,8 +322,7 @@ async fn agent_state_includes_error_fields() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn agent_state_omits_error_fields_when_not_error() -> anyhow::Result<()> {
-    let (state, _rx) =
-        AppStateBuilder::new().child_pid(1234).agent_state(AgentState::Working).build();
+    let (state, _rx) = StoreBuilder::new().child_pid(1234).agent_state(AgentState::Working).build();
 
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
@@ -338,7 +337,7 @@ async fn agent_state_omits_error_fields_when_not_error() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn agent_nudge_rejected_when_working() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new()
+    let (state, _rx) = StoreBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Working)
         .nudge_encoder(Arc::new(StubNudgeEncoder))
@@ -358,7 +357,7 @@ async fn agent_nudge_rejected_when_working() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn agent_nudge_delivered_when_waiting() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new()
+    let (state, _rx) = StoreBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Idle)
         .nudge_encoder(Arc::new(StubNudgeEncoder))
@@ -416,7 +415,7 @@ async fn shutdown_cancels_token() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn shutdown_requires_auth() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new().child_pid(1234).auth_token("secret").build();
+    let (state, _rx) = StoreBuilder::new().child_pid(1234).auth_token("secret").build();
     let app = build_router(state.clone());
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -445,11 +444,7 @@ use crate::stop::{StopConfig, StopMode};
 fn stop_state(
     config: StopConfig,
 ) -> (Arc<crate::transport::state::Store>, tokio::sync::mpsc::Receiver<InputEvent>) {
-    AppStateBuilder::new()
-        .child_pid(1234)
-        .agent_state(AgentState::Working)
-        .stop_config(config)
-        .build()
+    StoreBuilder::new().child_pid(1234).agent_state(AgentState::Working).stop_config(config).build()
 }
 
 #[tokio::test]
@@ -673,7 +668,7 @@ async fn signal_consumed_after_stop_check() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new().child_pid(1234).auth_token("secret-token").build();
+    let (state, _rx) = StoreBuilder::new().child_pid(1234).auth_token("secret-token").build();
 
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
@@ -707,7 +702,7 @@ async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
 fn start_state(
     config: StartConfig,
 ) -> (Arc<crate::transport::state::Store>, tokio::sync::mpsc::Receiver<InputEvent>) {
-    AppStateBuilder::new()
+    StoreBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Working)
         .start_config(config)

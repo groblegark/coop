@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::driver::{AgentState, ExitStatus};
 use crate::event::InputEvent;
-use crate::test_support::{AppStateBuilder, StubNudgeEncoder, StubRespondEncoder};
+use crate::test_support::{StoreBuilder, StubNudgeEncoder, StubRespondEncoder};
 use crate::transport::handler::{
     compute_health, compute_status, handle_input, handle_input_raw, handle_keys, handle_nudge,
     handle_resize, handle_respond, handle_signal, session_state_str, to_domain_answers,
@@ -56,7 +56,7 @@ fn to_domain_answers_converts_fields() {
 
 #[tokio::test]
 async fn compute_health_fields() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new().child_pid(1234).build();
+    let (state, _rx) = StoreBuilder::new().child_pid(1234).build();
     state.ready.store(true, std::sync::atomic::Ordering::Release);
 
     let h = compute_health(&state).await;
@@ -72,7 +72,7 @@ async fn compute_health_fields() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn compute_health_pid_zero_is_none() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new().build();
+    let (state, _rx) = StoreBuilder::new().build();
     let h = compute_health(&state).await;
     assert!(h.pid.is_none());
     assert!(!h.ready);
@@ -81,8 +81,7 @@ async fn compute_health_pid_zero_is_none() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn compute_status_running() -> anyhow::Result<()> {
-    let (state, _rx) =
-        AppStateBuilder::new().child_pid(5678).agent_state(AgentState::Working).build();
+    let (state, _rx) = StoreBuilder::new().child_pid(5678).agent_state(AgentState::Working).build();
     let st = compute_status(&state).await;
     assert_eq!(st.state, "running");
     assert_eq!(st.pid, Some(5678));
@@ -93,7 +92,7 @@ async fn compute_status_running() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn compute_status_exited() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new()
+    let (state, _rx) = StoreBuilder::new()
         .child_pid(100)
         .agent_state(AgentState::Exited { status: ExitStatus { code: Some(1), signal: None } })
         .build();
@@ -106,7 +105,7 @@ async fn compute_status_exited() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn nudge_not_ready_returns_error() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new().nudge_encoder(Arc::new(StubNudgeEncoder)).build();
+    let (state, _rx) = StoreBuilder::new().nudge_encoder(Arc::new(StubNudgeEncoder)).build();
     // ready defaults to false
     let result = handle_nudge(&state, "hello").await;
     assert!(result.is_err());
@@ -116,7 +115,7 @@ async fn nudge_not_ready_returns_error() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn nudge_no_driver_returns_error() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new().build();
+    let (state, _rx) = StoreBuilder::new().build();
     state.ready.store(true, std::sync::atomic::Ordering::Release);
     let result = handle_nudge(&state, "hello").await;
     assert!(result.is_err());
@@ -126,7 +125,7 @@ async fn nudge_no_driver_returns_error() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn nudge_busy_returns_soft_failure() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new()
+    let (state, _rx) = StoreBuilder::new()
         .agent_state(AgentState::Working)
         .nudge_encoder(Arc::new(StubNudgeEncoder))
         .build();
@@ -141,7 +140,7 @@ async fn nudge_busy_returns_soft_failure() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn nudge_waiting_delivers() -> anyhow::Result<()> {
-    let (state, mut rx) = AppStateBuilder::new()
+    let (state, mut rx) = StoreBuilder::new()
         .agent_state(AgentState::Idle)
         .nudge_encoder(Arc::new(StubNudgeEncoder))
         .build();
@@ -159,7 +158,7 @@ async fn nudge_waiting_delivers() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn respond_not_ready_returns_error() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new().respond_encoder(Arc::new(StubRespondEncoder)).build();
+    let (state, _rx) = StoreBuilder::new().respond_encoder(Arc::new(StubRespondEncoder)).build();
     let result = handle_respond(&state, None, None, None, &[]).await;
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), crate::error::ErrorCode::NotReady);
@@ -174,7 +173,7 @@ async fn respond_setup_prompt_delivers_option_to_pty() -> anyhow::Result<()> {
             .with_options(vec!["Dark mode".to_owned(), "Light mode".to_owned()])
             .with_ready(),
     };
-    let (state, mut rx) = AppStateBuilder::new()
+    let (state, mut rx) = StoreBuilder::new()
         .agent_state(setup_state)
         .respond_encoder(Arc::new(StubRespondEncoder))
         .build();
@@ -194,7 +193,7 @@ async fn respond_setup_prompt_delivers_option_to_pty() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn respond_no_prompt_returns_soft_failure() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new()
+    let (state, _rx) = StoreBuilder::new()
         .agent_state(AgentState::Working)
         .respond_encoder(Arc::new(StubRespondEncoder))
         .build();
@@ -211,7 +210,7 @@ async fn respond_no_prompt_returns_soft_failure() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn input_writes_text() -> anyhow::Result<()> {
-    let (state, mut rx) = AppStateBuilder::new().build();
+    let (state, mut rx) = StoreBuilder::new().build();
     let len = handle_input(&state, "hello".to_owned(), false).await;
     assert_eq!(len, 5);
     let event = rx.recv().await;
@@ -221,7 +220,7 @@ async fn input_writes_text() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn input_with_enter_appends_cr() -> anyhow::Result<()> {
-    let (state, mut rx) = AppStateBuilder::new().build();
+    let (state, mut rx) = StoreBuilder::new().build();
     let len = handle_input(&state, "hi".to_owned(), true).await;
     assert_eq!(len, 3); // "hi\r"
     let event = rx.recv().await;
@@ -231,7 +230,7 @@ async fn input_with_enter_appends_cr() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn input_raw_writes_bytes() -> anyhow::Result<()> {
-    let (state, mut rx) = AppStateBuilder::new().build();
+    let (state, mut rx) = StoreBuilder::new().build();
     let len = handle_input_raw(&state, vec![0x1b, 0x5b, 0x41]).await;
     assert_eq!(len, 3);
     let event = rx.recv().await;
@@ -241,7 +240,7 @@ async fn input_raw_writes_bytes() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn keys_valid() -> anyhow::Result<()> {
-    let (state, mut rx) = AppStateBuilder::new().build();
+    let (state, mut rx) = StoreBuilder::new().build();
     let len = handle_keys(&state, &["Enter".to_owned(), "Tab".to_owned()])
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -253,7 +252,7 @@ async fn keys_valid() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn keys_invalid_returns_error() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new().build();
+    let (state, _rx) = StoreBuilder::new().build();
     let result = handle_keys(&state, &["SuperKey".to_owned()]).await;
     assert_eq!(result.unwrap_err(), "SuperKey");
     Ok(())
@@ -261,7 +260,7 @@ async fn keys_invalid_returns_error() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn resize_valid() -> anyhow::Result<()> {
-    let (state, mut rx) = AppStateBuilder::new().build();
+    let (state, mut rx) = StoreBuilder::new().build();
     handle_resize(&state, 120, 40).await.map_err(|e| anyhow::anyhow!("{e}"))?;
     let event = rx.recv().await;
     assert!(matches!(event, Some(InputEvent::Resize { cols: 120, rows: 40 })));
@@ -270,7 +269,7 @@ async fn resize_valid() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn resize_zero_cols_rejected() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new().build();
+    let (state, _rx) = StoreBuilder::new().build();
     let result = handle_resize(&state, 0, 24).await;
     assert!(result.is_err());
     Ok(())
@@ -278,7 +277,7 @@ async fn resize_zero_cols_rejected() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn resize_zero_rows_rejected() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new().build();
+    let (state, _rx) = StoreBuilder::new().build();
     let result = handle_resize(&state, 80, 0).await;
     assert!(result.is_err());
     Ok(())
@@ -286,7 +285,7 @@ async fn resize_zero_rows_rejected() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn signal_valid() -> anyhow::Result<()> {
-    let (state, mut rx) = AppStateBuilder::new().build();
+    let (state, mut rx) = StoreBuilder::new().build();
     handle_signal(&state, "SIGINT").await.map_err(|e| anyhow::anyhow!("{e}"))?;
     let event = rx.recv().await;
     assert!(matches!(event, Some(InputEvent::Signal(crate::event::PtySignal::Int))));
@@ -295,7 +294,7 @@ async fn signal_valid() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn signal_unknown_returns_error() -> anyhow::Result<()> {
-    let (state, _rx) = AppStateBuilder::new().build();
+    let (state, _rx) = StoreBuilder::new().build();
     let result = handle_signal(&state, "SIGFOO").await;
     assert_eq!(result.unwrap_err(), "SIGFOO");
     Ok(())
