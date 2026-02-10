@@ -21,7 +21,7 @@ use crate::config::Config;
 use super::hook_recv::HookReceiver;
 use super::Detector;
 use encoding::{ClaudeNudgeEncoder, ClaudeRespondEncoder};
-use stream::{LogDetector, StdoutDetector};
+use stream::LogDetector;
 
 /// Claude Code agent driver.
 ///
@@ -68,7 +68,7 @@ impl ClaudeDriver {
 
         // Tier 3: Structured stdout JSONL
         if let Some(stdout_rx) = stdout_rx {
-            detectors.push(Box::new(StdoutDetector { stdout_rx, last_message }));
+            detectors.push(Box::new(stream::new_stdout_detector(stdout_rx, last_message)));
         }
 
         // Sort by tier (lowest number = highest priority)

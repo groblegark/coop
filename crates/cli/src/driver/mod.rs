@@ -12,6 +12,7 @@ pub mod log_watch;
 pub mod nudge;
 pub mod process;
 pub mod screen_parse;
+pub mod stdout_detect;
 pub mod unknown;
 
 pub use composite::{CompositeDetector, DetectedState};

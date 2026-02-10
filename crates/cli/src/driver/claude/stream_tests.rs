@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::{AgentState, Detector};
 
-use super::{LogDetector, StdoutDetector};
+use super::LogDetector;
 
 #[tokio::test]
 async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
@@ -96,7 +96,7 @@ async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
 #[tokio::test]
 async fn stdout_detector_parses_jsonl_bytes() -> anyhow::Result<()> {
     let (bytes_tx, bytes_rx) = mpsc::channel(32);
-    let detector = Box::new(StdoutDetector { stdout_rx: bytes_rx, last_message: None });
+    let detector = Box::new(super::new_stdout_detector(bytes_rx, None));
     assert_eq!(detector.tier(), 3);
 
     let (state_tx, mut state_rx) = mpsc::channel(32);

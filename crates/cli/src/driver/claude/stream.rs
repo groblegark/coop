@@ -13,7 +13,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::hook_detect::HookDetector;
 use crate::driver::hook_recv::HookReceiver;
-use crate::driver::jsonl_stdout::JsonlParser;
 use crate::driver::log_watch::LogWatcher;
 use crate::driver::HookEvent;
 use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
@@ -37,12 +36,12 @@ pub fn map_claude_hook(event: HookEvent) -> Option<(AgentState, String)> {
         HookEvent::TurnEnd | HookEvent::SessionEnd => {
             Some((AgentState::Idle, "hook:idle".to_owned()))
         }
-        HookEvent::ToolAfter { .. } => Some((AgentState::Working, "hook:working".to_owned())),
+        HookEvent::ToolAfter { .. } => Some((AgentState::Working, "hook:working".into())),
         HookEvent::Notification { notification_type } => match notification_type.as_str() {
-            "idle_prompt" => Some((AgentState::Idle, "hook:idle".to_owned())),
+            "idle_prompt" => Some((AgentState::Idle, "hook:idle".into())),
             "permission_prompt" => Some((
                 AgentState::Prompt { prompt: PromptContext::new(PromptKind::Permission) },
-                "hook:prompt(permission)".to_owned(),
+                "hook:prompt(permission)".into(),
             )),
             _ => None,
         },
@@ -51,16 +50,16 @@ pub fn map_claude_hook(event: HookEvent) -> Option<(AgentState, String)> {
                 AgentState::Prompt {
                     prompt: extract_ask_user_from_tool_input(tool_input.as_ref()),
                 },
-                "hook:prompt(question)".to_owned(),
+                "hook:prompt(question)".into(),
             )),
             "ExitPlanMode" => Some((
                 AgentState::Prompt { prompt: PromptContext::new(PromptKind::Plan) },
-                "hook:prompt(plan)".to_owned(),
+                "hook:prompt(plan)".into(),
             )),
-            "EnterPlanMode" => Some((AgentState::Working, "hook:working".to_owned())),
+            "EnterPlanMode" => Some((AgentState::Working, "hook:working".into())),
             _ => None,
         },
-        HookEvent::TurnStart => Some((AgentState::Working, "hook:working".to_owned())),
+        HookEvent::TurnStart => Some((AgentState::Working, "hook:working".into())),
         HookEvent::SessionStart => None,
     }
 }
@@ -138,56 +137,25 @@ impl Detector for LogDetector {
     }
 }
 
-/// Tier 3 detector: parses structured JSONL from Claude's stdout stream.
+/// Create a Tier 3 stdout detector for Claude.
 ///
-/// Used when Claude is invoked with `--print --output-format stream-json`.
-/// Receives raw PTY bytes from a channel, feeds them through a JSONL parser,
-/// and classifies each parsed entry.
-pub struct StdoutDetector {
-    pub stdout_rx: mpsc::Receiver<Bytes>,
-    /// Shared last assistant message text (written directly, bypasses detector pipeline).
-    pub last_message: Option<Arc<RwLock<Option<String>>>>,
-}
-
-impl Detector for StdoutDetector {
-    fn run(
-        self: Box<Self>,
-        state_tx: mpsc::Sender<(AgentState, String)>,
-        shutdown: CancellationToken,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        Box::pin(async move {
-            let mut parser = JsonlParser::new();
-            let mut stdout_rx = self.stdout_rx;
-            let last_message = self.last_message;
-
-            loop {
-                tokio::select! {
-                    _ = shutdown.cancelled() => break,
-                    data = stdout_rx.recv() => {
-                        match data {
-                            Some(bytes) => {
-                                for json in parser.feed(&bytes) {
-                                    if let Some(text) = extract_assistant_text(&json) {
-                                        if let Some(ref lm) = last_message {
-                                            *lm.write().await = Some(text);
-                                        }
-                                    }
-                                    if let Some(state) = parse_claude_state(&json) {
-                                        let cause = format_claude_cause(&json, "stdout");
-                                        let _ = state_tx.send((state, cause)).await;
-                                    }
-                                }
-                            }
-                            None => break,
-                        }
-                    }
-                }
-            }
-        })
-    }
-
-    fn tier(&self) -> u8 {
-        3
+/// Parses structured JSONL from Claude's stdout stream (used when Claude is
+/// invoked with `--print --output-format stream-json`). Classifies each entry
+/// with `parse_claude_state` and extracts assistant message text.
+pub fn new_stdout_detector(
+    stdout_rx: mpsc::Receiver<Bytes>,
+    last_message: Option<Arc<RwLock<Option<String>>>>,
+) -> impl Detector {
+    use crate::driver::stdout_detect::StdoutDetector;
+    StdoutDetector {
+        stdout_rx,
+        classify: Box::new(|json| {
+            let state = parse_claude_state(json)?;
+            let cause = format_claude_cause(json, "stdout");
+            Some((state, cause))
+        }),
+        extract_message: Some(Box::new(extract_assistant_text)),
+        last_message,
     }
 }
 

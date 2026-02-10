@@ -17,7 +17,6 @@ use crate::config::Config;
 
 use super::hook_recv::HookReceiver;
 use super::Detector;
-use detect::StdoutDetector;
 use encoding::{GeminiNudgeEncoder, GeminiRespondEncoder};
 
 /// Gemini CLI agent driver.
@@ -51,7 +50,7 @@ impl GeminiDriver {
 
         // Tier 3: Structured stdout JSONL
         if let Some(stdout_rx) = stdout_rx {
-            detectors.push(Box::new(StdoutDetector { stdout_rx }));
+            detectors.push(Box::new(detect::new_stdout_detector(stdout_rx)));
         }
 
         // Sort by tier (lowest number = highest priority)
