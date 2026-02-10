@@ -193,21 +193,37 @@ fn ws_test_state(
 }
 
 #[tokio::test]
-async fn state_request_returns_error_fields() -> anyhow::Result<()> {
+async fn state_request_returns_agent_state() -> anyhow::Result<()> {
     let (state, _rx) = AppStateBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Error { detail: "authentication_error".to_owned() })
         .build();
+    // Populate error fields as session loop would.
+    *state.driver.error.write().await = Some(crate::transport::state::ErrorInfo {
+        detail: "authentication_error".to_owned(),
+        category: crate::driver::ErrorCategory::Unauthorized,
+    });
 
     let msg = ClientMessage::StateRequest {};
     let reply = handle_client_message(&state, msg, "test-client", &mut true).await;
     match reply {
-        Some(ServerMessage::StateChange { next, error_detail, error_category, .. }) => {
-            assert_eq!(next, "error");
+        Some(ServerMessage::AgentState {
+            agent,
+            state: st,
+            since_seq: _,
+            screen_seq: _,
+            detection_tier,
+            error_detail,
+            error_category,
+            ..
+        }) => {
+            assert!(!agent.is_empty());
+            assert_eq!(st, "error");
+            assert!(!detection_tier.is_empty());
             assert_eq!(error_detail.as_deref(), Some("authentication_error"));
             assert_eq!(error_category.as_deref(), Some("unauthorized"));
         }
-        other => anyhow::bail!("expected StateChange, got {other:?}"),
+        other => anyhow::bail!("expected AgentState, got {other:?}"),
     }
     Ok(())
 }

@@ -129,6 +129,21 @@ pub enum ServerMessage {
     ShutdownResult {
         accepted: bool,
     },
+    AgentState {
+        agent: String,
+        state: String,
+        since_seq: u64,
+        screen_seq: u64,
+        detection_tier: String,
+        detection_cause: String,
+        prompt: Option<PromptContext>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_detail: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_category: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        last_message: Option<String>,
+    },
     Pong {},
 }
 
@@ -450,17 +465,26 @@ async fn handle_client_message(
         ClientMessage::StateRequest {} => {
             let agent = state.driver.agent_state.read().await;
             let screen = state.terminal.screen.read().await;
-            let cause = state.driver.detection.read().await.cause.clone();
-            let (error_detail, error_category) = extract_error_fields(&agent);
+            let detection = state.driver.detection.read().await;
+            let error_detail = state.driver.error.read().await.as_ref().map(|e| e.detail.clone());
+            let error_category = state
+                .driver
+                .error
+                .read()
+                .await
+                .as_ref()
+                .map(|e| e.category.as_str().to_owned());
             let last_message = state.driver.last_message.read().await.clone();
-            Some(ServerMessage::StateChange {
-                prev: agent.as_str().to_owned(),
-                next: agent.as_str().to_owned(),
-                seq: screen.seq(),
-                prompt: Box::new(agent.prompt().cloned()),
+            Some(ServerMessage::AgentState {
+                agent: state.config.agent.to_string(),
+                state: agent.as_str().to_owned(),
+                since_seq: state.driver.state_seq.load(std::sync::atomic::Ordering::Acquire),
+                screen_seq: screen.seq(),
+                detection_tier: detection.tier_str(),
+                detection_cause: detection.cause.clone(),
+                prompt: agent.prompt().cloned(),
                 error_detail,
                 error_category,
-                cause,
                 last_message,
             })
         }
