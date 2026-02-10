@@ -79,8 +79,7 @@
   .ev-time { color: #666; }
   .ev-type { font-weight: 600; }
   .ev-type-output       { color: #7cb7ff; }
-  .ev-type-stream       { color: #7cb7ff; }
-  .ev-type-screen       { color: #b8a0e8; }
+  .ev-type-pty          { color: #7cb7ff; }
   .ev-type-transition { color: #e8c84a; }
   .ev-type-exit         { color: #e06060; }
   .ev-type-error        { color: #e06060; }
@@ -89,6 +88,8 @@
   .ev-type-stop         { color: #e8a317; }
   .ev-type-start        { color: #4ec950; }
   .ev-type-prompt { color: #4ec950; }
+  .ev-type-session      { color: #b8a0e8; }
+  .ev-type-usage        { color: #6cc; }
   .ev-detail { color: #999; margin-left: 4px; }
 
   /* --- Actions panel --- */
@@ -208,6 +209,9 @@
         <div class="api-block">
           <details open><summary>Agent</summary><table id="t-agent"></table></details>
         </div>
+        <div class="api-block">
+          <details open><summary>Usage</summary><table id="t-usage"></table></details>
+        </div>
       </div>
     </div>
 
@@ -312,6 +316,19 @@
           <div id="act-respond-result" class="action-result"></div>
         </div>
 
+        <!-- Session Switch -->
+        <div class="action-section">
+          <div class="action-label">Session Switch</div>
+          <div class="action-row">
+            <textarea id="act-switch-creds" rows="2" placeholder='{"ANTHROPIC_API_KEY": "sk-ant-..."}'></textarea>
+          </div>
+          <div class="action-row">
+            <label><input type="checkbox" id="act-switch-force" class="action-check" /><span class="action-check-label">Force (skip idle wait)</span></label>
+            <button class="action-btn btn-warn" id="act-switch-send">Switch</button>
+          </div>
+          <div id="act-switch-result" class="action-result"></div>
+        </div>
+
         <!-- Stop Config -->
         <div class="action-section">
           <div class="action-label">Stop Config</div>
@@ -388,7 +405,7 @@ import { Terminal }  from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm'
 const params = new URLSearchParams(location.search);
 const PORT = params.get('port') || '7070';
 const BASE = `http://localhost:${PORT}`;
-const WS_URL = `ws://localhost:${PORT}/ws?subscribe=output,screen,state`;
+const WS_URL = `ws://localhost:${PORT}/ws?subscribe=output,state,usage`;
 
 const dot        = document.getElementById('dot');
 const label      = document.getElementById('label');
@@ -468,6 +485,7 @@ toggleBtn.addEventListener('click', () => {
 const tHealth = document.getElementById('t-health');
 const tStatus = document.getElementById('t-status');
 const tAgent  = document.getElementById('t-agent');
+const tUsage  = document.getElementById('t-usage');
 
 function renderTable(el, obj, prefix) {
   if (!obj) { el.innerHTML = '<tr><td colspan="2" style="color:#666">--</td></tr>'; return; }
@@ -511,14 +529,16 @@ async function pollApi() {
   pollAgentState();
   if (!sidebarVisible || activeTab !== 'state') return;
   try {
-    const [health, status, agent] = await Promise.all([
+    const [health, status, agent, usage] = await Promise.all([
       fetch(`${BASE}/api/v1/health`).then(r => r.ok ? r.json() : null).catch(() => null),
       fetch(`${BASE}/api/v1/status`).then(r => r.ok ? r.json() : null).catch(() => null),
       fetch(`${BASE}/api/v1/agent`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${BASE}/api/v1/session/usage`).then(r => r.ok ? r.json() : null).catch(() => null),
     ]);
     renderTable(tHealth, health, '');
     renderTable(tStatus, status, '');
     renderTable(tAgent, agent, '');
+    renderTable(tUsage, usage, '');
   } catch (_) { /* ignore */ }
 }
 
@@ -529,10 +549,9 @@ const eventLog = document.getElementById('event-log');
 const MAX_EVENTS = 200;
 let eventCount = 0;
 
-// Collapse consecutive output/screen bursts into a single updating row.
-// Output and screen always arrive as pairs, so treat them as one group.
+// Collapse consecutive output bursts into a single updating row.
 let streamEl = null;   // current collapsed row element
-let streamAcc = null;  // { count, totalBytes, lastOffset, lastSeq, cols, rows }
+let streamAcc = null;  // { count, totalBytes, lastOffset }
 
 // Collapse consecutive pong events into a single updating row.
 let pongEl = null;
@@ -543,34 +562,19 @@ function logEvent(msg) {
   const now = new Date();
   const ts = now.toTimeString().slice(0, 8);
 
-  // Collapse consecutive output+screen bursts in-place
-  if (type === 'output' || type === 'screen' || type === 'replay') {
+  // Collapse consecutive output bursts in-place
+  if (type === 'output' || type === 'replay') {
     pongEl = null; pongCount = 0;
+    const len = msg.data ? atob(msg.data).length : 0;
     if (streamEl && streamAcc) {
-      // Update existing collapsed row
-      if (type === 'output' || type === 'replay') {
-        const len = msg.data ? atob(msg.data).length : 0;
-        streamAcc.count++;
-        streamAcc.totalBytes += len;
-        streamAcc.lastOffset = msg.offset + len;
-      } else {
-        streamAcc.lastSeq = msg.seq;
-        streamAcc.cols = msg.cols;
-        streamAcc.rows = msg.rows;
-      }
+      streamAcc.count++;
+      streamAcc.totalBytes += len;
+      streamAcc.lastOffset = msg.offset + len;
       streamEl.innerHTML = renderStreamHtml(ts, streamAcc);
       autoScroll();
       return;
     }
-    // Start a new collapsed row
-    if (type === 'output' || type === 'replay') {
-      const len = msg.data ? atob(msg.data).length : 0;
-      streamAcc = { count: 1, totalBytes: len, lastOffset: msg.offset + len,
-                    lastSeq: 0, cols: 0, rows: 0 };
-    } else {
-      streamAcc = { count: 0, totalBytes: 0, lastOffset: 0,
-                    lastSeq: msg.seq, cols: msg.cols, rows: msg.rows };
-    }
+    streamAcc = { count: 1, totalBytes: len, lastOffset: msg.offset + len };
     const div = document.createElement('div');
     div.className = 'ev';
     div.innerHTML = renderStreamHtml(ts, streamAcc);
@@ -637,6 +641,14 @@ function logEvent(msg) {
       if (msg.subtype) detail += `(${msg.subtype})`;
       if (msg.option != null) detail += ` opt=${msg.option}`;
       break;
+    case 'session:switched':
+      detail = msg.scheduled ? 'scheduled' : 'immediate';
+      break;
+    case 'usage:update':
+      detail = msg.cumulative
+        ? `in=${msg.cumulative.input_tokens} out=${msg.cumulative.output_tokens} $${msg.cumulative.total_cost_usd?.toFixed(4) ?? '?'} seq=${msg.seq}`
+        : `seq=${msg.seq}`;
+      break;
   }
 
   const div = document.createElement('div');
@@ -650,13 +662,9 @@ function logEvent(msg) {
 }
 
 function renderStreamHtml(ts, acc) {
-  let parts = `<span class="ev-time">${ts}</span> `;
-  parts += `<span class="ev-type ev-type-output">stream</span>`;
-  const details = [];
-  if (acc.count > 0) details.push(`${acc.count}x ${acc.totalBytes}B thru ${acc.lastOffset}`);
-  if (acc.lastSeq > 0) details.push(`seq=${acc.lastSeq}`);
-  if (details.length) parts += `<span class="ev-detail">${esc(details.join(' '))}</span>`;
-  return parts;
+  return `<span class="ev-time">${ts}</span> ` +
+    `<span class="ev-type ev-type-pty">pty</span>` +
+    `<span class="ev-detail">${acc.count}x ${acc.totalBytes}B thru ${acc.lastOffset}</span>`;
 }
 
 function renderPongHtml(ts, count) {
@@ -1003,6 +1011,23 @@ document.getElementById('act-start-put').addEventListener('click', async () => {
   showResult('act-start-result', res);
 });
 
+document.getElementById('act-switch-send').addEventListener('click', async () => {
+  const credsText = document.getElementById('act-switch-creds').value.trim();
+  const force = document.getElementById('act-switch-force').checked;
+  let credentials = null;
+  if (credsText) {
+    try { credentials = JSON.parse(credsText); } catch (_) {
+      document.getElementById('act-switch-result').className = 'action-result err';
+      document.getElementById('act-switch-result').textContent = 'Invalid JSON';
+      return;
+    }
+  }
+  const body = { force };
+  if (credentials) body.credentials = credentials;
+  const res = await apiPost('/api/v1/session/switch', body);
+  showResult('act-switch-result', res);
+});
+
 document.getElementById('act-shutdown').addEventListener('click', async () => {
   const res = await apiPost('/api/v1/shutdown', {});
   showResult('act-shutdown-result', res);
@@ -1063,6 +1088,8 @@ function connect() {
       const desc = msg.signal != null ? `signal ${msg.signal}` : `code ${msg.code ?? '?'}`;
       setStatus('disconnected', `Exited (${desc})`);
       setAgentState('exited');
+    } else if (msg.event === 'usage:update' && msg.cumulative) {
+      renderTable(tUsage, { ...msg.cumulative, uptime_secs: '(live)' }, '');
     } else if (msg.event === 'error') {
       console.warn('server error:', msg.code, msg.message);
     }
