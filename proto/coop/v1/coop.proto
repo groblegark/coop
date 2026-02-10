@@ -31,7 +31,7 @@ service Coop {
 
   // Current agent state and prompt context.
   rpc GetAgentState(GetAgentStateRequest) returns (GetAgentStateResponse);
-  // Send a follow-up message. Only succeeds when state is waiting_for_input.
+  // Send a follow-up message. Only succeeds when state is idle.
   rpc Nudge(NudgeRequest) returns (NudgeResponse);
   // Respond to an active prompt.
   rpc Respond(RespondRequest) returns (RespondResponse);
@@ -252,7 +252,7 @@ message GetAgentStateRequest {}
 message GetAgentStateResponse {
   // Agent type.
   string agent = 1;
-  // Current agent state: starting, working, waiting_for_input,
+  // Current agent state: starting, working, idle,
   // prompt, error, exited, unknown.
   string state = 2;
   // Sequence number when this state was entered.

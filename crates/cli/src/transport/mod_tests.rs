@@ -187,7 +187,7 @@ async fn enter_retry_cancelled_by_state_transition() -> anyhow::Result<()> {
 
     // Send a Working state transition — should cancel the retry
     let _ = state_tx.send(StateChangeEvent {
-        prev: AgentState::WaitingForInput,
+        prev: AgentState::Idle,
         next: AgentState::Working,
         seq: 1,
         cause: "test".to_owned(),

@@ -95,7 +95,7 @@ pub fn parse_claude_state(json: &Value) -> Option<AgentState> {
     }
 
     // Assistant message with no tool_use or thinking blocks — idle
-    Some(AgentState::WaitingForInput)
+    Some(AgentState::Idle)
 }
 
 #[cfg(test)]

@@ -67,8 +67,8 @@ async fn stdout_detector_detects_result_as_idle() -> anyhow::Result<()> {
     let _ = handle.await;
 
     match state {
-        Ok(Some((AgentState::WaitingForInput, _cause))) => {}
-        other => anyhow::bail!("expected WaitingForInput, got {other:?}"),
+        Ok(Some((AgentState::Idle, _cause))) => {}
+        other => anyhow::bail!("expected Idle, got {other:?}"),
     }
     Ok(())
 }
@@ -156,7 +156,7 @@ async fn hook_detector_session_end() -> anyhow::Result<()> {
     let states = run_hook_detector(vec![r#"{"event":"session_end"}"#]).await?;
 
     assert_eq!(states.len(), 1);
-    assert!(matches!(states[0], AgentState::WaitingForInput));
+    assert!(matches!(states[0], AgentState::Idle));
     Ok(())
 }
 

@@ -442,7 +442,7 @@ Current agent state and prompt context.
 |-------|-------------|
 | `starting` | Initial state before first detection |
 | `working` | Executing tool calls or thinking |
-| `waiting_for_input` | Idle, ready for a nudge |
+| `idle` | Idle, ready for a nudge |
 | `prompt` | Presenting a prompt (see `prompt.type` for kind) |
 | `error` | Error occurred (has `error_detail`) |
 | `exited` | Child process exited |
@@ -463,7 +463,7 @@ Current agent state and prompt context.
 ### `POST /api/v1/agent/nudge`
 
 Send a follow-up message to the agent. Only succeeds when the agent is in
-`waiting_for_input` state.
+`idle` state.
 
 **Request:**
 
@@ -478,7 +478,7 @@ Send a follow-up message to the agent. Only succeeds when the agent is in
 ```json
 {
   "delivered": true,
-  "state_before": "waiting_for_input",
+  "state_before": "idle",
   "reason": null
 }
 ```

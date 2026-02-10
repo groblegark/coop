@@ -338,7 +338,7 @@ impl Session {
                         }
 
                         // Track idle time for idle_timeout.
-                        if matches!(detected.state, AgentState::WaitingForInput)
+                        if matches!(detected.state, AgentState::Idle)
                             && idle_timeout > Duration::ZERO
                         {
                             if idle_since.is_none() {
@@ -349,7 +349,7 @@ impl Session {
                         }
 
                         // Drain check: agent reached idle during drain → kill now.
-                        if drain_deadline.is_some() && matches!(detected.state, AgentState::WaitingForInput) {
+                        if drain_deadline.is_some() && matches!(detected.state, AgentState::Idle) {
                             debug!("drain: agent reached idle, sending SIGHUP");
                             let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
                             if pid != 0 {
@@ -420,7 +420,7 @@ impl Session {
                     debug!("shutdown signal received");
                     let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
                     if graceful_timeout > Duration::ZERO
-                        && !matches!(last_state, AgentState::WaitingForInput)
+                        && !matches!(last_state, AgentState::Idle)
                     {
                         debug!("entering graceful drain mode (timeout={graceful_timeout:?})");
                         drain_deadline = Some(tokio::time::Instant::now() + graceful_timeout);

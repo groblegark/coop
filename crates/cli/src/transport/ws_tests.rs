@@ -40,7 +40,7 @@ fn output_message_serialization() -> anyhow::Result<()> {
 fn state_change_serialization() -> anyhow::Result<()> {
     let msg = ServerMessage::StateChange {
         prev: "working".to_owned(),
-        next: "waiting_for_input".to_owned(),
+        next: "idle".to_owned(),
         seq: 42,
         prompt: Box::new(None),
         error_detail: None,
@@ -51,7 +51,7 @@ fn state_change_serialization() -> anyhow::Result<()> {
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"state_change\""));
     assert!(json.contains("\"prev\":\"working\""));
-    assert!(json.contains("\"next\":\"waiting_for_input\""));
+    assert!(json.contains("\"next\":\"idle\""));
     // Error fields should be absent (skip_serializing_if = None)
     assert!(!json.contains("error_detail"), "json: {json}");
     assert!(!json.contains("error_category"), "json: {json}");
@@ -261,7 +261,7 @@ async fn nudge_rejected_when_agent_working() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn nudge_accepted_when_agent_waiting() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::WaitingForInput);
+    let (state, _rx) = ws_test_state(AgentState::Idle);
     state.ready.store(true, std::sync::atomic::Ordering::Release);
     let client_id = "test-ws";
 
@@ -270,7 +270,7 @@ async fn nudge_accepted_when_agent_waiting() -> anyhow::Result<()> {
     match reply {
         Some(ServerMessage::NudgeResult { delivered, state_before, reason }) => {
             assert!(delivered);
-            assert_eq!(state_before.as_deref(), Some("waiting_for_input"));
+            assert_eq!(state_before.as_deref(), Some("idle"));
             assert!(reason.is_none());
         }
         other => anyhow::bail!("expected NudgeResult with delivered=true, got {other:?}"),
@@ -384,7 +384,7 @@ fn nudge_result_serialization() -> anyhow::Result<()> {
 fn nudge_result_omits_none_fields() -> anyhow::Result<()> {
     let msg = ServerMessage::NudgeResult {
         delivered: true,
-        state_before: Some("waiting_for_input".to_owned()),
+        state_before: Some("idle".to_owned()),
         reason: None,
     };
     let json = serde_json::to_string(&msg).anyhow()?;

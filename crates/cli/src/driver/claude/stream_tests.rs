@@ -42,7 +42,7 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
     let timeout = tokio::time::timeout(std::time::Duration::from_secs(10), async {
         while let Some((state, _cause)) = state_rx.recv().await {
             states.push(state.clone());
-            if matches!(state, AgentState::WaitingForInput) {
+            if matches!(state, AgentState::Idle) {
                 break;
             }
         }
@@ -52,10 +52,10 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
     shutdown.cancel();
     let _ = handle.await;
 
-    // Should have received at least Working (system) and WaitingForInput (assistant text-only)
+    // Should have received at least Working (system) and Idle (assistant text-only)
     assert!(timeout.is_ok(), "timed out waiting for states");
     assert!(states.iter().any(|s| matches!(s, AgentState::Working)));
-    assert!(states.iter().any(|s| matches!(s, AgentState::WaitingForInput)));
+    assert!(states.iter().any(|s| matches!(s, AgentState::Idle)));
     Ok(())
 }
 
@@ -79,7 +79,7 @@ async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
         detector.run(state_tx, shutdown_clone).await;
     });
 
-    // User messages produce Working (not WaitingForInput)
+    // User messages produce Working (not Idle)
     let timeout =
         tokio::time::timeout(std::time::Duration::from_secs(10), async { state_rx.recv().await })
             .await;
@@ -188,7 +188,7 @@ async fn hook_detector_notification_idle_prompt() -> anyhow::Result<()> {
     .await?;
 
     assert_eq!(states.len(), 1);
-    assert!(matches!(states[0], AgentState::WaitingForInput));
+    assert!(matches!(states[0], AgentState::Idle));
     Ok(())
 }
 
@@ -271,6 +271,6 @@ async fn hook_detector_stop() -> anyhow::Result<()> {
         run_hook_detector(vec![r#"{"event":"stop","data":{"stop_hook_active":false}}"#]).await?;
 
     assert_eq!(states.len(), 1);
-    assert!(matches!(states[0], AgentState::WaitingForInput));
+    assert!(matches!(states[0], AgentState::Idle));
     Ok(())
 }

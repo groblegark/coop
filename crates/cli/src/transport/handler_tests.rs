@@ -28,7 +28,7 @@ fn session_state_starting_when_pid_zero() {
 fn session_state_running_when_pid_nonzero() {
     assert_eq!(session_state_str(&AgentState::Starting, 1), "running");
     assert_eq!(session_state_str(&AgentState::Working, 42), "running");
-    assert_eq!(session_state_str(&AgentState::WaitingForInput, 100), "running");
+    assert_eq!(session_state_str(&AgentState::Idle, 100), "running");
 }
 
 #[test]
@@ -142,14 +142,14 @@ async fn nudge_busy_returns_soft_failure() -> anyhow::Result<()> {
 #[tokio::test]
 async fn nudge_waiting_delivers() -> anyhow::Result<()> {
     let (state, mut rx) = AppStateBuilder::new()
-        .agent_state(AgentState::WaitingForInput)
+        .agent_state(AgentState::Idle)
         .nudge_encoder(Arc::new(StubNudgeEncoder))
         .build();
     state.ready.store(true, std::sync::atomic::Ordering::Release);
 
     let result = handle_nudge(&state, "hello").await.map_err(|e| anyhow::anyhow!("{e}"))?;
     assert!(result.delivered);
-    assert_eq!(result.state_before.as_deref(), Some("waiting_for_input"));
+    assert_eq!(result.state_before.as_deref(), Some("idle"));
     assert!(result.reason.is_none());
 
     let event = rx.recv().await;

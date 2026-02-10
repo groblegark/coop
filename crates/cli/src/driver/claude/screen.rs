@@ -81,7 +81,7 @@ enum DialogKind {
 /// Classify Claude's screen, returning the state and a cause string.
 ///
 /// Emits `Prompt(Setup)` for onboarding dialogs, `Prompt(Permission)` for
-/// workspace trust, and `WaitingForInput` for the idle prompt. Tool
+/// workspace trust, and `Idle` for the idle prompt. Tool
 /// permission dialogs and startup text prompts are suppressed (`None`).
 fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<(AgentState, String)> {
     // Classify interactive dialogs first — they take priority over the
@@ -170,7 +170,7 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<(AgentState, Stri
     for line in snapshot.lines.iter().rev() {
         let trimmed = line.trim();
         if !trimmed.is_empty() && trimmed.starts_with('\u{276f}') {
-            return Some((AgentState::WaitingForInput, "screen:idle".to_owned()));
+            return Some((AgentState::Idle, "screen:idle".to_owned()));
         }
     }
 

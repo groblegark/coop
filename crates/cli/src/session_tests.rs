@@ -97,9 +97,8 @@ async fn graceful_drain_kills_when_already_idle() -> anyhow::Result<()> {
     let shutdown = CancellationToken::new();
 
     let backend = MockPty::new().drain_input();
-    // Detector emits WaitingForInput almost immediately.
-    let detector =
-        MockDetector::new(1, vec![(Duration::from_millis(10), AgentState::WaitingForInput)]);
+    // Detector emits Idle almost immediately.
+    let detector = MockDetector::new(1, vec![(Duration::from_millis(10), AgentState::Idle)]);
 
     let session = Session::new(
         &config,

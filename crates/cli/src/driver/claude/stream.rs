@@ -23,8 +23,8 @@ use super::prompt::extract_ask_user_from_tool_input;
 /// Tier 1 detector: receives push events from Claude's hook system.
 ///
 /// Maps hook events to agent states:
-/// - `TurnEnd` / `SessionEnd` → `WaitingForInput`
-/// - `Notification(idle_prompt)` → `WaitingForInput`
+/// - `TurnEnd` / `SessionEnd` → `Idle`
+/// - `Notification(idle_prompt)` → `Idle`
 /// - `Notification(permission_prompt)` → `Prompt(Permission)`
 /// - `ToolBefore(AskUserQuestion)` → `Prompt(Question)` with context
 /// - `ToolBefore(ExitPlanMode)` → `Prompt(Plan)`
@@ -48,14 +48,14 @@ impl Detector for HookDetector {
                     event = receiver.next_event() => {
                         let (state, cause) = match event {
                             Some(HookEvent::TurnEnd) | Some(HookEvent::SessionEnd) => {
-                                (AgentState::WaitingForInput, "hook:idle".to_owned())
+                                (AgentState::Idle, "hook:idle".to_owned())
                             }
                             Some(HookEvent::ToolAfter { .. }) => {
                                 (AgentState::Working, "hook:working".to_owned())
                             }
                             Some(HookEvent::Notification { notification_type }) => {
                                 match notification_type.as_str() {
-                                    "idle_prompt" => (AgentState::WaitingForInput, "hook:idle".to_owned()),
+                                    "idle_prompt" => (AgentState::Idle, "hook:idle".to_owned()),
                                     "permission_prompt" => (AgentState::Prompt {
                                         prompt: PromptContext {
                                             kind: PromptKind::Permission,

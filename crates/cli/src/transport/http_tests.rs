@@ -331,7 +331,7 @@ async fn agent_nudge_rejected_when_working() -> anyhow::Result<()> {
 async fn agent_nudge_delivered_when_waiting() -> anyhow::Result<()> {
     let (state, _rx) = AppStateBuilder::new()
         .child_pid(1234)
-        .agent_state(AgentState::WaitingForInput)
+        .agent_state(AgentState::Idle)
         .nudge_encoder(Arc::new(StubNudgeEncoder))
         .build();
     state.ready.store(true, std::sync::atomic::Ordering::Release);

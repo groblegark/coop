@@ -102,7 +102,7 @@ pub async fn deliver_steps(
 }
 
 /// Spawn a background monitor that retries Enter once if the agent doesn't
-/// transition away from `WaitingForInput` within `timeout`.
+/// transition away from `Idle` within `timeout`.
 ///
 /// Cancellation conditions (any of these cancels the retry):
 /// - State transitions to Working, Prompt, or Exited

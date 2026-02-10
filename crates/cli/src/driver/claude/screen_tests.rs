@@ -30,7 +30,7 @@ fn cause(snap: &ScreenSnapshot) -> Option<String> {
 #[test]
 fn detects_idle_prompt() {
     let snap = snapshot(&["Claude Code v2.1.37", "", "\u{276f} Try \"fix lint errors\"", ""]);
-    assert_eq!(state(&snap), Some(AgentState::WaitingForInput));
+    assert_eq!(state(&snap), Some(AgentState::Idle));
     assert_eq!(cause(&snap).as_deref(), Some("screen:idle"));
 }
 
@@ -100,7 +100,7 @@ fn settings_error_emits_setup() {
 #[test]
 fn detects_bare_prompt() {
     let snap = snapshot(&["\u{276f} ", ""]);
-    assert_eq!(state(&snap), Some(AgentState::WaitingForInput));
+    assert_eq!(state(&snap), Some(AgentState::Idle));
 }
 
 #[test]
@@ -265,7 +265,7 @@ fn detects_prompt_with_status_text_below() {
         "────────────────────────────────",
         "  ctrl+t to hide tasks",
     ]);
-    assert_eq!(state(&snap), Some(AgentState::WaitingForInput));
+    assert_eq!(state(&snap), Some(AgentState::Idle));
 }
 
 #[test]

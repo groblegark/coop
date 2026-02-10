@@ -96,14 +96,14 @@ State mapping:
 | Hook event | Agent state |
 |------------|-------------|
 | `SessionStart` | (no state change — context injection only) |
-| `AgentStop` / `SessionEnd` | `WaitingForInput` |
-| `ToolComplete` | `Working` |
-| `Notification("idle_prompt")` | `WaitingForInput` |
+| `TurnEnd` / `SessionEnd` | `Idle` |
+| `ToolAfter` | `Working` |
+| `Notification("idle_prompt")` | `Idle` |
 | `Notification("permission_prompt")` | `Prompt(Permission)` |
-| `PreToolUse("AskUserQuestion")` | `Prompt(Question)` with extracted context |
-| `PreToolUse("ExitPlanMode")` | `Prompt(Plan)` |
-| `PreToolUse("EnterPlanMode")` | `Working` |
-| `UserPromptSubmit` | `Working` |
+| `ToolBefore("AskUserQuestion")` | `Prompt(Question)` with extracted context |
+| `ToolBefore("ExitPlanMode")` | `Prompt(Plan)` |
+| `ToolBefore("EnterPlanMode")` | `Working` |
+| `TurnStart` | `Working` |
 
 ### Tier 2: Session Log Watching
 
@@ -170,7 +170,7 @@ conflicts with these rules:
 State priority (lowest to highest):
 
 ```
-Starting/Unknown(0) < WaitingForInput(1) < Error(2) < Working(3) < Prompt(4) < Exited(5)
+Starting/Unknown(0) < Idle(1) < Error(2) < Working(3) < Prompt(4) < Exited(5)
 ```
 
 
@@ -187,8 +187,8 @@ parse_claude_state(json) ->
     tool_use "AskUserQuestion" => Prompt { Question + context }
     other tool_use             => Working
     thinking block             => Working
-    text-only content          => WaitingForInput
-    empty content              => WaitingForInput
+    text-only content          => Idle
+    empty content              => Idle
 ```
 
 The full set of agent states:
@@ -197,7 +197,7 @@ The full set of agent states:
 |-------|-----------|---------|
 | `Starting` | `starting` | Initial state before first detection |
 | `Working` | `working` | Executing tool calls or thinking |
-| `WaitingForInput` | `waiting_for_input` | Idle, ready for a nudge |
+| `Idle` | `idle` | Idle, ready for a nudge |
 | `Prompt` | `prompt` | Presenting a prompt (permission, plan, question, or setup) |
 | `Error` | `error` | Error occurred (rate limit, auth, etc.) |
 | `Exited` | `exited` | Child process exited |
@@ -263,7 +263,7 @@ Sends a plain-text message followed by carriage return:
 {message}\r
 ```
 
-Only succeeds when the agent is in `WaitingForInput`.
+Only succeeds when the agent is in `Idle`.
 
 The delay between the message and `\r` scales with message length:
 

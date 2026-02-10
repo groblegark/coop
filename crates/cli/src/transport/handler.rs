@@ -182,7 +182,7 @@ pub async fn handle_nudge(state: &AppState, message: &str) -> Result<NudgeOutcom
     let state_before = agent.as_str().to_owned();
 
     match &*agent {
-        AgentState::WaitingForInput => {}
+        AgentState::Idle => {}
         _ => {
             return Ok(NudgeOutcome {
                 delivered: false,

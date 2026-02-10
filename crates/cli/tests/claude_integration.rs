@@ -81,7 +81,7 @@ async fn claude_basic_session_lifecycle() -> anyhow::Result<()> {
     let shutdown = prepared.app_state.lifecycle.shutdown.clone();
     let handle = tokio::spawn(prepared.run());
 
-    wait_for(&mut rx, |s| matches!(s, AgentState::WaitingForInput)).await?;
+    wait_for(&mut rx, |s| matches!(s, AgentState::Idle)).await?;
 
     shutdown.cancel();
     handle.await??;
@@ -99,7 +99,7 @@ async fn claude_tool_use_session_lifecycle() -> anyhow::Result<()> {
     let handle = tokio::spawn(prepared.run());
 
     wait_for(&mut rx, |s| matches!(s, AgentState::Working)).await?;
-    wait_for(&mut rx, |s| matches!(s, AgentState::WaitingForInput)).await?;
+    wait_for(&mut rx, |s| matches!(s, AgentState::Idle)).await?;
 
     shutdown.cancel();
     handle.await??;
@@ -123,7 +123,7 @@ async fn claude_ask_user_session_lifecycle() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(200)).await;
     input_tx.send(InputEvent::Write(Bytes::from_static(b"1"))).await?;
 
-    wait_for(&mut rx, |s| matches!(s, AgentState::WaitingForInput)).await?;
+    wait_for(&mut rx, |s| matches!(s, AgentState::Idle)).await?;
 
     shutdown.cancel();
     handle.await??;
@@ -157,7 +157,7 @@ async fn claude_multi_question_session_lifecycle() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(100)).await;
     input_tx.send(InputEvent::Write(Bytes::from_static(b"\r"))).await?;
 
-    wait_for(&mut rx, |s| matches!(s, AgentState::WaitingForInput)).await?;
+    wait_for(&mut rx, |s| matches!(s, AgentState::Idle)).await?;
 
     shutdown.cancel();
     handle.await??;
@@ -190,7 +190,7 @@ async fn claude_ask_user_respond_api() -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("deliver_steps failed: {:?}", e))?;
 
-    wait_for(&mut rx, |s| matches!(s, AgentState::WaitingForInput)).await?;
+    wait_for(&mut rx, |s| matches!(s, AgentState::Idle)).await?;
 
     shutdown.cancel();
     handle.await??;
@@ -228,7 +228,7 @@ async fn claude_multi_question_respond_api() -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("deliver_steps failed: {:?}", e))?;
 
-    wait_for(&mut rx, |s| matches!(s, AgentState::WaitingForInput)).await?;
+    wait_for(&mut rx, |s| matches!(s, AgentState::Idle)).await?;
 
     shutdown.cancel();
     handle.await??;
@@ -254,7 +254,7 @@ async fn claude_plan_mode_session_lifecycle() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(100)).await;
     input_tx.send(InputEvent::Write(Bytes::from_static(b"1"))).await?;
 
-    wait_for(&mut rx, |s| matches!(s, AgentState::WaitingForInput)).await?;
+    wait_for(&mut rx, |s| matches!(s, AgentState::Idle)).await?;
 
     shutdown.cancel();
     handle.await??;

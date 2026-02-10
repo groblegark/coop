@@ -50,7 +50,7 @@ impl fmt::Display for AgentType {
 pub enum AgentState {
     Starting,
     Working,
-    WaitingForInput,
+    Idle,
     Prompt { prompt: PromptContext },
     Error { detail: String },
     Exited { status: ExitStatus },
@@ -232,7 +232,7 @@ impl AgentState {
         match self {
             Self::Starting => "starting",
             Self::Working => "working",
-            Self::WaitingForInput => "waiting_for_input",
+            Self::Idle => "idle",
             Self::Prompt { .. } => "prompt",
             Self::Error { .. } => "error",
             Self::Exited { .. } => "exited",
@@ -247,7 +247,7 @@ impl AgentState {
     /// confidence tiers may transition in any direction.
     ///
     /// ```text
-    /// Starting(0) < WaitingForInput(1) < Error(2) < Working(3) < Prompt(4)
+    /// Starting(0) < Idle(1) < Error(2) < Working(3) < Prompt(4)
     /// ```
     ///
     /// `Unknown` is treated the same as `Starting` (lowest).
@@ -255,7 +255,7 @@ impl AgentState {
     pub fn state_priority(&self) -> u8 {
         match self {
             Self::Starting | Self::Unknown => 0,
-            Self::WaitingForInput => 1,
+            Self::Idle => 1,
             Self::Error { .. } => 2,
             Self::Working => 3,
             Self::Prompt { .. } => 4,

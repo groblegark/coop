@@ -82,7 +82,7 @@ pub fn classify(patterns: &ScreenPatterns, snapshot: &ScreenSnapshot) -> Option<
         let last_non_empty = snapshot.lines.iter().rev().find(|l| !l.trim().is_empty());
         if let Some(line) = last_non_empty {
             if prompt_re.is_match(line) {
-                return Some(AgentState::WaitingForInput);
+                return Some(AgentState::Idle);
             }
         }
     }
@@ -143,7 +143,7 @@ impl Detector for ScreenParser {
                 if let Some(ref state) = new_state {
                     if last_state.as_ref() != Some(state) {
                         let cause = match state {
-                            AgentState::WaitingForInput => "screen:idle",
+                            AgentState::Idle => "screen:idle",
                             AgentState::Working => "screen:working",
                             AgentState::Error { .. } => "screen:error",
                             _ => "screen:idle",

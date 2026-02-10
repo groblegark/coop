@@ -18,13 +18,13 @@ pub fn format_gemini_cause(json: &Value) -> String {
 ///
 /// Handles the event types from `--output-format stream-json`:
 /// - `init`, `message`, `tool_use`, `tool_result` -> `Working`
-/// - `result` -> `WaitingForInput`
+/// - `result` -> `Idle`
 /// - `error` -> `Error { detail }`
 ///
 /// Returns `None` if the entry cannot be classified.
 pub fn parse_gemini_state(json: &Value) -> Option<AgentState> {
     match json.get("type").and_then(|v| v.as_str()) {
-        Some("result") => Some(AgentState::WaitingForInput),
+        Some("result") => Some(AgentState::Idle),
         Some("error") => {
             let detail =
                 json.get("message").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();

@@ -48,10 +48,7 @@ async fn run_composite(
 async fn higher_confidence_wins() -> anyhow::Result<()> {
     let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![
         Box::new(MockDetector::new(1, vec![(Duration::from_millis(50), AgentState::Working)])),
-        Box::new(MockDetector::new(
-            3,
-            vec![(Duration::from_millis(100), AgentState::WaitingForInput)],
-        )),
+        Box::new(MockDetector::new(3, vec![(Duration::from_millis(100), AgentState::Idle)])),
     ];
 
     let results = run_composite(detectors, Duration::from_millis(500)).await?;
@@ -60,8 +57,8 @@ async fn higher_confidence_wins() -> anyhow::Result<()> {
     assert_eq!(results[0].state, AgentState::Working);
     assert_eq!(results[0].tier, 1);
 
-    let has_waiting = results.iter().any(|s| s.state == AgentState::WaitingForInput);
-    assert!(!has_waiting, "WaitingForInput from lower tier should be rejected as state downgrade");
+    let has_waiting = results.iter().any(|s| s.state == AgentState::Idle);
+    assert!(!has_waiting, "Idle from lower tier should be rejected as state downgrade");
     Ok(())
 }
 
@@ -84,10 +81,7 @@ async fn lower_confidence_escalation_accepted() -> anyhow::Result<()> {
 async fn lower_confidence_downgrade_rejected() -> anyhow::Result<()> {
     let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![
         Box::new(MockDetector::new(1, vec![(Duration::from_millis(50), AgentState::Working)])),
-        Box::new(MockDetector::new(
-            3,
-            vec![(Duration::from_millis(100), AgentState::WaitingForInput)],
-        )),
+        Box::new(MockDetector::new(3, vec![(Duration::from_millis(100), AgentState::Idle)])),
     ];
 
     let results = run_composite(detectors, Duration::from_millis(500)).await?;
@@ -95,8 +89,8 @@ async fn lower_confidence_downgrade_rejected() -> anyhow::Result<()> {
     let working = results.iter().any(|s| s.state == AgentState::Working);
     assert!(working, "expected Working state");
 
-    let waiting = results.iter().any(|s| s.state == AgentState::WaitingForInput);
-    assert!(!waiting, "WaitingForInput from lower tier should be rejected as state downgrade");
+    let waiting = results.iter().any(|s| s.state == AgentState::Idle);
+    assert!(!waiting, "Idle from lower tier should be rejected as state downgrade");
     Ok(())
 }
 
@@ -106,7 +100,7 @@ async fn equal_tier_replaces_state() -> anyhow::Result<()> {
         2,
         vec![
             (Duration::from_millis(50), AgentState::Working),
-            (Duration::from_millis(100), AgentState::WaitingForInput),
+            (Duration::from_millis(100), AgentState::Idle),
         ],
     ))];
 
@@ -114,7 +108,7 @@ async fn equal_tier_replaces_state() -> anyhow::Result<()> {
 
     assert!(results.len() >= 2, "expected at least 2 states: {results:?}");
     assert_eq!(results[0].state, AgentState::Working);
-    assert_eq!(results[1].state, AgentState::WaitingForInput);
+    assert_eq!(results[1].state, AgentState::Idle);
     Ok(())
 }
 
@@ -170,10 +164,7 @@ fn empty_prompt(kind: PromptKind) -> PromptContext {
 async fn tier1_supersedes_tier5_screen_idle() -> anyhow::Result<()> {
     let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![
         Box::new(MockDetector::new(1, vec![(Duration::from_millis(50), AgentState::Working)])),
-        Box::new(MockDetector::new(
-            5,
-            vec![(Duration::from_millis(100), AgentState::WaitingForInput)],
-        )),
+        Box::new(MockDetector::new(5, vec![(Duration::from_millis(100), AgentState::Idle)])),
     ];
 
     let results = run_composite(detectors, Duration::from_millis(500)).await?;
@@ -182,8 +173,8 @@ async fn tier1_supersedes_tier5_screen_idle() -> anyhow::Result<()> {
     assert_eq!(results[0].state, AgentState::Working);
     assert_eq!(results[0].tier, 1);
 
-    let has_waiting = results.iter().any(|s| s.state == AgentState::WaitingForInput);
-    assert!(!has_waiting, "tier 5 WaitingForInput should be rejected as downgrade from Working");
+    let has_waiting = results.iter().any(|s| s.state == AgentState::Idle);
+    assert!(!has_waiting, "tier 5 Idle should be rejected as downgrade from Working");
     Ok(())
 }
 
@@ -191,10 +182,7 @@ async fn tier1_supersedes_tier5_screen_idle() -> anyhow::Result<()> {
 async fn tier2_supersedes_tier5_screen_idle() -> anyhow::Result<()> {
     let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![
         Box::new(MockDetector::new(2, vec![(Duration::from_millis(50), AgentState::Working)])),
-        Box::new(MockDetector::new(
-            5,
-            vec![(Duration::from_millis(100), AgentState::WaitingForInput)],
-        )),
+        Box::new(MockDetector::new(5, vec![(Duration::from_millis(100), AgentState::Idle)])),
     ];
 
     let results = run_composite(detectors, Duration::from_millis(500)).await?;
@@ -203,20 +191,17 @@ async fn tier2_supersedes_tier5_screen_idle() -> anyhow::Result<()> {
     assert_eq!(results[0].state, AgentState::Working);
     assert_eq!(results[0].tier, 2);
 
-    let has_waiting = results.iter().any(|s| s.state == AgentState::WaitingForInput);
-    assert!(!has_waiting, "tier 5 WaitingForInput should be rejected as downgrade from Working");
+    let has_waiting = results.iter().any(|s| s.state == AgentState::Idle);
+    assert!(!has_waiting, "tier 5 Idle should be rejected as downgrade from Working");
     Ok(())
 }
 
-/// Tier 5 can escalate from WaitingForInput to Prompt (e.g. detecting a
+/// Tier 5 can escalate from Idle to Prompt (e.g. detecting a
 /// setup dialog on screen while tier 1 only saw idle).
 #[tokio::test]
 async fn tier5_can_escalate_to_prompt() -> anyhow::Result<()> {
     let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![
-        Box::new(MockDetector::new(
-            1,
-            vec![(Duration::from_millis(50), AgentState::WaitingForInput)],
-        )),
+        Box::new(MockDetector::new(1, vec![(Duration::from_millis(50), AgentState::Idle)])),
         Box::new(MockDetector::new(
             5,
             vec![(
@@ -229,7 +214,7 @@ async fn tier5_can_escalate_to_prompt() -> anyhow::Result<()> {
     let results = run_composite(detectors, Duration::from_millis(500)).await?;
 
     let has_prompt = results.iter().any(|s| matches!(s.state, AgentState::Prompt { .. }));
-    assert!(has_prompt, "tier 5 Prompt should be accepted as escalation from WaitingForInput");
+    assert!(has_prompt, "tier 5 Prompt should be accepted as escalation from Idle");
     Ok(())
 }
 

@@ -19,7 +19,7 @@ use super::parse::{format_gemini_cause, parse_gemini_state};
 ///
 /// Maps hook events to agent states:
 /// - `TurnStart` / `ToolBefore` / `ToolAfter` -> `Working`
-/// - `TurnEnd` / `SessionEnd` -> `WaitingForInput`
+/// - `TurnEnd` / `SessionEnd` -> `Idle`
 /// - `Notification("ToolPermission")` -> `Prompt(Permission)`
 pub struct HookDetector {
     pub receiver: HookReceiver,
@@ -42,7 +42,7 @@ impl Detector for HookDetector {
                                 (AgentState::Working, "hook:working".to_owned())
                             }
                             Some(HookEvent::SessionEnd) => {
-                                (AgentState::WaitingForInput, "hook:idle".to_owned())
+                                (AgentState::Idle, "hook:idle".to_owned())
                             }
                             Some(HookEvent::ToolAfter { .. }) => {
                                 (AgentState::Working, "hook:working".to_owned())
@@ -66,7 +66,7 @@ impl Detector for HookDetector {
                                     _ => continue,
                                 }
                             }
-                            Some(HookEvent::TurnEnd) => (AgentState::WaitingForInput, "hook:idle".to_owned()),
+                            Some(HookEvent::TurnEnd) => (AgentState::Idle, "hook:idle".to_owned()),
                             Some(HookEvent::SessionStart) => continue,
                             Some(HookEvent::ToolBefore { .. }) => {
                                 // BeforeTool fires for every tool call (including

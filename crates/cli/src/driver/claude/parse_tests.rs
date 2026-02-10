@@ -34,11 +34,11 @@ use super::{extract_assistant_text, parse_claude_state};
     },
     assistant_text_only = {
         json!({ "type": "assistant", "message": { "content": [{ "type": "text", "text": "Here is the result." }] } }),
-        Some(AgentState::WaitingForInput)
+        Some(AgentState::Idle)
     },
     empty_content = {
         json!({ "type": "assistant", "message": { "content": [] } }),
-        Some(AgentState::WaitingForInput)
+        Some(AgentState::Idle)
     },
     missing_message = {
         json!({ "type": "assistant" }),

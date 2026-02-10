@@ -30,11 +30,11 @@ use super::parse_gemini_state;
     },
     result_success = {
         json!({"type": "result", "status": "success", "stats": {"total_tokens": 250}, "timestamp": "2025-10-10T12:00:05.000Z"}),
-        Some(AgentState::WaitingForInput)
+        Some(AgentState::Idle)
     },
     result_error = {
         json!({"type": "result", "status": "error", "error": {"type": "api", "message": "quota exceeded"}, "timestamp": "2025-10-10T12:00:05.000Z"}),
-        Some(AgentState::WaitingForInput)
+        Some(AgentState::Idle)
     },
     error_event = {
         json!({"type": "error", "message": "rate limit exceeded", "timestamp": "2025-10-10T12:00:05.000Z"}),

@@ -61,7 +61,7 @@ fn classify_detects_prompt() -> anyhow::Result<()> {
     let patterns = compile_config(&test_config())?;
     let snapshot = make_snapshot(vec!["some output", "$ "]);
     let result = classify(&patterns, &snapshot);
-    assert_eq!(result, Some(AgentState::WaitingForInput));
+    assert_eq!(result, Some(AgentState::Idle));
     Ok(())
 }
 

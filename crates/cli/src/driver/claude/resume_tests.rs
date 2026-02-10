@@ -42,14 +42,14 @@ fn parse_log_with_assistant_message() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let log_path = dir.path().join("session.jsonl");
     let mut f = std::fs::File::create(&log_path)?;
-    // Write a session entry with an assistant message (should yield WaitingForInput)
+    // Write a session entry with an assistant message (should yield Idle)
     writeln!(
         f,
         r#"{{"sessionId":"abc-123","type":"assistant","message":{{"role":"assistant","content":[{{"type":"text","text":"Hello"}}]}}}}"#
     )?;
 
     let state = parse_resume_state(&log_path)?;
-    assert_eq!(state.last_state, AgentState::WaitingForInput);
+    assert_eq!(state.last_state, AgentState::Idle);
     assert_eq!(state.conversation_id, Some("abc-123".to_owned()));
     assert!(state.log_offset > 0);
     Ok(())
@@ -58,7 +58,7 @@ fn parse_log_with_assistant_message() -> anyhow::Result<()> {
 #[test]
 fn resume_args_with_session_id() {
     let state = ResumeState {
-        last_state: AgentState::WaitingForInput,
+        last_state: AgentState::Idle,
         log_offset: 1234,
         conversation_id: Some("sess-42".to_owned()),
     };

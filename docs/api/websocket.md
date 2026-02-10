@@ -167,7 +167,7 @@ Result of a `nudge` request. Always sent in response to a client `nudge`.
 {
   "type": "nudge_result",
   "delivered": true,
-  "state_before": "waiting_for_input",
+  "state_before": "idle",
   "reason": null
 }
 ```
@@ -496,7 +496,7 @@ No response on success. Error with `BAD_REQUEST` if dimensions are zero.
 ### `nudge`
 
 Send a follow-up message to the agent. **Requires auth.**
-Only succeeds when the agent is in `waiting_for_input` state.
+Only succeeds when the agent is in `idle` state.
 
 ```json
 {
