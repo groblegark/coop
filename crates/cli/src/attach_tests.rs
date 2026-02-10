@@ -218,7 +218,7 @@ mod ws_integration {
     use futures_util::{SinkExt, StreamExt};
 
     use crate::event::OutputEvent;
-    use crate::test_support::StoreBuilder;
+    use crate::test_support::{StoreBuilder, StoreCtx};
     use crate::transport::ws::{ClientMessage, ServerMessage};
 
     use super::*;
@@ -229,7 +229,7 @@ mod ws_integration {
     async fn spawn_test_server(
         output_chunks: Vec<&str>,
     ) -> (std::net::SocketAddr, std::sync::Arc<crate::transport::state::Store>) {
-        let (state, _input_rx) = StoreBuilder::new().ring_size(65536).build();
+        let StoreCtx { store: state, .. } = StoreBuilder::new().ring_size(65536).build();
 
         // Write output chunks to ring buffer and broadcast them.
         {
@@ -287,7 +287,7 @@ mod ws_integration {
             > + Unpin,
     {
         let json = serde_json::to_string(msg).unwrap_or_default();
-        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json)).await;
+        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await;
 
         // Read with a timeout.
         match tokio::time::timeout(Duration::from_secs(2), rx.next()).await {
@@ -339,8 +339,8 @@ mod ws_integration {
 
     #[tokio::test]
     async fn input_raw_reaches_server() {
-        let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(64);
-        let state = StoreBuilder::new().ring_size(4096).build_with_sender(input_tx);
+        let StoreCtx { store: state, mut input_rx, .. } =
+            StoreBuilder::new().ring_size(4096).build();
 
         let (addr, _handle) = crate::test_support::spawn_http_server(std::sync::Arc::clone(&state))
             .await
@@ -353,7 +353,7 @@ mod ws_integration {
         let data = base64::engine::general_purpose::STANDARD.encode(b"ls\n");
         let msg = ClientMessage::SendInputRaw { data };
         let json = serde_json::to_string(&msg).unwrap_or_default();
-        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json)).await;
+        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await;
 
         // The server should forward it as an InputEvent::Write.
         let event = tokio::time::timeout(Duration::from_secs(2), input_rx.recv()).await;
@@ -367,8 +367,8 @@ mod ws_integration {
 
     #[tokio::test]
     async fn resize_reaches_server() {
-        let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(64);
-        let state = StoreBuilder::new().ring_size(4096).build_with_sender(input_tx);
+        let StoreCtx { store: state, mut input_rx, .. } =
+            StoreBuilder::new().ring_size(4096).build();
 
         let (addr, _handle) = crate::test_support::spawn_http_server(std::sync::Arc::clone(&state))
             .await
@@ -379,7 +379,7 @@ mod ws_integration {
 
         let msg = ClientMessage::Resize { cols: 120, rows: 39 };
         let json = serde_json::to_string(&msg).unwrap_or_default();
-        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json)).await;
+        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await;
 
         let event = tokio::time::timeout(Duration::from_secs(2), input_rx.recv()).await;
         match event {
@@ -393,7 +393,7 @@ mod ws_integration {
 
     #[tokio::test]
     async fn auth_required_blocks_input_raw() {
-        let (state, _input_rx) =
+        let StoreCtx { store: state, .. } =
             StoreBuilder::new().ring_size(4096).auth_token("secret123").build();
 
         let (addr, _handle) = crate::test_support::spawn_http_server(std::sync::Arc::clone(&state))
@@ -419,7 +419,7 @@ mod ws_integration {
 
     #[tokio::test]
     async fn auth_required_blocks_resize() {
-        let (state, _input_rx) =
+        let StoreCtx { store: state, .. } =
             StoreBuilder::new().ring_size(4096).auth_token("secret123").build();
 
         let (addr, _handle) = crate::test_support::spawn_http_server(std::sync::Arc::clone(&state))
@@ -444,9 +444,8 @@ mod ws_integration {
 
     #[tokio::test]
     async fn auth_then_input_raw_succeeds() {
-        let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(64);
-        let state =
-            StoreBuilder::new().ring_size(4096).auth_token("secret123").build_with_sender(input_tx);
+        let StoreCtx { store: state, mut input_rx, .. } =
+            StoreBuilder::new().ring_size(4096).auth_token("secret123").build();
 
         let (addr, _handle) = crate::test_support::spawn_http_server(std::sync::Arc::clone(&state))
             .await
@@ -458,14 +457,14 @@ mod ws_integration {
         // Authenticate first.
         let auth = ClientMessage::Auth { token: "secret123".to_owned() };
         let json = serde_json::to_string(&auth).unwrap_or_default();
-        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json)).await;
+        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Now send input.
         let data = base64::engine::general_purpose::STANDARD.encode(b"hello");
         let msg = ClientMessage::SendInputRaw { data };
         let json = serde_json::to_string(&msg).unwrap_or_default();
-        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json)).await;
+        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await;
 
         let event = tokio::time::timeout(Duration::from_secs(2), input_rx.recv()).await;
         match event {

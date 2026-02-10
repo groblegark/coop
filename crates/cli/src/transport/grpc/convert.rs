@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2026 Alfred Jean LLC
+
+//! Domain-to-proto conversion functions for gRPC responses.
+
+use super::proto;
+use crate::driver::PromptContext;
+use crate::event::TransitionEvent;
+use crate::transport::handler::extract_error_fields;
+
+/// Convert a domain [`crate::screen::CursorPosition`] to proto.
+pub fn cursor_to_proto(c: &crate::screen::CursorPosition) -> proto::CursorPosition {
+    proto::CursorPosition { row: c.row as i32, col: c.col as i32 }
+}
+
+/// Convert a domain [`crate::screen::ScreenSnapshot`] to proto [`proto::ScreenSnapshot`].
+pub fn screen_snapshot_to_proto(s: &crate::screen::ScreenSnapshot) -> proto::ScreenSnapshot {
+    proto::ScreenSnapshot {
+        lines: s.lines.clone(),
+        cols: s.cols as i32,
+        rows: s.rows as i32,
+        alt_screen: s.alt_screen,
+        cursor: Some(cursor_to_proto(&s.cursor)),
+        seq: s.sequence,
+    }
+}
+
+/// Convert a domain [`crate::screen::ScreenSnapshot`] to a [`proto::GetScreenResponse`],
+/// optionally omitting the cursor.
+pub fn screen_snapshot_to_response(
+    s: &crate::screen::ScreenSnapshot,
+    cursor: bool,
+) -> proto::GetScreenResponse {
+    proto::GetScreenResponse {
+        lines: s.lines.clone(),
+        cols: s.cols as i32,
+        rows: s.rows as i32,
+        alt_screen: s.alt_screen,
+        cursor: if cursor { Some(cursor_to_proto(&s.cursor)) } else { None },
+        seq: s.sequence,
+    }
+}
+
+/// Convert a domain [`PromptContext`] to proto.
+pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
+    proto::PromptContext {
+        r#type: p.kind.as_str().to_owned(),
+        tool: p.tool.clone(),
+        input: p.input.clone(),
+        auth_url: p.auth_url.clone(),
+        questions: p
+            .questions
+            .iter()
+            .map(|q| proto::QuestionContext {
+                question: q.question.clone(),
+                options: q.options.clone(),
+            })
+            .collect(),
+        question_current: p.question_current as u32,
+        options: p.options.clone(),
+        options_fallback: p.options_fallback,
+        subtype: p.subtype.clone(),
+        ready: p.ready,
+    }
+}
+
+/// Convert a domain [`TransitionEvent`] to proto [`proto::TransitionEvent`].
+pub fn transition_to_proto(e: &TransitionEvent) -> proto::TransitionEvent {
+    let (error_detail, error_category) = extract_error_fields(&e.next);
+    let cause = if e.cause.is_empty() { None } else { Some(e.cause.clone()) };
+    proto::TransitionEvent {
+        prev: e.prev.as_str().to_owned(),
+        next: e.next.as_str().to_owned(),
+        seq: e.seq,
+        prompt: e.next.prompt().map(prompt_to_proto),
+        error_detail,
+        error_category,
+        cause,
+        last_message: e.last_message.clone(),
+    }
+}

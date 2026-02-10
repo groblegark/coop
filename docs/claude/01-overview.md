@@ -438,6 +438,37 @@ Coop sets the following environment variables on the Claude child process:
 | `TERM=xterm-256color` | Terminal type for the child PTY |
 
 
+## Transcript Snapshots
+
+When Claude compacts its context window, the full conversation history in the
+session log would be overwritten. Coop preserves it by snapshotting the session
+log before each compaction.
+
+**Trigger**: The `SessionStart` hook fires with `source="compact"`. Coop's
+start hook handler spawns an async task that copies the session log to
+`sessions/<id>/transcripts/{N}.jsonl` (N increments from 1).
+
+**Storage**: Each snapshot is an immutable copy of the full session JSONL at
+that point in time. On session resume, existing snapshots are discovered and
+numbering continues.
+
+**API**: Transcripts are served over all three transports:
+
+| Endpoint | HTTP | gRPC | WebSocket |
+|----------|------|------|-----------|
+| List snapshots | `GET /api/v1/transcripts` | `ListTranscripts` | `transcript:list` |
+| Get content | `GET /api/v1/transcripts/{N}` | `GetTranscript` | `transcript:get` |
+| Catchup | `GET /api/v1/transcripts/catchup` | `CatchupTranscripts` | `transcript:catchup` |
+| Live events | — | `StreamTranscriptEvents` | `transcript:saved` (subscription) |
+
+**Catchup**: Clients track position with a `(since_transcript, since_line)`
+cursor. The catchup endpoint returns all transcripts after `since_transcript`
+and all live session log lines after `since_line`, enabling incremental sync.
+
+**Broadcast**: Each snapshot emits a `TranscriptEvent` with the transcript
+number, timestamp, line count, and a monotonic sequence number.
+
+
 ## CLI Flags
 
 Flags relevant to Claude sessions:

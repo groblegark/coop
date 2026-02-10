@@ -27,6 +27,7 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
         poll_interval: std::time::Duration::from_secs(5),
         last_message: None,
         raw_message_tx: None,
+        usage: None,
     });
     assert_eq!(detector.tier(), 2);
 
@@ -72,6 +73,7 @@ async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
         poll_interval: std::time::Duration::from_secs(5),
         last_message: None,
         raw_message_tx: None,
+        usage: None,
     });
     let (state_tx, mut state_rx) = mpsc::channel(32);
     let shutdown = CancellationToken::new();

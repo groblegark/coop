@@ -14,6 +14,8 @@ pub mod send;
 pub mod session;
 pub mod start;
 pub mod stop;
+pub mod switch;
 pub mod test_support;
 pub mod transcript;
 pub mod transport;
+pub mod usage;

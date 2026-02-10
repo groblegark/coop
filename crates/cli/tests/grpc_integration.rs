@@ -11,7 +11,7 @@ use tokio_stream::StreamExt;
 
 use coop::driver::AgentState;
 use coop::event::{OutputEvent, TransitionEvent};
-use coop::test_support::{spawn_grpc_server, StoreBuilder, StubNudgeEncoder};
+use coop::test_support::{spawn_grpc_server, StoreBuilder, StoreCtx, StubNudgeEncoder};
 use coop::transport::grpc::proto;
 
 async fn grpc_client(
@@ -33,7 +33,7 @@ async fn grpc_client(
 
 #[tokio::test]
 async fn grpc_get_health() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().child_pid(42).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().child_pid(42).build();
     let (mut client, _state) = grpc_client(store).await?;
 
     let resp = client.get_health(proto::GetHealthRequest {}).await?.into_inner();
@@ -47,7 +47,7 @@ async fn grpc_get_health() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn grpc_get_screen() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().build();
+    let StoreCtx { store, .. } = StoreBuilder::new().build();
     let (mut client, _state) = grpc_client(store).await?;
 
     // With cursor
@@ -66,7 +66,7 @@ async fn grpc_get_screen() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn grpc_get_status() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().build();
+    let StoreCtx { store, .. } = StoreBuilder::new().build();
     let (mut client, _state) = grpc_client(store).await?;
 
     let resp = client.get_status(proto::GetStatusRequest {}).await?.into_inner();
@@ -79,7 +79,7 @@ async fn grpc_get_status() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn grpc_send_input() -> anyhow::Result<()> {
-    let (store, mut input_rx) = StoreBuilder::new().build();
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().build();
     let (mut client, _state) = grpc_client(store).await?;
 
     let resp = client
@@ -102,7 +102,7 @@ async fn grpc_send_input() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn grpc_send_keys() -> anyhow::Result<()> {
-    let (store, mut input_rx) = StoreBuilder::new().build();
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().build();
     let (mut client, _state) = grpc_client(store).await?;
 
     let resp = client
@@ -124,7 +124,7 @@ async fn grpc_send_keys() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn grpc_resize() -> anyhow::Result<()> {
-    let (store, mut input_rx) = StoreBuilder::new().build();
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().build();
     let (mut client, _state) = grpc_client(store).await?;
 
     let resp = client.resize(proto::ResizeRequest { cols: 120, rows: 40 }).await?.into_inner();
@@ -145,7 +145,7 @@ async fn grpc_resize() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn grpc_send_signal() -> anyhow::Result<()> {
-    let (store, mut input_rx) = StoreBuilder::new().build();
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().build();
     let (mut client, _state) = grpc_client(store).await?;
 
     let resp = client
@@ -165,7 +165,7 @@ async fn grpc_send_signal() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn grpc_stream_output() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(65536).build();
     let (mut client, state) = grpc_client(store).await?;
 
     let mut stream =
@@ -192,7 +192,7 @@ async fn grpc_stream_output() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn grpc_stream_agent() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().build();
+    let StoreCtx { store, .. } = StoreBuilder::new().build();
     let (mut client, state) = grpc_client(store).await?;
 
     let mut stream = client.stream_agent(proto::StreamAgentRequest {}).await?.into_inner();
@@ -220,7 +220,7 @@ async fn grpc_stream_agent() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn grpc_stream_screen() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().build();
+    let StoreCtx { store, .. } = StoreBuilder::new().build();
     let (mut client, state) = grpc_client(store).await?;
 
     let mut stream = client.stream_screen(proto::StreamScreenRequest {}).await?.into_inner();
@@ -241,7 +241,8 @@ async fn grpc_stream_screen() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn grpc_nudge_not_ready() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().nudge_encoder(Arc::new(StubNudgeEncoder)).build();
+    let StoreCtx { store, .. } =
+        StoreBuilder::new().nudge_encoder(Arc::new(StubNudgeEncoder)).build();
     // NOT marking ready
     let (mut client, _state) = grpc_client(store).await?;
 
@@ -254,7 +255,7 @@ async fn grpc_nudge_not_ready() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn grpc_nudge_no_driver() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().build();
+    let StoreCtx { store, .. } = StoreBuilder::new().build();
     store.ready.store(true, Ordering::Release);
     let (mut client, _state) = grpc_client(store).await?;
 
@@ -267,7 +268,7 @@ async fn grpc_nudge_no_driver() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn grpc_nudge_agent_busy() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new()
+    let StoreCtx { store, .. } = StoreBuilder::new()
         .nudge_encoder(Arc::new(StubNudgeEncoder))
         .agent_state(AgentState::Working)
         .build();

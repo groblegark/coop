@@ -91,6 +91,7 @@ async fn handle_connection(
     let mut hook_rx = state.channels.hook_tx.subscribe();
     let mut message_rx = state.channels.message_tx.subscribe();
     let mut transcript_rx = state.transcript.transcript_tx.subscribe();
+    let mut usage_rx = state.usage.usage_tx.subscribe();
     let mut authed = !needs_auth;
 
     loop {
@@ -102,6 +103,18 @@ async fn handle_connection(
                 };
                 if flags.transcripts {
                     let msg = transcript_event_to_msg(&event);
+                    if send_json(&mut ws_tx, &msg).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            event = usage_rx.recv() => {
+                let event = match event {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                if flags.usage {
+                    let msg = usage_event_to_msg(&event);
                     if send_json(&mut ws_tx, &msg).await.is_err() {
                         break;
                     }
@@ -471,6 +484,38 @@ async fn handle_client_message(
                     current_line: resp.current_line,
                 }),
                 Err(e) => Some(ws_error(ErrorCode::Internal, &format!("{e}"))),
+            }
+        }
+
+        // Usage
+        ClientMessage::GetUsage {} => {
+            require_auth!(authed);
+            let snap = state.usage.snapshot().await;
+            let uptime = state.config.started_at.elapsed().as_secs() as i64;
+            Some(ServerMessage::Usage {
+                input_tokens: snap.input_tokens,
+                output_tokens: snap.output_tokens,
+                cache_read_tokens: snap.cache_read_tokens,
+                cache_write_tokens: snap.cache_write_tokens,
+                total_cost_usd: snap.total_cost_usd,
+                request_count: snap.request_count,
+                total_api_ms: snap.total_api_ms,
+                uptime_secs: uptime,
+            })
+        }
+
+        // Session switch
+        ClientMessage::SwitchSession { credentials, force } => {
+            require_auth!(authed);
+            let req = crate::switch::SwitchRequest { credentials, force };
+            match state.switch.switch_tx.try_send(req) {
+                Ok(()) => Some(ServerMessage::SessionSwitched { scheduled: true }),
+                Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                    Some(ws_error(ErrorCode::SwitchInProgress, "a switch is already in progress"))
+                }
+                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                    Some(ws_error(ErrorCode::Internal, "switch channel closed"))
+                }
             }
         }
 

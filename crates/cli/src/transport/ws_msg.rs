@@ -14,6 +14,7 @@ use crate::stop::StopEvent;
 use crate::transport::handler::{
     extract_error_fields, NudgeOutcome, RespondOutcome, SessionStatus,
 };
+use crate::usage::{SessionUsage, UsageEvent};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
@@ -106,6 +107,19 @@ pub enum ClientMessage {
         since_transcript: u32,
         #[serde(default)]
         since_line: u64,
+    },
+
+    // Usage
+    #[serde(rename = "usage:get")]
+    GetUsage {},
+
+    // Session switch
+    #[serde(rename = "session:switch")]
+    SwitchSession {
+        #[serde(default)]
+        credentials: Option<std::collections::HashMap<String, String>>,
+        #[serde(default)]
+        force: bool,
     },
 
     // Lifecycle
@@ -313,6 +327,30 @@ pub enum ServerMessage {
         seq: u64,
     },
 
+    // Usage
+    #[serde(rename = "usage")]
+    Usage {
+        input_tokens: u64,
+        output_tokens: u64,
+        cache_read_tokens: u64,
+        cache_write_tokens: u64,
+        total_cost_usd: f64,
+        request_count: u64,
+        total_api_ms: u64,
+        uptime_secs: i64,
+    },
+    #[serde(rename = "usage:update")]
+    UsageUpdate {
+        cumulative: SessionUsage,
+        seq: u64,
+    },
+
+    // Session switch
+    #[serde(rename = "session:switched")]
+    SessionSwitched {
+        scheduled: bool,
+    },
+
     // Lifecycle
     Shutdown {
         accepted: bool,
@@ -338,6 +376,7 @@ pub struct SubscriptionFlags {
     pub hooks: bool,
     pub messages: bool,
     pub transcripts: bool,
+    pub usage: bool,
 }
 
 impl SubscriptionFlags {
@@ -353,6 +392,7 @@ impl SubscriptionFlags {
                 "hooks" => flags.hooks = true,
                 "messages" => flags.messages = true,
                 "transcripts" => flags.transcripts = true,
+                "usage" => flags.usage = true,
                 _ => {}
             }
         }
@@ -467,6 +507,11 @@ pub fn transcript_event_to_msg(event: &crate::transcript::TranscriptEvent) -> Se
         line_count: event.line_count,
         seq: event.seq,
     }
+}
+
+/// Convert a `UsageEvent` to a `ServerMessage`.
+pub fn usage_event_to_msg(event: &UsageEvent) -> ServerMessage {
+    ServerMessage::UsageUpdate { cumulative: event.cumulative.clone(), seq: event.seq }
 }
 
 /// Convert a `StartEvent` to a `ServerMessage`.

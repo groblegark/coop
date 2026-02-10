@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use crate::driver::AgentState;
-use crate::test_support::{AnyhowExt, StoreBuilder, StubNudgeEncoder};
+use crate::test_support::{AnyhowExt, StoreBuilder, StoreCtx, StubNudgeEncoder};
 use crate::transport::ws::{
     handle_client_message, ClientMessage, ServerMessage, SubscriptionFlags,
 };
@@ -228,9 +228,7 @@ fn shutdown_message_serialization() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn ws_test_state(
-    agent: AgentState,
-) -> (Arc<crate::transport::state::Store>, tokio::sync::mpsc::Receiver<crate::event::InputEvent>) {
+fn ws_test_state(agent: AgentState) -> StoreCtx {
     StoreBuilder::new()
         .child_pid(1234)
         .agent_state(agent)
@@ -240,7 +238,7 @@ fn ws_test_state(
 
 #[tokio::test]
 async fn state_request_returns_agent_state() -> anyhow::Result<()> {
-    let (state, _rx) = StoreBuilder::new()
+    let StoreCtx { store: state, .. } = StoreBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Error { detail: "authentication_error".to_owned() })
         .build();
@@ -276,7 +274,7 @@ async fn state_request_returns_agent_state() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn resize_zero_cols_returns_error() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
     let msg = ClientMessage::Resize { cols: 0, rows: 24 };
     let reply = handle_client_message(&state, msg, "test-client", &mut true).await;
     match reply {
@@ -290,7 +288,7 @@ async fn resize_zero_cols_returns_error() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn resize_zero_rows_returns_error() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
     let msg = ClientMessage::Resize { cols: 80, rows: 0 };
     let reply = handle_client_message(&state, msg, "test-client", &mut true).await;
     match reply {
@@ -304,7 +302,7 @@ async fn resize_zero_rows_returns_error() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn nudge_rejected_when_agent_working() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
     state.ready.store(true, std::sync::atomic::Ordering::Release);
     let client_id = "test-ws";
 
@@ -323,7 +321,7 @@ async fn nudge_rejected_when_agent_working() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn nudge_accepted_when_agent_waiting() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Idle);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Idle);
     state.ready.store(true, std::sync::atomic::Ordering::Release);
     let client_id = "test-ws";
 
@@ -342,7 +340,7 @@ async fn nudge_accepted_when_agent_waiting() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn shutdown_cancels_token() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
     assert!(!state.lifecycle.shutdown.is_cancelled());
 
     let msg = ClientMessage::Shutdown {};
@@ -357,7 +355,7 @@ async fn shutdown_cancels_token() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn shutdown_requires_auth() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
 
     let msg = ClientMessage::Shutdown {};
     let reply = handle_client_message(&state, msg, "test-ws", &mut false).await;
@@ -373,7 +371,7 @@ async fn shutdown_requires_auth() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn read_operations_require_auth() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
     for msg in [
         ClientMessage::GetScreen { cursor: false },
         ClientMessage::GetAgent {},
@@ -391,7 +389,7 @@ async fn read_operations_require_auth() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn signal_delivers_sigint() -> anyhow::Result<()> {
-    let (state, mut rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, input_rx: mut rx, .. } = ws_test_state(AgentState::Working);
     let client_id = "test-ws";
 
     let msg = ClientMessage::SendSignal { signal: "SIGINT".to_owned() };
@@ -411,7 +409,7 @@ async fn signal_delivers_sigint() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn signal_rejects_unknown() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
     let client_id = "test-ws";
 
     let msg = ClientMessage::SendSignal { signal: "SIGFOO".to_owned() };
@@ -427,7 +425,7 @@ async fn signal_rejects_unknown() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn keys_rejects_unknown_key() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
     let client_id = "test-ws";
 
     let msg = ClientMessage::SendKeys { keys: vec!["Enter".to_owned(), "SuperKey".to_owned()] };
@@ -576,7 +574,7 @@ fn shutdown_result_serialization() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn screen_request_excludes_cursor_by_default() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
     let msg: ClientMessage = serde_json::from_str(r#"{"event":"screen:get"}"#)?;
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
@@ -590,7 +588,7 @@ async fn screen_request_excludes_cursor_by_default() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn screen_request_includes_cursor_when_requested() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
     let msg: ClientMessage = serde_json::from_str(r#"{"event":"screen:get","cursor":true}"#)?;
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
@@ -604,7 +602,7 @@ async fn screen_request_includes_cursor_when_requested() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn input_raw_rejects_bad_base64() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
     let msg = ClientMessage::SendInputRaw { data: "not-valid-base64!!!".to_owned() };
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
@@ -619,7 +617,7 @@ async fn input_raw_rejects_bad_base64() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn health_request_returns_health() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
     let msg = ClientMessage::GetHealth {};
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
@@ -633,7 +631,7 @@ async fn health_request_returns_health() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ready_request_returns_ready() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
     let msg = ClientMessage::GetReady {};
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
@@ -647,7 +645,7 @@ async fn ready_request_returns_ready() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn get_stop_config_requires_auth() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
     let msg = ClientMessage::GetStopConfig {};
     let reply = handle_client_message(&state, msg, "test-ws", &mut false).await;
     match reply {
@@ -659,7 +657,7 @@ async fn get_stop_config_requires_auth() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn stop_config_roundtrip() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
 
     // Read default config.
     let msg = ClientMessage::GetStopConfig {};
@@ -695,7 +693,7 @@ async fn stop_config_roundtrip() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn resolve_stop_stores_signal() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
     let msg = ClientMessage::ResolveStop { body: serde_json::json!({"done": true}) };
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
@@ -729,7 +727,7 @@ fn message_raw_serialization() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn start_config_roundtrip() -> anyhow::Result<()> {
-    let (state, _rx) = ws_test_state(AgentState::Working);
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
 
     // Update start config.
     let msg = ClientMessage::PutStartConfig {

@@ -1,0 +1,273 @@
+// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2026 Alfred Jean LLC
+
+//! Terminal screen, I/O, and health HTTP handlers.
+
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+
+use axum::extract::{Query, State};
+use axum::response::IntoResponse;
+use axum::Json;
+use base64::Engine;
+use serde::{Deserialize, Serialize};
+
+use crate::error::ErrorCode;
+use crate::screen::CursorPosition;
+use crate::transport::handler::{
+    compute_health, compute_status, handle_input, handle_input_raw, handle_keys, handle_resize,
+    handle_signal,
+};
+use crate::transport::read_ring_combined;
+use crate::transport::state::Store;
+
+// -- Types --------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthResponse {
+    pub status: String,
+    pub pid: Option<i32>,
+    pub uptime_secs: i64,
+    pub agent: String,
+    /// Nested terminal dimensions (deprecated — use `terminal_cols`/`terminal_rows`).
+    pub terminal: TerminalSize,
+    /// Terminal width (matches gRPC flat layout).
+    pub terminal_cols: u16,
+    /// Terminal height (matches gRPC flat layout).
+    pub terminal_rows: u16,
+    pub ws_clients: i32,
+    pub ready: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct TerminalSize {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+/// Response for the readiness probe.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadyResponse {
+    pub ready: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ScreenQuery {
+    #[serde(default, alias = "cursor")]
+    pub cursor: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScreenResponse {
+    pub lines: Vec<String>,
+    pub cols: u16,
+    pub rows: u16,
+    pub alt_screen: bool,
+    pub cursor: Option<CursorPosition>,
+    pub seq: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OutputQuery {
+    #[serde(default)]
+    pub offset: u64,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutputResponse {
+    pub data: String,
+    pub offset: u64,
+    pub next_offset: u64,
+    pub total_written: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InputRequest {
+    pub text: String,
+    #[serde(default)]
+    pub enter: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InputRawRequest {
+    pub data: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InputResponse {
+    pub bytes_written: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeysRequest {
+    pub keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ResizeRequest {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ResizeResponse {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignalRequest {
+    pub signal: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignalResponse {
+    pub delivered: bool,
+}
+
+// -- Handlers -----------------------------------------------------------------
+
+/// `GET /api/v1/health`
+pub async fn health(State(s): State<Arc<Store>>) -> impl IntoResponse {
+    let h = compute_health(&s).await;
+    Json(HealthResponse {
+        status: h.status,
+        pid: h.pid,
+        uptime_secs: h.uptime_secs,
+        agent: h.agent,
+        terminal: TerminalSize { cols: h.terminal_cols, rows: h.terminal_rows },
+        terminal_cols: h.terminal_cols,
+        terminal_rows: h.terminal_rows,
+        ws_clients: h.ws_clients,
+        ready: h.ready,
+    })
+}
+
+/// `GET /api/v1/ready` — readiness probe (200 when ready, 503 otherwise).
+pub async fn ready(State(s): State<Arc<Store>>) -> impl IntoResponse {
+    let is_ready = s.ready.load(Ordering::Acquire);
+    let status = if is_ready {
+        axum::http::StatusCode::OK
+    } else {
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    };
+    (status, Json(ReadyResponse { ready: is_ready }))
+}
+
+/// `GET /api/v1/screen`
+pub async fn screen(
+    State(s): State<Arc<Store>>,
+    Query(q): Query<ScreenQuery>,
+) -> impl IntoResponse {
+    let snap = s.terminal.screen.read().await.snapshot();
+
+    Json(ScreenResponse {
+        lines: snap.lines,
+        cols: snap.cols,
+        rows: snap.rows,
+        alt_screen: snap.alt_screen,
+        cursor: if q.cursor { Some(snap.cursor) } else { None },
+        seq: snap.sequence,
+    })
+}
+
+/// `GET /api/v1/screen/text`
+pub async fn screen_text(State(s): State<Arc<Store>>) -> impl IntoResponse {
+    let snap = s.terminal.screen.read().await.snapshot();
+    let text = snap.lines.join("\n");
+    ([(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")], text)
+}
+
+/// `GET /api/v1/output`
+pub async fn output(
+    State(s): State<Arc<Store>>,
+    Query(q): Query<OutputQuery>,
+) -> impl IntoResponse {
+    let ring = s.terminal.ring.read().await;
+    let total = ring.total_written();
+
+    let mut combined = read_ring_combined(&ring, q.offset);
+
+    if let Some(limit) = q.limit {
+        combined.truncate(limit);
+    }
+
+    let read_len = combined.len() as u64;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&combined);
+
+    Json(OutputResponse {
+        data: encoded,
+        offset: q.offset,
+        next_offset: q.offset + read_len,
+        total_written: total,
+    })
+}
+
+/// `GET /api/v1/status`
+pub async fn status(State(s): State<Arc<Store>>) -> impl IntoResponse {
+    Json(compute_status(&s).await)
+}
+
+/// `POST /api/v1/input`
+pub async fn input(
+    State(s): State<Arc<Store>>,
+    Json(req): Json<InputRequest>,
+) -> impl IntoResponse {
+    let len = handle_input(&s, req.text, req.enter).await;
+    Json(InputResponse { bytes_written: len }).into_response()
+}
+
+/// `POST /api/v1/input/raw`
+pub async fn input_raw(
+    State(s): State<Arc<Store>>,
+    Json(req): Json<InputRawRequest>,
+) -> impl IntoResponse {
+    let decoded = match base64::engine::general_purpose::STANDARD.decode(&req.data) {
+        Ok(d) => d,
+        Err(_) => {
+            return ErrorCode::BadRequest.to_http_response("invalid base64 data").into_response()
+        }
+    };
+    let len = handle_input_raw(&s, decoded).await;
+    Json(InputResponse { bytes_written: len }).into_response()
+}
+
+/// `POST /api/v1/input/keys`
+pub async fn input_keys(
+    State(s): State<Arc<Store>>,
+    Json(req): Json<KeysRequest>,
+) -> impl IntoResponse {
+    match handle_keys(&s, &req.keys).await {
+        Ok(len) => Json(InputResponse { bytes_written: len }).into_response(),
+        Err(bad_key) => ErrorCode::BadRequest
+            .to_http_response(format!("unknown key: {bad_key}"))
+            .into_response(),
+    }
+}
+
+/// `POST /api/v1/resize`
+pub async fn resize(
+    State(s): State<Arc<Store>>,
+    Json(req): Json<ResizeRequest>,
+) -> impl IntoResponse {
+    match handle_resize(&s, req.cols, req.rows).await {
+        Ok(()) => Json(ResizeResponse { cols: req.cols, rows: req.rows }).into_response(),
+        Err(_) => {
+            ErrorCode::BadRequest.to_http_response("cols and rows must be positive").into_response()
+        }
+    }
+}
+
+/// `POST /api/v1/signal`
+pub async fn signal(
+    State(s): State<Arc<Store>>,
+    Json(req): Json<SignalRequest>,
+) -> impl IntoResponse {
+    match handle_signal(&s, &req.signal).await {
+        Ok(()) => Json(SignalResponse { delivered: true }).into_response(),
+        Err(bad_signal) => ErrorCode::BadRequest
+            .to_http_response(format!("unknown signal: {bad_signal}"))
+            .into_response(),
+    }
+}

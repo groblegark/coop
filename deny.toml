@@ -46,11 +46,9 @@ multiple-versions = "deny"
 wildcards = "deny"
 
 skip = [
-    # bitflags 1.x pulled by inotify (via notify), while 2.x is used by nix et al.
-    { crate = "bitflags@1" },
     # hashbrown 0.15 pulled by petgraph (via prost-build), while 0.16 is used by indexmap
     { crate = "hashbrown@0.15" },
-    # getrandom 0.2 pulled by tokio-tungstenite (dev), while 0.3 is used by rand/tempfile/uuid
+    # getrandom 0.2 pulled by ring (via rustls), while 0.3 is used by rand/tempfile/uuid
     { crate = "getrandom@0.2" },
 ]
 
