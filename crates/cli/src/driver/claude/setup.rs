@@ -10,7 +10,6 @@
 use std::path::{Path, PathBuf};
 
 use super::hooks::generate_hook_config;
-use super::resume::ResumeState;
 use crate::driver::SessionSetup;
 
 /// Prepare a Claude session setup.
@@ -25,12 +24,12 @@ pub fn prepare(
     base_settings: Option<&serde_json::Value>,
     mcp_config: Option<&serde_json::Value>,
     pristine: bool,
-    resume: Option<(&ResumeState, &Path)>,
+    resume_log: Option<&Path>,
 ) -> anyhow::Result<SessionSetup> {
     if pristine {
         prepare_pristine(working_dir, coop_url, base_settings, mcp_config)
-    } else if let Some((state, log_path)) = resume {
-        prepare_resume(state, log_path, coop_url, base_settings, mcp_config)
+    } else if let Some(log_path) = resume_log {
+        prepare_resume(log_path, coop_url, base_settings, mcp_config)
     } else {
         prepare_fresh(working_dir, coop_url, base_settings, mcp_config)
     }
@@ -53,7 +52,7 @@ fn prepare_fresh(
     let env_vars = crate::driver::hook_env_vars(&hook_pipe_path, coop_url);
     let mut extra_args = vec![
         "--session-id".to_owned(),
-        session_id,
+        session_id.clone(),
         "--settings".to_owned(),
         settings_path.display().to_string(),
     ];
@@ -63,6 +62,7 @@ fn prepare_fresh(
     }
 
     Ok(SessionSetup {
+        session_id,
         hook_pipe_path: Some(hook_pipe_path),
         session_log_path: Some(log_path),
         session_dir,
@@ -73,20 +73,20 @@ fn prepare_fresh(
 
 /// Prepare a resumed Claude session.
 fn prepare_resume(
-    resume_state: &ResumeState,
     existing_log_path: &Path,
     coop_url: &str,
     base_settings: Option<&serde_json::Value>,
     mcp_config: Option<&serde_json::Value>,
 ) -> anyhow::Result<SessionSetup> {
-    let resume_id = resume_state.conversation_id.as_deref().unwrap_or("unknown");
-    let session_dir = crate::driver::coop_session_dir(resume_id)?;
+    let session_id =
+        existing_log_path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_owned();
+    let session_dir = crate::driver::coop_session_dir(&session_id)?;
     let hook_pipe_path = session_dir.join("hook.pipe");
     let settings_path = write_settings_file(&session_dir, &hook_pipe_path, base_settings)?;
 
     let env_vars = crate::driver::hook_env_vars(&hook_pipe_path, coop_url);
 
-    let mut extra_args = super::resume::resume_args(resume_state);
+    let mut extra_args = super::resume::resume_args(&session_id);
     extra_args.push("--settings".to_owned());
     extra_args.push(settings_path.display().to_string());
 
@@ -95,6 +95,7 @@ fn prepare_resume(
     }
 
     Ok(SessionSetup {
+        session_id,
         hook_pipe_path: Some(hook_pipe_path),
         session_log_path: Some(existing_log_path.to_path_buf()),
         session_dir,
@@ -114,7 +115,7 @@ fn prepare_pristine(
     let log_path = session_log_path(working_dir, &session_id);
     let session_dir = crate::driver::coop_session_dir(&session_id)?;
 
-    let mut extra_args = vec!["--session-id".to_owned(), session_id];
+    let mut extra_args = vec!["--session-id".to_owned(), session_id.clone()];
 
     // Write orchestrator settings as-is (no coop hooks merged).
     if let Some(settings) = base_settings {
@@ -129,6 +130,7 @@ fn prepare_pristine(
     }
 
     Ok(SessionSetup {
+        session_id,
         hook_pipe_path: None,
         session_log_path: Some(log_path),
         session_dir,

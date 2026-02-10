@@ -138,6 +138,7 @@ pub enum ServerMessage {
     // Terminal
     Health {
         status: String,
+        session_id: String,
         pid: Option<i32>,
         uptime_secs: i64,
         agent: String,
@@ -169,6 +170,7 @@ pub enum ServerMessage {
         offset: u64,
     },
     Status {
+        session_id: String,
         state: String,
         pid: Option<i32>,
         uptime_secs: i64,
@@ -195,12 +197,13 @@ pub enum ServerMessage {
     #[serde(rename = "agent")]
     Agent {
         agent: String,
+        session_id: String,
         state: String,
         since_seq: u64,
         screen_seq: u64,
         detection_tier: String,
         detection_cause: String,
-        prompt: Option<PromptContext>,
+        prompt: Box<Option<PromptContext>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         error_detail: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -423,6 +426,7 @@ impl WsQuery {
 impl From<SessionStatus> for ServerMessage {
     fn from(st: SessionStatus) -> Self {
         ServerMessage::Status {
+            session_id: st.session_id,
             state: st.state,
             pid: st.pid,
             uptime_secs: st.uptime_secs,

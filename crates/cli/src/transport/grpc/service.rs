@@ -42,6 +42,7 @@ impl proto::coop_server::Coop for CoopGrpc {
             terminal_cols: h.terminal_cols as i32,
             terminal_rows: h.terminal_rows as i32,
             ready: h.ready,
+            session_id: h.session_id,
         }))
     }
 
@@ -77,6 +78,7 @@ impl proto::coop_server::Coop for CoopGrpc {
             bytes_read: st.bytes_read,
             bytes_written: st.bytes_written,
             ws_clients: st.ws_clients,
+            session_id: st.session_id,
         }))
     }
 
@@ -230,6 +232,7 @@ impl proto::coop_server::Coop for CoopGrpc {
 
         let detection = self.state.driver.detection.read().await;
 
+        let session_id = self.state.session_id.read().await.clone();
         Ok(Response::new(proto::GetAgentResponse {
             agent: self.state.config.agent.to_string(),
             state: agent.as_str().to_owned(),
@@ -248,6 +251,7 @@ impl proto::coop_server::Coop for CoopGrpc {
                 .as_ref()
                 .map(|e| e.category.as_str().to_owned()),
             last_message: self.state.driver.last_message.read().await.clone(),
+            session_id,
         }))
     }
 

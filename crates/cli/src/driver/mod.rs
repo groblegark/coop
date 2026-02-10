@@ -394,6 +394,8 @@ impl std::fmt::Display for AgentState {
 /// `run::prepare()` needs to spawn the backend and build the driver.
 /// Agent-specific setup functions return this type.
 pub struct SessionSetup {
+    /// Agent-specific session ID (UUID).
+    pub session_id: String,
     /// Tier 1 FIFO path. `None` in pristine mode.
     pub hook_pipe_path: Option<PathBuf>,
     /// Tier 2 session log path. `None` for agents without log detection.

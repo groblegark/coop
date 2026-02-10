@@ -4,8 +4,8 @@
 //! Session resume support for Claude Code.
 //!
 //! When a coop process restarts, it can reconnect to a previous Claude
-//! session by discovering the session log and passing `--continue` with
-//! the session ID.
+//! session by discovering the session log and passing `--resume` with
+//! the session ID (derived from the log file stem).
 
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -19,8 +19,6 @@ pub struct ResumeState {
     pub last_state: AgentState,
     /// Byte offset to resume log detection from.
     pub log_offset: u64,
-    /// Claude session/conversation ID recovered from the log.
-    pub conversation_id: Option<String>,
 }
 
 /// Find the most recent Claude session log for a workspace.
@@ -97,7 +95,6 @@ pub fn parse_resume_state(log_path: &Path) -> anyhow::Result<ResumeState> {
 
     let reader = BufReader::new(file);
     let mut last_state = AgentState::Starting;
-    let mut conversation_id: Option<String> = None;
 
     for line in reader.lines() {
         let line = line?;
@@ -106,37 +103,18 @@ pub fn parse_resume_state(log_path: &Path) -> anyhow::Result<ResumeState> {
         }
 
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
-            // Try to extract the conversation/session ID from the first entry.
-            if conversation_id.is_none() {
-                if let Some(id) = json
-                    .get("sessionId")
-                    .or_else(|| json.get("conversationId"))
-                    .and_then(|v| v.as_str())
-                {
-                    conversation_id = Some(id.to_owned());
-                }
-            }
-
-            // Use the existing state parser to track the last state.
             if let Some(state) = super::parse::parse_claude_state(&json) {
                 last_state = state;
             }
         }
     }
 
-    Ok(ResumeState { last_state, log_offset: file_size, conversation_id })
+    Ok(ResumeState { last_state, log_offset: file_size })
 }
 
 /// Build additional CLI arguments for resuming a Claude session.
-///
-/// With a conversation ID: `--resume <id>` (loads specific conversation).
-/// Without: `--continue` (fallback, loads most recent conversation).
-pub fn resume_args(state: &ResumeState) -> Vec<String> {
-    if let Some(ref id) = state.conversation_id {
-        vec!["--resume".to_owned(), id.clone()]
-    } else {
-        vec!["--continue".to_owned()]
-    }
+pub fn resume_args(session_id: &str) -> Vec<String> {
+    vec!["--resume".to_owned(), session_id.to_owned()]
 }
 
 /// Open a log file and seek to a specific byte offset for tailing.

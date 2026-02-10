@@ -47,6 +47,7 @@ fn prepare_fresh(
         .push(("GEMINI_CLI_SYSTEM_SETTINGS_PATH".to_string(), settings_path.display().to_string()));
 
     Ok(SessionSetup {
+        session_id,
         hook_pipe_path: Some(hook_pipe_path),
         session_log_path: None,
         session_dir,
@@ -79,6 +80,7 @@ fn prepare_pristine(
     }
 
     Ok(SessionSetup {
+        session_id,
         hook_pipe_path: None,
         session_log_path: None,
         session_dir,

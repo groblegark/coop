@@ -22,6 +22,7 @@ use crate::transport::state::Store;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentResponse {
     pub agent: String,
+    pub session_id: String,
     pub state: String,
     pub since_seq: u64,
     pub screen_seq: u64,
@@ -56,11 +57,12 @@ pub struct RespondRequest {
 pub async fn agent(State(s): State<Arc<Store>>) -> impl IntoResponse {
     let state = s.driver.agent_state.read().await;
     let screen = s.terminal.screen.read().await;
-
     let detection = s.driver.detection.read().await;
+    let session_id = s.session_id.read().await.clone();
 
     Json(AgentResponse {
         agent: s.config.agent.to_string(),
+        session_id,
         state: state.as_str().to_owned(),
         since_seq: s.driver.state_seq.load(Ordering::Acquire),
         screen_seq: screen.seq(),

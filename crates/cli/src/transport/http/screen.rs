@@ -26,6 +26,7 @@ use crate::transport::state::Store;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
     pub status: String,
+    pub session_id: String,
     pub pid: Option<i32>,
     pub uptime_secs: i64,
     pub agent: String,
@@ -133,6 +134,7 @@ pub async fn health(State(s): State<Arc<Store>>) -> impl IntoResponse {
     let h = compute_health(&s).await;
     Json(HealthResponse {
         status: h.status,
+        session_id: h.session_id,
         pid: h.pid,
         uptime_secs: h.uptime_secs,
         agent: h.agent,

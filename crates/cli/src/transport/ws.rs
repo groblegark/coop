@@ -273,6 +273,7 @@ async fn handle_client_message(
             let h = compute_health(state).await;
             Some(ServerMessage::Health {
                 status: h.status,
+                session_id: h.session_id,
                 pid: h.pid,
                 uptime_secs: h.uptime_secs,
                 agent: h.agent,
@@ -379,14 +380,16 @@ async fn handle_client_message(
             let error_category =
                 state.driver.error.read().await.as_ref().map(|e| e.category.as_str().to_owned());
             let last_message = state.driver.last_message.read().await.clone();
+            let session_id = state.session_id.read().await.clone();
             Some(ServerMessage::Agent {
                 agent: state.config.agent.to_string(),
+                session_id,
                 state: agent.as_str().to_owned(),
                 since_seq: state.driver.state_seq.load(std::sync::atomic::Ordering::Acquire),
                 screen_seq: screen.seq(),
                 detection_tier: detection.tier_str(),
                 detection_cause: detection.cause.clone(),
-                prompt: agent.prompt().cloned(),
+                prompt: Box::new(agent.prompt().cloned()),
                 error_detail,
                 error_category,
                 last_message,

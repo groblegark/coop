@@ -25,6 +25,7 @@ use crate::transport::{
 /// Health check result.
 pub struct HealthInfo {
     pub status: String,
+    pub session_id: String,
     pub pid: Option<i32>,
     pub uptime_secs: i64,
     pub agent: String,
@@ -37,6 +38,7 @@ pub struct HealthInfo {
 /// Session status result.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SessionStatus {
+    pub session_id: String,
     pub state: String,
     pub pid: Option<i32>,
     pub uptime_secs: i64,
@@ -124,9 +126,11 @@ pub async fn compute_health(state: &Store) -> HealthInfo {
     let pid = state.terminal.child_pid.load(Ordering::Relaxed);
     let uptime = state.config.started_at.elapsed().as_secs() as i64;
     let ready = state.ready.load(Ordering::Acquire);
+    let session_id = state.session_id.read().await.clone();
 
     HealthInfo {
         status: "running".to_owned(),
+        session_id,
         pid: if pid == 0 { None } else { Some(pid as i32) },
         uptime_secs: uptime,
         agent: state.config.agent.to_string(),
@@ -145,8 +149,10 @@ pub async fn compute_status(state: &Store) -> SessionStatus {
     let pid = state.terminal.child_pid.load(Ordering::Relaxed);
     let exit = state.terminal.exit_status.read().await;
     let bw = state.lifecycle.bytes_written.load(Ordering::Relaxed);
+    let session_id = state.session_id.read().await.clone();
 
     SessionStatus {
+        session_id,
         state: session_state_str(&agent, pid).to_owned(),
         pid: if pid == 0 { None } else { Some(pid as i32) },
         uptime_secs: state.config.started_at.elapsed().as_secs() as i64,

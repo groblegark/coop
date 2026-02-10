@@ -38,6 +38,8 @@ pub struct Store {
     pub config: SessionSettings,
     pub lifecycle: LifecycleState,
 
+    /// Agent session ID (UUID). Updated on switch.
+    pub session_id: RwLock<String>,
     /// Whether the agent has transitioned out of `Starting` and is ready.
     pub ready: Arc<AtomicBool>,
     /// Stop hook gating state. Always present (defaults to mode=allow).

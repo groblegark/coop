@@ -175,6 +175,7 @@ impl StoreBuilder {
                 ws_client_count: AtomicI32::new(0),
                 bytes_written: AtomicU64::new(0),
             },
+            session_id: RwLock::new(uuid::Uuid::new_v4().to_string()),
             ready: Arc::new(AtomicBool::new(false)),
             input_gate: Arc::new(crate::transport::state::InputGate::new(Duration::ZERO)),
             stop: Arc::new(StopState::new(

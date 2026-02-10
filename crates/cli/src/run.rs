@@ -116,15 +116,7 @@ impl PreparedSession {
         self.store.driver.reset().await;
         self.store.ready.store(false, std::sync::atomic::Ordering::Release);
 
-        // 2. Derive conversation ID from the current session log path.
-        let conversation_id = {
-            let log_path = self.store.switch.session_log_path.read().await;
-            log_path
-                .as_ref()
-                .and_then(|p| p.file_stem().and_then(|s| s.to_str()).map(|s| s.to_owned()))
-        };
-
-        // 3. Build resume state and prepare agent setup.
+        // 2. Prepare agent setup.
         let working_dir = std::env::current_dir()?;
         let coop_url = format!("http://127.0.0.1:{}", self.config.port.unwrap_or(0));
         let pristine = self.config.groom_level()? == GroomLevel::Pristine;
@@ -133,31 +125,15 @@ impl PreparedSession {
 
         let setup = match agent_enum {
             AgentType::Claude => {
-                let resume_state = resume::ResumeState {
-                    last_state: AgentState::Starting,
-                    log_offset: 0,
-                    conversation_id: conversation_id.clone(),
-                };
                 let log_path = self.store.switch.session_log_path.read().await;
-                if let Some(ref lp) = *log_path {
-                    Some(claude_setup::prepare(
-                        &working_dir,
-                        &coop_url,
-                        base_settings,
-                        mcp_config,
-                        pristine,
-                        Some((&resume_state, lp)),
-                    )?)
-                } else {
-                    Some(claude_setup::prepare(
-                        &working_dir,
-                        &coop_url,
-                        base_settings,
-                        mcp_config,
-                        pristine,
-                        None,
-                    )?)
-                }
+                Some(claude_setup::prepare(
+                    &working_dir,
+                    &coop_url,
+                    base_settings,
+                    mcp_config,
+                    pristine,
+                    log_path.as_deref(),
+                )?)
             }
             AgentType::Gemini => {
                 Some(gemini_setup::prepare(&coop_url, base_settings, mcp_config, pristine)?)
@@ -236,10 +212,11 @@ impl PreparedSession {
         }
         self.session = Some(Session::new(&self.config, session_config));
 
-        // 9. Update session log path for the next switch.
+        // 9. Update session log path and session ID for the next switch.
         if let Some(ref s) = setup {
             let mut log_path = self.store.switch.session_log_path.write().await;
             *log_path = s.session_log_path.clone();
+            *self.store.session_id.write().await = s.session_id.clone();
         }
 
         // 10. Broadcast Starting transition.
@@ -323,7 +300,6 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let base_settings = base_settings.as_ref();
     let mcp_config = mcp_config.as_ref();
 
-    let resume = resume_state.as_ref().zip(resume_log_path.as_deref());
     let setup: Option<SessionSetup> = match agent_enum {
         AgentType::Claude => Some(claude_setup::prepare(
             &working_dir,
@@ -331,7 +307,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             base_settings,
             mcp_config,
             pristine,
-            resume,
+            resume_log_path.as_deref(),
         )?),
         AgentType::Gemini => {
             Some(gemini_setup::prepare(&coop_url_for_setup, base_settings, mcp_config, pristine)?)
@@ -454,6 +430,11 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         setup.as_ref().and_then(|s| s.session_log_path.clone()),
     )?);
 
+    let session_id = setup
+        .as_ref()
+        .map(|s| s.session_id.clone())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
     let store = Arc::new(Store {
         terminal,
         driver: Arc::new(DriverState {
@@ -485,6 +466,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             ws_client_count: AtomicI32::new(0),
             bytes_written: AtomicU64::new(0),
         },
+        session_id: RwLock::new(session_id),
         ready: Arc::new(AtomicBool::new(false)),
         input_gate: Arc::new(crate::transport::state::InputGate::new(config.input_delay())),
         stop: stop_state,

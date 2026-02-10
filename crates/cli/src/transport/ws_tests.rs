@@ -503,6 +503,7 @@ fn respond_result_serialization() -> anyhow::Result<()> {
 #[test]
 fn status_message_serialization() -> anyhow::Result<()> {
     let msg = ServerMessage::Status {
+        session_id: "test-id".to_owned(),
         state: "running".to_owned(),
         pid: Some(1234),
         uptime_secs: 60,

@@ -121,6 +121,8 @@ message GetHealthResponse {
   int32 terminal_rows = 7;
   // Whether the session is ready (agent has left Starting state).
   bool ready = 8;
+  // Agent session ID (UUID).
+  string session_id = 9;
 }
 
 message GetReadyRequest {}
@@ -171,6 +173,8 @@ message GetStatusResponse {
   uint64 bytes_written = 7;
   // Number of connected WebSocket clients.
   int32 ws_clients = 8;
+  // Agent session ID (UUID).
+  string session_id = 9;
 }
 
 message StreamOutputRequest {
@@ -316,6 +320,8 @@ message GetAgentResponse {
   optional string last_message = 9;
   // Freeform cause string from the detector that produced the current state.
   string detection_cause = 10;
+  // Agent session ID (UUID).
+  string session_id = 11;
 }
 
 message NudgeRequest {

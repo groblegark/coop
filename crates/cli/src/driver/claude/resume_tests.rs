@@ -3,7 +3,7 @@
 
 use std::io::Write;
 
-use super::{discover_session_log, parse_resume_state, resume_args, ResumeState};
+use super::{discover_session_log, parse_resume_state, resume_args};
 use crate::driver::AgentState;
 
 #[test]
@@ -33,7 +33,6 @@ fn parse_empty_log_returns_starting() -> anyhow::Result<()> {
     let state = parse_resume_state(&log_path)?;
     assert_eq!(state.last_state, AgentState::Starting);
     assert_eq!(state.log_offset, 0);
-    assert!(state.conversation_id.is_none());
     Ok(())
 }
 
@@ -50,26 +49,12 @@ fn parse_log_with_assistant_message() -> anyhow::Result<()> {
 
     let state = parse_resume_state(&log_path)?;
     assert_eq!(state.last_state, AgentState::Idle);
-    assert_eq!(state.conversation_id, Some("abc-123".to_owned()));
     assert!(state.log_offset > 0);
     Ok(())
 }
 
 #[test]
 fn resume_args_with_session_id() {
-    let state = ResumeState {
-        last_state: AgentState::Idle,
-        log_offset: 1234,
-        conversation_id: Some("sess-42".to_owned()),
-    };
-    let args = resume_args(&state);
+    let args = resume_args("sess-42");
     assert_eq!(args, vec!["--resume", "sess-42"]);
-}
-
-#[test]
-fn resume_args_without_session_id() {
-    let state =
-        ResumeState { last_state: AgentState::Working, log_offset: 0, conversation_id: None };
-    let args = resume_args(&state);
-    assert_eq!(args, vec!["--continue"]);
 }
