@@ -109,11 +109,10 @@ processing while keeping the tmux session alive. Coop has no equivalent;
 consumers ignore events to achieve the same effect.
 
 
-## Hooks
+## Hooks & Settings Merging
 
-Both use Notification and PreToolUse hooks for detection, with different
-transports (CLI callback vs FIFO). Settings coexist since matchers don't
-conflict.
+OJ passes hooks, permissions, and MCP servers via `--agent-config`. Coop
+appends its detection hooks on top (OJ first, coop second).
 
 | Hook             | OJ                                 | Coop                             |
 | ---------------- | ---------------------------------- | -------------------------------- |

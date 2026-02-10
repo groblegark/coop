@@ -126,36 +126,29 @@ Coop's `--resume` discovers the log file and passes `--resume <id>` to Claude.
 These are complementary — GT's beacon injection would work inside a coop-managed session.
 
 
-## Hooks Coexistence
+## Hooks & Settings Merging
 
-Both GT and coop configure Claude hooks, but for different purposes. During
-migration they coexist via separate settings files:
-
-- GT writes `settings.json` (workflow hooks)
-- Coop writes `coop-settings.json` (detection hooks)
-- Claude merges both via `--settings`
-- PreToolUse matchers are disjoint: GT matches `Bash(gh pr create*)` etc.; coop matches `ExitPlanMode|AskUserQuestion|EnterPlanMode`
-- PostToolUse and Stop both use `""` matcher — GT commands are idempotent, coop's FIFO write is side-effect-free, order doesn't matter
+GT passes hooks, permissions, env, plugins, and MCP servers via `--agent-config`.
+Coop appends its detection hooks on top (GT first, coop second) and writes a
+single merged settings file. MCP servers are written to the session dir and
+passed via `--mcp-config`.
 
 
 ## Out of Scope for Coop
 
 These remain orchestrator-level concerns in Goblintown:
 
-| Component | Description | Integration notes |
-| --------- | ----------- | ----------------- |
-| Config bead materialization | Merges settings from structured metadata layers | GT writes `settings.json`; coop writes `coop-settings.json` separately |
-| MCP configuration | Server config materialized from beads to `.mcp.json` | Unchanged — coop doesn't touch MCP |
-| UserPromptSubmit hook | Mail check, decision auto-close | Same |
-| PreToolUse guards | `gt tap guard pr-workflow` on git/gh commands | Disjoint matchers from coop's hooks |
-| Witness protocol | POLECAT_DONE, HELP, MERGED, RATE_LIMITED messages | Runs inside coop PTY via `gt` commands |
-| Deacon health policy | Stuck recovery: thresholds, cooldowns, force-kill | Replaced by subscribing to coop state events |
-| Beacon / predecessor | Session continuity for `/resume` picker | Beacon still printed to terminal inside coop PTY |
-| Credential management | Multi-account OAuth, `CLAUDE_CONFIG_DIR`, rate limit tracking | Consumer sets env vars before spawning coop |
-| Merge queue (refinery) | Sequential rebase, conflict → fresh polecat | Unchanged |
-| Polecat lifecycle | Spawn, work, `gt done`, die | `gt done` runs inside coop PTY; coop detects the resulting state |
-| Work assignment | `gt sling`, beads, hook-driven context injection | Unchanged |
-| Inter-agent mail | Messaging between polecats, witness, deacon | Runs inside coop PTY via `gt mail` |
+| Component | Description |
+| --------- | ----------- |
+| Config bead materialization | Merges settings from structured metadata layers (passed to coop via `--agent-config`) |
+| Witness protocol | POLECAT_DONE, HELP, MERGED, RATE_LIMITED messages (runs inside coop PTY) |
+| Deacon health policy | Stuck recovery: thresholds, cooldowns, force-kill (subscribes to coop state events) |
+| Beacon / predecessor | Session continuity for `/resume` picker |
+| Credential management | Multi-account OAuth, `CLAUDE_CONFIG_DIR`, rate limit tracking |
+| Merge queue (refinery) | Sequential rebase, conflict → fresh polecat |
+| Polecat lifecycle | Spawn, work, `gt done`, die |
+| Work assignment | `gt sling`, beads, hook-driven context injection |
+| Inter-agent mail | Messaging between polecats, witness, deacon |
 
 
 ## Migration Path
