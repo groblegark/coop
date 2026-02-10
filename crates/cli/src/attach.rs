@@ -13,19 +13,62 @@
 
 use std::io::Write;
 use std::os::fd::{AsRawFd, BorrowedFd};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Mutex, Once};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
 use nix::sys::termios;
 use tokio::sync::mpsc;
 
 use crate::transport::ws::{ClientMessage, ServerMessage};
 
+/// CLI arguments for `coop attach`.
+#[derive(Debug, Parser)]
+#[command(
+    name = "coop-attach",
+    about = "Attach an interactive terminal to a running coop server.\nDetach with Ctrl+]."
+)]
+struct AttachArgs {
+    /// Server URL (e.g. http://127.0.0.1:8080).
+    #[arg(env = "COOP_URL")]
+    url: Option<String>,
+
+    /// Unix socket path for local connection.
+    #[arg(long, env = "COOP_SOCKET")]
+    socket: Option<String>,
+
+    /// Auth token for the coop server.
+    #[arg(long, env = "COOP_AUTH_TOKEN")]
+    auth_token: Option<String>,
+
+    /// Disable the statusline.
+    #[arg(long)]
+    no_statusline: bool,
+
+    /// Shell command for statusline content (default: built-in).
+    #[arg(long, env = "COOP_STATUSLINE_CMD")]
+    statusline_cmd: Option<String>,
+
+    /// Statusline refresh interval in seconds.
+    #[arg(long, env = "COOP_STATUSLINE_INTERVAL", default_value_t = DEFAULT_STATUSLINE_INTERVAL)]
+    statusline_interval: u64,
+
+    /// Maximum reconnection attempts (0 = disable).
+    #[arg(long, default_value_t = 10)]
+    max_reconnects: u32,
+}
+
 /// Detach key: Ctrl+] (ASCII 0x1d), same as telnet / docker attach.
 const DETACH_KEY: u8 = 0x1d;
+
+/// One-time panic hook installation guard.
+static PANIC_HOOK_INSTALLED: Once = Once::new();
+
+/// Saved terminal state for panic-time restoration.
+/// Populated when entering raw mode, cleared on drop.
+static PANIC_TERMIOS: Mutex<Option<(i32, nix::libc::termios)>> = Mutex::new(None);
 
 /// Default statusline refresh interval in seconds.
 const DEFAULT_STATUSLINE_INTERVAL: u64 = 5;
@@ -42,47 +85,45 @@ struct StatuslineConfig {
     enabled: bool,
 }
 
-impl StatuslineConfig {
-    fn from_args(args: &[String]) -> Self {
-        let no_statusline = args.iter().any(|a| a == "--no-statusline");
-
-        let cmd = find_arg_value(args, "--statusline-cmd")
-            .or_else(|| std::env::var("COOP_STATUSLINE_CMD").ok());
-
-        let interval_secs: u64 = find_arg_value(args, "--statusline-interval")
-            .or_else(|| std::env::var("COOP_STATUSLINE_INTERVAL").ok())
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(DEFAULT_STATUSLINE_INTERVAL);
-
-        Self { cmd, interval: Duration::from_secs(interval_secs), enabled: !no_statusline }
+impl From<&AttachArgs> for StatuslineConfig {
+    fn from(args: &AttachArgs) -> Self {
+        Self {
+            cmd: args.statusline_cmd.clone(),
+            interval: Duration::from_secs(args.statusline_interval),
+            enabled: !args.no_statusline,
+        }
     }
 }
 
-/// Find the value for a `--key value` or `--key=value` style arg.
-fn find_arg_value(args: &[String], key: &str) -> Option<String> {
-    let mut iter = args.iter();
-    while let Some(arg) = iter.next() {
-        if arg == key {
-            return iter.next().cloned();
-        }
-        if let Some(val) = arg.strip_prefix(&format!("{key}=")) {
-            return Some(val.to_owned());
-        }
-    }
-    None
+/// Result of a single `connect_and_run` session.
+enum SessionResult {
+    /// Agent exited normally with a code.
+    Exited(i32),
+    /// User pressed the detach key.
+    Detached,
+    /// WebSocket connection was lost.
+    Disconnected(String),
 }
 
-/// Mutable state tracked for statusline rendering.
+/// Mutable state tracked across connections (survives reconnects).
 struct AttachState {
     agent_state: String,
     cols: u16,
     rows: u16,
     started: Instant,
+    /// Byte offset into the output ring for smart replay.
+    next_offset: u64,
 }
 
 impl AttachState {
     fn new(cols: u16, rows: u16) -> Self {
-        Self { agent_state: "unknown".to_owned(), cols, rows, started: Instant::now() }
+        Self {
+            agent_state: "unknown".to_owned(),
+            cols,
+            rows,
+            started: Instant::now(),
+            next_offset: 0,
+        }
     }
 
     fn uptime_secs(&self) -> u64 {
@@ -113,6 +154,10 @@ impl RawModeGuard {
 
 impl Drop for RawModeGuard {
     fn drop(&mut self) {
+        // Clear the panic hook's termios state — we're restoring normally.
+        if let Ok(mut guard) = PANIC_TERMIOS.lock() {
+            *guard = None;
+        }
         let borrowed = borrow_fd(self.fd);
         let _ = termios::tcsetattr(borrowed, termios::SetArg::TCSAFLUSH, &self.original);
     }
@@ -212,71 +257,80 @@ async fn run_statusline_cmd(cmd: &str, state: &AttachState) -> String {
 /// signal handling, and timers. It must be called from within a tokio
 /// runtime (e.g. from `#[tokio::main]` in main.rs).
 pub async fn run(args: &[String]) -> i32 {
-    // Parse a simple --help flag.
-    if args.iter().any(|a| a == "--help" || a == "-h") {
-        eprintln!("Usage: coop attach [URL] [OPTIONS]");
-        eprintln!();
-        eprintln!("Connect to a running coop server and attach an interactive terminal.");
-        eprintln!("Detach with Ctrl+].");
-        eprintln!();
-        eprintln!("URL defaults to COOP_URL env var. Auth via COOP_AUTH_TOKEN env var.");
-        eprintln!();
-        eprintln!("Options:");
-        eprintln!("  --statusline-cmd CMD    Shell command for statusline (default: built-in)");
-        eprintln!("  --statusline-interval N Refresh interval in seconds (default: 5)");
-        eprintln!("  --no-statusline         Disable the statusline");
-        return 0;
-    }
-
-    let statusline_cfg = StatuslineConfig::from_args(args);
-
-    // First positional arg (not starting with --) is the URL.
-    let coop_url = args
-        .iter()
-        .find(|a| !a.starts_with("--"))
-        .cloned()
-        .or_else(|| std::env::var("COOP_URL").ok());
-
-    let coop_url = match coop_url {
-        Some(u) => u,
-        None => {
-            eprintln!("error: COOP_URL is not set and no URL argument provided");
-            return 2;
+    // Build argv as ["coop-attach", ...args] for clap.
+    let argv: Vec<&str> =
+        std::iter::once("coop-attach").chain(args.iter().map(|s| s.as_str())).collect();
+    let parsed = match AttachArgs::try_parse_from(argv) {
+        Ok(a) => a,
+        Err(e) => {
+            // Clap prints help/version to stdout, errors to stderr.
+            let _ = e.print();
+            return if e.use_stderr() { 2 } else { 0 };
         }
     };
 
-    let auth_token = std::env::var("COOP_AUTH_TOKEN").ok();
+    if parsed.url.is_none() && parsed.socket.is_none() {
+        eprintln!("error: COOP_URL is not set and no URL or --socket argument provided");
+        return 2;
+    }
 
-    attach(&coop_url, auth_token.as_deref(), &statusline_cfg).await
+    let sl_cfg = StatuslineConfig::from(&parsed);
+    attach(
+        parsed.url.as_deref(),
+        parsed.socket.as_deref(),
+        parsed.auth_token.as_deref(),
+        &sl_cfg,
+        parsed.max_reconnects,
+    )
+    .await
 }
 
-async fn attach(coop_url: &str, auth_token: Option<&str>, sl_cfg: &StatuslineConfig) -> i32 {
-    // Convert HTTP URL to WebSocket URL.
-    // Use mode=all when statusline is enabled so we get state_change events.
-    let mode = if sl_cfg.enabled { "all" } else { "raw" };
-    let base = coop_url.trim_end_matches('/');
-    let ws_url = if let Some(rest) = base.strip_prefix("https://") {
+/// Build the WebSocket URL and subscription mode query param.
+fn build_ws_url(base_url: &str, sl_enabled: bool) -> String {
+    let mode = if sl_enabled { "all" } else { "raw" };
+    let base = base_url.trim_end_matches('/');
+    if let Some(rest) = base.strip_prefix("https://") {
         format!("wss://{rest}/ws?mode={mode}")
     } else if let Some(rest) = base.strip_prefix("http://") {
         format!("ws://{rest}/ws?mode={mode}")
     } else {
         format!("ws://{base}/ws?mode={mode}")
-    };
+    }
+}
 
-    // Auth via message only — no token in URL to avoid leakage in logs.
-
-    // Connect WebSocket.
-    let (ws_stream, _response) = match tokio_tungstenite::connect_async(&ws_url).await {
-        Ok(pair) => pair,
-        Err(e) => {
-            eprintln!("error: WebSocket connection failed: {e}");
-            return 1;
+/// Establish a WebSocket connection over TCP or Unix socket.
+async fn connect_ws(
+    url: Option<&str>,
+    socket: Option<&str>,
+    sl_enabled: bool,
+) -> Result<
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    String,
+> {
+    // Unix socket takes priority when both are provided.
+    if let Some(_path) = socket {
+        // TODO: Unix socket support requires `client_async` with a raw stream.
+        // For now, fall through to TCP if a URL is also available.
+        if url.is_none() {
+            return Err("Unix socket support not yet implemented without a URL fallback".to_owned());
         }
-    };
+    }
 
-    let (mut ws_tx, mut ws_rx) = ws_stream.split();
+    let base_url = url.ok_or("no URL or socket provided")?;
+    let ws_url = build_ws_url(base_url, sl_enabled);
+    let (stream, _response) =
+        tokio_tungstenite::connect_async(&ws_url).await.map_err(|e| format!("{e}"))?;
+    Ok(stream)
+}
 
-    // Enter raw mode.
+async fn attach(
+    url: Option<&str>,
+    socket: Option<&str>,
+    auth_token: Option<&str>,
+    sl_cfg: &StatuslineConfig,
+    max_reconnects: u32,
+) -> i32 {
+    // Enter raw mode (persists across reconnects).
     let raw_guard = match RawModeGuard::enter() {
         Ok(g) => g,
         Err(e) => {
@@ -285,74 +339,39 @@ async fn attach(coop_url: &str, auth_token: Option<&str>, sl_cfg: &StatuslineCon
         }
     };
 
-    // Install a panic hook to restore the terminal even on unwind.
-    let terminal_restored = Arc::new(AtomicBool::new(false));
+    // Install a panic hook (once) to restore the terminal even on unwind.
     {
-        let restored = Arc::clone(&terminal_restored);
         let raw_termios: nix::libc::termios = raw_guard.original.clone().into();
-        let fd = raw_guard.fd;
+        if let Ok(mut guard) = PANIC_TERMIOS.lock() {
+            *guard = Some((raw_guard.fd, raw_termios));
+        }
+    }
+    PANIC_HOOK_INSTALLED.call_once(|| {
         let prev_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
-            if !restored.swap(true, Ordering::SeqCst) {
-                // SAFETY: Restoring terminal attributes in panic hook; fd is
-                // stdin which remains valid for the lifetime of the process.
-                #[allow(unsafe_code)]
-                unsafe {
-                    nix::libc::tcsetattr(fd, nix::libc::TCSAFLUSH, &raw_termios);
+            if let Ok(mut guard) = PANIC_TERMIOS.lock() {
+                if let Some((fd, ref termios)) = *guard {
+                    // SAFETY: Restoring terminal attributes in panic hook; fd is
+                    // stdin which remains valid for the lifetime of the process.
+                    #[allow(unsafe_code)]
+                    unsafe {
+                        nix::libc::tcsetattr(fd, nix::libc::TCSAFLUSH, termios);
+                    }
+                    *guard = None;
                 }
             }
             prev_hook(info);
         }));
-    }
+    });
 
     let mut stdout = std::io::stdout();
 
     // Determine initial terminal size.
     let (init_cols, init_rows) = terminal_size().unwrap_or((80, 24));
     let mut state = AttachState::new(init_cols, init_rows);
+    let mut sl_active = sl_cfg.enabled && init_rows > 2;
 
-    // If statusline is enabled, set up scroll region and report smaller size.
-    let sl_active = sl_cfg.enabled && init_rows > 2;
-    if sl_active {
-        let content_rows = init_rows - 1;
-        set_scroll_region(&mut stdout, content_rows);
-        let resize = ClientMessage::Resize { cols: init_cols, rows: content_rows };
-        let _ = send_msg(&mut ws_tx, &resize).await;
-    } else {
-        let resize = ClientMessage::Resize { cols: init_cols, rows: init_rows };
-        let _ = send_msg(&mut ws_tx, &resize).await;
-    }
-
-    // Send initial Replay to catch up on any missed output.
-    let replay = ClientMessage::Replay { offset: 0 };
-    if let Err(e) = send_msg(&mut ws_tx, &replay).await {
-        reset_scroll_region(&mut stdout);
-        drop(raw_guard);
-        eprintln!("error: failed to send replay request: {e}");
-        return 1;
-    }
-
-    // Request current state so we can populate the statusline immediately.
-    if sl_active {
-        let _ = send_msg(&mut ws_tx, &ClientMessage::StateRequest {}).await;
-    }
-
-    // Auth via message if token provided (no query param — avoids log leakage).
-    if let Some(token) = auth_token {
-        let auth = ClientMessage::Auth { token: token.to_owned() };
-        let _ = send_msg(&mut ws_tx, &auth).await;
-    }
-
-    // Render initial statusline.
-    if sl_active {
-        let content = match &sl_cfg.cmd {
-            Some(cmd) => run_statusline_cmd(cmd, &state).await,
-            None => builtin_statusline(&state),
-        };
-        render_statusline(&mut stdout, &content, state.cols, state.rows);
-    }
-
-    // Spawn a blocking thread to read stdin.
+    // Spawn a blocking thread to read stdin (lives across reconnects).
     let (stdin_tx, mut stdin_rx) = mpsc::channel::<Vec<u8>>(64);
     std::thread::spawn(move || {
         use std::io::Read;
@@ -372,21 +391,180 @@ async fn attach(coop_url: &str, auth_token: Option<&str>, sl_cfg: &StatuslineCon
         }
     });
 
-    // SIGWINCH handler for terminal resize.
+    // SIGWINCH handler for terminal resize (lives across reconnects).
     let mut sigwinch =
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change()).ok();
 
+    let mut attempt: u32 = 0;
+    let exit_code;
+
+    loop {
+        // Connect WebSocket.
+        let ws_stream = match connect_ws(url, socket, sl_cfg.enabled).await {
+            Ok(s) => s,
+            Err(e) => {
+                if attempt == 0 {
+                    // First connection failure — no reconnect.
+                    reset_scroll_region_if(&mut stdout, sl_active);
+                    drop(raw_guard);
+                    eprintln!("error: WebSocket connection failed: {e}");
+                    return 1;
+                }
+                // Reconnect failure — treat as disconnected.
+                if max_reconnects > 0 && attempt >= max_reconnects {
+                    reset_scroll_region_if(&mut stdout, sl_active);
+                    drop(raw_guard);
+                    eprintln!("\r\ncoop attach: max reconnects reached, giving up.");
+                    return 1;
+                }
+                let backoff = reconnect_backoff(attempt);
+                let _ = write!(
+                    stdout,
+                    "\r\ncoop attach: connection failed, retrying in {:.1}s...\r\n",
+                    backoff.as_secs_f64()
+                );
+                let _ = stdout.flush();
+                tokio::time::sleep(backoff).await;
+                attempt += 1;
+                continue;
+            }
+        };
+
+        let (mut ws_tx, mut ws_rx) = ws_stream.split();
+
+        // Post-connect handshake: Auth → Resize → Replay → StateRequest.
+        if let Some(token) = auth_token {
+            let _ = send_msg(&mut ws_tx, &ClientMessage::Auth { token: token.to_owned() }).await;
+        }
+
+        if sl_active && state.rows > 2 {
+            set_scroll_region(&mut stdout, state.rows - 1);
+            let _ = send_msg(
+                &mut ws_tx,
+                &ClientMessage::Resize { cols: state.cols, rows: state.rows - 1 },
+            )
+            .await;
+        } else {
+            let _ =
+                send_msg(&mut ws_tx, &ClientMessage::Resize { cols: state.cols, rows: state.rows })
+                    .await;
+        }
+
+        let _ = send_msg(&mut ws_tx, &ClientMessage::Replay { offset: state.next_offset }).await;
+
+        if sl_active {
+            let _ = send_msg(&mut ws_tx, &ClientMessage::StateRequest {}).await;
+            let content = match &sl_cfg.cmd {
+                Some(cmd) => run_statusline_cmd(cmd, &state).await,
+                None => builtin_statusline(&state),
+            };
+            render_statusline(&mut stdout, &content, state.cols, state.rows);
+        }
+
+        let mut ctx = AttachContext {
+            state: &mut state,
+            sl_active: &mut sl_active,
+            sl_cfg,
+            stdin_rx: &mut stdin_rx,
+            sigwinch: &mut sigwinch,
+            stdout: &mut stdout,
+        };
+        let result = connect_and_run(&mut ws_tx, &mut ws_rx, &mut ctx).await;
+
+        // Send close frame (best-effort).
+        let _ = ws_tx.send(tokio_tungstenite::tungstenite::Message::Close(None)).await;
+
+        match result {
+            SessionResult::Exited(code) => {
+                exit_code = code;
+                break;
+            }
+            SessionResult::Detached => {
+                exit_code = 0;
+                break;
+            }
+            SessionResult::Disconnected(reason) => {
+                if max_reconnects == 0 {
+                    reset_scroll_region_if(&mut stdout, sl_active);
+                    drop(raw_guard);
+                    eprintln!("\r\ncoop attach: disconnected: {reason}");
+                    return 1;
+                }
+                attempt += 1;
+                if attempt > max_reconnects {
+                    reset_scroll_region_if(&mut stdout, sl_active);
+                    drop(raw_guard);
+                    eprintln!("\r\ncoop attach: max reconnects reached, giving up.");
+                    return 1;
+                }
+                reset_scroll_region_if(&mut stdout, sl_active);
+                let backoff = reconnect_backoff(attempt);
+                let _ = write!(
+                    stdout,
+                    "\r\ncoop attach: reconnecting ({attempt}/{max_reconnects}) in {:.1}s...\r\n",
+                    backoff.as_secs_f64()
+                );
+                let _ = stdout.flush();
+                tokio::time::sleep(backoff).await;
+                continue;
+            }
+        }
+    }
+
+    // Clean up: reset scroll region, restore terminal.
+    reset_scroll_region_if(&mut stdout, sl_active);
+    drop(raw_guard);
+    eprintln!("\r\ndetached from coop session.");
+    exit_code
+}
+
+/// Compute reconnect backoff: 500ms * 2^attempt, capped at 10s.
+fn reconnect_backoff(attempt: u32) -> Duration {
+    let ms = 500u64.saturating_mul(1u64 << attempt.min(20));
+    Duration::from_millis(ms.min(10_000))
+}
+
+fn reset_scroll_region_if(stdout: &mut std::io::Stdout, sl_active: bool) {
+    if sl_active {
+        reset_scroll_region(stdout);
+    }
+}
+
+/// Mutable context passed to `connect_and_run`, grouping resources that
+/// persist across reconnects.
+struct AttachContext<'a> {
+    state: &'a mut AttachState,
+    sl_active: &'a mut bool,
+    sl_cfg: &'a StatuslineConfig,
+    stdin_rx: &'a mut mpsc::Receiver<Vec<u8>>,
+    sigwinch: &'a mut Option<tokio::signal::unix::Signal>,
+    stdout: &'a mut std::io::Stdout,
+}
+
+/// Inner event loop for a single WebSocket connection. Returns when the
+/// session ends, the user detaches, or the connection is lost.
+async fn connect_and_run<WsTx, WsRx>(
+    ws_tx: &mut WsTx,
+    ws_rx: &mut WsRx,
+    ctx: &mut AttachContext<'_>,
+) -> SessionResult
+where
+    WsTx: SinkExt<tokio_tungstenite::tungstenite::Message> + Unpin,
+    WsRx: StreamExt<
+            Item = Result<
+                tokio_tungstenite::tungstenite::Message,
+                tokio_tungstenite::tungstenite::Error,
+            >,
+        > + Unpin,
+{
     // Statusline refresh timer.
-    let mut sl_interval = tokio::time::interval(sl_cfg.interval);
+    let mut sl_interval = tokio::time::interval(ctx.sl_cfg.interval);
     sl_interval.tick().await; // Consume the immediate first tick.
 
     // Ping keepalive timer.
     let mut ping_interval = tokio::time::interval(PING_INTERVAL);
     ping_interval.tick().await; // Consume the immediate first tick.
 
-    let mut exit_code: i32 = 0;
-
-    // Main event loop.
     loop {
         tokio::select! {
             // Incoming WebSocket messages.
@@ -394,31 +572,41 @@ async fn attach(coop_url: &str, auth_token: Option<&str>, sl_cfg: &StatuslineCon
                 match msg {
                     Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) => {
                         match serde_json::from_str::<ServerMessage>(&text) {
-                            Ok(ServerMessage::Output { data, .. }) => {
+                            Ok(ServerMessage::Output { data, offset, .. }) => {
                                 if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&data) {
-                                    let _ = stdout.write_all(&decoded);
-                                    let _ = stdout.flush();
+                                    ctx.state.next_offset = offset + decoded.len() as u64;
+                                    let _ = ctx.stdout.write_all(&decoded);
+                                    let _ = ctx.stdout.flush();
                                 }
                             }
                             Ok(ServerMessage::Exit { code, .. }) => {
-                                exit_code = code.unwrap_or(0);
-                                break;
+                                let exit_code = code.unwrap_or(0);
+                                // Drain remaining output with a short deadline.
+                                let drain_deadline = tokio::time::Instant::now() + Duration::from_millis(200);
+                                while let Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text)))) =
+                                    tokio::time::timeout_at(drain_deadline, ws_rx.next()).await
+                                {
+                                    if let Ok(ServerMessage::Output { data, offset, .. }) = serde_json::from_str(&text) {
+                                        if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&data) {
+                                            ctx.state.next_offset = offset + decoded.len() as u64;
+                                            let _ = ctx.stdout.write_all(&decoded);
+                                            let _ = ctx.stdout.flush();
+                                        }
+                                    }
+                                }
+                                return SessionResult::Exited(exit_code);
                             }
                             Ok(ServerMessage::Error { code, message }) => {
-                                reset_scroll_region(&mut stdout);
-                                drop(raw_guard);
-                                eprintln!("\r\ncoop attach: server error: [{code}] {message}");
-                                return 1;
+                                return SessionResult::Disconnected(format!("[{code}] {message}"));
                             }
                             Ok(ServerMessage::StateChange { next, .. }) => {
-                                state.agent_state = next;
-                                // Immediately refresh statusline on state change.
-                                if sl_active {
-                                    let content = match &sl_cfg.cmd {
-                                        Some(cmd) => run_statusline_cmd(cmd, &state).await,
-                                        None => builtin_statusline(&state),
+                                ctx.state.agent_state = next;
+                                if *ctx.sl_active {
+                                    let content = match &ctx.sl_cfg.cmd {
+                                        Some(cmd) => run_statusline_cmd(cmd, ctx.state).await,
+                                        None => builtin_statusline(ctx.state),
                                     };
-                                    render_statusline(&mut stdout, &content, state.cols, state.rows);
+                                    render_statusline(ctx.stdout, &content, ctx.state.cols, ctx.state.rows);
                                 }
                             }
                             Ok(_) => {}
@@ -426,95 +614,83 @@ async fn attach(coop_url: &str, auth_token: Option<&str>, sl_cfg: &StatuslineCon
                         }
                     }
                     Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))) | None => {
-                        break;
+                        return SessionResult::Disconnected("connection closed".to_owned());
                     }
                     Some(Ok(_)) => {}
-                    Some(Err(_)) => {
-                        break;
+                    Some(Err(e)) => {
+                        return SessionResult::Disconnected(format!("{e}"));
                     }
                 }
             }
 
             // Local stdin input.
-            data = stdin_rx.recv() => {
+            data = ctx.stdin_rx.recv() => {
                 match data {
                     Some(bytes) => {
-                        // Check for detach key; send bytes before it, then break.
                         if let Some(pos) = bytes.iter().position(|&b| b == DETACH_KEY) {
                             if pos > 0 {
                                 let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes[..pos]);
-                                let msg = ClientMessage::InputRaw { data: encoded };
-                                let _ = send_msg(&mut ws_tx, &msg).await;
+                                let _ = send_msg(ws_tx, &ClientMessage::InputRaw { data: encoded }).await;
                             }
-                            break;
+                            return SessionResult::Detached;
                         }
                         let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                        let msg = ClientMessage::InputRaw { data: encoded };
-                        if send_msg(&mut ws_tx, &msg).await.is_err() {
-                            break;
+                        if send_msg(ws_tx, &ClientMessage::InputRaw { data: encoded }).await.is_err() {
+                            return SessionResult::Disconnected("send failed".to_owned());
                         }
                     }
-                    None => break,
+                    None => return SessionResult::Disconnected("stdin closed".to_owned()),
                 }
             }
 
             // Terminal resize.
             _ = async {
-                match sigwinch.as_mut() {
+                match ctx.sigwinch.as_mut() {
                     Some(s) => { s.recv().await; }
                     None => std::future::pending::<()>().await,
                 }
             } => {
                 if let Some((cols, rows)) = terminal_size() {
-                    state.cols = cols;
-                    state.rows = rows;
+                    ctx.state.cols = cols;
+                    ctx.state.rows = rows;
 
-                    if sl_active && rows > 2 {
-                        // Reset scroll region first, then set new one.
-                        reset_scroll_region(&mut stdout);
+                    let was_active = *ctx.sl_active;
+                    *ctx.sl_active = ctx.sl_cfg.enabled && rows > 2;
+
+                    if *ctx.sl_active {
+                        reset_scroll_region(ctx.stdout);
                         let content_rows = rows - 1;
-                        set_scroll_region(&mut stdout, content_rows);
-                        let msg = ClientMessage::Resize { cols, rows: content_rows };
-                        let _ = send_msg(&mut ws_tx, &msg).await;
-                        // Re-render statusline for new dimensions.
-                        let content = match &sl_cfg.cmd {
-                            Some(cmd) => run_statusline_cmd(cmd, &state).await,
-                            None => builtin_statusline(&state),
+                        set_scroll_region(ctx.stdout, content_rows);
+                        let _ = send_msg(ws_tx, &ClientMessage::Resize { cols, rows: content_rows }).await;
+                        let content = match &ctx.sl_cfg.cmd {
+                            Some(cmd) => run_statusline_cmd(cmd, ctx.state).await,
+                            None => builtin_statusline(ctx.state),
                         };
-                        render_statusline(&mut stdout, &content, cols, rows);
+                        render_statusline(ctx.stdout, &content, cols, rows);
                     } else {
-                        let msg = ClientMessage::Resize { cols, rows };
-                        let _ = send_msg(&mut ws_tx, &msg).await;
+                        if was_active {
+                            reset_scroll_region(ctx.stdout);
+                        }
+                        let _ = send_msg(ws_tx, &ClientMessage::Resize { cols, rows }).await;
                     }
                 }
             }
 
             // Statusline refresh timer.
-            _ = sl_interval.tick(), if sl_active => {
-                let content = match &sl_cfg.cmd {
-                    Some(cmd) => run_statusline_cmd(cmd, &state).await,
-                    None => builtin_statusline(&state),
+            _ = sl_interval.tick(), if *ctx.sl_active => {
+                let content = match &ctx.sl_cfg.cmd {
+                    Some(cmd) => run_statusline_cmd(cmd, ctx.state).await,
+                    None => builtin_statusline(ctx.state),
                 };
-                render_statusline(&mut stdout, &content, state.cols, state.rows);
+                render_statusline(ctx.stdout, &content, ctx.state.cols, ctx.state.rows);
             }
 
             // Ping keepalive.
             _ = ping_interval.tick() => {
-                let _ = send_msg(&mut ws_tx, &ClientMessage::Ping {}).await;
+                let _ = send_msg(ws_tx, &ClientMessage::Ping {}).await;
             }
         }
     }
-
-    // Send close frame before dropping.
-    let _ = ws_tx.send(tokio_tungstenite::tungstenite::Message::Close(None)).await;
-
-    // Clean up: reset scroll region, restore terminal, print detach message.
-    if sl_active {
-        reset_scroll_region(&mut stdout);
-    }
-    drop(raw_guard);
-    eprintln!("\r\ndetached from coop session.");
-    exit_code
 }
 
 /// Serialize and send a JSON text message over WebSocket.

@@ -460,10 +460,13 @@ async fn handle_client_message(
             }
         }
 
-        ClientMessage::Resize { cols, rows } => match handle_resize(state, cols, rows).await {
-            Ok(()) => None,
-            Err(_) => Some(ws_error(ErrorCode::BadRequest, "cols and rows must be positive")),
-        },
+        ClientMessage::Resize { cols, rows } => {
+            require_auth!(authed);
+            match handle_resize(state, cols, rows).await {
+                Ok(()) => None,
+                Err(_) => Some(ws_error(ErrorCode::BadRequest, "cols and rows must be positive")),
+            }
+        }
 
         ClientMessage::Nudge { message } => {
             require_auth!(authed);

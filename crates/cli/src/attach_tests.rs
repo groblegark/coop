@@ -12,6 +12,8 @@ static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 async fn missing_coop_url_returns_2() {
     let _lock = ENV_LOCK.lock();
     std::env::remove_var("COOP_URL");
+    std::env::remove_var("COOP_SOCKET");
+    std::env::remove_var("COOP_AUTH_TOKEN");
     assert_eq!(run(&[]).await, 2);
 }
 
@@ -30,72 +32,99 @@ async fn connection_refused_returns_1() {
     assert_eq!(run(&["http://127.0.0.1:1".to_string()]).await, 1);
 }
 
-// ===== StatuslineConfig tests ===============================================
+// ===== AttachArgs / StatuslineConfig tests ==================================
+
+use clap::Parser;
+
+fn parse_args(args: &[&str]) -> AttachArgs {
+    let argv: Vec<&str> = std::iter::once("coop-attach").chain(args.iter().copied()).collect();
+    AttachArgs::try_parse_from(argv).unwrap_or_else(|e| panic!("parse failed: {e}"))
+}
 
 #[test]
-fn statusline_defaults_enabled_builtin() {
+fn args_defaults_enabled_builtin() {
     let _lock = ENV_LOCK.lock();
     std::env::remove_var("COOP_STATUSLINE_CMD");
     std::env::remove_var("COOP_STATUSLINE_INTERVAL");
-    let cfg = StatuslineConfig::from_args(&[]);
+    std::env::remove_var("COOP_URL");
+    std::env::remove_var("COOP_AUTH_TOKEN");
+    std::env::remove_var("COOP_SOCKET");
+    let args = parse_args(&[]);
+    let cfg = StatuslineConfig::from(&args);
     assert!(cfg.enabled);
     assert!(cfg.cmd.is_none());
     assert_eq!(cfg.interval, Duration::from_secs(DEFAULT_STATUSLINE_INTERVAL));
 }
 
 #[test]
-fn statusline_no_statusline_flag() {
-    let cfg = StatuslineConfig::from_args(&["--no-statusline".to_string()]);
+fn args_no_statusline_flag() {
+    let args = parse_args(&["--no-statusline"]);
+    let cfg = StatuslineConfig::from(&args);
     assert!(!cfg.enabled);
 }
 
 #[test]
-fn statusline_cmd_space_separated() {
-    let cfg =
-        StatuslineConfig::from_args(&["--statusline-cmd".to_string(), "echo hello".to_string()]);
+fn args_statusline_cmd_space_separated() {
+    let args = parse_args(&["--statusline-cmd", "echo hello"]);
+    let cfg = StatuslineConfig::from(&args);
     assert_eq!(cfg.cmd.as_deref(), Some("echo hello"));
 }
 
 #[test]
-fn statusline_cmd_equals_syntax() {
-    let cfg = StatuslineConfig::from_args(&["--statusline-cmd=echo hello".to_string()]);
+fn args_statusline_cmd_equals_syntax() {
+    let args = parse_args(&["--statusline-cmd=echo hello"]);
+    let cfg = StatuslineConfig::from(&args);
     assert_eq!(cfg.cmd.as_deref(), Some("echo hello"));
 }
 
 #[test]
-fn statusline_interval_override() {
-    let cfg = StatuslineConfig::from_args(&["--statusline-interval".to_string(), "10".to_string()]);
+fn args_statusline_interval_override() {
+    let args = parse_args(&["--statusline-interval", "10"]);
+    let cfg = StatuslineConfig::from(&args);
     assert_eq!(cfg.interval, Duration::from_secs(10));
 }
 
 #[test]
-fn statusline_interval_equals_syntax() {
-    let cfg = StatuslineConfig::from_args(&["--statusline-interval=3".to_string()]);
+fn args_statusline_interval_equals_syntax() {
+    let args = parse_args(&["--statusline-interval=3"]);
+    let cfg = StatuslineConfig::from(&args);
     assert_eq!(cfg.interval, Duration::from_secs(3));
 }
 
 #[test]
-fn statusline_invalid_interval_uses_default() {
-    let cfg = StatuslineConfig::from_args(&["--statusline-interval=abc".to_string()]);
-    assert_eq!(cfg.interval, Duration::from_secs(DEFAULT_STATUSLINE_INTERVAL));
+fn args_invalid_interval_is_parse_error() {
+    let argv = ["coop-attach", "--statusline-interval=abc"];
+    assert!(AttachArgs::try_parse_from(argv).is_err());
 }
 
 #[test]
-fn statusline_cmd_from_env() {
-    let _lock = ENV_LOCK.lock();
-    std::env::set_var("COOP_STATUSLINE_CMD", "env-cmd");
-    let cfg = StatuslineConfig::from_args(&[]);
-    assert_eq!(cfg.cmd.as_deref(), Some("env-cmd"));
-    std::env::remove_var("COOP_STATUSLINE_CMD");
+fn args_url_positional() {
+    let args = parse_args(&["http://localhost:8080"]);
+    assert_eq!(args.url.as_deref(), Some("http://localhost:8080"));
 }
 
 #[test]
-fn statusline_arg_overrides_env() {
-    let _lock = ENV_LOCK.lock();
-    std::env::set_var("COOP_STATUSLINE_CMD", "env-cmd");
-    let cfg = StatuslineConfig::from_args(&["--statusline-cmd=arg-cmd".to_string()]);
-    assert_eq!(cfg.cmd.as_deref(), Some("arg-cmd"));
-    std::env::remove_var("COOP_STATUSLINE_CMD");
+fn args_socket_flag() {
+    let args = parse_args(&["--socket", "/tmp/coop.sock"]);
+    assert_eq!(args.socket.as_deref(), Some("/tmp/coop.sock"));
+}
+
+#[test]
+fn args_auth_token_flag() {
+    let args = parse_args(&["--auth-token", "secret"]);
+    assert_eq!(args.auth_token.as_deref(), Some("secret"));
+}
+
+#[test]
+fn args_max_reconnects_default() {
+    let args = parse_args(&[]);
+    assert_eq!(args.max_reconnects, 10);
+}
+
+#[test]
+fn args_max_reconnects_override() {
+    let args = parse_args(&["--max-reconnects", "0"]);
+    assert_eq!(args.max_reconnects, 0);
 }
 
 // ===== builtin_statusline tests =============================================
@@ -107,6 +136,7 @@ fn builtin_statusline_format() {
         cols: 120,
         rows: 40,
         started: Instant::now(),
+        next_offset: 0,
     };
     let line = builtin_statusline(&state);
     assert!(line.contains("[coop]"));
@@ -121,6 +151,7 @@ fn builtin_statusline_uptime_increases() {
         cols: 80,
         rows: 24,
         started: Instant::now() - Duration::from_secs(42),
+        next_offset: 0,
     };
     let line = builtin_statusline(&state);
     assert!(line.contains("42s") || line.contains("43s"), "expected ~42s uptime: {line}");
@@ -157,6 +188,7 @@ async fn run_statusline_cmd_expands_uptime() {
         cols: 80,
         rows: 24,
         started: Instant::now() - Duration::from_secs(99),
+        next_offset: 0,
     };
     let result = run_statusline_cmd("echo {uptime}", &state).await;
     assert!(result == "99" || result == "100", "expected ~99: {result}");
@@ -174,37 +206,6 @@ async fn run_statusline_cmd_trims_trailing_newline() {
     let state = AttachState::new(80, 24);
     let result = run_statusline_cmd("printf 'hello\\n\\n'", &state).await;
     assert_eq!(result, "hello");
-}
-
-// ===== find_arg_value tests =================================================
-
-#[test]
-fn find_arg_value_space_separated() {
-    let args = vec!["--key".to_string(), "val".to_string()];
-    assert_eq!(find_arg_value(&args, "--key"), Some("val".to_string()));
-}
-
-#[test]
-fn find_arg_value_equals_syntax() {
-    let args = vec!["--key=val".to_string()];
-    assert_eq!(find_arg_value(&args, "--key"), Some("val".to_string()));
-}
-
-#[test]
-fn find_arg_value_not_found() {
-    let args = vec!["--other".to_string(), "val".to_string()];
-    assert_eq!(find_arg_value(&args, "--key"), None);
-}
-
-#[test]
-fn find_arg_value_empty_args() {
-    assert_eq!(find_arg_value(&[], "--key"), None);
-}
-
-#[test]
-fn find_arg_value_key_at_end_without_value() {
-    let args = vec!["--key".to_string()];
-    assert_eq!(find_arg_value(&args, "--key"), None);
 }
 
 // ===== WebSocket integration tests ==========================================
@@ -405,6 +406,31 @@ mod ws_integration {
         // Try to send input without authenticating.
         let data = base64::engine::general_purpose::STANDARD.encode(b"hello");
         let msg = ClientMessage::InputRaw { data };
+        let response = send_and_recv(&mut tx, &mut rx, &msg).await;
+
+        let parsed: Result<ServerMessage, _> = serde_json::from_str(&response);
+        match parsed {
+            Ok(ServerMessage::Error { code, .. }) => {
+                assert_eq!(code, "UNAUTHORIZED");
+            }
+            other => panic!("expected UNAUTHORIZED error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn auth_required_blocks_resize() {
+        let (state, _input_rx) =
+            AppStateBuilder::new().ring_size(4096).auth_token("secret123").build();
+
+        let (addr, _handle) = crate::test_support::spawn_http_server(std::sync::Arc::clone(&state))
+            .await
+            .unwrap_or_else(|e| panic!("server: {e}"));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let (mut tx, mut rx) = connect_ws(addr, "raw").await;
+
+        // Try to resize without authenticating.
+        let msg = ClientMessage::Resize { cols: 120, rows: 40 };
         let response = send_and_recv(&mut tx, &mut rx, &msg).await;
 
         let parsed: Result<ServerMessage, _> = serde_json::from_str(&response);
