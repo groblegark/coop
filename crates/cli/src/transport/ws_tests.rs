@@ -11,11 +11,11 @@ use crate::transport::ws::{handle_client_message, ClientMessage, ServerMessage, 
 fn ping_pong_serialization() -> anyhow::Result<()> {
     let msg = ClientMessage::Ping {};
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"ping\""));
+    assert!(json.contains("\"event\":\"ping\""));
 
     let pong = ServerMessage::Pong {};
     let json = serde_json::to_string(&pong).anyhow()?;
-    assert!(json.contains("\"type\":\"pong\""));
+    assert!(json.contains("\"event\":\"pong\""));
     Ok(())
 }
 
@@ -23,7 +23,7 @@ fn ping_pong_serialization() -> anyhow::Result<()> {
 fn screen_request_serialization() -> anyhow::Result<()> {
     let msg = ClientMessage::ScreenRequest { cursor: false };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"screen_request\""));
+    assert!(json.contains("\"event\":\"screen_request\""));
     Ok(())
 }
 
@@ -31,14 +31,14 @@ fn screen_request_serialization() -> anyhow::Result<()> {
 fn output_message_serialization() -> anyhow::Result<()> {
     let msg = ServerMessage::Output { data: "aGVsbG8=".to_owned(), offset: 0 };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"output\""));
+    assert!(json.contains("\"event\":\"output\""));
     assert!(json.contains("\"data\":\"aGVsbG8=\""));
     Ok(())
 }
 
 #[test]
 fn state_change_serialization() -> anyhow::Result<()> {
-    let msg = ServerMessage::StateChange {
+    let msg = ServerMessage::Transition {
         prev: "working".to_owned(),
         next: "idle".to_owned(),
         seq: 42,
@@ -49,7 +49,7 @@ fn state_change_serialization() -> anyhow::Result<()> {
         last_message: None,
     };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"state_change\""));
+    assert!(json.contains("\"event\":\"transition\""));
     assert!(json.contains("\"prev\":\"working\""));
     assert!(json.contains("\"next\":\"idle\""));
     // Error fields should be absent (skip_serializing_if = None)
@@ -64,7 +64,7 @@ fn state_change_serialization() -> anyhow::Result<()> {
 
 #[test]
 fn state_change_with_error_serialization() -> anyhow::Result<()> {
-    let msg = ServerMessage::StateChange {
+    let msg = ServerMessage::Transition {
         prev: "working".to_owned(),
         next: "error".to_owned(),
         seq: 5,
@@ -75,7 +75,7 @@ fn state_change_with_error_serialization() -> anyhow::Result<()> {
         last_message: None,
     };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"state_change\""));
+    assert!(json.contains("\"event\":\"transition\""));
     assert!(json.contains("\"next\":\"error\""));
     assert!(json.contains("\"error_detail\":\"rate_limit_error\""), "json: {json}");
     assert!(json.contains("\"error_category\":\"rate_limited\""), "json: {json}");
@@ -110,7 +110,7 @@ fn error_message_serialization() -> anyhow::Result<()> {
         message: "invalid input".to_owned(),
     };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"error\""));
+    assert!(json.contains("\"event\":\"error\""));
     assert!(json.contains("\"code\":\"BAD_REQUEST\""));
     Ok(())
 }
@@ -119,7 +119,7 @@ fn error_message_serialization() -> anyhow::Result<()> {
 fn exit_message_serialization() -> anyhow::Result<()> {
     let msg = ServerMessage::Exit { code: Some(0), signal: None };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"exit\""));
+    assert!(json.contains("\"event\":\"exit\""));
     assert!(json.contains("\"code\":0"));
     Ok(())
 }
@@ -128,7 +128,7 @@ fn exit_message_serialization() -> anyhow::Result<()> {
 fn replay_message_serialization() -> anyhow::Result<()> {
     let msg = ClientMessage::Replay { offset: 1024, limit: None };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"replay\""));
+    assert!(json.contains("\"event\":\"replay\""));
     assert!(json.contains("\"offset\":1024"));
 
     // With limit
@@ -142,7 +142,7 @@ fn replay_message_serialization() -> anyhow::Result<()> {
 fn auth_message_serialization() -> anyhow::Result<()> {
     let msg = ClientMessage::Auth { token: "secret123".to_owned() };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"auth\""));
+    assert!(json.contains("\"event\":\"auth\""));
     assert!(json.contains("\"token\":\"secret123\""));
     Ok(())
 }
@@ -150,28 +150,28 @@ fn auth_message_serialization() -> anyhow::Result<()> {
 #[test]
 fn client_message_roundtrip() -> anyhow::Result<()> {
     let messages = vec![
-        r#"{"type":"input","text":"hello"}"#,
-        r#"{"type":"input","text":"hello","enter":true}"#,
-        r#"{"type":"input_raw","data":"aGVsbG8="}"#,
-        r#"{"type":"keys","keys":["Enter"]}"#,
-        r#"{"type":"resize","cols":200,"rows":50}"#,
-        r#"{"type":"screen_request"}"#,
-        r#"{"type":"state_request"}"#,
-        r#"{"type":"status_request"}"#,
-        r#"{"type":"nudge","message":"fix bug"}"#,
-        r#"{"type":"respond","accept":true}"#,
-        r#"{"type":"replay","offset":0}"#,
-        r#"{"type":"auth","token":"tok"}"#,
-        r#"{"type":"signal","signal":"SIGINT"}"#,
-        r#"{"type":"shutdown"}"#,
-        r#"{"type":"health_request"}"#,
-        r#"{"type":"ready_request"}"#,
-        r#"{"type":"get_stop_config"}"#,
-        r#"{"type":"put_stop_config","config":{"mode":"allow"}}"#,
-        r#"{"type":"get_start_config"}"#,
-        r#"{"type":"put_start_config","config":{}}"#,
-        r#"{"type":"resolve_stop","body":{"ok":true}}"#,
-        r#"{"type":"ping"}"#,
+        r#"{"event":"input","text":"hello"}"#,
+        r#"{"event":"input","text":"hello","enter":true}"#,
+        r#"{"event":"input_raw","data":"aGVsbG8="}"#,
+        r#"{"event":"keys","keys":["Enter"]}"#,
+        r#"{"event":"resize","cols":200,"rows":50}"#,
+        r#"{"event":"screen_request"}"#,
+        r#"{"event":"state_request"}"#,
+        r#"{"event":"status_request"}"#,
+        r#"{"event":"nudge","message":"fix bug"}"#,
+        r#"{"event":"respond","accept":true}"#,
+        r#"{"event":"replay","offset":0}"#,
+        r#"{"event":"auth","token":"tok"}"#,
+        r#"{"event":"signal","signal":"SIGINT"}"#,
+        r#"{"event":"shutdown"}"#,
+        r#"{"event":"health_request"}"#,
+        r#"{"event":"ready_request"}"#,
+        r#"{"event":"get_stop_config"}"#,
+        r#"{"event":"put_stop_config","config":{"mode":"allow"}}"#,
+        r#"{"event":"get_start_config"}"#,
+        r#"{"event":"put_start_config","config":{}}"#,
+        r#"{"event":"resolve_stop","body":{"ok":true}}"#,
+        r#"{"event":"ping"}"#,
     ];
 
     for json in messages {
@@ -185,10 +185,10 @@ fn client_message_roundtrip() -> anyhow::Result<()> {
 fn shutdown_message_serialization() -> anyhow::Result<()> {
     let msg = ClientMessage::Shutdown {};
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"shutdown\""));
+    assert!(json.contains("\"event\":\"shutdown\""));
 
     // Roundtrip
-    let _: ClientMessage = serde_json::from_str(r#"{"type":"shutdown"}"#)
+    let _: ClientMessage = serde_json::from_str(r#"{"event":"shutdown"}"#)
         .map_err(|e| anyhow::anyhow!("failed to parse shutdown: {e}"))?;
     Ok(())
 }
@@ -412,7 +412,7 @@ async fn keys_rejects_unknown_key() -> anyhow::Result<()> {
 fn signal_message_serialization() -> anyhow::Result<()> {
     let msg = ClientMessage::Signal { signal: "SIGTERM".to_owned() };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"signal\""));
+    assert!(json.contains("\"event\":\"signal\""));
     assert!(json.contains("\"signal\":\"SIGTERM\""));
     Ok(())
 }
@@ -425,7 +425,7 @@ fn nudge_result_serialization() -> anyhow::Result<()> {
         reason: Some("agent is working".to_owned()),
     };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"nudge_result\""));
+    assert!(json.contains("\"event\":\"nudge_result\""));
     assert!(json.contains("\"delivered\":false"));
     assert!(json.contains("\"state_before\":\"working\""));
     assert!(json.contains("\"reason\":\"agent is working\""));
@@ -453,7 +453,7 @@ fn respond_result_serialization() -> anyhow::Result<()> {
         reason: None,
     };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"respond_result\""));
+    assert!(json.contains("\"event\":\"respond_result\""));
     assert!(json.contains("\"delivered\":true"));
     assert!(json.contains("\"prompt_type\":\"permission\""));
     Ok(())
@@ -472,7 +472,7 @@ fn status_message_serialization() -> anyhow::Result<()> {
         ws_clients: 2,
     };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"status\""));
+    assert!(json.contains("\"event\":\"status\""));
     assert!(json.contains("\"state\":\"running\""));
     assert!(json.contains("\"pid\":1234"));
     assert!(json.contains("\"uptime_secs\":60"));
@@ -483,7 +483,7 @@ fn status_message_serialization() -> anyhow::Result<()> {
 fn status_request_serialization() -> anyhow::Result<()> {
     let msg = ClientMessage::StatusRequest {};
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"status_request\""));
+    assert!(json.contains("\"event\":\"status_request\""));
     Ok(())
 }
 
@@ -494,7 +494,7 @@ fn input_with_enter_serialization() -> anyhow::Result<()> {
     assert!(json.contains("\"enter\":true"));
 
     // enter defaults to false when omitted
-    let parsed: ClientMessage = serde_json::from_str(r#"{"type":"input","text":"hello"}"#)
+    let parsed: ClientMessage = serde_json::from_str(r#"{"event":"input","text":"hello"}"#)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     match parsed {
         ClientMessage::Input { enter, .. } => assert!(!enter),
@@ -507,7 +507,7 @@ fn input_with_enter_serialization() -> anyhow::Result<()> {
 fn input_result_serialization() -> anyhow::Result<()> {
     let msg = ServerMessage::InputResult { bytes_written: 5 };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"input_result\""));
+    assert!(json.contains("\"event\":\"input_result\""));
     assert!(json.contains("\"bytes_written\":5"));
     Ok(())
 }
@@ -516,7 +516,7 @@ fn input_result_serialization() -> anyhow::Result<()> {
 fn resize_result_serialization() -> anyhow::Result<()> {
     let msg = ServerMessage::ResizeResult { cols: 120, rows: 40 };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"resize_result\""));
+    assert!(json.contains("\"event\":\"resize_result\""));
     assert!(json.contains("\"cols\":120"));
     assert!(json.contains("\"rows\":40"));
     Ok(())
@@ -526,7 +526,7 @@ fn resize_result_serialization() -> anyhow::Result<()> {
 fn signal_result_serialization() -> anyhow::Result<()> {
     let msg = ServerMessage::SignalResult { delivered: true };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"signal_result\""));
+    assert!(json.contains("\"event\":\"signal_result\""));
     assert!(json.contains("\"delivered\":true"));
     Ok(())
 }
@@ -535,7 +535,7 @@ fn signal_result_serialization() -> anyhow::Result<()> {
 fn shutdown_result_serialization() -> anyhow::Result<()> {
     let msg = ServerMessage::ShutdownResult { accepted: true };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"type\":\"shutdown_result\""));
+    assert!(json.contains("\"event\":\"shutdown_result\""));
     assert!(json.contains("\"accepted\":true"));
     Ok(())
 }
@@ -543,7 +543,7 @@ fn shutdown_result_serialization() -> anyhow::Result<()> {
 #[tokio::test]
 async fn screen_request_excludes_cursor_by_default() -> anyhow::Result<()> {
     let (state, _rx) = ws_test_state(AgentState::Working);
-    let msg: ClientMessage = serde_json::from_str(r#"{"type":"screen_request"}"#)?;
+    let msg: ClientMessage = serde_json::from_str(r#"{"event":"screen_request"}"#)?;
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
         Some(ServerMessage::Screen { cursor, .. }) => {
@@ -557,7 +557,7 @@ async fn screen_request_excludes_cursor_by_default() -> anyhow::Result<()> {
 #[tokio::test]
 async fn screen_request_includes_cursor_when_requested() -> anyhow::Result<()> {
     let (state, _rx) = ws_test_state(AgentState::Working);
-    let msg: ClientMessage = serde_json::from_str(r#"{"type":"screen_request","cursor":true}"#)?;
+    let msg: ClientMessage = serde_json::from_str(r#"{"event":"screen_request","cursor":true}"#)?;
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
         Some(ServerMessage::Screen { cursor, .. }) => {

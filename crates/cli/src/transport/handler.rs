@@ -267,7 +267,7 @@ pub async fn handle_respond(
     }
 
     // Broadcast prompt event so WebSocket/event stream shows the response.
-    let _ = state.channels.prompt_tx.send(crate::event::PromptEvent {
+    let _ = state.channels.prompt_tx.send(crate::event::PromptAction {
         source: "api".to_owned(),
         r#type: prompt_type.clone().unwrap_or_default(),
         subtype: prompt_subtype,

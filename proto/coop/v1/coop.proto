@@ -42,7 +42,7 @@ service Coop {
   // Stream agent state transitions in real time.
   rpc StreamState(StreamStateRequest) returns (stream AgentStateEvent);
   // Stream prompt action events in real time.
-  rpc StreamPromptEvents(StreamPromptEventsRequest) returns (stream PromptActionEvent);
+  rpc StreamPromptActions(StreamPromptActionsRequest) returns (stream PromptActionEvent);
 
   // Stop hook management
 
@@ -394,11 +394,11 @@ message GetReadyResponse {
   bool ready = 1;
 }
 
-message StreamPromptEventsRequest {}
+message StreamPromptActionsRequest {}
 // Prompt action event (e.g. user responded to a prompt via API).
 message PromptActionEvent {
   string source = 1;
-  string prompt_type = 2;
+  string type = 2;
   optional string subtype = 3;
   optional uint32 option = 4;
 }

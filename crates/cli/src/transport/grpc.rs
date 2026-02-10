@@ -459,17 +459,17 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(stream))
     }
 
-    type StreamPromptEventsStream = GrpcStream<proto::PromptActionEvent>;
+    type StreamPromptActionsStream = GrpcStream<proto::PromptActionEvent>;
 
-    async fn stream_prompt_events(
+    async fn stream_prompt_actions(
         &self,
-        _request: Request<proto::StreamPromptEventsRequest>,
-    ) -> Result<Response<Self::StreamPromptEventsStream>, Status> {
+        _request: Request<proto::StreamPromptActionsRequest>,
+    ) -> Result<Response<Self::StreamPromptActionsStream>, Status> {
         let prompt_rx = self.state.channels.prompt_tx.subscribe();
         let stream = spawn_broadcast_stream(prompt_rx, |event| {
             Some(proto::PromptActionEvent {
                 source: event.source,
-                prompt_type: event.r#type,
+                r#type: event.r#type,
                 subtype: event.subtype,
                 option: event.option,
             })

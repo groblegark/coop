@@ -16,7 +16,7 @@ use crate::transport::handler::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "event", rename_all = "snake_case")]
 pub enum ServerMessage {
     Output {
         data: String,
@@ -30,7 +30,7 @@ pub enum ServerMessage {
         cursor: Option<CursorPosition>,
         seq: u64,
     },
-    StateChange {
+    Transition {
         prev: String,
         next: String,
         seq: u64,
@@ -91,9 +91,10 @@ pub enum ServerMessage {
         injected: bool,
         seq: u64,
     },
+    #[serde(rename = "prompt")]
     PromptAction {
         source: String,
-        prompt_type: String,
+        r#type: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         subtype: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -162,7 +163,7 @@ pub enum ServerMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "event", rename_all = "snake_case")]
 pub enum ClientMessage {
     Input {
         text: String,
@@ -300,7 +301,7 @@ pub fn state_change_to_msg(event: &StateChangeEvent) -> ServerMessage {
         return ServerMessage::Exit { code: status.code, signal: status.signal };
     }
     let (error_detail, error_category) = extract_error_fields(&event.next);
-    ServerMessage::StateChange {
+    ServerMessage::Transition {
         prev: event.prev.as_str().to_owned(),
         next: event.next.as_str().to_owned(),
         seq: event.seq,

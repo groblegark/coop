@@ -66,11 +66,11 @@ async fn ws_connect_and_receive_pong() -> anyhow::Result<()> {
     let (mut tx, mut rx) = ws_connect(&addr, "").await?;
 
     // Send Ping
-    ws_send(&mut tx, &serde_json::json!({"type": "ping"})).await?;
+    ws_send(&mut tx, &serde_json::json!({"event": "ping"})).await?;
 
     // Should receive Pong
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
-    assert_eq!(resp.get("type").and_then(|t| t.as_str()), Some("pong"), "response: {resp}");
+    assert_eq!(resp.get("event").and_then(|t| t.as_str()), Some("pong"), "response: {resp}");
 
     Ok(())
 }
@@ -82,9 +82,9 @@ async fn ws_auth_query_param() -> anyhow::Result<()> {
 
     // Connect with correct token
     let (mut tx, mut rx) = ws_connect(&addr, "token=test-secret").await?;
-    ws_send(&mut tx, &serde_json::json!({"type": "ping"})).await?;
+    ws_send(&mut tx, &serde_json::json!({"event": "ping"})).await?;
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
-    assert_eq!(resp.get("type").and_then(|t| t.as_str()), Some("pong"));
+    assert_eq!(resp.get("event").and_then(|t| t.as_str()), Some("pong"));
 
     // Connect with wrong token — should get 401 HTTP response (connection refused)
     let url = format!("ws://{addr}/ws?token=wrong");
@@ -103,17 +103,17 @@ async fn ws_auth_message() -> anyhow::Result<()> {
     let (mut tx, mut rx) = ws_connect(&addr, "").await?;
 
     // Send wrong auth — should get error
-    ws_send(&mut tx, &serde_json::json!({"type": "auth", "token": "wrong"})).await?;
+    ws_send(&mut tx, &serde_json::json!({"event": "auth", "token": "wrong"})).await?;
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
-    assert_eq!(resp.get("type").and_then(|t| t.as_str()), Some("error"), "wrong auth: {resp}");
+    assert_eq!(resp.get("event").and_then(|t| t.as_str()), Some("error"), "wrong auth: {resp}");
 
     // Send correct auth — should succeed (no error response)
-    ws_send(&mut tx, &serde_json::json!({"type": "auth", "token": "auth-secret"})).await?;
+    ws_send(&mut tx, &serde_json::json!({"event": "auth", "token": "auth-secret"})).await?;
 
     // Verify subsequent operations work (ping/pong)
-    ws_send(&mut tx, &serde_json::json!({"type": "ping"})).await?;
+    ws_send(&mut tx, &serde_json::json!({"event": "ping"})).await?;
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
-    assert_eq!(resp.get("type").and_then(|t| t.as_str()), Some("pong"));
+    assert_eq!(resp.get("event").and_then(|t| t.as_str()), Some("pong"));
 
     Ok(())
 }
@@ -136,7 +136,7 @@ async fn ws_subscription_mode_raw() -> anyhow::Result<()> {
     // Should receive Output message
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
     assert_eq!(
-        resp.get("type").and_then(|t| t.as_str()),
+        resp.get("event").and_then(|t| t.as_str()),
         Some("output"),
         "raw mode should receive output: {resp}"
     );
@@ -168,11 +168,11 @@ async fn ws_subscription_mode_state() -> anyhow::Result<()> {
         last_message: None,
     });
 
-    // Should receive StateChange
+    // Should receive Transition
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
     assert_eq!(
-        resp.get("type").and_then(|t| t.as_str()),
-        Some("state_change"),
+        resp.get("event").and_then(|t| t.as_str()),
+        Some("transition"),
         "state mode should receive state changes: {resp}"
     );
     assert_eq!(resp.get("next").and_then(|n| n.as_str()), Some("working"));
@@ -200,7 +200,7 @@ async fn ws_subscription_mode_screen() -> anyhow::Result<()> {
     // Should receive Screen message
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
     assert_eq!(
-        resp.get("type").and_then(|t| t.as_str()),
+        resp.get("event").and_then(|t| t.as_str()),
         Some("screen"),
         "screen mode should receive screen updates: {resp}"
     );
@@ -222,10 +222,10 @@ async fn ws_replay_from_offset() -> anyhow::Result<()> {
     let (mut tx, mut rx) = ws_connect(&addr, "").await?;
 
     // Send replay from offset 0
-    ws_send(&mut tx, &serde_json::json!({"type": "replay", "offset": 0})).await?;
+    ws_send(&mut tx, &serde_json::json!({"event": "replay", "offset": 0})).await?;
 
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
-    assert_eq!(resp.get("type").and_then(|t| t.as_str()), Some("replay_result"));
+    assert_eq!(resp.get("event").and_then(|t| t.as_str()), Some("replay_result"));
     assert_eq!(resp.get("offset").and_then(|o| o.as_u64()), Some(0));
 
     // Decode data
@@ -262,8 +262,8 @@ async fn ws_concurrent_readers() -> anyhow::Result<()> {
     for (_tx, ref mut rx) in &mut clients {
         let resp = ws_recv(rx, RECV_TIMEOUT).await?;
         assert_eq!(
-            resp.get("type").and_then(|t| t.as_str()),
-            Some("state_change"),
+            resp.get("event").and_then(|t| t.as_str()),
+            Some("transition"),
             "all clients should receive state change"
         );
     }
@@ -278,7 +278,7 @@ async fn ws_resize_sends_event() -> anyhow::Result<()> {
 
     let (mut tx, _ws_rx) = ws_connect(&addr, "").await?;
 
-    ws_send(&mut tx, &serde_json::json!({"type": "resize", "cols": 120, "rows": 40})).await?;
+    ws_send(&mut tx, &serde_json::json!({"event": "resize", "cols": 120, "rows": 40})).await?;
 
     // Verify resize event received
     let event = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await?;

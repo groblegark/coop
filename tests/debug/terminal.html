@@ -81,13 +81,14 @@
   .ev-type-output       { color: #7cb7ff; }
   .ev-type-stream       { color: #7cb7ff; }
   .ev-type-screen       { color: #b8a0e8; }
-  .ev-type-state_change { color: #e8c84a; }
+  .ev-type-transition { color: #e8c84a; }
   .ev-type-exit         { color: #e06060; }
   .ev-type-error        { color: #e06060; }
   .ev-type-resize       { color: #6cc; }
   .ev-type-pong         { color: #666; }
   .ev-type-stop         { color: #e8a317; }
-  .ev-type-prompt_action { color: #4ec950; }
+  .ev-type-start        { color: #4ec950; }
+  .ev-type-prompt { color: #4ec950; }
   .ev-detail { color: #999; margin-left: 4px; }
 
   /* --- Actions panel --- */
@@ -328,6 +329,19 @@
           <div id="act-stop-result" class="action-result"></div>
         </div>
 
+        <!-- Start Config -->
+        <div class="action-section">
+          <div class="action-label">Start Config</div>
+          <div class="action-row">
+            <button class="action-btn" id="act-start-get">Get</button>
+            <button class="action-btn" id="act-start-put">Put</button>
+          </div>
+          <div class="action-row">
+            <textarea id="act-start-json" rows="2" placeholder='{"mode":"allow"}'></textarea>
+          </div>
+          <div id="act-start-result" class="action-result"></div>
+        </div>
+
         <!-- Shutdown -->
         <div class="action-section">
           <div class="action-label">Lifecycle</div>
@@ -525,16 +539,16 @@ let pongEl = null;
 let pongCount = 0;
 
 function logEvent(msg) {
-  const type = msg.type || '?';
+  const type = msg.event || '?';
   const now = new Date();
   const ts = now.toTimeString().slice(0, 8);
 
   // Collapse consecutive output+screen bursts in-place
-  if (type === 'output' || type === 'screen') {
+  if (type === 'output' || type === 'screen' || type === 'replay_result') {
     pongEl = null; pongCount = 0;
     if (streamEl && streamAcc) {
       // Update existing collapsed row
-      if (type === 'output') {
+      if (type === 'output' || type === 'replay_result') {
         const len = msg.data ? atob(msg.data).length : 0;
         streamAcc.count++;
         streamAcc.totalBytes += len;
@@ -549,7 +563,7 @@ function logEvent(msg) {
       return;
     }
     // Start a new collapsed row
-    if (type === 'output') {
+    if (type === 'output' || type === 'replay_result') {
       const len = msg.data ? atob(msg.data).length : 0;
       streamAcc = { count: 1, totalBytes: len, lastOffset: msg.offset + len,
                     lastSeq: 0, cols: 0, rows: 0 };
@@ -596,7 +610,7 @@ function logEvent(msg) {
 
   let detail = '';
   switch (type) {
-    case 'state_change':
+    case 'transition':
       detail = `${msg.prev} -> ${msg.next}`;
       if (msg.cause) detail += ` [${msg.cause}]`;
       if (msg.error_detail) detail += ` (${msg.error_category || 'error'})`;
@@ -613,7 +627,12 @@ function logEvent(msg) {
     case 'stop':
       detail = msg.stop_type || '';
       break;
-    case 'prompt_action':
+    case 'start':
+      detail = msg.source || '';
+      if (msg.session_id) detail += ` session=${msg.session_id}`;
+      if (msg.injected) detail += ' (injected)';
+      break;
+    case 'prompt':
       detail = `${msg.source}: ${msg.type || '?'}`;
       if (msg.subtype) detail += `(${msg.subtype})`;
       if (msg.option != null) detail += ` opt=${msg.option}`;
@@ -752,7 +771,7 @@ for (const key of KEY_DEFS) {
   btn.className = 'key-btn';
   btn.textContent = key;
   btn.addEventListener('click', () => {
-    send(ws, { type: 'keys', keys: [key] });
+    send(ws, { event: 'keys', keys: [key] });
   });
   keyGrid.appendChild(btn);
 }
@@ -778,7 +797,7 @@ document.getElementById('act-nudge').addEventListener('keydown', (e) => {
   }
 });
 
-let currentPrompt = null;  // PromptContext from last state_change
+let currentPrompt = null;  // PromptContext from last transition
 
 const respondPanels = {
   none: document.getElementById('act-respond-none'),
@@ -963,6 +982,26 @@ document.getElementById('act-stop-put').addEventListener('click', async () => {
   showResult('act-stop-result', res);
 });
 
+document.getElementById('act-start-get').addEventListener('click', async () => {
+  const res = await apiGet('/api/v1/config/start');
+  showResult('act-start-result', res);
+  if (res.ok && res.json) {
+    document.getElementById('act-start-json').value = JSON.stringify(res.json, null, 2);
+  }
+});
+
+document.getElementById('act-start-put').addEventListener('click', async () => {
+  const text = document.getElementById('act-start-json').value;
+  let body;
+  try { body = JSON.parse(text); } catch (_) {
+    document.getElementById('act-start-result').className = 'action-result err';
+    document.getElementById('act-start-result').textContent = 'Invalid JSON';
+    return;
+  }
+  const res = await apiPut('/api/v1/config/start', body);
+  showResult('act-start-result', res);
+});
+
 document.getElementById('act-shutdown').addEventListener('click', async () => {
   const res = await apiPost('/api/v1/shutdown', {});
   showResult('act-shutdown-result', res);
@@ -991,14 +1030,14 @@ function connect() {
     setStatus('connected', `Connected — localhost:${PORT}`);
 
     // Replay full history
-    send(ws, { type: 'replay', offset: 0 });
+    send(ws, { event: 'replay', offset: 0 });
 
     // Send initial resize
-    send(ws, { type: 'resize', cols: term.cols, rows: term.rows });
+    send(ws, { event: 'resize', cols: term.cols, rows: term.rows });
 
     // Keep-alive ping every 15s
     pingTimer = setInterval(() => {
-      send(ws, { type: 'ping' });
+      send(ws, { event: 'ping' });
     }, 15_000);
 
     // Kick off an API poll on connect
@@ -1012,18 +1051,18 @@ function connect() {
     // Log all events to sidebar
     logEvent(msg);
 
-    if (msg.type === 'output') {
+    if (msg.event === 'output' || msg.event === 'replay_result') {
       const bytes = b64decode(msg.data);
       term.write(bytes);
       info.textContent = `offset: ${msg.offset + bytes.length}`;
-    } else if (msg.type === 'state_change') {
+    } else if (msg.event === 'transition') {
       setAgentState(msg.next);
       updateRespondUI(msg.prompt ?? null);
-    } else if (msg.type === 'exit') {
+    } else if (msg.event === 'exit') {
       const desc = msg.signal != null ? `signal ${msg.signal}` : `code ${msg.code ?? '?'}`;
       setStatus('disconnected', `Exited (${desc})`);
       setAgentState('exited');
-    } else if (msg.type === 'error') {
+    } else if (msg.event === 'error') {
       console.warn('server error:', msg.code, msg.message);
     }
   };
@@ -1048,19 +1087,19 @@ const encoder = new TextEncoder();
 
 term.onData((str) => {
   const bytes = encoder.encode(str);
-  send(ws, { type: 'input_raw', data: b64encode(bytes) });
+  send(ws, { event: 'input_raw', data: b64encode(bytes) });
 });
 
 term.onBinary((data) => {
   const bytes = new Uint8Array(data.length);
   for (let i = 0; i < data.length; i++) bytes[i] = data.charCodeAt(i);
-  send(ws, { type: 'input_raw', data: b64encode(bytes) });
+  send(ws, { event: 'input_raw', data: b64encode(bytes) });
 });
 
 window.addEventListener('resize', () => fitAddon.fit());
 
 term.onResize(({ cols, rows }) => {
-  send(ws, { type: 'resize', cols, rows });
+  send(ws, { event: 'resize', cols, rows });
 });
 
 const resizeHandle = document.getElementById('resize-handle');

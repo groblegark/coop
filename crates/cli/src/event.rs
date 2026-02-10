@@ -40,7 +40,7 @@ pub enum InputEvent {
 
 /// A prompt response was delivered to the agent's terminal (auto-dismiss or API).
 #[derive(Debug, Clone)]
-pub struct PromptEvent {
+pub struct PromptAction {
     /// How the response was triggered: `"groom"` (auto-dismiss) or `"api"`.
     pub source: String,
     /// Prompt type responded to (e.g. `"setup"`, `"permission"`).

@@ -12,7 +12,7 @@ use crate::config::GroomLevel;
 use crate::driver::{
     AgentState, AgentType, ErrorCategory, ExitStatus, NudgeEncoder, RespondEncoder,
 };
-use crate::event::{InputEvent, OutputEvent, PromptEvent, StateChangeEvent};
+use crate::event::{InputEvent, OutputEvent, PromptAction, StateChangeEvent};
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::start::StartState;
@@ -111,7 +111,7 @@ pub struct TransportChannels {
     pub input_tx: mpsc::Sender<InputEvent>,
     pub output_tx: broadcast::Sender<OutputEvent>,
     pub state_tx: broadcast::Sender<StateChangeEvent>,
-    pub prompt_tx: broadcast::Sender<PromptEvent>,
+    pub prompt_tx: broadcast::Sender<PromptAction>,
 }
 
 /// Static session configuration (immutable after construction).

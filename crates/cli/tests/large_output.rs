@@ -117,7 +117,7 @@ async fn ws_replay_large_offset() -> anyhow::Result<()> {
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
 
     // Send replay from offset 128000
-    let replay = serde_json::json!({"type": "replay", "offset": 128000});
+    let replay = serde_json::json!({"event": "replay", "offset": 128000});
     ws_tx
         .send(WsMessage::Text(replay.to_string().into()))
         .await
@@ -136,7 +136,7 @@ async fn ws_replay_large_offset() -> anyhow::Result<()> {
 
     let parsed: serde_json::Value = serde_json::from_str(&text)?;
     assert_eq!(
-        parsed.get("type").and_then(|t| t.as_str()),
+        parsed.get("event").and_then(|t| t.as_str()),
         Some("replay_result"),
         "response: {text}"
     );

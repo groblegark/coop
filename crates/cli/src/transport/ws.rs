@@ -3,7 +3,7 @@
 
 //! WebSocket message types and handler for the coop real-time protocol.
 //!
-//! Messages use internally-tagged JSON enums (`{"type": "input", ...}`) as
+//! Messages use internally-tagged JSON enums (`{"event": "input", ...}`) as
 //! specified in DESIGN.md. Two top-level enums cover server-to-client and
 //! client-to-server directions.
 
@@ -100,7 +100,7 @@ async fn handle_connection(
                 if matches!(mode, SubscriptionMode::State | SubscriptionMode::All) {
                     let msg = ServerMessage::PromptAction {
                         source: event.source,
-                        prompt_type: event.r#type,
+                        r#type: event.r#type,
                         subtype: event.subtype,
                         option: event.option,
                     };

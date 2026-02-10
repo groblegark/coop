@@ -602,7 +602,7 @@ where
                             Ok(ServerMessage::Error { code, message }) => {
                                 return SessionResult::Disconnected(format!("[{code}] {message}"));
                             }
-                            Ok(ServerMessage::StateChange { next, .. }) => {
+                            Ok(ServerMessage::Transition { next, .. }) => {
                                 ctx.state.agent_state = next;
                                 if *ctx.sl_active {
                                     let content = match &ctx.sl_cfg.cmd {

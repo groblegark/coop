@@ -163,7 +163,7 @@
   1. Cursor parameter — HTTP: cursor: bool, gRPC: cursor: bool
   2. Health terminal size — HTTP nests: terminal: { cols, rows }, gRPC flattens: terminal_cols, terminal_rows
   3. Stop event signal — WS: signal: Option<Value> (inline JSON), gRPC: signal_json: Option<String> (serialized)
-  4. Agent state response — WS reuses StateChange message for StateRequest; HTTP/gRPC have dedicated AgentStateResponse / GetAgentStateResponse types
+  4. Agent state response — WS reuses Transition message for StateRequest; HTTP/gRPC have dedicated AgentStateResponse / GetAgentStateResponse types
 
   Behavioral Gaps
 
@@ -176,7 +176,7 @@
 
   2. WS StateRequest response is incomplete vs HTTP/gRPC GetAgentState
 
-  WS returns a synthetic StateChange (ws.rs:437-452), which is missing three fields that HTTP (http.rs:308-323) and gRPC (grpc.rs:243-267) include:
+  WS returns a synthetic Transition (ws.rs:437-452), which is missing three fields that HTTP (http.rs:308-323) and gRPC (grpc.rs:243-267) include:
   - agent (agent type)
   - since_seq (state sequence number — WS returns screen.seq() instead, conflating screen and state seq)
   - detection_tier
@@ -204,6 +204,6 @@
   7. gRPC StreamState doesn't emit PromptAction or Exit as distinct events
 
   WS broadcasts PromptAction events (respond source, prompt type, option chosen) and synthesizes a separate Exit message on process exit. gRPC's StreamState only emits
-  AgentStateEvent — prompt responses and exit are folded into state transitions. There's no StreamPromptEvents in the proto.
+  AgentStateEvent — prompt responses and exit are folded into state transitions. There's no StreamPromptActions in the proto.
 
 

@@ -9,7 +9,7 @@ agent state changes, and bidirectional control.
 - **URL**: `ws://localhost:{port}/ws`
 - **Query parameters**: `mode` (subscription mode), `token` (auth token)
 - **Protocol**: JSON text frames, one message per frame
-- **Message format**: Internally-tagged JSON (`{"type": "...", ...}`)
+- **Message format**: Internally-tagged JSON (`{"event": "...", ...}`)
 
 
 ## Authentication
@@ -17,7 +17,7 @@ agent state changes, and bidirectional control.
 WebSocket connections have two authentication paths:
 
 1. **Query parameter** -- pass `?token=<token>` on the upgrade request
-2. **Auth message** -- send a `{"type": "auth", "token": "..."}` message after connecting
+2. **Auth message** -- send a `{"event": "auth", "token": "..."}` message after connecting
 
 When `--auth-token` is configured, the WebSocket upgrade always succeeds
 (the `/ws` path skips HTTP auth middleware). If no token is provided in the
@@ -45,7 +45,7 @@ Set via the `mode` query parameter on the upgrade URL.
 |------|-------------|---------------|
 | Raw output | `raw` | `output` messages with base64-encoded PTY bytes |
 | Screen updates | `screen` | `screen` messages with rendered terminal state |
-| State changes | `state` | `state_change`, `exit`, `stop`, and `start` messages |
+| State changes | `state` | `transition`, `exit`, `stop`, and `start` messages |
 | All (default) | `all` | All of the above |
 
 Example: `ws://localhost:8080/ws?mode=screen&token=mytoken`
@@ -60,7 +60,7 @@ Raw PTY output chunk. Sent in `raw` and `all` modes.
 
 ```json
 {
-  "type": "output",
+  "event": "output",
   "data": "SGVsbG8gV29ybGQ=",
   "offset": 1024
 }
@@ -79,7 +79,7 @@ screen update, or in response to a `screen_request`.
 
 ```json
 {
-  "type": "screen",
+  "event": "screen",
   "lines": ["$ hello", "world", ""],
   "cols": 120,
   "rows": 40,
@@ -99,14 +99,14 @@ screen update, or in response to a `screen_request`.
 | `seq` | int | Monotonic screen sequence number |
 
 
-### `state_change`
+### `transition`
 
 Agent state transition. Sent in `state` and `all` modes, or in response
 to a `state_request`.
 
 ```json
 {
-  "type": "state_change",
+  "event": "transition",
   "prev": "working",
   "next": "prompt",
   "seq": 15,
@@ -142,12 +142,12 @@ to a `state_request`.
 
 ### `exit`
 
-Agent process exited. Sent in `state` and `all` modes. This replaces
-`state_change` for the terminal `exited` state.
+Agent process exited. Sent in `state` and `all` modes.
+This replaces `transition` for the terminal `exited` state.
 
 ```json
 {
-  "type": "exit",
+  "event": "exit",
   "code": 0,
   "signal": null
 }
@@ -165,7 +165,7 @@ Result of a `nudge` request. Always sent in response to a client `nudge`.
 
 ```json
 {
-  "type": "nudge_result",
+  "event": "nudge_result",
   "delivered": true,
   "state_before": "idle",
   "reason": null
@@ -185,7 +185,7 @@ Result of a `respond` request. Always sent in response to a client `respond`.
 
 ```json
 {
-  "type": "respond_result",
+  "event": "respond_result",
   "delivered": true,
   "prompt_type": "permission",
   "reason": null
@@ -205,7 +205,7 @@ Session status summary. Sent in response to a `status_request`.
 
 ```json
 {
-  "type": "status",
+  "event": "status",
   "state": "running",
   "pid": 12345,
   "uptime_secs": 120,
@@ -236,7 +236,7 @@ hook check occurs.
 
 ```json
 {
-  "type": "stop",
+  "event": "stop",
   "stop_type": "blocked",
   "signal": null,
   "error_detail": null,
@@ -269,7 +269,7 @@ lifecycle event fires.
 
 ```json
 {
-  "type": "start",
+  "event": "start",
   "source": "resume",
   "session_id": "abc123",
   "injected": true,
@@ -291,7 +291,7 @@ Error response to a client message.
 
 ```json
 {
-  "type": "error",
+  "event": "error",
   "code": "BAD_REQUEST",
   "message": "unknown key: badkey"
 }
@@ -309,7 +309,7 @@ Terminal resize notification. Sent when the PTY is resized.
 
 ```json
 {
-  "type": "resize",
+  "event": "resize",
   "cols": 120,
   "rows": 40
 }
@@ -322,7 +322,7 @@ Response to a client `ping`.
 
 ```json
 {
-  "type": "pong"
+  "event": "pong"
 }
 ```
 
@@ -336,7 +336,7 @@ Keepalive ping. No auth required.
 
 ```json
 {
-  "type": "ping"
+  "event": "ping"
 }
 ```
 
@@ -350,7 +350,7 @@ auth mechanism itself).
 
 ```json
 {
-  "type": "auth",
+  "event": "auth",
   "token": "my-secret-token"
 }
 ```
@@ -365,7 +365,7 @@ Request the current screen snapshot. No auth required.
 
 ```json
 {
-  "type": "screen_request"
+  "event": "screen_request"
 }
 ```
 
@@ -378,11 +378,11 @@ Request the current agent state. No auth required.
 
 ```json
 {
-  "type": "state_request"
+  "event": "state_request"
 }
 ```
 
-Server replies with a `state_change` message where `prev` and `next` are the
+Server replies with a `transition` message where `prev` and `next` are the
 same (representing current state, not a transition).
 
 
@@ -392,7 +392,7 @@ Request the current session status. No auth required.
 
 ```json
 {
-  "type": "status_request"
+  "event": "status_request"
 }
 ```
 
@@ -405,7 +405,7 @@ Request raw output from a specific byte offset. No auth required.
 
 ```json
 {
-  "type": "replay",
+  "event": "replay",
   "offset": 0
 }
 ```
@@ -414,7 +414,7 @@ Request raw output from a specific byte offset. No auth required.
 |-------|------|-------------|
 | `offset` | int | Byte offset to start reading from |
 
-Server replies with an `output` message containing the buffered data.
+Server replies with a `replay_result` message containing the buffered data.
 
 
 ### `input`
@@ -423,7 +423,7 @@ Write UTF-8 text to the PTY. **Requires auth.**
 
 ```json
 {
-  "type": "input",
+  "event": "input",
   "text": "hello",
   "enter": true
 }
@@ -443,7 +443,7 @@ Write base64-encoded raw bytes to the PTY. **Requires auth.**
 
 ```json
 {
-  "type": "input_raw",
+  "event": "input_raw",
   "data": "SGVsbG8="
 }
 ```
@@ -461,7 +461,7 @@ Send named key sequences to the PTY. **Requires auth.**
 
 ```json
 {
-  "type": "keys",
+  "event": "keys",
   "keys": ["ctrl-c", "enter"]
 }
 ```
@@ -479,7 +479,7 @@ Resize the PTY. No auth required.
 
 ```json
 {
-  "type": "resize",
+  "event": "resize",
   "cols": 120,
   "rows": 40
 }
@@ -500,7 +500,7 @@ Only succeeds when the agent is in `idle` state.
 
 ```json
 {
-  "type": "nudge",
+  "event": "nudge",
   "message": "Please continue"
 }
 ```
@@ -520,7 +520,7 @@ agent state.
 
 ```json
 {
-  "type": "respond",
+  "event": "respond",
   "accept": true,
   "option": null,
   "text": null,
@@ -547,7 +547,7 @@ Send a signal to the child process. **Requires auth.**
 
 ```json
 {
-  "type": "signal",
+  "event": "signal",
   "signal": "SIGINT"
 }
 ```
@@ -565,7 +565,7 @@ Initiate graceful shutdown of the coop process. **Requires auth.**
 
 ```json
 {
-  "type": "shutdown"
+  "event": "shutdown"
 }
 ```
 
