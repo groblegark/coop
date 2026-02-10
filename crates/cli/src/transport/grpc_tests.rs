@@ -260,6 +260,14 @@ fn service_instantiation_compiles() {
     let _router = service.into_router();
 }
 
+#[test]
+fn service_with_auth_compiles() {
+    let (state, _rx) = AppStateBuilder::new().child_pid(1234).auth_token("secret").build();
+    let service = CoopGrpc::new(state);
+    // Verify we can build the router with auth interceptor
+    let _router = service.into_router();
+}
+
 #[tokio::test]
 async fn send_input_raw_writes_bytes() -> anyhow::Result<()> {
     use crate::event::InputEvent;

@@ -333,6 +333,24 @@ async fn shutdown_requires_auth() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn read_operations_require_auth() -> anyhow::Result<()> {
+    let (state, _rx) = ws_test_state(AgentState::Working);
+    for msg in [
+        ClientMessage::ScreenRequest { include_cursor: false },
+        ClientMessage::StateRequest {},
+        ClientMessage::StatusRequest {},
+        ClientMessage::Replay { offset: 0 },
+    ] {
+        let reply = handle_client_message(&state, msg, "test-ws", &mut false).await;
+        match reply {
+            Some(ServerMessage::Error { code, .. }) => assert_eq!(code, "UNAUTHORIZED"),
+            other => anyhow::bail!("expected Unauthorized, got {other:?}"),
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn signal_delivers_sigint() -> anyhow::Result<()> {
     let (state, mut rx) = ws_test_state(AgentState::Working);
     let client_id = "test-ws";

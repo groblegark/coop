@@ -23,8 +23,8 @@ use crate::event::{OutputEvent, StateChangeEvent};
 use crate::screen::{CursorPosition, ScreenSnapshot};
 use crate::start::StartConfig;
 use crate::start::StartEvent;
-use crate::stop::StopEvent;
 use crate::stop::StopConfig;
+use crate::stop::StopEvent;
 use crate::transport::auth;
 use crate::transport::handler::{
     compute_health, compute_status, error_message, extract_error_fields, handle_input,
@@ -500,6 +500,7 @@ async fn handle_client_message(
         }
 
         ClientMessage::ScreenRequest { include_cursor } => {
+            require_auth!(authed);
             let snap = state.terminal.screen.read().await.snapshot();
             let seq = snap.sequence;
             Some(ServerMessage::Screen {
@@ -513,6 +514,7 @@ async fn handle_client_message(
         }
 
         ClientMessage::StateRequest {} => {
+            require_auth!(authed);
             let agent = state.driver.agent_state.read().await;
             let screen = state.terminal.screen.read().await;
             let detection = state.driver.detection.read().await;
@@ -534,9 +536,13 @@ async fn handle_client_message(
             })
         }
 
-        ClientMessage::StatusRequest {} => Some(compute_status(state).await.into()),
+        ClientMessage::StatusRequest {} => {
+            require_auth!(authed);
+            Some(compute_status(state).await.into())
+        }
 
         ClientMessage::Replay { offset } => {
+            require_auth!(authed);
             let ring = state.terminal.ring.read().await;
             let combined = read_ring_combined(&ring, offset);
             let encoded = base64::engine::general_purpose::STANDARD.encode(&combined);
