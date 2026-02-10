@@ -312,6 +312,7 @@ impl Session {
                                         let gate = Arc::clone(&self.app_state.delivery_gate);
                                         let expected_seq = state_seq;
                                         let driver = Arc::clone(&self.app_state.driver);
+                                        let terminal = Arc::clone(&self.app_state.terminal);
                                         let prompt_tx = self.app_state.channels.prompt_tx.clone();
                                         let prompt_type = prompt.kind.as_str().to_owned();
                                         let prompt_subtype = prompt.subtype.clone();
@@ -329,7 +330,42 @@ impl Session {
                                             if current != expected_seq {
                                                 return;
                                             }
-                                            let _ = crate::transport::deliver_steps(&tx, steps).await;
+                                            // Deliver steps one at a time. Between steps where a
+                                            // delay is present, check whether the screen already
+                                            // transitioned (e.g. number key auto-confirmed in a
+                                            // picker dialog). Skip remaining steps to prevent
+                                            // keystrokes bleeding into the next screen.
+                                            let step_count = steps.len();
+                                            for (i, step) in steps.into_iter().enumerate() {
+                                                // Snapshot screen before steps with a delay when
+                                                // more steps follow — we compare after the delay.
+                                                let pre_lines = if step.delay_after.is_some() && i + 1 < step_count {
+                                                    terminal.screen.try_read().ok().map(|s| s.snapshot().lines)
+                                                } else {
+                                                    None
+                                                };
+
+                                                if tx.send(InputEvent::Write(Bytes::from(step.bytes))).await.is_err() {
+                                                    break;
+                                                }
+                                                if let Some(delay) = step.delay_after {
+                                                    let (drain_tx, drain_rx) = tokio::sync::oneshot::channel();
+                                                    let _ = tx.send(InputEvent::WaitForDrain(drain_tx)).await;
+                                                    let _ = drain_rx.await;
+                                                    tokio::time::sleep(delay).await;
+                                                }
+
+                                                // If the screen content changed after the delay,
+                                                // the keystroke already took full effect — stop
+                                                // before sending the next step (e.g. Enter).
+                                                if let Some(pre) = pre_lines {
+                                                    if let Ok(screen) = terminal.screen.try_read() {
+                                                        if screen.snapshot().lines != pre {
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
                                             let _ = prompt_tx.send(PromptAction {
                                                 source: "groom".to_owned(),
                                                 r#type: prompt_type,

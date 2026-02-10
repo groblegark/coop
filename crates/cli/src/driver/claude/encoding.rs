@@ -21,35 +21,33 @@ impl Default for ClaudeRespondEncoder {
 
 impl RespondEncoder for ClaudeRespondEncoder {
     fn encode_permission(&self, option: u32) -> Vec<NudgeStep> {
-        vec![NudgeStep { bytes: format!("{option}\r").into_bytes(), delay_after: None }]
+        // Number key auto-confirms in Claude's TUI picker — no Enter needed.
+        vec![NudgeStep { bytes: format!("{option}").into_bytes(), delay_after: None }]
     }
 
     fn encode_plan(&self, option: u32, feedback: Option<&str>) -> Vec<NudgeStep> {
+        // Number key auto-confirms in Claude's TUI picker — no Enter needed.
         // Options 1-3 are direct selections; option 4 is freeform feedback.
-        if option <= 3 {
-            return vec![NudgeStep {
-                bytes: format!("{option}\r").into_bytes(),
-                delay_after: None,
-            }];
+        if option <= 3 || feedback.is_none() {
+            return vec![NudgeStep { bytes: format!("{option}").into_bytes(), delay_after: None }];
         }
 
-        // Option 4: type feedback text (the TUI opens a text input).
-        let mut steps = vec![NudgeStep {
-            bytes: format!("{option}\r").into_bytes(),
-            delay_after: feedback.map(|_| self.input_delay),
-        }];
-
-        if let Some(text) = feedback {
-            steps.push(NudgeStep { bytes: format!("{text}\r").into_bytes(), delay_after: None });
-        }
-
-        steps
+        // Option 4 with feedback: digit auto-selects the text input,
+        // then type feedback text + Enter to submit.
+        let text = feedback.unwrap_or_default();
+        vec![
+            NudgeStep {
+                bytes: format!("{option}").into_bytes(),
+                delay_after: Some(self.input_delay),
+            },
+            NudgeStep { bytes: format!("{text}\r").into_bytes(), delay_after: None },
+        ]
     }
 
     fn encode_question(
         &self,
         answers: &[QuestionAnswer],
-        total_questions: usize,
+        _total_questions: usize,
     ) -> Vec<NudgeStep> {
         if answers.is_empty() {
             return vec![];
@@ -67,26 +65,15 @@ impl RespondEncoder for ClaudeRespondEncoder {
             return steps;
         }
 
-        // Single answer in a multi-question dialog: just emit the digit (TUI auto-advances).
-        let answer = &answers[0];
-        if total_questions > 1 {
-            let bytes = self.encode_single_answer(answer);
-            return vec![NudgeStep { bytes, delay_after: None }];
-        }
-
-        // Single-question dialog: emit answer + confirm.
-        let bytes = self.encode_single_answer(answer);
-        vec![NudgeStep { bytes: [&bytes[..], b"\r"].concat(), delay_after: None }]
+        // Single answer: digit auto-confirms in the TUI picker, no Enter needed.
+        // For multi-question dialogs, the digit auto-advances to the next question.
+        let bytes = self.encode_single_answer(&answers[0]);
+        vec![NudgeStep { bytes, delay_after: None }]
     }
 
     fn encode_setup(&self, option: u32) -> Vec<NudgeStep> {
-        vec![
-            NudgeStep {
-                bytes: format!("{option}").into_bytes(),
-                delay_after: Some(self.input_delay),
-            },
-            NudgeStep { bytes: b"\r".to_vec(), delay_after: None },
-        ]
+        // Number key auto-confirms in Claude's TUI picker — no Enter needed.
+        vec![NudgeStep { bytes: format!("{option}").into_bytes(), delay_after: None }]
     }
 }
 

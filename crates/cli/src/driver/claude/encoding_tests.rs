@@ -90,9 +90,9 @@ fn compute_nudge_delay_large_message_capped() {
 }
 
 #[yare::parameterized(
-    option_1_yes            = { 1, b"1\r" as &[u8] },
-    option_2_dont_ask_again = { 2, b"2\r" },
-    option_3_no             = { 3, b"3\r" },
+    option_1_yes            = { 1, b"1" as &[u8] },
+    option_2_dont_ask_again = { 2, b"2" },
+    option_3_no             = { 3, b"3" },
 )]
 fn permission_encoding(option: u32, expected: &[u8]) {
     let encoder = ClaudeRespondEncoder::default();
@@ -102,9 +102,9 @@ fn permission_encoding(option: u32, expected: &[u8]) {
 }
 
 #[yare::parameterized(
-    option_1_clear_context = { 1, b"1\r" as &[u8] },
-    option_2_auto_accept   = { 2, b"2\r" },
-    option_3_manual        = { 3, b"3\r" },
+    option_1_clear_context = { 1, b"1" as &[u8] },
+    option_2_auto_accept   = { 2, b"2" },
+    option_3_manual        = { 3, b"3" },
 )]
 fn plan_accept_options(option: u32, expected: &[u8]) {
     let encoder = ClaudeRespondEncoder::default();
@@ -119,7 +119,7 @@ fn plan_option_4_with_feedback() {
     let encoder = ClaudeRespondEncoder::default();
     let steps = encoder.encode_plan(4, Some("Don't modify the schema"));
     assert_eq!(steps.len(), 2);
-    assert_eq!(steps[0].bytes, b"4\r");
+    assert_eq!(steps[0].bytes, b"4");
     assert_eq!(steps[0].delay_after, Some(Duration::from_millis(200)));
     assert_eq!(steps[1].bytes, b"Don't modify the schema\r");
     assert!(steps[1].delay_after.is_none());
@@ -130,7 +130,7 @@ fn plan_option_4_without_feedback() {
     let encoder = ClaudeRespondEncoder::default();
     let steps = encoder.encode_plan(4, None);
     assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"4\r");
+    assert_eq!(steps[0].bytes, b"4");
     assert!(steps[0].delay_after.is_none());
 }
 
@@ -140,7 +140,7 @@ fn question_single_with_option_number() {
     let answers = [QuestionAnswer { option: Some(2), text: None }];
     let steps = encoder.encode_question(&answers, 1);
     assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"2\r");
+    assert_eq!(steps[0].bytes, b"2");
 }
 
 #[test]
@@ -149,7 +149,7 @@ fn question_single_with_freeform_text() {
     let answers = [QuestionAnswer { option: None, text: Some("Use Redis instead".to_string()) }];
     let steps = encoder.encode_question(&answers, 1);
     assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"Use Redis instead\r\r");
+    assert_eq!(steps[0].bytes, b"Use Redis instead\r");
 }
 
 #[test]

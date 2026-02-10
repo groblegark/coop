@@ -84,9 +84,9 @@ fn non_fallback_permission_uses_encoder() {
         .with_ready();
     let state = AgentState::Prompt { prompt };
     let (steps, _) = encode_response(&state, &encoder, Some(true), None, None, &[]).unwrap();
-    // Non-fallback should use the encoder's digit format (e.g. "1\r")
+    // Non-fallback: digit only (TUI auto-confirms on number key).
     assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"1\r");
+    assert_eq!(steps[0].bytes, b"1");
 }
 
 #[test]
@@ -98,9 +98,8 @@ fn setup_prompt_defaults_to_option_1() {
         .with_ready();
     let state = AgentState::Prompt { prompt };
     let (steps, count) = encode_response(&state, &encoder, None, None, None, &[]).unwrap();
-    assert_eq!(steps.len(), 2);
+    assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].bytes, b"1");
-    assert_eq!(steps[1].bytes, b"\r");
     assert_eq!(count, 0);
 }
 
@@ -113,9 +112,8 @@ fn setup_prompt_respects_explicit_option() {
         .with_ready();
     let state = AgentState::Prompt { prompt };
     let (steps, _) = encode_response(&state, &encoder, None, Some(2), None, &[]).unwrap();
-    assert_eq!(steps.len(), 2);
+    assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].bytes, b"2");
-    assert_eq!(steps[1].bytes, b"\r");
 }
 
 #[tokio::test]
