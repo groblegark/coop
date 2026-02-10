@@ -460,3 +460,54 @@ pub async fn spawn_grpc_server(
     });
     Ok((addr, handle))
 }
+
+/// A `nats-server` child process bound to a random port.
+///
+/// The server is killed when this handle is dropped.
+pub struct NatsServer {
+    child: std::process::Child,
+    /// The port the server is listening on.
+    pub port: u16,
+}
+
+impl NatsServer {
+    /// Start a `nats-server` on a random port.
+    ///
+    /// Returns `None` if `nats-server` is not on `$PATH`.
+    pub fn start() -> Option<Self> {
+        // Find a free port by binding to :0 then immediately releasing.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").ok()?;
+        let port = listener.local_addr().ok()?.port();
+        drop(listener);
+
+        let child = std::process::Command::new("nats-server")
+            .args(["-p", &port.to_string(), "--no_sig"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .ok()?;
+
+        // Wait for the server to be ready by polling the port.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                return Some(Self { child, port });
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        None
+    }
+
+    /// NATS connection URL for this server.
+    pub fn url(&self) -> String {
+        format!("nats://127.0.0.1:{}", self.port)
+    }
+}
+
+impl Drop for NatsServer {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
