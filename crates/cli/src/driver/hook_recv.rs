@@ -34,7 +34,7 @@ pub struct HookReceiver {
 
 /// Intermediate type for parsing hook JSON from the pipe.
 #[derive(Deserialize)]
-struct RawHookEvent {
+struct RawHookJson {
     event: String,
     data: Option<serde_json::Value>,
 }
@@ -58,13 +58,14 @@ impl HookReceiver {
     /// Read the next hook event from the pipe.
     ///
     /// Returns `None` on EOF or unrecoverable error. Skips malformed lines.
-    pub async fn next_event(&mut self) -> Option<HookEvent> {
+    /// The second element is the raw JSON value of the entire hook line.
+    pub async fn next_event(&mut self) -> Option<(HookEvent, serde_json::Value)> {
         self.ensure_fd().ok()?;
 
         loop {
             // Drain complete lines from the buffer first.
-            if let Some(event) = self.try_parse_line() {
-                return Some(event);
+            if let Some(pair) = self.try_parse_line() {
+                return Some(pair);
             }
 
             // Read more data from the pipe via non-blocking I/O.
@@ -90,13 +91,13 @@ impl HookReceiver {
     ///
     /// Drains malformed lines and returns the first valid event, or `None`
     /// if no complete lines remain.
-    fn try_parse_line(&mut self) -> Option<HookEvent> {
+    fn try_parse_line(&mut self) -> Option<(HookEvent, serde_json::Value)> {
         loop {
             let pos = self.line_buf.iter().position(|&b| b == b'\n')?;
             let line = String::from_utf8_lossy(&self.line_buf[..pos]).to_string();
             self.line_buf.drain(..=pos);
-            if let Some(event) = parse_hook_line(line.trim()) {
-                return Some(event);
+            if let Some(pair) = parse_hook_line(line.trim()) {
+                return Some(pair);
             }
             // Malformed line — drain it and try the next one.
         }
@@ -127,10 +128,11 @@ impl Drop for HookReceiver {
     }
 }
 
-/// Parse a raw JSON line from the hook pipe into a [`HookEvent`].
-fn parse_hook_line(line: &str) -> Option<HookEvent> {
-    let raw: RawHookEvent = serde_json::from_str(line).ok()?;
-    match raw.event.as_str() {
+/// Parse a raw JSON line from the hook pipe into a [`HookEvent`] and the raw JSON value.
+fn parse_hook_line(line: &str) -> Option<(HookEvent, serde_json::Value)> {
+    let raw_json: serde_json::Value = serde_json::from_str(line).ok()?;
+    let raw: RawHookJson = serde_json::from_value(raw_json.clone()).ok()?;
+    let event = match raw.event.as_str() {
         "post_tool_use" | "after_tool" => {
             let tool = raw
                 .data
@@ -139,27 +141,28 @@ fn parse_hook_line(line: &str) -> Option<HookEvent> {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
-            Some(HookEvent::ToolAfter { tool })
+            HookEvent::ToolAfter { tool }
         }
-        "before_agent" | "user_prompt_submit" => Some(HookEvent::TurnStart),
-        "stop" => Some(HookEvent::TurnEnd),
-        "session_end" => Some(HookEvent::SessionEnd),
+        "before_agent" | "user_prompt_submit" => HookEvent::TurnStart,
+        "stop" => HookEvent::TurnEnd,
+        "session_end" => HookEvent::SessionEnd,
         "notification" => {
             let data = raw.data?;
             let notification_type =
                 data.get("notification_type").and_then(|v| v.as_str())?.to_string();
-            Some(HookEvent::Notification { notification_type })
+            HookEvent::Notification { notification_type }
         }
         "pre_tool_use" => {
             let data = raw.data?;
             let tool =
                 data.get("tool_name").and_then(|v| v.as_str()).unwrap_or_default().to_string();
             let tool_input = data.get("tool_input").cloned();
-            Some(HookEvent::ToolBefore { tool, tool_input })
+            HookEvent::ToolBefore { tool, tool_input }
         }
-        "start" => Some(HookEvent::SessionStart),
-        _ => None,
-    }
+        "start" => HookEvent::SessionStart,
+        _ => return None,
+    };
+    Some((event, raw_json))
 }
 
 #[cfg(test)]

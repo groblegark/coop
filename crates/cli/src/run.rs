@@ -223,28 +223,69 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     // 5. Build driver (detectors + encoders). For Claude, uses real paths
     //    from the setup so detectors actually activate.
-    let log_start_offset = resume_state.as_ref().map(|s| s.log_offset).unwrap_or(0);
-    let pid_terminal = Arc::clone(&terminal);
-    let rtw_for_driver = Arc::clone(&terminal.ring_total_written);
+    //    Create raw broadcast channels early so detectors can capture senders.
+    let (hook_tx, _) = broadcast::channel(64);
+    let (message_tx, _) = broadcast::channel(64);
+
     let last_message: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
-    let (nudge_encoder, respond_encoder, mut detectors, option_parser) = build_driver(
-        &config,
-        agent_enum,
-        claude_setup.as_ref(),
-        gemini_setup.as_ref(),
-        Arc::new(move || {
-            let v = pid_terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
-            if v == 0 {
-                None
-            } else {
-                Some(v)
+    let mut driver = match agent_enum {
+        AgentType::Claude => {
+            let log_start_offset = resume_state.as_ref().map(|s| s.log_offset).unwrap_or(0);
+            build_claude_driver(
+                &config,
+                claude_setup.as_ref(),
+                pristine_log_path,
+                log_start_offset,
+                &last_message,
+                &hook_tx,
+                &message_tx,
+            )?
+        }
+        AgentType::Gemini => {
+            let pid_terminal = Arc::clone(&terminal);
+            let rtw_for_driver = Arc::clone(&terminal.ring_total_written);
+            build_gemini_driver(
+                &config,
+                gemini_setup.as_ref(),
+                Arc::new(move || {
+                    let v = pid_terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
+                    if v == 0 {
+                        None
+                    } else {
+                        Some(v)
+                    }
+                }),
+                Arc::new(move || rtw_for_driver.load(std::sync::atomic::Ordering::Relaxed)),
+                &hook_tx,
+                &message_tx,
+            )?
+        }
+        AgentType::Unknown => {
+            let pid_terminal = Arc::clone(&terminal);
+            let rtw_for_driver = Arc::clone(&terminal.ring_total_written);
+            DriverContext {
+                nudge_encoder: None,
+                respond_encoder: None,
+                detectors: crate::driver::unknown::build_detectors(
+                    &config,
+                    Arc::new(move || {
+                        let v = pid_terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
+                        if v == 0 {
+                            None
+                        } else {
+                            Some(v)
+                        }
+                    }),
+                    Arc::new(move || rtw_for_driver.load(std::sync::atomic::Ordering::Relaxed)),
+                    None,
+                )?,
+                option_parser: None,
             }
-        }),
-        Arc::new(move || rtw_for_driver.load(std::sync::atomic::Ordering::Relaxed)),
-        log_start_offset,
-        &last_message,
-        pristine_log_path,
-    )?;
+        }
+        AgentType::Codex => {
+            anyhow::bail!("{agent_enum:?} driver is not yet implemented");
+        }
+    };
 
     // Tier 5: Claude screen detector for idle prompt detection.
     if agent_enum == AgentType::Claude {
@@ -262,11 +303,11 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
                     }
                 })
             });
-        detectors.push(Box::new(crate::driver::claude::screen::ClaudeScreenDetector::new(
+        driver.detectors.push(Box::new(crate::driver::claude::screen::ClaudeScreenDetector::new(
             &config,
             snapshot_fn,
         )));
-        detectors.sort_by_key(|d| d.tier());
+        driver.detectors.sort_by_key(|d| d.tier());
     }
 
     // 6. Spawn backend AFTER driver is built (FIFO must exist before child starts).
@@ -319,13 +360,20 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             error: RwLock::new(None),
             last_message,
         }),
-        channels: TransportChannels { input_tx, output_tx, state_tx, prompt_tx },
+        channels: TransportChannels {
+            input_tx,
+            output_tx,
+            state_tx,
+            prompt_tx,
+            hook_tx,
+            message_tx,
+        },
         config: SessionSettings {
             started_at: Instant::now(),
             agent: agent_enum,
             auth_token: config.auth_token.clone(),
-            nudge_encoder,
-            respond_encoder,
+            nudge_encoder: driver.nudge_encoder,
+            respond_encoder: driver.respond_encoder,
             nudge_timeout: config.nudge_timeout(),
             groom: config.groom_level()?,
         },
@@ -457,9 +505,9 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     // Build session (but don't run yet — caller may need store first)
     let mut session_config =
         crate::session::SessionConfig::new(Arc::clone(&store), backend, consumer_input_rx)
-            .with_detectors(detectors)
+            .with_detectors(driver.detectors)
             .with_shutdown(shutdown);
-    if let Some(parser) = option_parser {
+    if let Some(parser) = driver.option_parser {
         session_config = session_config.with_option_parser(parser);
     }
     let session = Session::new(&config, session_config);
@@ -467,75 +515,71 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     Ok(PreparedSession { store, session, config })
 }
 
-type DriverComponents = (
-    Option<Arc<dyn NudgeEncoder>>,
-    Option<Arc<dyn RespondEncoder>>,
-    Vec<Box<dyn Detector>>,
-    Option<OptionParser>,
-);
+struct DriverContext {
+    nudge_encoder: Option<Arc<dyn NudgeEncoder>>,
+    respond_encoder: Option<Arc<dyn RespondEncoder>>,
+    detectors: Vec<Box<dyn Detector>>,
+    option_parser: Option<OptionParser>,
+}
 
-// TODO(refactor): group build_driver params into a struct when adding more
-#[allow(clippy::too_many_arguments)]
-fn build_driver(
+fn build_claude_driver(
     config: &Config,
-    agent: AgentType,
     claude_setup: Option<&ClaudeSessionSetup>,
+    pristine_log_path: Option<std::path::PathBuf>,
+    log_start_offset: u64,
+    last_message: &Arc<RwLock<Option<String>>>,
+    hook_tx: &broadcast::Sender<crate::event::RawHookEvent>,
+    message_tx: &broadcast::Sender<crate::event::RawMessageEvent>,
+) -> anyhow::Result<DriverContext> {
+    // In pristine mode: no hook pipe (Tier 1), but keep session log (Tier 2).
+    let hook_pipe = claude_setup.map(|s| s.hook_pipe_path.as_path());
+    let log_path = claude_setup.map(|s| s.session_log_path.clone()).or(pristine_log_path);
+    let driver = ClaudeDriver::new(
+        config,
+        hook_pipe,
+        log_path,
+        None,
+        log_start_offset,
+        Some(Arc::clone(last_message)),
+        Some(hook_tx.clone()),
+        Some(message_tx.clone()),
+    )?;
+    Ok(DriverContext {
+        nudge_encoder: Some(Arc::new(driver.nudge)),
+        respond_encoder: Some(Arc::new(driver.respond)),
+        detectors: driver.detectors,
+        option_parser: Some(Arc::new(crate::driver::claude::screen::parse_options_from_screen)),
+    })
+}
+
+fn build_gemini_driver(
+    config: &Config,
     gemini_setup: Option<&GeminiSessionSetup>,
     child_pid_fn: Arc<dyn Fn() -> Option<u32> + Send + Sync>,
     ring_total_written_fn: Arc<dyn Fn() -> u64 + Send + Sync>,
-    log_start_offset: u64,
-    last_message: &Arc<RwLock<Option<String>>>,
-    pristine_log_path: Option<std::path::PathBuf>,
-) -> anyhow::Result<DriverComponents> {
-    match agent {
-        AgentType::Claude => {
-            // In pristine mode: no hook pipe (Tier 1), but keep session log (Tier 2).
-            let hook_pipe = claude_setup.map(|s| s.hook_pipe_path.as_path());
-            let log_path = claude_setup.map(|s| s.session_log_path.clone()).or(pristine_log_path);
-            let driver = ClaudeDriver::new(
-                config,
-                hook_pipe,
-                log_path,
-                None,
-                log_start_offset,
-                Some(Arc::clone(last_message)),
-            )?;
-            let nudge: Arc<dyn NudgeEncoder> = Arc::new(driver.nudge);
-            let respond: Arc<dyn RespondEncoder> = Arc::new(driver.respond);
-            let detectors = driver.detectors;
-            let option_parser: OptionParser =
-                Arc::new(crate::driver::claude::screen::parse_options_from_screen);
-            Ok((Some(nudge), Some(respond), detectors, Some(option_parser)))
-        }
-        AgentType::Gemini => {
-            let driver =
-                GeminiDriver::new(config, gemini_setup.map(|s| s.hook_pipe_path.as_path()), None)?;
-            let nudge: Arc<dyn NudgeEncoder> = Arc::new(driver.nudge);
-            let respond: Arc<dyn RespondEncoder> = Arc::new(driver.respond);
-            let mut detectors = driver.detectors;
-            // Tier 4: ProcessMonitor fallback for basic Working/Exited detection
-            detectors.push(Box::new(
-                ProcessMonitor::new(child_pid_fn, ring_total_written_fn)
-                    .with_poll_interval(config.process_poll()),
-            ));
-            detectors.sort_by_key(|d| d.tier());
-            let option_parser: OptionParser =
-                Arc::new(crate::driver::gemini::screen::parse_options_from_screen);
-            Ok((Some(nudge), Some(respond), detectors, Some(option_parser)))
-        }
-        AgentType::Unknown => {
-            let detectors = crate::driver::unknown::build_detectors(
-                config,
-                child_pid_fn,
-                ring_total_written_fn,
-                None,
-            )?;
-            Ok((None, None, detectors, None))
-        }
-        AgentType::Codex => {
-            anyhow::bail!("{agent:?} driver is not yet implemented");
-        }
-    }
+    hook_tx: &broadcast::Sender<crate::event::RawHookEvent>,
+    message_tx: &broadcast::Sender<crate::event::RawMessageEvent>,
+) -> anyhow::Result<DriverContext> {
+    let driver = GeminiDriver::new(
+        config,
+        gemini_setup.map(|s| s.hook_pipe_path.as_path()),
+        None,
+        Some(hook_tx.clone()),
+        Some(message_tx.clone()),
+    )?;
+    let mut detectors = driver.detectors;
+    // Tier 4: ProcessMonitor fallback for basic Working/Exited detection
+    detectors.push(Box::new(
+        ProcessMonitor::new(child_pid_fn, ring_total_written_fn)
+            .with_poll_interval(config.process_poll()),
+    ));
+    detectors.sort_by_key(|d| d.tier());
+    Ok(DriverContext {
+        nudge_encoder: Some(Arc::new(driver.nudge)),
+        respond_encoder: Some(Arc::new(driver.respond)),
+        detectors,
+        option_parser: Some(Arc::new(crate::driver::gemini::screen::parse_options_from_screen)),
+    })
 }
 
 /// Pristine-mode extras: CLI args, env vars, and optional session log path for Tier 2.

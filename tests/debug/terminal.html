@@ -388,7 +388,7 @@ import { Terminal }  from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm'
 const params = new URLSearchParams(location.search);
 const PORT = params.get('port') || '7070';
 const BASE = `http://localhost:${PORT}`;
-const WS_URL = `ws://localhost:${PORT}/ws?mode=all`;
+const WS_URL = `ws://localhost:${PORT}/ws?subscribe=output,screen,state`;
 
 const dot        = document.getElementById('dot');
 const label      = document.getElementById('label');

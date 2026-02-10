@@ -285,16 +285,16 @@ pub async fn run(args: &[String]) -> i32 {
     .await
 }
 
-/// Build the WebSocket URL and subscription mode query param.
-fn build_ws_url(base_url: &str, sl_enabled: bool) -> String {
-    let mode = if sl_enabled { "all" } else { "raw" };
+/// Build the WebSocket URL with subscription flags.
+fn build_ws_url(base_url: &str) -> String {
+    let subscribe = "output,state";
     let base = base_url.trim_end_matches('/');
     if let Some(rest) = base.strip_prefix("https://") {
-        format!("wss://{rest}/ws?mode={mode}")
+        format!("wss://{rest}/ws?subscribe={subscribe}")
     } else if let Some(rest) = base.strip_prefix("http://") {
-        format!("ws://{rest}/ws?mode={mode}")
+        format!("ws://{rest}/ws?subscribe={subscribe}")
     } else {
-        format!("ws://{base}/ws?mode={mode}")
+        format!("ws://{base}/ws?subscribe={subscribe}")
     }
 }
 
@@ -302,7 +302,6 @@ fn build_ws_url(base_url: &str, sl_enabled: bool) -> String {
 async fn connect_ws(
     url: Option<&str>,
     socket: Option<&str>,
-    sl_enabled: bool,
 ) -> Result<
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     String,
@@ -317,7 +316,7 @@ async fn connect_ws(
     }
 
     let base_url = url.ok_or("no URL or socket provided")?;
-    let ws_url = build_ws_url(base_url, sl_enabled);
+    let ws_url = build_ws_url(base_url);
     let (stream, _response) =
         tokio_tungstenite::connect_async(&ws_url).await.map_err(|e| format!("{e}"))?;
     Ok(stream)
@@ -400,7 +399,7 @@ async fn attach(
 
     loop {
         // Connect WebSocket.
-        let ws_stream = match connect_ws(url, socket, sl_cfg.enabled).await {
+        let ws_stream = match connect_ws(url, socket).await {
             Ok(s) => s,
             Err(e) => {
                 if attempt == 0 {

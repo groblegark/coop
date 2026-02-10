@@ -26,6 +26,7 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
         start_offset: 0,
         poll_interval: std::time::Duration::from_secs(5),
         last_message: None,
+        raw_message_tx: None,
     });
     assert_eq!(detector.tier(), 2);
 
@@ -70,6 +71,7 @@ async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
         start_offset: 0,
         poll_interval: std::time::Duration::from_secs(5),
         last_message: None,
+        raw_message_tx: None,
     });
     let (state_tx, mut state_rx) = mpsc::channel(32);
     let shutdown = CancellationToken::new();
@@ -96,7 +98,7 @@ async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
 #[tokio::test]
 async fn stdout_detector_parses_jsonl_bytes() -> anyhow::Result<()> {
     let (bytes_tx, bytes_rx) = mpsc::channel(32);
-    let detector = Box::new(super::new_stdout_detector(bytes_rx, None));
+    let detector = Box::new(super::new_stdout_detector(bytes_rx, None, None));
     assert_eq!(detector.tier(), 3);
 
     let (state_tx, mut state_rx) = mpsc::channel(32);
@@ -134,7 +136,7 @@ async fn run_hook_detector(events: Vec<&str>) -> anyhow::Result<Vec<AgentState>>
     let dir = tempfile::tempdir()?;
     let pipe_path = dir.path().join("hook.pipe");
     let receiver = HookReceiver::new(&pipe_path)?;
-    let detector = Box::new(super::new_hook_detector(receiver));
+    let detector = Box::new(super::new_hook_detector(receiver, None));
     assert_eq!(detector.tier(), 1);
 
     let (state_tx, mut state_rx) = mpsc::channel(32);

@@ -11,11 +11,12 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::jsonl_stdout::JsonlParser;
 use crate::driver::{AgentState, Detector};
+use crate::event::RawMessageEvent;
 
 /// Classifies a parsed JSON entry into an `(AgentState, cause)` pair.
 type ClassifyFn = Box<dyn Fn(&serde_json::Value) -> Option<(AgentState, String)> + Send>;
@@ -33,6 +34,8 @@ pub struct StdoutDetector {
     pub extract_message: Option<ExtractMessageFn>,
     /// Shared last assistant message text (written directly, bypasses detector pipeline).
     pub last_message: Option<Arc<RwLock<Option<String>>>>,
+    /// Optional sender for raw message JSON broadcast.
+    pub raw_message_tx: Option<broadcast::Sender<RawMessageEvent>>,
 }
 
 impl Detector for StdoutDetector {
@@ -47,6 +50,7 @@ impl Detector for StdoutDetector {
             let classify = self.classify;
             let extract_message = self.extract_message;
             let last_message = self.last_message;
+            let raw_message_tx = self.raw_message_tx;
 
             loop {
                 tokio::select! {
@@ -55,6 +59,12 @@ impl Detector for StdoutDetector {
                         match data {
                             Some(bytes) => {
                                 for json in parser.feed(&bytes) {
+                                    if let Some(ref tx) = raw_message_tx {
+                                        let _ = tx.send(RawMessageEvent {
+                                            json: json.clone(),
+                                            source: "stdout".to_owned(),
+                                        });
+                                    }
                                     if let Some(ref extract) = extract_message {
                                         if let Some(text) = extract(&json) {
                                             if let Some(ref lm) = last_message {

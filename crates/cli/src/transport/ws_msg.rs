@@ -220,6 +220,17 @@ pub enum ServerMessage {
         option: Option<u32>,
     },
 
+    // Raw streams
+    #[serde(rename = "hook:raw")]
+    HookRaw {
+        data: serde_json::Value,
+    },
+    #[serde(rename = "message:raw")]
+    MessageRaw {
+        data: serde_json::Value,
+        source: String,
+    },
+
     // Stop hook
     #[serde(rename = "stop:config")]
     StopConfig {
@@ -274,23 +285,55 @@ pub enum ServerMessage {
     },
 }
 
-/// WebSocket subscription mode (query parameter on upgrade).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SubscriptionMode {
-    Raw,
-    Screen,
-    State,
-    #[default]
-    All,
+/// WebSocket subscription flags parsed from `?subscribe=output,screen,state,hooks,messages`.
+///
+/// Defaults to no messages.
+/// Clients must opt-in with `?subscribe=` param.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SubscriptionFlags {
+    pub output: bool,
+    pub screen: bool,
+    pub state: bool,
+    pub hooks: bool,
+    pub messages: bool,
+}
+
+impl SubscriptionFlags {
+    /// Parse a comma-separated flags string (e.g. `"output,state,hooks"`).
+    /// Unknown flag names are silently ignored.
+    pub fn parse(s: &str) -> Self {
+        let mut flags = Self::default();
+        for token in s.split(',') {
+            match token.trim() {
+                "output" => flags.output = true,
+                "screen" => flags.screen = true,
+                "state" => flags.state = true,
+                "hooks" => flags.hooks = true,
+                "messages" => flags.messages = true,
+                _ => {}
+            }
+        }
+        flags
+    }
 }
 
 /// Query parameters for WebSocket upgrade.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WsQuery {
-    #[serde(default)]
-    pub mode: SubscriptionMode,
     pub token: Option<String>,
+    /// Comma-separated subscription flags (e.g. `raw,state,hooks`).
+    /// Default (absent) = no subscriptions (request-reply only).
+    pub subscribe: Option<String>,
+}
+
+impl WsQuery {
+    /// Resolve the effective subscription flags from query parameters.
+    pub fn flags(&self) -> SubscriptionFlags {
+        match self.subscribe {
+            Some(ref s) => SubscriptionFlags::parse(s),
+            None => SubscriptionFlags::default(),
+        }
+    }
 }
 
 impl From<SessionStatus> for ServerMessage {

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::hook_detect::HookDetector;
@@ -16,6 +16,7 @@ use crate::driver::hook_recv::HookReceiver;
 use crate::driver::log_watch::LogWatcher;
 use crate::driver::HookEvent;
 use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
+use crate::event::{RawHookEvent, RawMessageEvent};
 
 use super::parse::{extract_assistant_text, format_claude_cause, parse_claude_state};
 use super::prompt::extract_ask_user_from_tool_input;
@@ -65,8 +66,11 @@ pub fn map_claude_hook(event: HookEvent) -> Option<(AgentState, String)> {
 }
 
 /// Create a Tier 1 hook detector for Claude.
-pub fn new_hook_detector(receiver: HookReceiver) -> impl Detector {
-    HookDetector { receiver, map_event: map_claude_hook }
+pub fn new_hook_detector(
+    receiver: HookReceiver,
+    raw_hook_tx: Option<broadcast::Sender<RawHookEvent>>,
+) -> impl Detector {
+    HookDetector { receiver, map_event: map_claude_hook, raw_hook_tx }
 }
 
 /// Tier 2 detector: watches Claude's session log file for new JSONL entries.
@@ -81,6 +85,8 @@ pub struct LogDetector {
     pub poll_interval: Duration,
     /// Shared last assistant message text (written directly, bypasses detector pipeline).
     pub last_message: Option<Arc<RwLock<Option<String>>>>,
+    /// Optional sender for raw message JSON broadcast.
+    pub raw_message_tx: Option<broadcast::Sender<RawMessageEvent>>,
 }
 
 impl Detector for LogDetector {
@@ -99,6 +105,7 @@ impl Detector for LogDetector {
             let (line_tx, mut line_rx) = mpsc::channel(32);
             let watch_shutdown = shutdown.clone();
             let last_message = self.last_message;
+            let raw_message_tx = self.raw_message_tx;
 
             tokio::spawn(async move {
                 watcher.run(line_tx, watch_shutdown).await;
@@ -112,6 +119,12 @@ impl Detector for LogDetector {
                             Some(lines) => {
                                 for line in &lines {
                                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+                                        if let Some(ref tx) = raw_message_tx {
+                                            let _ = tx.send(RawMessageEvent {
+                                                json: json.clone(),
+                                                source: "log".to_owned(),
+                                            });
+                                        }
                                         if let Some(text) = extract_assistant_text(&json) {
                                             if let Some(ref lm) = last_message {
                                                 *lm.write().await = Some(text);
@@ -145,6 +158,7 @@ impl Detector for LogDetector {
 pub fn new_stdout_detector(
     stdout_rx: mpsc::Receiver<Bytes>,
     last_message: Option<Arc<RwLock<Option<String>>>>,
+    raw_message_tx: Option<broadcast::Sender<RawMessageEvent>>,
 ) -> impl Detector {
     use crate::driver::stdout_detect::StdoutDetector;
     StdoutDetector {
@@ -156,6 +170,7 @@ pub fn new_stdout_detector(
         }),
         extract_message: Some(Box::new(extract_assistant_text)),
         last_message,
+        raw_message_tx,
     }
 }
 

@@ -10,7 +10,7 @@ use crate::driver::{AgentState, Detector};
 #[tokio::test]
 async fn stdout_detector_parses_gemini_stream_json() -> anyhow::Result<()> {
     let (bytes_tx, bytes_rx) = mpsc::channel(32);
-    let detector = Box::new(super::new_stdout_detector(bytes_rx));
+    let detector = Box::new(super::new_stdout_detector(bytes_rx, None));
     assert_eq!(detector.tier(), 3);
 
     let (state_tx, mut state_rx) = mpsc::channel(32);
@@ -43,7 +43,7 @@ async fn stdout_detector_parses_gemini_stream_json() -> anyhow::Result<()> {
 #[tokio::test]
 async fn stdout_detector_detects_result_as_idle() -> anyhow::Result<()> {
     let (bytes_tx, bytes_rx) = mpsc::channel(32);
-    let detector = Box::new(super::new_stdout_detector(bytes_rx));
+    let detector = Box::new(super::new_stdout_detector(bytes_rx, None));
 
     let (state_tx, mut state_rx) = mpsc::channel(32);
     let shutdown = CancellationToken::new();
@@ -79,7 +79,7 @@ async fn run_hook_detector(events: Vec<&str>) -> anyhow::Result<Vec<AgentState>>
     let dir = tempfile::tempdir()?;
     let pipe_path = dir.path().join("hook.pipe");
     let receiver = HookReceiver::new(&pipe_path)?;
-    let detector = Box::new(super::new_hook_detector(receiver));
+    let detector = Box::new(super::new_hook_detector(receiver, None));
     assert_eq!(detector.tier(), 1);
 
     let (state_tx, mut state_rx) = mpsc::channel(32);

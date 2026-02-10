@@ -17,7 +17,9 @@ use crate::config::GroomLevel;
 use crate::driver::{
     AgentState, AgentType, Detector, ExitStatus, NudgeEncoder, NudgeStep, RespondEncoder,
 };
-use crate::event::{InputEvent, OutputEvent, PromptOutcome, TransitionEvent};
+use crate::event::{
+    InputEvent, OutputEvent, PromptOutcome, RawHookEvent, RawMessageEvent, TransitionEvent,
+};
 use crate::pty::Backend;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
@@ -119,6 +121,8 @@ impl StoreBuilder {
         let (output_tx, _) = broadcast::channel::<OutputEvent>(256);
         let (state_tx, _) = broadcast::channel::<TransitionEvent>(64);
         let (prompt_tx, _) = broadcast::channel::<PromptOutcome>(64);
+        let (hook_tx, _) = broadcast::channel::<RawHookEvent>(64);
+        let (message_tx, _) = broadcast::channel::<RawMessageEvent>(64);
 
         Arc::new(Store {
             terminal: Arc::new(TerminalState {
@@ -135,7 +139,14 @@ impl StoreBuilder {
                 error: RwLock::new(None),
                 last_message: Arc::new(RwLock::new(None)),
             }),
-            channels: TransportChannels { input_tx, output_tx, state_tx, prompt_tx },
+            channels: TransportChannels {
+                input_tx,
+                output_tx,
+                state_tx,
+                prompt_tx,
+                hook_tx,
+                message_tx,
+            },
             config: SessionSettings {
                 started_at: Instant::now(),
                 agent: AgentType::Unknown,

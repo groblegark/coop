@@ -62,12 +62,12 @@ pub async fn ws_handler(
         // We'll track auth state per-connection.
     }
 
-    let mode = query.mode;
+    let flags = query.flags();
     let needs_auth = state.config.auth_token.is_some() && query.token.is_none();
 
     ws.on_upgrade(move |socket| {
         let client_id = format!("ws-{}", next_client_id());
-        handle_connection(state, mode, socket, client_id, needs_auth)
+        handle_connection(state, flags, socket, client_id, needs_auth)
     })
     .into_response()
 }
@@ -75,7 +75,7 @@ pub async fn ws_handler(
 /// Per-connection event loop.
 async fn handle_connection(
     state: Arc<Store>,
-    mode: SubscriptionMode,
+    flags: SubscriptionFlags,
     socket: WebSocket,
     client_id: String,
     needs_auth: bool,
@@ -88,6 +88,8 @@ async fn handle_connection(
     let mut prompt_rx = state.channels.prompt_tx.subscribe();
     let mut stop_rx = state.stop.stop_tx.subscribe();
     let mut start_rx = state.start.start_tx.subscribe();
+    let mut hook_rx = state.channels.hook_tx.subscribe();
+    let mut message_rx = state.channels.message_tx.subscribe();
     let mut authed = !needs_auth;
 
     loop {
@@ -97,7 +99,7 @@ async fn handle_connection(
                     Ok(e) => e,
                     Err(_) => continue,
                 };
-                if matches!(mode, SubscriptionMode::State | SubscriptionMode::All) {
+                if flags.state {
                     let msg = ServerMessage::PromptOutcome {
                         source: event.source,
                         r#type: event.r#type,
@@ -114,7 +116,7 @@ async fn handle_connection(
                     Ok(e) => e,
                     Err(_) => continue,
                 };
-                if matches!(mode, SubscriptionMode::State | SubscriptionMode::All) {
+                if flags.state {
                     let msg = stop_event_to_msg(&event);
                     if send_json(&mut ws_tx, &msg).await.is_err() {
                         break;
@@ -126,7 +128,7 @@ async fn handle_connection(
                     Ok(e) => e,
                     Err(_) => continue,
                 };
-                if matches!(mode, SubscriptionMode::State | SubscriptionMode::All) {
+                if flags.state {
                     let msg = start_event_to_msg(&event);
                     if send_json(&mut ws_tx, &msg).await.is_err() {
                         break;
@@ -138,8 +140,8 @@ async fn handle_connection(
                     Ok(e) => e,
                     Err(_) => continue,
                 };
-                match (&event, mode) {
-                    (OutputEvent::Raw(data), SubscriptionMode::Raw | SubscriptionMode::All) => {
+                match &event {
+                    OutputEvent::Raw(data) if flags.output => {
                         let encoded = base64::engine::general_purpose::STANDARD.encode(data);
                         let ring = state.terminal.ring.read().await;
                         let offset = ring.total_written().saturating_sub(data.len() as u64);
@@ -148,7 +150,7 @@ async fn handle_connection(
                             break;
                         }
                     }
-                    (OutputEvent::ScreenUpdate { seq }, SubscriptionMode::Screen | SubscriptionMode::All) => {
+                    OutputEvent::ScreenUpdate { seq } if flags.screen => {
                         let snap = state.terminal.screen.read().await.snapshot();
                         if send_json(&mut ws_tx, &snapshot_to_msg(snap, *seq)).await.is_err() {
                             break;
@@ -162,8 +164,32 @@ async fn handle_connection(
                     Ok(e) => e,
                     Err(_) => continue,
                 };
-                if matches!(mode, SubscriptionMode::State | SubscriptionMode::All) {
+                if flags.state {
                     let msg = transition_to_msg(&event);
+                    if send_json(&mut ws_tx, &msg).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            event = hook_rx.recv() => {
+                let event = match event {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                if flags.hooks {
+                    let msg = ServerMessage::HookRaw { data: event.json };
+                    if send_json(&mut ws_tx, &msg).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            event = message_rx.recv() => {
+                let event = match event {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                if flags.messages {
+                    let msg = ServerMessage::MessageRaw { data: event.json, source: event.source };
                     if send_json(&mut ws_tx, &msg).await.is_err() {
                         break;
                     }

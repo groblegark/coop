@@ -481,6 +481,34 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(stream))
     }
 
+    // -- Raw streams ----------------------------------------------------------
+
+    type StreamRawHooksStream = GrpcStream<proto::RawHookEvent>;
+
+    async fn stream_raw_hooks(
+        &self,
+        _request: Request<proto::StreamRawHooksRequest>,
+    ) -> Result<Response<Self::StreamRawHooksStream>, Status> {
+        let hook_rx = self.state.channels.hook_tx.subscribe();
+        let stream = spawn_broadcast_stream(hook_rx, |event| {
+            Some(proto::RawHookEvent { json: event.json.to_string() })
+        });
+        Ok(Response::new(stream))
+    }
+
+    type StreamRawMessagesStream = GrpcStream<proto::RawMessageEvent>;
+
+    async fn stream_raw_messages(
+        &self,
+        _request: Request<proto::StreamRawMessagesRequest>,
+    ) -> Result<Response<Self::StreamRawMessagesStream>, Status> {
+        let message_rx = self.state.channels.message_tx.subscribe();
+        let stream = spawn_broadcast_stream(message_rx, |event| {
+            Some(proto::RawMessageEvent { json: event.json.to_string(), source: event.source })
+        });
+        Ok(Response::new(stream))
+    }
+
     // -- Stop hook ------------------------------------------------------------
 
     async fn get_stop_config(

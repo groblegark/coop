@@ -9,11 +9,12 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::hook_recv::HookReceiver;
 use crate::driver::{AgentState, Detector, HookEvent};
+use crate::event::RawHookEvent;
 
 /// Tier 1 detector that maps hook events to agent states via a
 /// caller-supplied closure.
@@ -23,6 +24,8 @@ where
 {
     pub receiver: HookReceiver,
     pub map_event: F,
+    /// Optional sender for raw hook JSON broadcast.
+    pub raw_hook_tx: Option<broadcast::Sender<RawHookEvent>>,
 }
 
 impl<F> Detector for HookDetector<F>
@@ -37,12 +40,16 @@ where
         Box::pin(async move {
             let mut receiver = self.receiver;
             let map_event = self.map_event;
+            let raw_hook_tx = self.raw_hook_tx;
             loop {
                 tokio::select! {
                     _ = shutdown.cancelled() => break,
                     event = receiver.next_event() => {
                         match event {
-                            Some(hook_event) => {
+                            Some((hook_event, raw_json)) => {
+                                if let Some(ref tx) = raw_hook_tx {
+                                    let _ = tx.send(RawHookEvent { json: raw_json });
+                                }
                                 if let Some(pair) = map_event(hook_event) {
                                     let _ = state_tx.send(pair).await;
                                 }

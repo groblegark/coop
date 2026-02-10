@@ -11,9 +11,10 @@ pub mod setup;
 use std::path::Path;
 
 use bytes::Bytes;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 use crate::config::Config;
+use crate::event::{RawHookEvent, RawMessageEvent};
 
 use super::hook_recv::HookReceiver;
 use super::Detector;
@@ -39,18 +40,20 @@ impl GeminiDriver {
         config: &Config,
         hook_pipe_path: Option<&Path>,
         stdout_rx: Option<mpsc::Receiver<Bytes>>,
+        raw_hook_tx: Option<broadcast::Sender<RawHookEvent>>,
+        raw_message_tx: Option<broadcast::Sender<RawMessageEvent>>,
     ) -> anyhow::Result<Self> {
         let mut detectors: Vec<Box<dyn Detector>> = Vec::new();
 
         // Tier 1: Hook events (highest confidence)
         if let Some(pipe_path) = hook_pipe_path {
             let receiver = HookReceiver::new(pipe_path)?;
-            detectors.push(Box::new(detect::new_hook_detector(receiver)));
+            detectors.push(Box::new(detect::new_hook_detector(receiver, raw_hook_tx)));
         }
 
         // Tier 3: Structured stdout JSONL
         if let Some(stdout_rx) = stdout_rx {
-            detectors.push(Box::new(detect::new_stdout_detector(stdout_rx)));
+            detectors.push(Box::new(detect::new_stdout_detector(stdout_rx, raw_message_tx)));
         }
 
         // Sort by tier (lowest number = highest priority)

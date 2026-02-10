@@ -44,6 +44,13 @@ service Coop {
   // Stream prompt action events in real time.
   rpc StreamPromptOutcomes(StreamPromptOutcomesRequest) returns (stream PromptOutcomeEvent);
 
+  // Raw streams
+
+  // Stream raw hook FIFO JSON events in real time.
+  rpc StreamRawHooks(StreamRawHooksRequest) returns (stream RawHookEvent);
+  // Stream raw agent JSONL messages (from stdout or log) in real time.
+  rpc StreamRawMessages(StreamRawMessagesRequest) returns (stream RawMessageEvent);
+
   // Stop hook management
 
   // Read the current stop hook configuration.
@@ -422,6 +429,25 @@ message StartEvent {
   bool injected = 3;
   // Monotonic sequence number.
   uint64 seq = 4;
+}
+
+
+// -- Raw streams --------------------------------------------------------------
+
+message StreamRawHooksRequest {}
+// Raw hook FIFO JSON event.
+message RawHookEvent {
+  // The full JSON object from the hook FIFO pipe.
+  string json = 1;
+}
+
+message StreamRawMessagesRequest {}
+// Raw agent JSONL message from stdout or log.
+message RawMessageEvent {
+  // The full JSON object from stdout or the session log.
+  string json = 1;
+  // Origin: "stdout" (Tier 3) or "log" (Tier 2).
+  string source = 2;
 }
 
 

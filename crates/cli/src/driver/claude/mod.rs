@@ -14,9 +14,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bytes::Bytes;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
 
 use crate::config::Config;
+use crate::event::{RawHookEvent, RawMessageEvent};
 
 use super::hook_recv::HookReceiver;
 use super::Detector;
@@ -40,6 +41,8 @@ impl ClaudeDriver {
     /// - Tier 1 (HookDetector): if `hook_pipe_path` is set
     /// - Tier 2 (LogDetector): if `session_log_path` is set
     /// - Tier 3 (StdoutDetector): if `stdout_rx` is provided
+    // TODO(refactor): group build params into a struct when adding more
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: &Config,
         hook_pipe_path: Option<&Path>,
@@ -47,13 +50,15 @@ impl ClaudeDriver {
         stdout_rx: Option<mpsc::Receiver<Bytes>>,
         log_start_offset: u64,
         last_message: Option<Arc<RwLock<Option<String>>>>,
+        raw_hook_tx: Option<broadcast::Sender<RawHookEvent>>,
+        raw_message_tx: Option<broadcast::Sender<RawMessageEvent>>,
     ) -> anyhow::Result<Self> {
         let mut detectors: Vec<Box<dyn Detector>> = Vec::new();
 
         // Tier 1: Hook events (highest confidence)
         if let Some(pipe_path) = hook_pipe_path {
             let receiver = HookReceiver::new(pipe_path)?;
-            detectors.push(Box::new(stream::new_hook_detector(receiver)));
+            detectors.push(Box::new(stream::new_hook_detector(receiver, raw_hook_tx)));
         }
 
         // Tier 2: Session log watching
@@ -63,12 +68,17 @@ impl ClaudeDriver {
                 start_offset: log_start_offset,
                 poll_interval: config.log_poll(),
                 last_message: last_message.clone(),
+                raw_message_tx: raw_message_tx.clone(),
             }));
         }
 
         // Tier 3: Structured stdout JSONL
         if let Some(stdout_rx) = stdout_rx {
-            detectors.push(Box::new(stream::new_stdout_detector(stdout_rx, last_message)));
+            detectors.push(Box::new(stream::new_stdout_detector(
+                stdout_rx,
+                last_message,
+                raw_message_tx,
+            )));
         }
 
         // Sort by tier (lowest number = highest priority)

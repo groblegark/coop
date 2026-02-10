@@ -5,7 +5,9 @@ use std::sync::Arc;
 
 use crate::driver::AgentState;
 use crate::test_support::{AnyhowExt, StoreBuilder, StubNudgeEncoder};
-use crate::transport::ws::{handle_client_message, ClientMessage, ServerMessage, SubscriptionMode};
+use crate::transport::ws::{
+    handle_client_message, ClientMessage, ServerMessage, SubscriptionFlags,
+};
 
 #[test]
 fn ping_pong_serialization() -> anyhow::Result<()> {
@@ -83,24 +85,57 @@ fn state_change_with_error_serialization() -> anyhow::Result<()> {
 }
 
 #[test]
-fn subscription_mode_default_is_all() -> anyhow::Result<()> {
-    let mode: SubscriptionMode = serde_json::from_str("\"all\"").anyhow()?;
-    assert_eq!(mode, SubscriptionMode::All);
-    assert_eq!(SubscriptionMode::default(), SubscriptionMode::All);
-    Ok(())
+fn subscription_flags_default_is_empty() {
+    let flags = SubscriptionFlags::default();
+    assert!(!flags.output);
+    assert!(!flags.screen);
+    assert!(!flags.state);
+    assert!(!flags.hooks);
+    assert!(!flags.messages);
 }
 
 #[test]
-fn subscription_modes_deserialize() -> anyhow::Result<()> {
-    let raw: SubscriptionMode = serde_json::from_str("\"raw\"").anyhow()?;
-    assert_eq!(raw, SubscriptionMode::Raw);
+fn subscription_flags_parse_individual() {
+    let flags = SubscriptionFlags::parse("output");
+    assert!(flags.output);
+    assert!(!flags.screen);
+    assert!(!flags.state);
 
-    let screen: SubscriptionMode = serde_json::from_str("\"screen\"").anyhow()?;
-    assert_eq!(screen, SubscriptionMode::Screen);
+    let flags = SubscriptionFlags::parse("state");
+    assert!(!flags.output);
+    assert!(flags.state);
 
-    let state: SubscriptionMode = serde_json::from_str("\"state\"").anyhow()?;
-    assert_eq!(state, SubscriptionMode::State);
-    Ok(())
+    let flags = SubscriptionFlags::parse("hooks");
+    assert!(flags.hooks);
+    assert!(!flags.messages);
+}
+
+#[test]
+fn subscription_flags_parse_combined() {
+    let flags = SubscriptionFlags::parse("output,screen,state");
+    assert!(flags.output);
+    assert!(flags.screen);
+    assert!(flags.state);
+    assert!(!flags.hooks);
+    assert!(!flags.messages);
+}
+
+#[test]
+fn subscription_flags_parse_with_hooks_and_messages() {
+    let flags = SubscriptionFlags::parse("output,state,hooks,messages");
+    assert!(flags.output);
+    assert!(!flags.screen);
+    assert!(flags.state);
+    assert!(flags.hooks);
+    assert!(flags.messages);
+}
+
+#[test]
+fn subscription_flags_ignores_unknown() {
+    let flags = SubscriptionFlags::parse("output,unknown,state");
+    assert!(flags.output);
+    assert!(flags.state);
+    assert!(!flags.screen);
 }
 
 #[test]
@@ -668,6 +703,27 @@ async fn resolve_stop_stores_signal() -> anyhow::Result<()> {
         other => anyhow::bail!("expected StopResult, got {other:?}"),
     }
     assert!(state.stop.signaled.load(std::sync::atomic::Ordering::Acquire));
+    Ok(())
+}
+
+#[test]
+fn hook_raw_serialization() -> anyhow::Result<()> {
+    let msg = ServerMessage::HookRaw { data: serde_json::json!({"event": "post_tool_use"}) };
+    let json = serde_json::to_string(&msg).anyhow()?;
+    assert!(json.contains("\"event\":\"hook:raw\""), "json: {json}");
+    assert!(json.contains("\"data\""), "json: {json}");
+    Ok(())
+}
+
+#[test]
+fn message_raw_serialization() -> anyhow::Result<()> {
+    let msg = ServerMessage::MessageRaw {
+        data: serde_json::json!({"type": "assistant"}),
+        source: "stdout".to_owned(),
+    };
+    let json = serde_json::to_string(&msg).anyhow()?;
+    assert!(json.contains("\"event\":\"message:raw\""), "json: {json}");
+    assert!(json.contains("\"source\":\"stdout\""), "json: {json}");
     Ok(())
 }
 

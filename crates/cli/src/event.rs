@@ -51,6 +51,20 @@ pub struct PromptOutcome {
     pub option: Option<u32>,
 }
 
+/// Raw hook event JSON from the hook FIFO pipe.
+#[derive(Debug, Clone)]
+pub struct RawHookEvent {
+    pub json: serde_json::Value,
+}
+
+/// Raw agent message JSON from stdout (Tier 3) or log file (Tier 2).
+#[derive(Debug, Clone)]
+pub struct RawMessageEvent {
+    pub json: serde_json::Value,
+    /// Origin of the message: `"stdout"` (Tier 3) or `"log"` (Tier 2).
+    pub source: String,
+}
+
 /// Named signals that can be delivered to the child process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PtySignal {

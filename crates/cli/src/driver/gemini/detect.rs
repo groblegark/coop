@@ -2,12 +2,13 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use bytes::Bytes;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 use crate::driver::hook_detect::HookDetector;
 use crate::driver::hook_recv::HookReceiver;
 use crate::driver::HookEvent;
 use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
+use crate::event::{RawHookEvent, RawMessageEvent};
 
 use super::parse::{format_gemini_cause, parse_gemini_state};
 
@@ -44,8 +45,11 @@ pub fn map_gemini_hook(event: HookEvent) -> Option<(AgentState, String)> {
 }
 
 /// Create a Tier 1 hook detector for Gemini.
-pub fn new_hook_detector(receiver: HookReceiver) -> impl Detector {
-    HookDetector { receiver, map_event: map_gemini_hook }
+pub fn new_hook_detector(
+    receiver: HookReceiver,
+    raw_hook_tx: Option<broadcast::Sender<RawHookEvent>>,
+) -> impl Detector {
+    HookDetector { receiver, map_event: map_gemini_hook, raw_hook_tx }
 }
 
 /// Create a Tier 3 stdout detector for Gemini.
@@ -54,7 +58,10 @@ pub fn new_hook_detector(receiver: HookReceiver) -> impl Detector {
 /// invoked with `--output-format stream-json`). Receives raw PTY bytes from
 /// a channel, feeds them through a JSONL parser, and classifies each parsed
 /// entry with `parse_gemini_state`.
-pub fn new_stdout_detector(stdout_rx: mpsc::Receiver<Bytes>) -> impl Detector {
+pub fn new_stdout_detector(
+    stdout_rx: mpsc::Receiver<Bytes>,
+    raw_message_tx: Option<broadcast::Sender<RawMessageEvent>>,
+) -> impl Detector {
     use crate::driver::stdout_detect::StdoutDetector;
     StdoutDetector {
         stdout_rx,
@@ -65,6 +72,7 @@ pub fn new_stdout_detector(stdout_rx: mpsc::Receiver<Bytes>) -> impl Detector {
         }),
         extract_message: None,
         last_message: None,
+        raw_message_tx,
     }
 }
 

@@ -58,7 +58,7 @@ curl -X POST localhost:8080/api/v1/agent/respond \
 curl localhost:8080/api/v1/screen/text
 
 # Stream events over WebSocket
-websocat ws://localhost:8080/ws?mode=state
+websocat ws://localhost:8080/ws?subscribe=state
 ```
 
 ### Endpoints

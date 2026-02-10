@@ -7,7 +7,7 @@ agent state changes, and bidirectional control.
 ## Overview
 
 - **URL**: `ws://localhost:{port}/ws`
-- **Query parameters**: `mode` (subscription mode), `token` (auth token)
+- **Query parameters**: `subscribe` (comma-separated flags), `token` (auth token)
 - **Protocol**: JSON text frames, one message per frame
 - **Message format**: Internally-tagged JSON (`{"event": "...", ...}`)
 
@@ -37,16 +37,19 @@ authentication. All other operations require authentication.
 
 ## Subscription Modes
 
-Set via the `mode` query parameter on the upgrade URL.
+Set via the `subscribe` query parameter on the upgrade URL (comma-separated flags).
 
-| Mode | Query value | Server pushes |
-|------|-------------|---------------|
-| Raw output | `raw` | `output` messages with base64-encoded PTY bytes |
-| Screen updates | `screen` | `screen` messages with rendered terminal state |
-| State changes | `state` | `transition`, `exit`, `prompt:action`, `stop:outcome`, `start:outcome` |
-| All (default) | `all` | All of the above |
+| Flag | Server pushes |
+|------|---------------|
+| `output` | `output` messages with base64-encoded PTY bytes |
+| `screen` | `screen` messages with rendered terminal state |
+| `state` | `transition`, `exit`, `prompt:outcome`, `stop:outcome`, `start:outcome` |
+| `hooks` | `hook:raw` messages with raw hook FIFO JSON |
+| `messages` | `message:raw` messages with raw agent JSONL |
 
-Example: `ws://localhost:8080/ws?mode=screen&token=mytoken`
+Default (no `subscribe` param) = no push events (request-reply only).
+
+Example: `ws://localhost:8080/ws?subscribe=output,state&token=mytoken`
 
 
 ## Server → Client Messages
@@ -54,7 +57,7 @@ Example: `ws://localhost:8080/ws?mode=screen&token=mytoken`
 
 ### `output`
 
-Raw PTY output chunk. Sent in `raw` and `all` modes.
+Raw PTY output chunk. Sent when `output` is subscribed.
 
 ```json
 {
@@ -72,7 +75,7 @@ Raw PTY output chunk. Sent in `raw` and `all` modes.
 
 ### `screen`
 
-Rendered terminal screen snapshot. Sent in `screen` and `all` modes on each
+Rendered terminal screen snapshot. Sent when `screen` is subscribed on each
 screen update, or in response to a `screen:get`.
 
 ```json
@@ -99,7 +102,7 @@ screen update, or in response to a `screen:get`.
 
 ### `transition`
 
-Agent state transition. Sent in `state` and `all` modes.
+Agent state transition. Sent when `state` is subscribed.
 
 ```json
 {
@@ -139,7 +142,7 @@ Agent state transition. Sent in `state` and `all` modes.
 
 ### `exit`
 
-Agent process exited. Sent in `state` and `all` modes.
+Agent process exited. Sent when `state` is subscribed.
 This replaces `transition` for the terminal `exited` state.
 
 ```json
@@ -158,8 +161,8 @@ This replaces `transition` for the terminal `exited` state.
 
 ### `prompt:action`
 
-Prompt action event. Sent in `state` and `all` modes when a prompt is
-responded to via the API.
+Prompt action event.
+Sent when `state` is subscribed, when a prompt is responded to via the API.
 
 ```json
 {
@@ -181,8 +184,8 @@ responded to via the API.
 
 ### `stop:outcome`
 
-Stop hook verdict event. Sent in `state` and `all` modes whenever a
-stop hook check occurs.
+Stop hook verdict event.
+Sent when `state` is subscribed, whenever a stop hook check occurs.
 
 ```json
 {
@@ -214,8 +217,8 @@ stop hook check occurs.
 
 ### `start:outcome`
 
-Start hook event. Sent in `state` and `all` modes whenever a session
-lifecycle event fires.
+Start hook event.
+Sent when `state` is subscribed, whenever a session lifecycle event fires.
 
 ```json
 {
@@ -369,8 +372,8 @@ Replay response. Sent in reply to a `replay` request.
 
 ### `input:sent`
 
-Confirmation that input was written to the PTY. Sent in reply to
-`input:send`, `input:send:raw`, and `keys:send`.
+Confirmation that input was written to the PTY.
+Sent in reply to `input:send`, `input:send:raw`, and `keys:send`.
 
 ```json
 {

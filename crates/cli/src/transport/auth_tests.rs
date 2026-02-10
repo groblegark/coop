@@ -33,10 +33,10 @@ fn bearer_validation(
 }
 
 #[yare::parameterized(
-    valid_token    = { "token=secret123&mode=all", Some("secret123"), true },
+    valid_token    = { "token=secret123&subscribe=output,state", Some("secret123"), true },
     invalid_token  = { "token=wrong", Some("secret123"), false },
-    no_token_param = { "mode=all", Some("secret123"), false },
-    no_expected    = { "mode=all", None, true },
+    no_token_param = { "subscribe=output,state", Some("secret123"), false },
+    no_expected    = { "subscribe=output,state", None, true },
 )]
 fn ws_query_validation(
     query: &str,

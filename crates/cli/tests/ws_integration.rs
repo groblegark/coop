@@ -123,7 +123,7 @@ async fn ws_subscription_mode_raw() -> anyhow::Result<()> {
     let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
     let (addr, _handle) = spawn_http_server(Arc::clone(&store)).await?;
 
-    let (mut _tx, mut rx) = ws_connect(&addr, "mode=raw").await?;
+    let (mut _tx, mut rx) = ws_connect(&addr, "subscribe=output").await?;
 
     // Push raw output via broadcast
     let data = bytes::Bytes::from("hello raw");
@@ -157,7 +157,7 @@ async fn ws_subscription_mode_state() -> anyhow::Result<()> {
     let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
     let (addr, _handle) = spawn_http_server(Arc::clone(&store)).await?;
 
-    let (mut _tx, mut rx) = ws_connect(&addr, "mode=state").await?;
+    let (mut _tx, mut rx) = ws_connect(&addr, "subscribe=state").await?;
 
     // Push state change
     let _ = store.channels.state_tx.send(TransitionEvent {
@@ -192,7 +192,7 @@ async fn ws_subscription_mode_screen() -> anyhow::Result<()> {
     let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
     let (addr, _handle) = spawn_http_server(Arc::clone(&store)).await?;
 
-    let (mut _tx, mut rx) = ws_connect(&addr, "mode=screen").await?;
+    let (mut _tx, mut rx) = ws_connect(&addr, "subscribe=screen").await?;
 
     // Push screen update
     let _ = store.channels.output_tx.send(OutputEvent::ScreenUpdate { seq: 42 });
@@ -245,7 +245,7 @@ async fn ws_concurrent_readers() -> anyhow::Result<()> {
     // Connect 5 clients with state mode
     let mut clients = Vec::new();
     for _ in 0..5 {
-        let (tx, rx) = ws_connect(&addr, "mode=state").await?;
+        let (tx, rx) = ws_connect(&addr, "subscribe=state").await?;
         clients.push((tx, rx));
     }
 

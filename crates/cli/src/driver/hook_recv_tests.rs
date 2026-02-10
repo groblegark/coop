@@ -7,65 +7,68 @@ use super::{parse_hook_line, HookReceiver};
 
 #[test]
 fn parses_tool_complete_event() {
-    let event = parse_hook_line(
+    let (event, _raw) = parse_hook_line(
         r#"{"event":"post_tool_use","data":{"tool_name":"Bash","tool_input":{"command":"ls"}}}"#,
-    );
-    assert_eq!(event, Some(HookEvent::ToolAfter { tool: "Bash".to_string() }));
+    )
+    .expect("should parse");
+    assert_eq!(event, HookEvent::ToolAfter { tool: "Bash".to_string() });
 }
 
 #[test]
 fn parses_before_agent_event() {
-    let event = parse_hook_line(
+    let (event, _raw) = parse_hook_line(
         r#"{"event":"before_agent","data":{"prompt":"Fix the bug","hook_event_name":"BeforeAgent"}}"#,
-    );
-    assert_eq!(event, Some(HookEvent::TurnStart));
+    )
+    .expect("should parse");
+    assert_eq!(event, HookEvent::TurnStart);
 }
 
 #[test]
 fn parses_stop_event() {
-    let event = parse_hook_line(
+    let (event, _raw) = parse_hook_line(
         r#"{"event":"stop","data":{"hook_event_name":"Stop","stop_hook_active":false}}"#,
-    );
-    assert_eq!(event, Some(HookEvent::TurnEnd));
+    )
+    .expect("should parse");
+    assert_eq!(event, HookEvent::TurnEnd);
 }
 
 #[test]
 fn parses_session_end_event() {
-    let event = parse_hook_line(r#"{"event":"session_end"}"#);
-    assert_eq!(event, Some(HookEvent::SessionEnd));
+    let (event, _raw) = parse_hook_line(r#"{"event":"session_end"}"#).expect("should parse");
+    assert_eq!(event, HookEvent::SessionEnd);
 }
 
 #[test]
 fn parses_notification_idle_prompt() {
-    let event =
-        parse_hook_line(r#"{"event":"notification","data":{"notification_type":"idle_prompt"}}"#);
-    assert_eq!(
-        event,
-        Some(HookEvent::Notification { notification_type: "idle_prompt".to_string() })
-    );
+    let (event, _raw) =
+        parse_hook_line(r#"{"event":"notification","data":{"notification_type":"idle_prompt"}}"#)
+            .expect("should parse");
+    assert_eq!(event, HookEvent::Notification { notification_type: "idle_prompt".to_string() });
 }
 
 #[test]
 fn parses_notification_permission_prompt() {
-    let event = parse_hook_line(
+    let (event, _raw) = parse_hook_line(
         r#"{"event":"notification","data":{"notification_type":"permission_prompt"}}"#,
-    );
+    )
+    .expect("should parse");
     assert_eq!(
         event,
-        Some(HookEvent::Notification { notification_type: "permission_prompt".to_string() })
+        HookEvent::Notification { notification_type: "permission_prompt".to_string() }
     );
 }
 
 #[test]
 fn parses_pre_tool_use_ask_user() {
-    let event = parse_hook_line(
+    let (event, _raw) = parse_hook_line(
         r#"{"event":"pre_tool_use","data":{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which DB?"}]}}}"#,
-    );
+    )
+    .expect("should parse");
     match event {
-        Some(HookEvent::ToolBefore { tool, tool_input }) => {
+        HookEvent::ToolBefore { tool, tool_input } => {
             assert_eq!(tool, "AskUserQuestion");
             assert!(tool_input.is_some());
-            let input = tool_input.unwrap();
+            let input = tool_input.expect("tool_input should be Some");
             assert!(input.get("questions").is_some());
         }
         other => panic!("expected ToolBefore, got {other:?}"),
@@ -74,11 +77,12 @@ fn parses_pre_tool_use_ask_user() {
 
 #[test]
 fn parses_pre_tool_use_exit_plan() {
-    let event = parse_hook_line(
+    let (event, _raw) = parse_hook_line(
         r#"{"event":"pre_tool_use","data":{"tool_name":"ExitPlanMode","tool_input":{}}}"#,
-    );
+    )
+    .expect("should parse");
     match event {
-        Some(HookEvent::ToolBefore { tool, tool_input }) => {
+        HookEvent::ToolBefore { tool, tool_input } => {
             assert_eq!(tool, "ExitPlanMode");
             assert!(tool_input.is_some());
         }
@@ -88,9 +92,11 @@ fn parses_pre_tool_use_exit_plan() {
 
 #[test]
 fn parses_pre_tool_use_without_tool_input() {
-    let event = parse_hook_line(r#"{"event":"pre_tool_use","data":{"tool_name":"EnterPlanMode"}}"#);
+    let (event, _raw) =
+        parse_hook_line(r#"{"event":"pre_tool_use","data":{"tool_name":"EnterPlanMode"}}"#)
+            .expect("should parse");
     match event {
-        Some(HookEvent::ToolBefore { tool, tool_input }) => {
+        HookEvent::ToolBefore { tool, tool_input } => {
             assert_eq!(tool, "EnterPlanMode");
             assert!(tool_input.is_none());
         }
@@ -101,62 +107,76 @@ fn parses_pre_tool_use_without_tool_input() {
 #[test]
 fn notification_missing_type_returns_none() {
     let event = parse_hook_line(r#"{"event":"notification","data":{}}"#);
-    assert_eq!(event, None);
+    assert!(event.is_none());
 }
 
 #[test]
 fn pre_tool_use_missing_tool_name_returns_empty() {
-    let event = parse_hook_line(r#"{"event":"pre_tool_use","data":{}}"#);
-    assert_eq!(event, Some(HookEvent::ToolBefore { tool: "".to_string(), tool_input: None }));
+    let (event, _raw) =
+        parse_hook_line(r#"{"event":"pre_tool_use","data":{}}"#).expect("should parse");
+    assert_eq!(event, HookEvent::ToolBefore { tool: "".to_string(), tool_input: None });
 }
 
 #[test]
 fn parses_after_tool_event() {
-    let event = parse_hook_line(
+    let (event, _raw) = parse_hook_line(
         r#"{"event":"after_tool","data":{"tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":{"llmContent":"output"}}}"#,
-    );
-    assert_eq!(event, Some(HookEvent::ToolAfter { tool: "Bash".to_string() }));
+    )
+    .expect("should parse");
+    assert_eq!(event, HookEvent::ToolAfter { tool: "Bash".to_string() });
 }
 
 #[test]
 fn after_tool_missing_tool_name_returns_empty() {
-    let event = parse_hook_line(r#"{"event":"after_tool","data":{}}"#);
-    assert_eq!(event, Some(HookEvent::ToolAfter { tool: "".to_string() }));
+    let (event, _raw) =
+        parse_hook_line(r#"{"event":"after_tool","data":{}}"#).expect("should parse");
+    assert_eq!(event, HookEvent::ToolAfter { tool: "".to_string() });
 }
 
 #[test]
 fn parses_user_prompt_submit_event() {
-    let event =
-        parse_hook_line(r#"{"event":"user_prompt_submit","data":{"prompt":"Fix the bug"}}"#);
-    assert_eq!(event, Some(HookEvent::TurnStart));
+    let (event, _raw) =
+        parse_hook_line(r#"{"event":"user_prompt_submit","data":{"prompt":"Fix the bug"}}"#)
+            .expect("should parse");
+    assert_eq!(event, HookEvent::TurnStart);
 }
 
 #[test]
 fn parses_user_prompt_submit_without_data() {
-    let event = parse_hook_line(r#"{"event":"user_prompt_submit"}"#);
-    assert_eq!(event, Some(HookEvent::TurnStart));
+    let (event, _raw) = parse_hook_line(r#"{"event":"user_prompt_submit"}"#).expect("should parse");
+    assert_eq!(event, HookEvent::TurnStart);
 }
 
 #[test]
 fn parses_start_event() {
-    let event = parse_hook_line(
+    let (event, _raw) = parse_hook_line(
         r#"{"event":"start","data":{"session_type":"init","session_id":"abc-123"}}"#,
-    );
-    assert_eq!(event, Some(HookEvent::SessionStart));
+    )
+    .expect("should parse");
+    assert_eq!(event, HookEvent::SessionStart);
 }
 
 #[test]
 fn parses_start_event_without_data() {
-    let event = parse_hook_line(r#"{"event":"start"}"#);
-    assert_eq!(event, Some(HookEvent::SessionStart));
+    let (event, _raw) = parse_hook_line(r#"{"event":"start"}"#).expect("should parse");
+    assert_eq!(event, HookEvent::SessionStart);
 }
 
 #[test]
 fn ignores_malformed_lines() {
-    assert_eq!(parse_hook_line("not json"), None);
-    assert_eq!(parse_hook_line("{}"), None);
-    assert_eq!(parse_hook_line(r#"{"event":"unknown_event"}"#), None);
-    assert_eq!(parse_hook_line(""), None);
+    assert!(parse_hook_line("not json").is_none());
+    assert!(parse_hook_line("{}").is_none());
+    assert!(parse_hook_line(r#"{"event":"unknown_event"}"#).is_none());
+    assert!(parse_hook_line("").is_none());
+}
+
+#[test]
+fn raw_json_is_preserved() {
+    let line = r#"{"event":"stop","data":{"hook_event_name":"Stop","stop_hook_active":false}}"#;
+    let (event, raw_json) = parse_hook_line(line).expect("should parse");
+    assert_eq!(event, HookEvent::TurnEnd);
+    assert_eq!(raw_json["event"], "stop");
+    assert_eq!(raw_json["data"]["hook_event_name"], "Stop");
 }
 
 #[test]
@@ -196,7 +216,7 @@ async fn reads_event_from_pipe() -> anyhow::Result<()> {
         let _ = file.write_all(b"{\"event\":\"stop\",\"data\":{}}\n").await;
     });
 
-    let event = recv.next_event().await;
-    assert_eq!(event, Some(HookEvent::TurnEnd));
+    let (event, _raw) = recv.next_event().await.expect("should receive event");
+    assert_eq!(event, HookEvent::TurnEnd);
     Ok(())
 }
