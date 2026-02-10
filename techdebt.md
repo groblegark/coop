@@ -160,7 +160,7 @@
 
   Naming Differences
 
-  1. Cursor parameter — HTTP: cursor: bool, gRPC: include_cursor: bool
+  1. Cursor parameter — HTTP: cursor: bool, gRPC: cursor: bool
   2. Health terminal size — HTTP nests: terminal: { cols, rows }, gRPC flattens: terminal_cols, terminal_rows
   3. Stop event signal — WS: signal: Option<Value> (inline JSON), gRPC: signal_json: Option<String> (serialized)
   4. Agent state response — WS reuses StateChange message for StateRequest; HTTP/gRPC have dedicated AgentStateResponse / GetAgentStateResponse types
@@ -188,7 +188,7 @@
 
   4. WS ScreenRequest always includes cursor
 
-  snapshot_to_msg at ws.rs:227 hardcodes cursor: Some(snap.cursor). HTTP defaults to cursor: None unless ?cursor=true. gRPC defaults to no cursor unless include_cursor: true.
+  snapshot_to_msg at ws.rs:227 hardcodes cursor: Some(snap.cursor). HTTP defaults to cursor: None unless ?cursor=true. gRPC defaults to no cursor unless cursor: true.
   There's no way for a WS client to opt out.
 
   5. WS Replay response lacks pagination metadata

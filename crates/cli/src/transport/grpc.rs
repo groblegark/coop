@@ -50,14 +50,14 @@ pub fn screen_snapshot_to_proto(s: &crate::screen::ScreenSnapshot) -> proto::Scr
 /// optionally omitting the cursor.
 pub fn screen_snapshot_to_response(
     s: &crate::screen::ScreenSnapshot,
-    include_cursor: bool,
+    cursor: bool,
 ) -> proto::GetScreenResponse {
     proto::GetScreenResponse {
         lines: s.lines.clone(),
         cols: s.cols as i32,
         rows: s.rows as i32,
         alt_screen: s.alt_screen,
-        cursor: if include_cursor { Some(cursor_to_proto(&s.cursor)) } else { None },
+        cursor: if cursor { Some(cursor_to_proto(&s.cursor)) } else { None },
         seq: s.sequence,
     }
 }
@@ -214,7 +214,7 @@ impl proto::coop_server::Coop for CoopGrpc {
         let req = request.into_inner();
         let screen = self.state.terminal.screen.read().await;
         let snap = screen.snapshot();
-        Ok(Response::new(screen_snapshot_to_response(&snap, req.include_cursor)))
+        Ok(Response::new(screen_snapshot_to_response(&snap, req.cursor)))
     }
 
     async fn get_status(

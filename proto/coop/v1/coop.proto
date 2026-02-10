@@ -92,15 +92,8 @@ message GetHealthResponse {
 }
 
 message GetScreenRequest {
-  enum Format {
-    // Plain text (default).
-    TEXT = 0;
-    // Text with ANSI escape sequences.
-    ANSI = 1;
-  }
-  Format format = 1;
   // Include cursor position in the response.
-  bool include_cursor = 2;
+  bool cursor = 1;
 }
 
 message GetScreenResponse {
@@ -112,7 +105,7 @@ message GetScreenResponse {
   int32 rows = 3;
   // Whether the alternate screen buffer is active.
   bool alt_screen = 4;
-  // Cursor position (only present when include_cursor is true).
+  // Cursor position (only present when cursor is true).
   CursorPosition cursor = 5;
   // Monotonic screen update seq number.
   uint64 seq = 6;

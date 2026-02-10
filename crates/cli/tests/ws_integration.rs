@@ -225,7 +225,7 @@ async fn ws_replay_from_offset() -> anyhow::Result<()> {
     ws_send(&mut tx, &serde_json::json!({"type": "replay", "offset": 0})).await?;
 
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
-    assert_eq!(resp.get("type").and_then(|t| t.as_str()), Some("output"));
+    assert_eq!(resp.get("type").and_then(|t| t.as_str()), Some("replay_result"));
     assert_eq!(resp.get("offset").and_then(|o| o.as_u64()), Some(0));
 
     // Decode data

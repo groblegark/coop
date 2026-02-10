@@ -21,7 +21,7 @@ fn ping_pong_serialization() -> anyhow::Result<()> {
 
 #[test]
 fn screen_request_serialization() -> anyhow::Result<()> {
-    let msg = ClientMessage::ScreenRequest { include_cursor: false };
+    let msg = ClientMessage::ScreenRequest { cursor: false };
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"screen_request\""));
     Ok(())
@@ -126,10 +126,15 @@ fn exit_message_serialization() -> anyhow::Result<()> {
 
 #[test]
 fn replay_message_serialization() -> anyhow::Result<()> {
-    let msg = ClientMessage::Replay { offset: 1024 };
+    let msg = ClientMessage::Replay { offset: 1024, limit: None };
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"replay\""));
     assert!(json.contains("\"offset\":1024"));
+
+    // With limit
+    let msg = ClientMessage::Replay { offset: 0, limit: Some(100) };
+    let json = serde_json::to_string(&msg).anyhow()?;
+    assert!(json.contains("\"limit\":100"));
     Ok(())
 }
 
@@ -336,10 +341,10 @@ async fn shutdown_requires_auth() -> anyhow::Result<()> {
 async fn read_operations_require_auth() -> anyhow::Result<()> {
     let (state, _rx) = ws_test_state(AgentState::Working);
     for msg in [
-        ClientMessage::ScreenRequest { include_cursor: false },
+        ClientMessage::ScreenRequest { cursor: false },
         ClientMessage::StateRequest {},
         ClientMessage::StatusRequest {},
-        ClientMessage::Replay { offset: 0 },
+        ClientMessage::Replay { offset: 0, limit: None },
     ] {
         let reply = handle_client_message(&state, msg, "test-ws", &mut false).await;
         match reply {
@@ -552,8 +557,7 @@ async fn screen_request_excludes_cursor_by_default() -> anyhow::Result<()> {
 #[tokio::test]
 async fn screen_request_includes_cursor_when_requested() -> anyhow::Result<()> {
     let (state, _rx) = ws_test_state(AgentState::Working);
-    let msg: ClientMessage =
-        serde_json::from_str(r#"{"type":"screen_request","include_cursor":true}"#)?;
+    let msg: ClientMessage = serde_json::from_str(r#"{"type":"screen_request","cursor":true}"#)?;
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
         Some(ServerMessage::Screen { cursor, .. }) => {

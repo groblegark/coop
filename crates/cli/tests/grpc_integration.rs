@@ -50,24 +50,15 @@ async fn grpc_get_screen() -> anyhow::Result<()> {
     let (app_state, _rx) = AppStateBuilder::new().build();
     let (mut client, _state) = grpc_client(app_state).await?;
 
-    // TEXT format
-    let resp = client
-        .get_screen(proto::GetScreenRequest {
-            format: 0, // TEXT
-            include_cursor: true,
-        })
-        .await?
-        .into_inner();
+    // With cursor
+    let resp = client.get_screen(proto::GetScreenRequest { cursor: true }).await?.into_inner();
     assert_eq!(resp.cols, 80);
     assert_eq!(resp.rows, 24);
     assert!(!resp.alt_screen);
     assert!(resp.cursor.is_some());
 
     // Without cursor
-    let resp2 = client
-        .get_screen(proto::GetScreenRequest { format: 0, include_cursor: false })
-        .await?
-        .into_inner();
+    let resp2 = client.get_screen(proto::GetScreenRequest { cursor: false }).await?.into_inner();
     assert!(resp2.cursor.is_none());
 
     Ok(())
