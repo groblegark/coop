@@ -23,15 +23,15 @@ self-reporting protocol would run inside a coop-managed PTY.
 
 ## Session Management
 
-| Capability           | GT | Coop | Notes                                              |
-| -------------------- | -- | ---- | -------------------------------------------------- |
-| Spawn                | ✓  | ✓    | `tmux new-session` + `respawn-pane` vs native PTY  |
-| Terminal rendering   | ✓  | ✓+   | raw text vs VTE-parsed screen                      |
-| Input injection      | ✓  | ✓    | `send-keys -l` with per-session mutex vs PTY write |
-| Kill                 | ✓  | ✓    |                                                    |
-| Liveness / exit code | ✓  | ✓    | `pane_dead` vs waitpid                             |
-| Output preservation  | ✓  | ✓    | `remain-on-exit` vs ring buffer                    |
-| Input serialization  | ✓  | ✓    | Go `sync.Map` per session vs single-writer lock    |
+| Capability           | GT | Coop |
+| -------------------- | -- | ---- |
+| Spawn                | ✓  | ✓    |
+| Terminal rendering   | ✓  | ✓+   |
+| Input injection      | ✓  | ✓    |
+| Kill                 | ✓  | ✓    |
+| Liveness / exit code | ✓  | ✓    |
+| Output preservation  | ✓  | ✓    |
+| Input serialization  | ✓  | ✓    |
 
 
 ## State Detection
@@ -41,20 +41,20 @@ Coop uses hooks for **state detection**.
 
 The hook types overlap but serve completely different purposes.
 
-| Signal                | GT | Coop | Notes                                                               |
-| --------------------- | -- | ---- | ------------------------------------------------------------------- |
-| Agent self-reporting  | ✓  | ✗    | `gt done`, `gt help`, protocol messages. Out of scope for coop      |
-| Notification hook     | ✗  | ✓    | GT doesn't use for detection                                        |
-| PreToolUse hook       | ✓  | ✓    | GT: workflow guards. Coop: prompt detection. Disjoint matchers      |
-| PostToolUse hook      | ✓  | ✓    | GT: drain inject/nudge. Coop: Working signal. Both use `""` matcher |
-| Stop hook             | ✓  | ✓    | GT: decision check. Coop: detection + gating. Both use `""` matcher |
-| SessionStart hook     | ✓  | ✗    | GT only: `gt prime`, mail inject, deacon notify                     |
-| UserPromptSubmit hook | ✓  | ✓    | GT: mail check, decision auto-close. Coop: Working signal           |
-| Session log watcher   | ✗  | ✓    | Tier 2                                                              |
-| Stdout JSONL          | ✗  | ✓    | Tier 3                                                              |
-| Process monitor       | ✓  | ✓    | Tier 4                                                              |
-| Screen parsing        | ✗  | ✓    | Tier 5: setup dialogs, trust, idle prompt                           |
-| Health check pings    | ✓  | ✗    | Deacon active probing. Replaced by passive state detection          |
+| Signal                | GT | Coop | Notes                                          |
+| --------------------- | -- | ---- | ---------------------------------------------- |
+| Agent self-reporting  | ✓  | ✗    | Runs inside coop PTY via `gt` commands         |
+| Notification hook     | ✗  | ✓    |                                                |
+| PreToolUse hook       | ✓  | ✓+   | Coexists via disjoint matchers; adds prompts   |
+| PostToolUse hook      | ✓  | ✓+   | Coexists via `""` matcher; adds Working signal |
+| Stop hook             | ✓  | ✓+   | Coexists via `""` matcher; adds detection      |
+| SessionStart hook     | ✓  | ✓    | Coexists                                       |
+| UserPromptSubmit hook | ✓  | ✓+   | Coexists; adds Working signal                  |
+| Session log watcher   | ✗  | ✓    |                                                |
+| Stdout JSONL          | ✗  | ✓    |                                                |
+| Process monitor       | ✓  | ✓    |                                                |
+| Screen parsing        | ✗  | ✓    |                                                |
+| Health check pings    | ✓  | ✗    | Replaced by passive state detection            |
 
 
 ## Prompt Handling
@@ -146,7 +146,6 @@ These remain orchestrator-level concerns in Goblintown:
 | --------- | ----------- | ----------------- |
 | Config bead materialization | Merges settings from structured metadata layers | GT writes `settings.json`; coop writes `coop-settings.json` separately |
 | MCP configuration | Server config materialized from beads to `.mcp.json` | Unchanged — coop doesn't touch MCP |
-| SessionStart hook | `gt prime --hook && gt mail check --inject` | Runs inside coop PTY; coop doesn't need to know about it |
 | UserPromptSubmit hook | Mail check, decision auto-close | Same |
 | PreToolUse guards | `gt tap guard pr-workflow` on git/gh commands | Disjoint matchers from coop's hooks |
 | Witness protocol | POLECAT_DONE, HELP, MERGED, RATE_LIMITED messages | Runs inside coop PTY via `gt` commands |

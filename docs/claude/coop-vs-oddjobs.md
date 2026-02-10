@@ -28,16 +28,17 @@ After:   Engine → CoopAdapter → HTTP/gRPC → coop → PTY → Claude Code
 
 ## State Detection
 
-| Signal              | OJ | Coop | Notes                                     |
-| ------------------- | -- | ---- | ----------------------------------------- |
-| Notification hook   | ✓  | ✓    | CLI callback vs FIFO pipe                 |
-| PreToolUse hook     | ✓  | ✓    | CLI callback vs FIFO pipe                 |
-| PostToolUse hook    | ✗  | ✓    | Coop uses for Working signal              |
-| Stop hook           | ✓  | ✓    | OJ: exit gate. Coop: detection + gating   |
-| Session log watcher | ✓  | ✓    | OJ: 5s poll fallback. Coop: Tier 2        |
-| Stdout JSONL        | ✗  | ✓    | Tier 3                                    |
-| Process monitor     | ✓  | ✓    | Tier 4                                    |
-| Screen parsing      | ✗  | ✓    | Tier 5: setup dialogs, trust, idle prompt |
+| Signal              | OJ | Coop | Notes                               |
+| ------------------- | -- | ---- | ----------------------------------- |
+| Notification hook   | ✓  | ✓    |                                     |
+| PreToolUse hook     | ✓  | ✓    |                                     |
+| PostToolUse hook    | ✗  | ✓    |                                     |
+| Stop hook           | ✓  | ✓+   | Adds state detection to exit gating |
+| SessionStart hook   | ✓  | ✓    |                                     |
+| Session log watcher | ✓  | ✓+   | Continuous watch replaces 5s poll   |
+| Stdout JSONL        | ✗  | ✓    |                                     |
+| Process monitor     | ✓  | ✓    |                                     |
+| Screen parsing      | ✗  | ✓    |                                     |
 
 
 ## Prompt Handling
@@ -121,7 +122,7 @@ conflict.
 | **PreToolUse**   | `oj agent hook pretooluse`         | FIFO → Tier 1                    |
 | **PostToolUse**  | Not used                           | FIFO → Tier 1 Working            |
 | **UserPromptSubmit** | Not used                       | FIFO → Tier 1 Working            |
-| **SessionStart** | Prime scripts                      | Not used                         |
+| **SessionStart** | Prime scripts                      | Context injection                |
 
 The Stop hook serves different purposes: OJ **prevents** exit until the
 orchestrator is satisfied; coop uses it for **detection** and optional
@@ -137,7 +138,5 @@ These remain orchestrator-level concerns in oddjobs:
 | Decision system | Human-in-the-loop records with numbered options, context, resolution tracking |
 | Job lifecycle | Multi-step workflows, suspend/resume/cancel |
 | Workspace management | Git worktrees, directory setup, cleanup |
-| Agent signaling | `complete`/`escalate`/`continue` signals via `oj emit agent:signal` |
-| Settings injection | Per-agent `claude-settings.json` with hooks and permissions |
 | Stuck recovery policy | Nudge attempts, escalation thresholds, retry limits |
 | Desktop notifications | Alert humans when decisions are needed |
