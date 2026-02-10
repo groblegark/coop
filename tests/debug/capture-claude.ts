@@ -199,7 +199,7 @@ async function snapshot(name: string): Promise<void> {
 	// Capture coop agent state
 	try {
 		const state = await fetch(
-			`http://localhost:${port}/api/v1/agent/state`,
+			`http://localhost:${port}/api/v1/agent`,
 		).then((r) => r.text());
 		await Bun.write(join(agentDir, `${tag}.json`), state);
 	} catch {

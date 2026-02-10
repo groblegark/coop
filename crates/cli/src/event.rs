@@ -14,7 +14,7 @@ pub enum OutputEvent {
 
 /// Agent state transition with sequence number for ordering.
 #[derive(Debug, Clone)]
-pub struct StateChangeEvent {
+pub struct TransitionEvent {
     pub prev: AgentState,
     pub next: AgentState,
     pub seq: u64,

@@ -46,7 +46,7 @@ spec:
         initialDelaySeconds: 5
         periodSeconds: 10
       readinessProbe:
-        httpGet: { path: /api/v1/agent/state, port: health }
+        httpGet: { path: /api/v1/agent, port: health }
         initialDelaySeconds: 3
         periodSeconds: 5
       startupProbe:

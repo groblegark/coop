@@ -12,7 +12,7 @@ use crate::config::GroomLevel;
 use crate::driver::{
     AgentState, AgentType, ErrorCategory, ExitStatus, NudgeEncoder, RespondEncoder,
 };
-use crate::event::{InputEvent, OutputEvent, PromptAction, StateChangeEvent};
+use crate::event::{InputEvent, OutputEvent, PromptAction, TransitionEvent};
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::start::StartState;
@@ -26,7 +26,7 @@ use crate::stop::StopState;
 /// - `channels`: channel endpoints for session ↔ transport communication
 /// - `config`: static session settings
 /// - `lifecycle`: runtime lifecycle primitives
-pub struct AppState {
+pub struct Store {
     pub terminal: Arc<TerminalState>,
     pub driver: Arc<DriverState>,
     pub channels: TransportChannels,
@@ -35,13 +35,13 @@ pub struct AppState {
 
     /// Whether the agent has transitioned out of `Starting` and is ready.
     pub ready: Arc<AtomicBool>,
-    /// Serializes structured input delivery (nudge, respond) and enforces
-    /// a minimum inter-delivery gap to prevent garbled terminal input.
-    pub delivery_gate: Arc<DeliveryGate>,
     /// Stop hook gating state. Always present (defaults to mode=allow).
     pub stop: Arc<StopState>,
     /// Start hook state. Always present (defaults to empty config).
     pub start: Arc<StartState>,
+    /// Serializes structured input delivery (nudge, respond) and enforces
+    /// a minimum inter-delivery gap to prevent garbled terminal input.
+    pub input_gate: Arc<InputGate>,
     /// Notified by the session loop whenever any `InputEvent` is processed.
     /// Used by the enter-retry monitor to cancel itself if other input
     /// activity occurs on the PTY (e.g. raw keys, resize, signal, new delivery).
@@ -110,7 +110,7 @@ pub struct DriverState {
 pub struct TransportChannels {
     pub input_tx: mpsc::Sender<InputEvent>,
     pub output_tx: broadcast::Sender<OutputEvent>,
-    pub state_tx: broadcast::Sender<StateChangeEvent>,
+    pub state_tx: broadcast::Sender<TransitionEvent>,
     pub prompt_tx: broadcast::Sender<PromptAction>,
 }
 
@@ -143,7 +143,7 @@ pub struct LifecycleState {
 /// arrives faster than the TUI can process.  The gate ensures at least
 /// `debounce` time elapses between the end of one delivery and the start
 /// of the next.
-pub struct DeliveryGate {
+pub struct InputGate {
     lock: tokio::sync::Mutex<DeliveryGateInner>,
     debounce: Duration,
 }
@@ -154,7 +154,7 @@ struct DeliveryGateInner {
     retry_cancel: Option<CancellationToken>,
 }
 
-impl DeliveryGate {
+impl InputGate {
     pub fn new(debounce: Duration) -> Self {
         Self {
             lock: tokio::sync::Mutex::new(DeliveryGateInner {
@@ -185,7 +185,7 @@ impl DeliveryGate {
     }
 }
 
-/// RAII guard returned by [`DeliveryGate::acquire`].
+/// RAII guard returned by [`InputGate::acquire`].
 ///
 /// Records the delivery completion timestamp on drop so that subsequent
 /// acquisitions can enforce the debounce interval.
@@ -207,7 +207,7 @@ impl Drop for DeliveryGuard<'_> {
     }
 }
 
-impl std::fmt::Debug for AppState {
+impl std::fmt::Debug for Store {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AppState")
             .field("agent", &self.config.agent)

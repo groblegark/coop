@@ -17,7 +17,7 @@ use crate::driver::{classify_error_detail, AgentState, QuestionAnswer};
 use crate::error::ErrorCode;
 use crate::event::InputEvent;
 use crate::event::PtySignal;
-use crate::transport::state::AppState;
+use crate::transport::state::Store;
 use crate::transport::{
     deliver_steps, encode_response, keys_to_bytes, spawn_enter_retry, update_question_current,
 };
@@ -119,7 +119,7 @@ pub fn extract_error_fields(agent: &AgentState) -> (Option<String>, Option<Strin
 }
 
 /// Compute health info.
-pub async fn compute_health(state: &AppState) -> HealthInfo {
+pub async fn compute_health(state: &Store) -> HealthInfo {
     let snap = state.terminal.screen.read().await.snapshot();
     let pid = state.terminal.child_pid.load(Ordering::Relaxed);
     let uptime = state.config.started_at.elapsed().as_secs() as i64;
@@ -138,7 +138,7 @@ pub async fn compute_health(state: &AppState) -> HealthInfo {
 }
 
 /// Compute session status.
-pub async fn compute_status(state: &AppState) -> SessionStatus {
+pub async fn compute_status(state: &Store) -> SessionStatus {
     let agent = state.driver.agent_state.read().await;
     let ring = state.terminal.ring.read().await;
     let screen = state.terminal.screen.read().await;
@@ -162,7 +162,7 @@ pub async fn compute_status(state: &AppState) -> SessionStatus {
 ///
 /// Returns `Err` only for genuine errors (not ready, no driver).
 /// Agent-busy is a soft failure returned as `Ok(NudgeOutcome { delivered: false })`.
-pub async fn handle_nudge(state: &AppState, message: &str) -> Result<NudgeOutcome, ErrorCode> {
+pub async fn handle_nudge(state: &Store, message: &str) -> Result<NudgeOutcome, ErrorCode> {
     if !state.ready.load(Ordering::Acquire) {
         return Err(ErrorCode::NotReady);
     }
@@ -176,7 +176,7 @@ pub async fn handle_nudge(state: &AppState, message: &str) -> Result<NudgeOutcom
     // the Working transition that confirms Enter was processed.
     let state_rx = state.channels.state_tx.subscribe();
 
-    let mut _delivery = state.delivery_gate.acquire().await;
+    let mut _delivery = state.input_gate.acquire().await;
 
     let agent = state.driver.agent_state.read().await;
     let state_before = agent.as_str().to_owned();
@@ -217,7 +217,7 @@ pub async fn handle_nudge(state: &AppState, message: &str) -> Result<NudgeOutcom
 /// Returns `Err` only for genuine errors (not ready, no driver).
 /// No-prompt is a soft failure returned as `Ok(RespondOutcome { delivered: false })`.
 pub async fn handle_respond(
-    state: &AppState,
+    state: &Store,
     accept: Option<bool>,
     option: Option<i32>,
     text: Option<&str>,
@@ -235,7 +235,7 @@ pub async fn handle_respond(
     let domain_answers = to_domain_answers(answers);
     let resolved_option = option.map(|o| o as u32);
 
-    let _delivery = state.delivery_gate.acquire().await;
+    let _delivery = state.input_gate.acquire().await;
 
     let agent = state.driver.agent_state.read().await;
     let prompt_type = agent.prompt().map(|p| p.kind.as_str().to_owned());
@@ -278,7 +278,7 @@ pub async fn handle_respond(
 }
 
 /// Write text to the PTY, optionally followed by a carriage return.
-pub async fn handle_input(state: &AppState, text: String, enter: bool) -> i32 {
+pub async fn handle_input(state: &Store, text: String, enter: bool) -> i32 {
     let mut data = text.into_bytes();
     if enter {
         data.push(b'\r');
@@ -289,7 +289,7 @@ pub async fn handle_input(state: &AppState, text: String, enter: bool) -> i32 {
 }
 
 /// Write raw bytes to the PTY.
-pub async fn handle_input_raw(state: &AppState, data: Vec<u8>) -> i32 {
+pub async fn handle_input_raw(state: &Store, data: Vec<u8>) -> i32 {
     let len = data.len() as i32;
     let _ = state.channels.input_tx.send(InputEvent::Write(Bytes::from(data))).await;
     len
@@ -298,7 +298,7 @@ pub async fn handle_input_raw(state: &AppState, data: Vec<u8>) -> i32 {
 /// Send named key sequences to the PTY.
 ///
 /// Returns the byte count on success, or the unrecognised key name on failure.
-pub async fn handle_keys(state: &AppState, keys: &[String]) -> Result<i32, String> {
+pub async fn handle_keys(state: &Store, keys: &[String]) -> Result<i32, String> {
     let data = keys_to_bytes(keys)?;
     let len = data.len() as i32;
     let _ = state.channels.input_tx.send(InputEvent::Write(Bytes::from(data))).await;
@@ -306,7 +306,7 @@ pub async fn handle_keys(state: &AppState, keys: &[String]) -> Result<i32, Strin
 }
 
 /// Resize the PTY.
-pub async fn handle_resize(state: &AppState, cols: u16, rows: u16) -> Result<(), ErrorCode> {
+pub async fn handle_resize(state: &Store, cols: u16, rows: u16) -> Result<(), ErrorCode> {
     if cols == 0 || rows == 0 {
         return Err(ErrorCode::BadRequest);
     }
@@ -317,7 +317,7 @@ pub async fn handle_resize(state: &AppState, cols: u16, rows: u16) -> Result<(),
 /// Send a signal to the child process.
 ///
 /// Returns `Ok(())` on success, or the unknown signal name on failure.
-pub async fn handle_signal(state: &AppState, signal: &str) -> Result<(), String> {
+pub async fn handle_signal(state: &Store, signal: &str) -> Result<(), String> {
     let sig = PtySignal::from_name(signal).ok_or_else(|| signal.to_owned())?;
     let _ = state.channels.input_tx.send(InputEvent::Signal(sig)).await;
     Ok(())

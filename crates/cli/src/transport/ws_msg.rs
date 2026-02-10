@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::driver::{AgentState, PromptContext};
 use crate::error::ErrorCode;
-use crate::event::StateChangeEvent;
+use crate::event::TransitionEvent;
 use crate::screen::{CursorPosition, ScreenSnapshot};
 use crate::start::StartEvent;
 use crate::stop::StopEvent;
@@ -17,10 +17,107 @@ use crate::transport::handler::{
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
-pub enum ServerMessage {
-    Output {
+pub enum ClientMessage {
+    // Terminal
+    #[serde(rename = "get:health")]
+    GetHealth {},
+    #[serde(rename = "get:ready")]
+    GetReady {},
+    #[serde(rename = "get:screen")]
+    GetScreen {
+        #[serde(default)]
+        cursor: bool,
+    },
+    #[serde(rename = "get:status")]
+    GetStatus {},
+    #[serde(rename = "send:input")]
+    SendInput {
+        text: String,
+        #[serde(default)]
+        enter: bool,
+    },
+    #[serde(rename = "send:input:raw")]
+    SendInputRaw {
         data: String,
+    },
+    #[serde(rename = "send:keys")]
+    SendKeys {
+        keys: Vec<String>,
+    },
+    #[serde(rename = "send:signal")]
+    SendSignal {
+        signal: String,
+    },
+    Resize {
+        cols: u16,
+        rows: u16,
+    },
+    Replay {
         offset: u64,
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+
+    // Agent
+    #[serde(rename = "get:agent")]
+    GetAgent {},
+    Nudge {
+        message: String,
+    },
+    Respond {
+        accept: Option<bool>,
+        text: Option<String>,
+        #[serde(default)]
+        answers: Vec<crate::transport::handler::TransportQuestionAnswer>,
+        option: Option<i32>,
+    },
+
+    // Stop hook
+    #[serde(rename = "get:config:stop")]
+    GetStopConfig {},
+    #[serde(rename = "put:config:stop")]
+    PutStopConfig {
+        config: serde_json::Value,
+    },
+    #[serde(rename = "resolve:stop")]
+    ResolveStop {
+        body: serde_json::Value,
+    },
+
+    // Start hook
+    #[serde(rename = "get:config:start")]
+    GetStartConfig {},
+    #[serde(rename = "put:config:start")]
+    PutStartConfig {
+        config: serde_json::Value,
+    },
+
+    // Lifecycle
+    Shutdown {},
+
+    // Connection
+    Ping {},
+    Auth {
+        token: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum ServerMessage {
+    // Terminal
+    Health {
+        status: String,
+        pid: Option<i32>,
+        uptime_secs: i64,
+        agent: String,
+        terminal_cols: u16,
+        terminal_rows: u16,
+        ws_clients: i32,
+        ready: bool,
+    },
+    Ready {
+        ready: bool,
     },
     Screen {
         lines: Vec<String>,
@@ -29,6 +126,74 @@ pub enum ServerMessage {
         alt_screen: bool,
         cursor: Option<CursorPosition>,
         seq: u64,
+    },
+    Output {
+        data: String,
+        offset: u64,
+    },
+    Status {
+        state: String,
+        pid: Option<i32>,
+        uptime_secs: i64,
+        exit_code: Option<i32>,
+        screen_seq: u64,
+        bytes_read: u64,
+        bytes_written: u64,
+        ws_clients: i32,
+    },
+    #[serde(rename = "replay:result")]
+    ReplayResult {
+        data: String,
+        offset: u64,
+        next_offset: u64,
+        total_written: u64,
+    },
+    #[serde(rename = "input:result")]
+    InputResult {
+        bytes_written: i32,
+    },
+    #[serde(rename = "resize:result")]
+    ResizeResult {
+        cols: u16,
+        rows: u16,
+    },
+    #[serde(rename = "signal:result")]
+    SignalResult {
+        delivered: bool,
+    },
+
+    // Agent
+    #[serde(rename = "agent:state")]
+    AgentState {
+        agent: String,
+        state: String,
+        since_seq: u64,
+        screen_seq: u64,
+        detection_tier: String,
+        detection_cause: String,
+        prompt: Option<PromptContext>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_detail: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_category: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        last_message: Option<String>,
+    },
+    #[serde(rename = "nudge:result")]
+    NudgeResult {
+        delivered: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        state_before: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+    #[serde(rename = "response:result")]
+    RespondResult {
+        delivered: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        prompt_type: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
     },
     Transition {
         prev: String,
@@ -48,50 +213,7 @@ pub enum ServerMessage {
         code: Option<i32>,
         signal: Option<i32>,
     },
-    Error {
-        code: String,
-        message: String,
-    },
-    NudgeResult {
-        delivered: bool,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        state_before: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        reason: Option<String>,
-    },
-    RespondResult {
-        delivered: bool,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        prompt_type: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        reason: Option<String>,
-    },
-    Status {
-        state: String,
-        pid: Option<i32>,
-        uptime_secs: i64,
-        exit_code: Option<i32>,
-        screen_seq: u64,
-        bytes_read: u64,
-        bytes_written: u64,
-        ws_clients: i32,
-    },
-    Stop {
-        stop_type: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        signal: Option<serde_json::Value>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        error_detail: Option<String>,
-        seq: u64,
-    },
-    Start {
-        source: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
-        injected: bool,
-        seq: u64,
-    },
-    #[serde(rename = "prompt")]
+    #[serde(rename = "prompt:action")]
     PromptAction {
         source: String,
         r#type: String,
@@ -100,128 +222,56 @@ pub enum ServerMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         option: Option<u32>,
     },
-    InputResult {
-        bytes_written: i32,
-    },
-    ResizeResult {
-        cols: u16,
-        rows: u16,
-    },
-    SignalResult {
-        delivered: bool,
-    },
-    ShutdownResult {
-        accepted: bool,
-    },
-    AgentState {
-        agent: String,
-        state: String,
-        since_seq: u64,
-        screen_seq: u64,
-        detection_tier: String,
-        detection_cause: String,
-        prompt: Option<PromptContext>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        error_detail: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        error_category: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        last_message: Option<String>,
-    },
-    Health {
-        status: String,
-        pid: Option<i32>,
-        uptime_secs: i64,
-        agent: String,
-        terminal_cols: u16,
-        terminal_rows: u16,
-        ws_clients: i32,
-        ready: bool,
-    },
-    Ready {
-        ready: bool,
-    },
+
+    // Stop hook
+    #[serde(rename = "config:stop")]
     StopConfig {
         config: serde_json::Value,
     },
+    #[serde(rename = "stop:result")]
+    StopResult {
+        accepted: bool,
+    },
+    Stop {
+        r#type: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        signal: Option<serde_json::Value>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_detail: Option<String>,
+        seq: u64,
+    },
+
+    // Start hook
+    #[serde(rename = "config:start")]
     StartConfig {
         config: serde_json::Value,
     },
+    Start {
+        source: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        injected: bool,
+        seq: u64,
+    },
+
+    // Config (shared)
+    #[serde(rename = "config:updated")]
     ConfigUpdated {
         updated: bool,
     },
-    ResolveStopResult {
+
+    // Lifecycle
+    #[serde(rename = "shutdown:result")]
+    ShutdownResult {
         accepted: bool,
     },
-    ReplayResult {
-        data: String,
-        offset: u64,
-        next_offset: u64,
-        total_written: u64,
-    },
-    Pong {},
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "event", rename_all = "snake_case")]
-pub enum ClientMessage {
-    Input {
-        text: String,
-        #[serde(default)]
-        enter: bool,
-    },
-    InputRaw {
-        data: String,
-    },
-    Keys {
-        keys: Vec<String>,
-    },
-    Resize {
-        cols: u16,
-        rows: u16,
-    },
-    ScreenRequest {
-        #[serde(default)]
-        cursor: bool,
-    },
-    StateRequest {},
-    StatusRequest {},
-    Nudge {
+    // Connection
+    Pong {},
+    Error {
+        code: String,
         message: String,
     },
-    Respond {
-        accept: Option<bool>,
-        text: Option<String>,
-        #[serde(default)]
-        answers: Vec<crate::transport::handler::TransportQuestionAnswer>,
-        option: Option<i32>,
-    },
-    Replay {
-        offset: u64,
-        #[serde(default)]
-        limit: Option<usize>,
-    },
-    Auth {
-        token: String,
-    },
-    Signal {
-        signal: String,
-    },
-    Shutdown {},
-    HealthRequest {},
-    ReadyRequest {},
-    GetStopConfig {},
-    PutStopConfig {
-        config: serde_json::Value,
-    },
-    GetStartConfig {},
-    PutStartConfig {
-        config: serde_json::Value,
-    },
-    ResolveStop {
-        body: serde_json::Value,
-    },
-    Ping {},
 }
 
 /// WebSocket subscription mode (query parameter on upgrade).
@@ -295,8 +345,8 @@ pub fn ws_error(code: ErrorCode, message: &str) -> ServerMessage {
     ServerMessage::Error { code: code.as_str().to_owned(), message: message.to_owned() }
 }
 
-/// Convert a `StateChangeEvent` to a `ServerMessage`.
-pub fn state_change_to_msg(event: &StateChangeEvent) -> ServerMessage {
+/// Convert a `TransitionEvent` to a `ServerMessage`.
+pub fn state_change_to_msg(event: &TransitionEvent) -> ServerMessage {
     if let AgentState::Exited { status } = &event.next {
         return ServerMessage::Exit { code: status.code, signal: status.signal };
     }
@@ -313,22 +363,22 @@ pub fn state_change_to_msg(event: &StateChangeEvent) -> ServerMessage {
     }
 }
 
+/// Convert a `StopEvent` to a `ServerMessage`.
+pub fn stop_event_to_msg(event: &StopEvent) -> ServerMessage {
+    ServerMessage::Stop {
+        r#type: event.r#type.as_str().to_owned(),
+        signal: event.signal.clone(),
+        error_detail: event.error_detail.clone(),
+        seq: event.seq,
+    }
+}
+
 /// Convert a `StartEvent` to a `ServerMessage`.
 pub fn start_event_to_msg(event: &StartEvent) -> ServerMessage {
     ServerMessage::Start {
         source: event.source.clone(),
         session_id: event.session_id.clone(),
         injected: event.injected,
-        seq: event.seq,
-    }
-}
-
-/// Convert a `StopEvent` to a `ServerMessage`.
-pub fn stop_event_to_msg(event: &StopEvent) -> ServerMessage {
-    ServerMessage::Stop {
-        stop_type: event.stop_type.as_str().to_owned(),
-        signal: event.signal.clone(),
-        error_detail: event.error_detail.clone(),
         seq: event.seq,
     }
 }

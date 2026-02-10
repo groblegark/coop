@@ -137,7 +137,7 @@ async fn ws_replay_large_offset() -> anyhow::Result<()> {
     let parsed: serde_json::Value = serde_json::from_str(&text)?;
     assert_eq!(
         parsed.get("event").and_then(|t| t.as_str()),
-        Some("replay_result"),
+        Some("replay:result"),
         "response: {text}"
     );
     assert_eq!(parsed.get("offset").and_then(|o| o.as_u64()), Some(128000), "response: {text}");

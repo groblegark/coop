@@ -22,7 +22,9 @@ use crate::transport::handler::{
     handle_nudge, handle_resize, handle_respond, handle_signal, TransportQuestionAnswer,
 };
 use crate::transport::read_ring_combined;
-use crate::transport::state::AppState;
+use crate::transport::state::Store;
+
+// -- Terminal types -----------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
@@ -44,6 +46,12 @@ pub struct HealthResponse {
 pub struct TerminalSize {
     pub cols: u16,
     pub rows: u16,
+}
+
+/// Response for the readiness probe.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadyResponse {
+    pub ready: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -121,6 +129,8 @@ pub struct SignalResponse {
     pub delivered: bool,
 }
 
+// -- Agent types --------------------------------------------------------------
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentStateResponse {
     pub agent: String,
@@ -152,8 +162,10 @@ pub struct RespondRequest {
     pub option: Option<i32>,
 }
 
+// -- Terminal handlers --------------------------------------------------------
+
 /// `GET /api/v1/health`
-pub async fn health(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn health(State(s): State<Arc<Store>>) -> impl IntoResponse {
     let h = compute_health(&s).await;
     Json(HealthResponse {
         status: h.status,
@@ -168,14 +180,8 @@ pub async fn health(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     })
 }
 
-/// Response for the readiness probe.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReadyResponse {
-    pub ready: bool,
-}
-
 /// `GET /api/v1/ready` — readiness probe (200 when ready, 503 otherwise).
-pub async fn ready(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn ready(State(s): State<Arc<Store>>) -> impl IntoResponse {
     let is_ready = s.ready.load(Ordering::Acquire);
     let status = if is_ready {
         axum::http::StatusCode::OK
@@ -187,7 +193,7 @@ pub async fn ready(State(s): State<Arc<AppState>>) -> impl IntoResponse {
 
 /// `GET /api/v1/screen`
 pub async fn screen(
-    State(s): State<Arc<AppState>>,
+    State(s): State<Arc<Store>>,
     Query(q): Query<ScreenQuery>,
 ) -> impl IntoResponse {
     let snap = s.terminal.screen.read().await.snapshot();
@@ -203,7 +209,7 @@ pub async fn screen(
 }
 
 /// `GET /api/v1/screen/text`
-pub async fn screen_text(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn screen_text(State(s): State<Arc<Store>>) -> impl IntoResponse {
     let snap = s.terminal.screen.read().await.snapshot();
     let text = snap.lines.join("\n");
     ([(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")], text)
@@ -211,7 +217,7 @@ pub async fn screen_text(State(s): State<Arc<AppState>>) -> impl IntoResponse {
 
 /// `GET /api/v1/output`
 pub async fn output(
-    State(s): State<Arc<AppState>>,
+    State(s): State<Arc<Store>>,
     Query(q): Query<OutputQuery>,
 ) -> impl IntoResponse {
     let ring = s.terminal.ring.read().await;
@@ -235,13 +241,13 @@ pub async fn output(
 }
 
 /// `GET /api/v1/status`
-pub async fn status(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn status(State(s): State<Arc<Store>>) -> impl IntoResponse {
     Json(compute_status(&s).await)
 }
 
 /// `POST /api/v1/input`
 pub async fn input(
-    State(s): State<Arc<AppState>>,
+    State(s): State<Arc<Store>>,
     Json(req): Json<InputRequest>,
 ) -> impl IntoResponse {
     let len = handle_input(&s, req.text, req.enter).await;
@@ -250,7 +256,7 @@ pub async fn input(
 
 /// `POST /api/v1/input/raw`
 pub async fn input_raw(
-    State(s): State<Arc<AppState>>,
+    State(s): State<Arc<Store>>,
     Json(req): Json<InputRawRequest>,
 ) -> impl IntoResponse {
     let decoded = match base64::engine::general_purpose::STANDARD.decode(&req.data) {
@@ -265,7 +271,7 @@ pub async fn input_raw(
 
 /// `POST /api/v1/input/keys`
 pub async fn input_keys(
-    State(s): State<Arc<AppState>>,
+    State(s): State<Arc<Store>>,
     Json(req): Json<KeysRequest>,
 ) -> impl IntoResponse {
     match handle_keys(&s, &req.keys).await {
@@ -278,7 +284,7 @@ pub async fn input_keys(
 
 /// `POST /api/v1/resize`
 pub async fn resize(
-    State(s): State<Arc<AppState>>,
+    State(s): State<Arc<Store>>,
     Json(req): Json<ResizeRequest>,
 ) -> impl IntoResponse {
     match handle_resize(&s, req.cols, req.rows).await {
@@ -291,7 +297,7 @@ pub async fn resize(
 
 /// `POST /api/v1/signal`
 pub async fn signal(
-    State(s): State<Arc<AppState>>,
+    State(s): State<Arc<Store>>,
     Json(req): Json<SignalRequest>,
 ) -> impl IntoResponse {
     match handle_signal(&s, &req.signal).await {
@@ -302,8 +308,10 @@ pub async fn signal(
     }
 }
 
-/// `GET /api/v1/agent/state`
-pub async fn agent_state(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+// -- Agent handlers -----------------------------------------------------------
+
+/// `GET /api/v1/agent`
+pub async fn agent_state(State(s): State<Arc<Store>>) -> impl IntoResponse {
     let state = s.driver.agent_state.read().await;
     let screen = s.terminal.screen.read().await;
 
@@ -332,7 +340,7 @@ pub async fn agent_state(State(s): State<Arc<AppState>>) -> impl IntoResponse {
 
 /// `POST /api/v1/agent/nudge`
 pub async fn agent_nudge(
-    State(s): State<Arc<AppState>>,
+    State(s): State<Arc<Store>>,
     Json(req): Json<NudgeRequest>,
 ) -> impl IntoResponse {
     match handle_nudge(&s, &req.message).await {
@@ -343,7 +351,7 @@ pub async fn agent_nudge(
 
 /// `POST /api/v1/agent/respond`
 pub async fn agent_respond(
-    State(s): State<Arc<AppState>>,
+    State(s): State<Arc<Store>>,
     Json(req): Json<RespondRequest>,
 ) -> impl IntoResponse {
     match handle_respond(&s, req.accept, req.option, req.text.as_deref(), &req.answers).await {
@@ -351,6 +359,8 @@ pub async fn agent_respond(
         Err(code) => code.to_http_response(error_message(code)).into_response(),
     }
 }
+
+// -- Stop hook ----------------------------------------------------------------
 
 /// Event-wrapped input from the stop hook (piped from stdin via curl).
 ///
@@ -389,7 +399,7 @@ pub struct StopHookVerdict {
 
 /// `POST /api/v1/hooks/stop` — called by the hook script, returns verdict.
 pub async fn hooks_stop(
-    State(s): State<Arc<AppState>>,
+    State(s): State<Arc<Store>>,
     Json(input): Json<StopHookInput>,
 ) -> impl IntoResponse {
     let stop = &s.stop;
@@ -449,7 +459,7 @@ pub async fn hooks_stop(
 
 /// `POST /api/v1/hooks/stop/resolve` — store signal body, set flag.
 pub async fn resolve_stop(
-    State(s): State<Arc<AppState>>,
+    State(s): State<Arc<Store>>,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     let stop = &s.stop;
@@ -459,25 +469,21 @@ pub async fn resolve_stop(
 }
 
 /// `GET /api/v1/config/stop` — read current stop config.
-pub async fn get_stop_config(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn get_stop_config(State(s): State<Arc<Store>>) -> impl IntoResponse {
     let config = s.stop.config.read().await;
     Json(config.clone())
 }
 
-/// `POST /api/v1/shutdown` — initiate graceful coop shutdown.
-pub async fn shutdown(State(s): State<Arc<AppState>>) -> impl IntoResponse {
-    s.lifecycle.shutdown.cancel();
-    Json(serde_json::json!({ "accepted": true }))
-}
-
 /// `PUT /api/v1/config/stop` — update stop config.
 pub async fn put_stop_config(
-    State(s): State<Arc<AppState>>,
+    State(s): State<Arc<Store>>,
     Json(new_config): Json<StopConfig>,
 ) -> impl IntoResponse {
     *s.stop.config.write().await = new_config;
     Json(serde_json::json!({ "updated": true }))
 }
+
+// -- Start hook ---------------------------------------------------------------
 
 /// Event-wrapped input from the start hook (piped from stdin via curl).
 ///
@@ -494,7 +500,7 @@ pub struct StartHookInput {
 
 /// `POST /api/v1/hooks/start` — called by the hook script, returns shell script.
 pub async fn hooks_start(
-    State(s): State<Arc<AppState>>,
+    State(s): State<Arc<Store>>,
     Json(input): Json<StartHookInput>,
 ) -> impl IntoResponse {
     let start = &s.start;
@@ -528,18 +534,26 @@ pub async fn hooks_start(
 }
 
 /// `GET /api/v1/config/start` — read current start config.
-pub async fn get_start_config(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn get_start_config(State(s): State<Arc<Store>>) -> impl IntoResponse {
     let config = s.start.config.read().await;
     Json(config.clone())
 }
 
 /// `PUT /api/v1/config/start` — update start config.
 pub async fn put_start_config(
-    State(s): State<Arc<AppState>>,
+    State(s): State<Arc<Store>>,
     Json(new_config): Json<StartConfig>,
 ) -> impl IntoResponse {
     *s.start.config.write().await = new_config;
     Json(serde_json::json!({ "updated": true }))
+}
+
+// -- Lifecycle ----------------------------------------------------------------
+
+/// `POST /api/v1/shutdown` — initiate graceful coop shutdown.
+pub async fn shutdown(State(s): State<Arc<Store>>) -> impl IntoResponse {
+    s.lifecycle.shutdown.cancel();
+    Json(serde_json::json!({ "accepted": true }))
 }
 
 #[cfg(test)]

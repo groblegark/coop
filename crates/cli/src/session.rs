@@ -20,15 +20,15 @@ use crate::driver::{
     classify_error_detail, disruption_option, AgentState, CompositeDetector, DetectedState,
     Detector, ExitStatus, NudgeStep, OptionParser, PromptKind,
 };
-use crate::event::{InputEvent, OutputEvent, PromptAction, StateChangeEvent};
+use crate::event::{InputEvent, OutputEvent, PromptAction, TransitionEvent};
 use crate::pty::{Backend, BackendInput, Boxed};
-use crate::transport::AppState;
+use crate::transport::Store;
 
 /// Runtime objects for building a new [`Session`] (not derivable from [`Config`]).
 pub struct SessionConfig {
     pub backend: Box<dyn Backend>,
     pub detectors: Vec<Box<dyn Detector>>,
-    pub app_state: Arc<AppState>,
+    pub app_state: Arc<Store>,
     pub consumer_input_rx: mpsc::Receiver<InputEvent>,
     pub shutdown: CancellationToken,
     /// Driver-provided parser for extracting numbered option labels from
@@ -38,7 +38,7 @@ pub struct SessionConfig {
 
 impl SessionConfig {
     pub fn new(
-        app_state: Arc<AppState>,
+        app_state: Arc<Store>,
         backend: impl Boxed,
         consumer_input_rx: mpsc::Receiver<InputEvent>,
     ) -> Self {
@@ -70,7 +70,7 @@ impl SessionConfig {
 
 /// Core session that runs the select-loop multiplexer.
 pub struct Session {
-    app_state: Arc<AppState>,
+    app_state: Arc<Store>,
     backend_output_rx: mpsc::Receiver<Bytes>,
     backend_input_tx: mpsc::Sender<BackendInput>,
     resize_tx: mpsc::Sender<(u16, u16)>,
@@ -266,7 +266,7 @@ impl Session {
                         };
 
                         let last_message = self.app_state.driver.last_message.read().await.clone();
-                        let _ = self.app_state.channels.state_tx.send(StateChangeEvent {
+                        let _ = self.app_state.channels.state_tx.send(TransitionEvent {
                             prev,
                             next: detected.state.clone(),
                             seq: state_seq,
@@ -309,7 +309,7 @@ impl Session {
                                             encoder.encode_setup(option)
                                         };
                                         let tx = self.app_state.channels.input_tx.clone();
-                                        let gate = Arc::clone(&self.app_state.delivery_gate);
+                                        let gate = Arc::clone(&self.app_state.input_gate);
                                         let expected_seq = state_seq;
                                         let driver = Arc::clone(&self.app_state.driver);
                                         let terminal = Arc::clone(&self.app_state.terminal);
@@ -539,7 +539,7 @@ impl Session {
         drop(current);
         state_seq += 1;
         let last_message = self.app_state.driver.last_message.read().await.clone();
-        let _ = self.app_state.channels.state_tx.send(StateChangeEvent {
+        let _ = self.app_state.channels.state_tx.send(TransitionEvent {
             prev,
             next: AgentState::Exited { status },
             seq: state_seq,
@@ -551,7 +551,7 @@ impl Session {
     }
 
     /// Get a reference to the shared application state.
-    pub fn app_state(&self) -> &Arc<AppState> {
+    pub fn app_state(&self) -> &Arc<Store> {
         &self.app_state
     }
 }
@@ -563,7 +563,7 @@ impl Session {
 /// containing numbered options reaches the screen buffer. Retries up to
 /// `MAX_ATTEMPTS` times, then falls back to universal Accept/Cancel options
 /// that encode to Enter/Esc.
-async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64, parser: OptionParser) {
+async fn enrich_prompt_options(app: Arc<Store>, expected_seq: u64, parser: OptionParser) {
     const MAX_ATTEMPTS: u32 = 10;
     const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
@@ -602,7 +602,7 @@ async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64, parser: Op
                     drop(agent);
 
                     let last_message = app.driver.last_message.read().await.clone();
-                    let _ = app.channels.state_tx.send(StateChangeEvent {
+                    let _ = app.channels.state_tx.send(TransitionEvent {
                         prev: next.clone(),
                         next,
                         seq: expected_seq,
@@ -635,7 +635,7 @@ async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64, parser: Op
             drop(agent);
 
             let last_message = app.driver.last_message.read().await.clone();
-            let _ = app.channels.state_tx.send(StateChangeEvent {
+            let _ = app.channels.state_tx.send(TransitionEvent {
                 prev: next.clone(),
                 next,
                 seq: expected_seq,

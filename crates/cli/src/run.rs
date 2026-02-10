@@ -35,12 +35,12 @@ use crate::transport::grpc::CoopGrpc;
 use crate::transport::state::{
     DetectionInfo, DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels,
 };
-use crate::transport::{build_health_router, build_router, AppState};
+use crate::transport::{build_health_router, build_router, Store};
 
 /// Result of a completed session.
 pub struct RunResult {
     pub status: crate::driver::ExitStatus,
-    pub app_state: Arc<AppState>,
+    pub app_state: Arc<Store>,
 }
 
 /// A fully-prepared session ready to run.
@@ -49,7 +49,7 @@ pub struct RunResult {
 /// [`AppState`] — including broadcast channels and the shutdown token — before
 /// the blocking session loop starts.
 pub struct PreparedSession {
-    pub app_state: Arc<AppState>,
+    pub app_state: Arc<Store>,
     session: Session,
     config: Config,
 }
@@ -310,7 +310,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let stop_state = Arc::new(StopState::new(stop_config, resolve_url));
     let start_state = Arc::new(StartState::new(start_config));
 
-    let app_state = Arc::new(AppState {
+    let app_state = Arc::new(Store {
         terminal,
         driver: Arc::new(DriverState {
             agent_state: RwLock::new(AgentState::Starting),
@@ -335,7 +335,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             bytes_written: AtomicU64::new(0),
         },
         ready: Arc::new(AtomicBool::new(false)),
-        delivery_gate: Arc::new(crate::transport::state::DeliveryGate::new(config.input_delay())),
+        input_gate: Arc::new(crate::transport::state::InputGate::new(config.input_delay())),
         stop: stop_state,
         start: start_state,
         input_activity: Arc::new(tokio::sync::Notify::new()),

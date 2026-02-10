@@ -432,7 +432,7 @@ async fn attach(
 
         let (mut ws_tx, mut ws_rx) = ws_stream.split();
 
-        // Post-connect handshake: Auth → Resize → Replay → StateRequest.
+        // Post-connect handshake: Auth → Resize → Replay → GetAgent.
         if let Some(token) = auth_token {
             let _ = send_msg(&mut ws_tx, &ClientMessage::Auth { token: token.to_owned() }).await;
         }
@@ -455,7 +455,7 @@ async fn attach(
                 .await;
 
         if sl_active {
-            let _ = send_msg(&mut ws_tx, &ClientMessage::StateRequest {}).await;
+            let _ = send_msg(&mut ws_tx, &ClientMessage::GetAgent {}).await;
             let content = match &sl_cfg.cmd {
                 Some(cmd) => run_statusline_cmd(cmd, &state).await,
                 None => builtin_statusline(&state),
@@ -633,12 +633,12 @@ where
                         if let Some(pos) = bytes.iter().position(|&b| b == DETACH_KEY) {
                             if pos > 0 {
                                 let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes[..pos]);
-                                let _ = send_msg(ws_tx, &ClientMessage::InputRaw { data: encoded }).await;
+                                let _ = send_msg(ws_tx, &ClientMessage::SendInputRaw { data: encoded }).await;
                             }
                             return SessionResult::Detached;
                         }
                         let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                        if send_msg(ws_tx, &ClientMessage::InputRaw { data: encoded }).await.is_err() {
+                        if send_msg(ws_tx, &ClientMessage::SendInputRaw { data: encoded }).await.is_err() {
                             return SessionResult::Disconnected("send failed".to_owned());
                         }
                     }

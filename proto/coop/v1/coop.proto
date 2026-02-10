@@ -10,22 +10,22 @@ service Coop {
 
   // Health check. Always available.
   rpc GetHealth(GetHealthRequest) returns (GetHealthResponse);
+  // Readiness probe.
+  rpc GetReady(GetReadyRequest) returns (GetReadyResponse);
   // Rendered terminal screen content.
   rpc GetScreen(GetScreenRequest) returns (GetScreenResponse);
   // Session status summary.
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
   // Write text to the PTY.
   rpc SendInput(SendInputRequest) returns (SendInputResponse);
-  // Send named key sequences to the PTY.
-  rpc SendKeys(SendKeysRequest) returns (SendKeysResponse);
-  // Resize the PTY.
-  rpc Resize(ResizeRequest) returns (ResizeResponse);
-  // Send a signal to the child process.
-  rpc SendSignal(SendSignalRequest) returns (SendSignalResponse);
   // Write raw bytes to the PTY.
   rpc SendInputRaw(SendInputRawRequest) returns (SendInputRawResponse);
-  // Readiness probe.
-  rpc GetReady(GetReadyRequest) returns (GetReadyResponse);
+  // Send named key sequences to the PTY.
+  rpc SendKeys(SendKeysRequest) returns (SendKeysResponse);
+  // Send a signal to the child process.
+  rpc SendSignal(SendSignalRequest) returns (SendSignalResponse);
+  // Resize the PTY.
+  rpc Resize(ResizeRequest) returns (ResizeResponse);
   // Stream raw PTY output bytes starting from a byte offset.
   rpc StreamOutput(StreamOutputRequest) returns (stream OutputChunk);
   // Stream rendered terminal screen snapshots on each update.
@@ -34,33 +34,33 @@ service Coop {
   // Agent (requires --agent flag)
 
   // Current agent state and prompt context.
-  rpc GetAgentState(GetAgentStateRequest) returns (GetAgentStateResponse);
+  rpc GetAgent(GetAgentRequest) returns (GetAgentResponse);
   // Send a follow-up message. Only succeeds when state is idle.
   rpc Nudge(NudgeRequest) returns (NudgeResponse);
   // Respond to an active prompt.
   rpc Respond(RespondRequest) returns (RespondResponse);
   // Stream agent state transitions in real time.
-  rpc StreamState(StreamStateRequest) returns (stream AgentStateEvent);
+  rpc StreamAgent(StreamAgentRequest) returns (stream AgentStateEvent);
   // Stream prompt action events in real time.
   rpc StreamPromptActions(StreamPromptActionsRequest) returns (stream PromptActionEvent);
 
   // Stop hook management
 
-  // Resolve a pending stop gate so the agent is allowed to stop.
-  rpc ResolveStop(ResolveStopRequest) returns (ResolveStopResponse);
-  // Update the stop hook configuration at runtime.
-  rpc PutStopConfig(PutStopConfigRequest) returns (PutStopConfigResponse);
   // Read the current stop hook configuration.
   rpc GetStopConfig(GetStopConfigRequest) returns (GetStopConfigResponse);
+  // Update the stop hook configuration at runtime.
+  rpc PutStopConfig(PutStopConfigRequest) returns (PutStopConfigResponse);
+  // Resolve a pending stop gate so the agent is allowed to stop.
+  rpc ResolveStop(ResolveStopRequest) returns (ResolveStopResponse);
   // Stream stop hook verdict events in real time.
   rpc StreamStopEvents(StreamStopEventsRequest) returns (stream StopEvent);
 
   // Start hook management
 
-  // Update the start hook configuration at runtime.
-  rpc PutStartConfig(PutStartConfigRequest) returns (PutStartConfigResponse);
   // Read the current start hook configuration.
   rpc GetStartConfig(GetStartConfigRequest) returns (GetStartConfigResponse);
+  // Update the start hook configuration at runtime.
+  rpc PutStartConfig(PutStartConfigRequest) returns (PutStartConfigResponse);
   // Stream start hook events in real time.
   rpc StreamStartEvents(StreamStartEventsRequest) returns (stream StartEvent);
 
@@ -70,6 +70,8 @@ service Coop {
   rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
 }
 
+
+// -- Terminal -----------------------------------------------------------------
 
 message GetHealthRequest {}
 message GetHealthResponse {
@@ -91,11 +93,15 @@ message GetHealthResponse {
   bool ready = 8;
 }
 
+message GetReadyRequest {}
+message GetReadyResponse {
+  bool ready = 1;
+}
+
 message GetScreenRequest {
   // Include cursor position in the response.
   bool cursor = 1;
 }
-
 message GetScreenResponse {
   // One string per terminal row.
   repeated string lines = 1;
@@ -137,6 +143,30 @@ message GetStatusResponse {
   int32 ws_clients = 8;
 }
 
+message StreamOutputRequest {
+  // Byte offset to start streaming from.
+  uint64 from_offset = 1;
+}
+message OutputChunk {
+  // Raw PTY output bytes.
+  bytes data = 1;
+  // Byte offset in the output stream.
+  uint64 offset = 2;
+}
+
+message StreamScreenRequest {}
+message ScreenSnapshot {
+  // One string per terminal row.
+  repeated string lines = 1;
+  int32 cols = 2;
+  int32 rows = 3;
+  // Whether the alternate screen buffer is active.
+  bool alt_screen = 4;
+  CursorPosition cursor = 5;
+  // Monotonic screen update seq number.
+  uint64 seq = 6;
+}
+
 message SendInputRequest {
   // Text to write to the PTY.
   string text = 1;
@@ -144,6 +174,14 @@ message SendInputRequest {
   bool enter = 2;
 }
 message SendInputResponse {
+  int32 bytes_written = 1;
+}
+
+message SendInputRawRequest {
+  // Raw bytes to write to the PTY.
+  bytes data = 1;
+}
+message SendInputRawResponse {
   int32 bytes_written = 1;
 }
 
@@ -177,30 +215,8 @@ message SendSignalResponse {
   bool delivered = 1;
 }
 
-message StreamOutputRequest {
-  // Byte offset to start streaming from.
-  uint64 from_offset = 1;
-}
-message OutputChunk {
-  // Raw PTY output bytes.
-  bytes data = 1;
-  // Byte offset in the output stream.
-  uint64 offset = 2;
-}
 
-message StreamScreenRequest {}
-message ScreenSnapshot {
-  // One string per terminal row.
-  repeated string lines = 1;
-  int32 cols = 2;
-  int32 rows = 3;
-  // Whether the alternate screen buffer is active.
-  bool alt_screen = 4;
-  CursorPosition cursor = 5;
-  // Monotonic screen update seq number.
-  uint64 seq = 6;
-}
-
+// -- Agent --------------------------------------------------------------------
 
 // A single question within a multi-question dialog.
 message QuestionContext {
@@ -247,8 +263,8 @@ message PromptContext {
   bool ready = 10;
 }
 
-message GetAgentStateRequest {}
-message GetAgentStateResponse {
+message GetAgentRequest {}
+message GetAgentResponse {
   // Agent type.
   string agent = 1;
   // Current agent state: starting, working, idle,
@@ -309,99 +325,7 @@ message RespondResponse {
   optional string reason = 3;
 }
 
-message StreamStateRequest {}
-
-
-message ResolveStopRequest {
-  // JSON body of the signal (freeform).
-  string body_json = 1;
-}
-message ResolveStopResponse {
-  bool accepted = 1;
-}
-
-message PutStopConfigRequest {
-  // StopConfig as JSON.
-  string config_json = 1;
-}
-message PutStopConfigResponse {
-  bool updated = 1;
-}
-
-message GetStopConfigRequest {}
-message GetStopConfigResponse {
-  // Current StopConfig as JSON.
-  string config_json = 1;
-}
-
-message StreamStopEventsRequest {}
-// Stop hook verdict event.
-message StopEvent {
-  // Verdict type: signaled, error, safety_valve, blocked, allowed.
-  string stop_type = 1;
-  // Signal body JSON (when stop_type is "signaled").
-  optional string signal_json = 2;
-  // Error description (when stop_type is "error").
-  optional string error_detail = 3;
-  // Monotonic sequence number.
-  uint64 seq = 4;
-}
-
-
-message PutStartConfigRequest {
-  // StartConfig as JSON.
-  string config_json = 1;
-}
-message PutStartConfigResponse {
-  bool updated = 1;
-}
-
-message GetStartConfigRequest {}
-message GetStartConfigResponse {
-  // Current StartConfig as JSON.
-  string config_json = 1;
-}
-
-message StreamStartEventsRequest {}
-// Start hook event.
-message StartEvent {
-  // Source of the lifecycle event (e.g. "start", "resume", "clear").
-  string source = 1;
-  // Session ID if available from the hook data.
-  optional string session_id = 2;
-  // Whether a non-empty script was injected.
-  bool injected = 3;
-  // Monotonic sequence number.
-  uint64 seq = 4;
-}
-
-
-message ShutdownRequest {}
-message ShutdownResponse {
-  bool accepted = 1;
-}
-
-message SendInputRawRequest {
-  // Raw bytes to write to the PTY.
-  bytes data = 1;
-}
-message SendInputRawResponse {
-  int32 bytes_written = 1;
-}
-
-message GetReadyRequest {}
-message GetReadyResponse {
-  bool ready = 1;
-}
-
-message StreamPromptActionsRequest {}
-// Prompt action event (e.g. user responded to a prompt via API).
-message PromptActionEvent {
-  string source = 1;
-  string type = 2;
-  optional string subtype = 3;
-  optional uint32 option = 4;
-}
+message StreamAgentRequest {}
 
 // Agent state transition event.
 message AgentStateEvent {
@@ -421,4 +345,89 @@ message AgentStateEvent {
   optional string cause = 7;
   // Last message extracted from agent output.
   optional string last_message = 8;
+}
+
+message StreamPromptActionsRequest {}
+// Prompt action event (e.g. user responded to a prompt via API).
+message PromptActionEvent {
+  string source = 1;
+  string type = 2;
+  optional string subtype = 3;
+  optional uint32 option = 4;
+}
+
+
+// -- Stop hook ----------------------------------------------------------------
+
+message GetStopConfigRequest {}
+message GetStopConfigResponse {
+  // Current StopConfig as JSON.
+  string config_json = 1;
+}
+
+message PutStopConfigRequest {
+  // StopConfig as JSON.
+  string config_json = 1;
+}
+message PutStopConfigResponse {
+  bool updated = 1;
+}
+
+message ResolveStopRequest {
+  // JSON body of the signal (freeform).
+  string body_json = 1;
+}
+message ResolveStopResponse {
+  bool accepted = 1;
+}
+
+message StreamStopEventsRequest {}
+// Stop hook verdict event.
+message StopEvent {
+  // Verdict type: signaled, error, safety_valve, blocked, allowed.
+  string type = 1;
+  // Signal body JSON (when type is "signaled").
+  optional string signal_json = 2;
+  // Error description (when type is "error").
+  optional string error_detail = 3;
+  // Monotonic sequence number.
+  uint64 seq = 4;
+}
+
+
+// -- Start hook ---------------------------------------------------------------
+
+message GetStartConfigRequest {}
+message GetStartConfigResponse {
+  // Current StartConfig as JSON.
+  string config_json = 1;
+}
+
+message PutStartConfigRequest {
+  // StartConfig as JSON.
+  string config_json = 1;
+}
+message PutStartConfigResponse {
+  bool updated = 1;
+}
+
+message StreamStartEventsRequest {}
+// Start hook event.
+message StartEvent {
+  // Source of the lifecycle event (e.g. "start", "resume", "clear").
+  string source = 1;
+  // Session ID if available from the hook data.
+  optional string session_id = 2;
+  // Whether a non-empty script was injected.
+  bool injected = 3;
+  // Monotonic sequence number.
+  uint64 seq = 4;
+}
+
+
+// -- Lifecycle ----------------------------------------------------------------
+
+message ShutdownRequest {}
+message ShutdownResponse {
+  bool accepted = 1;
 }

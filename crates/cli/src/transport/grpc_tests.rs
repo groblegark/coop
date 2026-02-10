@@ -115,7 +115,7 @@ fn prompt_to_proto_handles_none_fields() {
 
 #[test]
 fn state_change_to_proto_converts_simple_transition() {
-    let event = crate::event::StateChangeEvent {
+    let event = crate::event::TransitionEvent {
         prev: AgentState::Starting,
         next: AgentState::Working,
         seq: 7,
@@ -133,7 +133,7 @@ fn state_change_to_proto_converts_simple_transition() {
 fn state_change_to_proto_includes_prompt() {
     let prompt =
         crate::driver::PromptContext::new(crate::driver::PromptKind::Permission).with_tool("write");
-    let event = crate::event::StateChangeEvent {
+    let event = crate::event::TransitionEvent {
         prev: AgentState::Working,
         next: AgentState::Prompt { prompt: prompt.clone() },
         seq: 10,
@@ -149,7 +149,7 @@ fn state_change_to_proto_includes_prompt() {
 
 #[test]
 fn state_change_to_proto_includes_error_fields() {
-    let event = crate::event::StateChangeEvent {
+    let event = crate::event::TransitionEvent {
         prev: AgentState::Working,
         next: AgentState::Error { detail: "rate_limit_error".to_owned() },
         seq: 5,
@@ -164,7 +164,7 @@ fn state_change_to_proto_includes_error_fields() {
 
 #[test]
 fn state_change_to_proto_omits_error_fields_for_non_error() {
-    let event = crate::event::StateChangeEvent {
+    let event = crate::event::TransitionEvent {
         prev: AgentState::Starting,
         next: AgentState::Working,
         seq: 1,

@@ -17,14 +17,14 @@ use crate::config::GroomLevel;
 use crate::driver::{
     AgentState, AgentType, Detector, ExitStatus, NudgeEncoder, NudgeStep, RespondEncoder,
 };
-use crate::event::{InputEvent, OutputEvent, PromptAction, StateChangeEvent};
+use crate::event::{InputEvent, OutputEvent, PromptAction, TransitionEvent};
 use crate::pty::Backend;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::start::{StartConfig, StartState};
 use crate::stop::{StopConfig, StopState};
 use crate::transport::state::{
-    AppState, DetectionInfo, DriverState, LifecycleState, SessionSettings, TerminalState,
+    DetectionInfo, DriverState, LifecycleState, SessionSettings, Store, TerminalState,
     TransportChannels,
 };
 
@@ -108,19 +108,19 @@ impl AppStateBuilder {
     }
 
     /// Build state and return the `input_rx` receiver alongside it.
-    pub fn build(self) -> (Arc<AppState>, mpsc::Receiver<InputEvent>) {
+    pub fn build(self) -> (Arc<Store>, mpsc::Receiver<InputEvent>) {
         let (input_tx, input_rx) = mpsc::channel(16);
         let state = self.build_with_sender(input_tx);
         (state, input_rx)
     }
 
     /// Build state using an externally-created `input_tx`.
-    pub fn build_with_sender(self, input_tx: mpsc::Sender<InputEvent>) -> Arc<AppState> {
+    pub fn build_with_sender(self, input_tx: mpsc::Sender<InputEvent>) -> Arc<Store> {
         let (output_tx, _) = broadcast::channel::<OutputEvent>(256);
-        let (state_tx, _) = broadcast::channel::<StateChangeEvent>(64);
+        let (state_tx, _) = broadcast::channel::<TransitionEvent>(64);
         let (prompt_tx, _) = broadcast::channel::<PromptAction>(64);
 
-        Arc::new(AppState {
+        Arc::new(Store {
             terminal: Arc::new(TerminalState {
                 screen: RwLock::new(Screen::new(80, 24)),
                 ring: RwLock::new(RingBuffer::new(self.ring_size)),
@@ -151,7 +151,7 @@ impl AppStateBuilder {
                 bytes_written: AtomicU64::new(0),
             },
             ready: Arc::new(AtomicBool::new(false)),
-            delivery_gate: Arc::new(crate::transport::state::DeliveryGate::new(Duration::ZERO)),
+            input_gate: Arc::new(crate::transport::state::InputGate::new(Duration::ZERO)),
             stop: Arc::new(StopState::new(
                 self.stop_config.unwrap_or_default(),
                 "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
@@ -356,7 +356,7 @@ impl Detector for MockDetector {
 ///
 /// Returns the bound address and a join handle for the server task.
 pub async fn spawn_http_server(
-    app_state: Arc<AppState>,
+    app_state: Arc<Store>,
 ) -> anyhow::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
     let router = crate::transport::build_router(app_state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -371,7 +371,7 @@ pub async fn spawn_http_server(
 ///
 /// Returns the bound address and a join handle for the server task.
 pub async fn spawn_grpc_server(
-    app_state: Arc<AppState>,
+    app_state: Arc<Store>,
 ) -> anyhow::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;

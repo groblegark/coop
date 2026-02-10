@@ -31,9 +31,9 @@ query string, the connection starts in an unauthenticated state.
 | Missing | Unauthenticated | Allowed | Blocked until `auth` message |
 | Invalid | Rejected | Connection refused (401) | -- |
 
-Read-only operations (subscriptions, `screen_request`, `state_request`,
-`status_request`, `replay`, `ping`) are always available. Write operations
-(`input`, `input_raw`, `keys`, `nudge`, `respond`, `signal`, `shutdown`)
+Read-only operations (subscriptions, `screen:get`, `state:get`,
+`get:status`, `replay`, `ping`) are always available. Write operations
+(`input`, `input:raw`, `keys`, `nudge`, `respond`, `signal`, `shutdown`)
 require authentication. `resize` does not require authentication.
 
 
@@ -75,7 +75,7 @@ Raw PTY output chunk. Sent in `raw` and `all` modes.
 ### `screen`
 
 Rendered terminal screen snapshot. Sent in `screen` and `all` modes on each
-screen update, or in response to a `screen_request`.
+screen update, or in response to a `screen:get`.
 
 ```json
 {
@@ -102,7 +102,7 @@ screen update, or in response to a `screen_request`.
 ### `transition`
 
 Agent state transition. Sent in `state` and `all` modes, or in response
-to a `state_request`.
+to a `state:get`.
 
 ```json
 {
@@ -159,13 +159,13 @@ This replaces `transition` for the terminal `exited` state.
 | `signal` | int or null | Signal number that killed the process |
 
 
-### `nudge_result`
+### `nudge:result`
 
 Result of a `nudge` request. Always sent in response to a client `nudge`.
 
 ```json
 {
-  "event": "nudge_result",
+  "event": "nudge:result",
   "delivered": true,
   "state_before": "idle",
   "reason": null
@@ -179,13 +179,13 @@ Result of a `nudge` request. Always sent in response to a client `nudge`.
 | `reason` | string or null | Why the nudge was not delivered |
 
 
-### `respond_result`
+### `respond:result`
 
 Result of a `respond` request. Always sent in response to a client `respond`.
 
 ```json
 {
-  "event": "respond_result",
+  "event": "respond:result",
   "delivered": true,
   "prompt_type": "permission",
   "reason": null
@@ -201,7 +201,7 @@ Result of a `respond` request. Always sent in response to a client `respond`.
 
 ### `status`
 
-Session status summary. Sent in response to a `status_request`.
+Session status summary. Sent in response to a `get:status`.
 
 ```json
 {
@@ -237,7 +237,7 @@ hook check occurs.
 ```json
 {
   "event": "stop",
-  "stop_type": "blocked",
+  "type": "blocked",
   "signal": null,
   "error_detail": null,
   "seq": 0
@@ -246,9 +246,9 @@ hook check occurs.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `stop_type` | string | Verdict type (see table below) |
-| `signal` | JSON or null | Signal body (when `stop_type` is `"signaled"`) |
-| `error_detail` | string or null | Error details (when `stop_type` is `"error"`) |
+| `type` | string | Verdict type (see table below) |
+| `signal` | JSON or null | Signal body (when `type` is `"signaled"`) |
+| `error_detail` | string or null | Error details (when `type` is `"error"`) |
 | `seq` | int | Monotonic stop event sequence number |
 
 **Stop types:**
@@ -359,26 +359,26 @@ On success: no response (connection is now authenticated).
 On failure: `error` message with code `UNAUTHORIZED`.
 
 
-### `screen_request`
+### `screen:get`
 
 Request the current screen snapshot. No auth required.
 
 ```json
 {
-  "event": "screen_request"
+  "event": "screen:get"
 }
 ```
 
 Server replies with a `screen` message.
 
 
-### `state_request`
+### `state:get`
 
 Request the current agent state. No auth required.
 
 ```json
 {
-  "event": "state_request"
+  "event": "state:get"
 }
 ```
 
@@ -386,13 +386,13 @@ Server replies with a `transition` message where `prev` and `next` are the
 same (representing current state, not a transition).
 
 
-### `status_request`
+### `get:status`
 
 Request the current session status. No auth required.
 
 ```json
 {
-  "event": "status_request"
+  "event": "get:status"
 }
 ```
 
@@ -437,13 +437,13 @@ Write UTF-8 text to the PTY. **Requires auth.**
 No response on success. Error on auth failure.
 
 
-### `input_raw`
+### `input:raw`
 
 Write base64-encoded raw bytes to the PTY. **Requires auth.**
 
 ```json
 {
-  "event": "input_raw",
+  "event": "input:raw",
   "data": "SGVsbG8="
 }
 ```
@@ -509,7 +509,7 @@ Only succeeds when the agent is in `idle` state.
 |-------|------|-------------|
 | `message` | string | Text message to send to the agent |
 
-Server replies with a `nudge_result`. Error on auth failure or if no
+Server replies with a `nudge:result`. Error on auth failure or if no
 agent driver is configured.
 
 
@@ -537,7 +537,7 @@ agent state.
 
 See the HTTP API `POST /api/v1/agent/respond` for per-prompt behavior.
 
-Server replies with a `respond_result`. Error on auth failure or if no agent
+Server replies with a `respond:result`. Error on auth failure or if no agent
 driver is configured.
 
 

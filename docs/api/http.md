@@ -394,7 +394,7 @@ Signal names are case-insensitive and accept bare names (`INT`), prefixed names
 These endpoints require the `--agent` flag. Without it, they return `NO_DRIVER`.
 
 
-### `GET /api/v1/agent/state`
+### `GET /api/v1/agent`
 
 Current agent state and prompt context.
 
@@ -541,7 +541,7 @@ When the agent presents multiple questions (`questions.len() > 1`), use the
 `answers` array to provide responses. Each answer in the array corresponds to
 the next unanswered question starting from `question_current`. After delivery,
 `question_current` advances by the number of answers provided. Poll
-`GET /api/v1/agent/state` to track progress.
+`GET /api/v1/agent` to track progress.
 
 **Response:**
 

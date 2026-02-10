@@ -73,11 +73,12 @@ pub struct StopSchemaField {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StopEvent {
     /// What happened at the stop check.
-    pub stop_type: StopType,
-    /// Signal body (when stop_type is Signaled).
+    #[serde(rename = "type")]
+    pub r#type: StopType,
+    /// Signal body (when type is Signaled).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signal: Option<Value>,
-    /// Error details (when stop_type is Error).
+    /// Error details (when type is Error).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_detail: Option<String>,
     /// Monotonic sequence number.
@@ -152,12 +153,12 @@ impl StopState {
     /// Emit a stop event to all subscribers and return it.
     pub fn emit(
         &self,
-        stop_type: StopType,
+        r#type: StopType,
         signal: Option<Value>,
         error_detail: Option<String>,
     ) -> StopEvent {
         let seq = self.stop_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let event = StopEvent { stop_type, signal, error_detail, seq };
+        let event = StopEvent { r#type, signal, error_detail, seq };
         // Ignore send errors (no receivers is fine).
         let _ = self.stop_tx.send(event.clone());
         event

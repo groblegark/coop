@@ -13,7 +13,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use coop::config::Config;
 use coop::driver::{AgentState, QuestionAnswer};
-use coop::event::{InputEvent, StateChangeEvent};
+use coop::event::{InputEvent, TransitionEvent};
 use coop::run;
 use coop::transport::{deliver_steps, encode_response};
 use tokio::sync::broadcast;
@@ -56,9 +56,9 @@ fn claude_config(scenario: &str, prompt: &str) -> Config {
 
 /// Wait for a state transition matching `pred`, with a 30s timeout.
 async fn wait_for(
-    rx: &mut broadcast::Receiver<StateChangeEvent>,
+    rx: &mut broadcast::Receiver<TransitionEvent>,
     pred: impl Fn(&AgentState) -> bool,
-) -> anyhow::Result<StateChangeEvent> {
+) -> anyhow::Result<TransitionEvent> {
     tokio::time::timeout(Duration::from_secs(30), async {
         loop {
             match rx.recv().await {

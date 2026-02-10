@@ -228,7 +228,7 @@ mod ws_integration {
     /// channel.
     async fn spawn_test_server(
         output_chunks: Vec<&str>,
-    ) -> (std::net::SocketAddr, std::sync::Arc<crate::transport::state::AppState>) {
+    ) -> (std::net::SocketAddr, std::sync::Arc<crate::transport::state::Store>) {
         let (state, _input_rx) = AppStateBuilder::new().ring_size(65536).build();
 
         // Write output chunks to ring buffer and broadcast them.
@@ -325,7 +325,7 @@ mod ws_integration {
         let (addr, _state) = spawn_test_server(vec![]).await;
         let (mut tx, mut rx) = connect_ws(addr, "all").await;
 
-        let msg = ClientMessage::StateRequest {};
+        let msg = ClientMessage::GetAgent {};
         let response = send_and_recv(&mut tx, &mut rx, &msg).await;
 
         let parsed: Result<ServerMessage, _> = serde_json::from_str(&response);
@@ -351,7 +351,7 @@ mod ws_integration {
 
         // Send an InputRaw message.
         let data = base64::engine::general_purpose::STANDARD.encode(b"ls\n");
-        let msg = ClientMessage::InputRaw { data };
+        let msg = ClientMessage::SendInputRaw { data };
         let json = serde_json::to_string(&msg).unwrap_or_default();
         let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json)).await;
 
@@ -405,7 +405,7 @@ mod ws_integration {
 
         // Try to send input without authenticating.
         let data = base64::engine::general_purpose::STANDARD.encode(b"hello");
-        let msg = ClientMessage::InputRaw { data };
+        let msg = ClientMessage::SendInputRaw { data };
         let response = send_and_recv(&mut tx, &mut rx, &msg).await;
 
         let parsed: Result<ServerMessage, _> = serde_json::from_str(&response);
@@ -465,7 +465,7 @@ mod ws_integration {
 
         // Now send input.
         let data = base64::engine::general_purpose::STANDARD.encode(b"hello");
-        let msg = ClientMessage::InputRaw { data };
+        let msg = ClientMessage::SendInputRaw { data };
         let json = serde_json::to_string(&msg).unwrap_or_default();
         let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json)).await;
 

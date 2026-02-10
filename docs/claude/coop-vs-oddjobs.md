@@ -91,7 +91,7 @@ timer to distinguish "idle between tools" from "actually idle."
 | Delay scaling    | ✗  | ✓    | base + per-byte factor, capped at max             |
 | Nudge retry      | ✗  | ✓    | Resend `\r` once if no state transition in timeout|
 | Input clearing   | ✓  | ✗    | Coop relies on consumer sending at the right time |
-| Input debouncing | ✗  | ✓    | `DeliveryGate`: 200ms min gap between deliveries  |
+| Input debouncing | ✗  | ✓    | `InputGate`: 200ms min gap between deliveries  |
 
 
 ## Session Resume

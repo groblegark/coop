@@ -10,15 +10,15 @@ use std::time::Duration;
 use tokio_stream::StreamExt;
 
 use coop::driver::AgentState;
-use coop::event::{OutputEvent, StateChangeEvent};
+use coop::event::{OutputEvent, TransitionEvent};
 use coop::test_support::{spawn_grpc_server, AppStateBuilder, StubNudgeEncoder};
 use coop::transport::grpc::proto;
 
 async fn grpc_client(
-    app_state: Arc<coop::transport::AppState>,
+    app_state: Arc<coop::transport::Store>,
 ) -> anyhow::Result<(
     proto::coop_client::CoopClient<tonic::transport::Channel>,
-    Arc<coop::transport::AppState>,
+    Arc<coop::transport::Store>,
 )> {
     let (addr, _handle) = spawn_grpc_server(Arc::clone(&app_state)).await?;
     // Brief pause for the server to start accepting
@@ -191,14 +191,14 @@ async fn grpc_stream_output() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn grpc_stream_state() -> anyhow::Result<()> {
+async fn grpc_stream_agent() -> anyhow::Result<()> {
     let (app_state, _rx) = AppStateBuilder::new().build();
     let (mut client, state) = grpc_client(app_state).await?;
 
-    let mut stream = client.stream_state(proto::StreamStateRequest {}).await?.into_inner();
+    let mut stream = client.stream_agent(proto::StreamAgentRequest {}).await?.into_inner();
 
     // Send state change
-    let _ = state.channels.state_tx.send(StateChangeEvent {
+    let _ = state.channels.state_tx.send(TransitionEvent {
         prev: AgentState::Starting,
         next: AgentState::Working,
         seq: 1,

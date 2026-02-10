@@ -30,7 +30,7 @@ use crate::transport::handler::{
     handle_nudge, handle_resize, handle_respond, handle_signal,
 };
 use crate::transport::read_ring_combined;
-use crate::transport::state::AppState;
+use crate::transport::state::Store;
 
 /// Short-circuit: return an auth error if the client has not authenticated.
 macro_rules! require_auth {
@@ -43,7 +43,7 @@ macro_rules! require_auth {
 
 /// WebSocket upgrade handler. Validates auth from query params if configured.
 pub async fn ws_handler(
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<Store>>,
     Query(query): Query<WsQuery>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
@@ -74,7 +74,7 @@ pub async fn ws_handler(
 
 /// Per-connection event loop.
 async fn handle_connection(
-    state: Arc<AppState>,
+    state: Arc<Store>,
     mode: SubscriptionMode,
     socket: WebSocket,
     client_id: String,
@@ -210,28 +210,33 @@ async fn handle_connection(
 
 /// Handle a single client message and optionally return a reply.
 async fn handle_client_message(
-    state: &AppState,
+    state: &Store,
     msg: ClientMessage,
     _client_id: &str,
     authed: &mut bool,
 ) -> Option<ServerMessage> {
     match msg {
-        ClientMessage::Ping {} => Some(ServerMessage::Pong {}),
-
-        ClientMessage::Auth { token } => {
-            match auth::validate_ws_auth(&token, state.config.auth_token.as_deref()) {
-                Ok(()) => {
-                    *authed = true;
-                    None
-                }
-                Err(code) => Some(ServerMessage::Error {
-                    code: code.as_str().to_owned(),
-                    message: "authentication failed".to_owned(),
-                }),
-            }
+        // Terminal
+        ClientMessage::GetHealth {} => {
+            let h = compute_health(state).await;
+            Some(ServerMessage::Health {
+                status: h.status,
+                pid: h.pid,
+                uptime_secs: h.uptime_secs,
+                agent: h.agent,
+                terminal_cols: h.terminal_cols,
+                terminal_rows: h.terminal_rows,
+                ws_clients: h.ws_clients,
+                ready: h.ready,
+            })
         }
 
-        ClientMessage::ScreenRequest { cursor } => {
+        ClientMessage::GetReady {} => {
+            let ready = state.ready.load(Ordering::Acquire);
+            Some(ServerMessage::Ready { ready })
+        }
+
+        ClientMessage::GetScreen { cursor } => {
             require_auth!(authed);
             let snap = state.terminal.screen.read().await.snapshot();
             let seq = snap.sequence;
@@ -245,30 +250,7 @@ async fn handle_client_message(
             })
         }
 
-        ClientMessage::StateRequest {} => {
-            require_auth!(authed);
-            let agent = state.driver.agent_state.read().await;
-            let screen = state.terminal.screen.read().await;
-            let detection = state.driver.detection.read().await;
-            let error_detail = state.driver.error.read().await.as_ref().map(|e| e.detail.clone());
-            let error_category =
-                state.driver.error.read().await.as_ref().map(|e| e.category.as_str().to_owned());
-            let last_message = state.driver.last_message.read().await.clone();
-            Some(ServerMessage::AgentState {
-                agent: state.config.agent.to_string(),
-                state: agent.as_str().to_owned(),
-                since_seq: state.driver.state_seq.load(std::sync::atomic::Ordering::Acquire),
-                screen_seq: screen.seq(),
-                detection_tier: detection.tier_str(),
-                detection_cause: detection.cause.clone(),
-                prompt: agent.prompt().cloned(),
-                error_detail,
-                error_category,
-                last_message,
-            })
-        }
-
-        ClientMessage::StatusRequest {} => {
+        ClientMessage::GetStatus {} => {
             require_auth!(authed);
             Some(compute_status(state).await.into())
         }
@@ -291,14 +273,13 @@ async fn handle_client_message(
             })
         }
 
-        // Write operations require auth
-        ClientMessage::Input { text, enter } => {
+        ClientMessage::SendInput { text, enter } => {
             require_auth!(authed);
             let bytes_written = handle_input(state, text, enter).await;
             Some(ServerMessage::InputResult { bytes_written })
         }
 
-        ClientMessage::InputRaw { data } => {
+        ClientMessage::SendInputRaw { data } => {
             require_auth!(authed);
             let decoded = match base64::engine::general_purpose::STANDARD.decode(&data) {
                 Ok(d) => d,
@@ -308,12 +289,22 @@ async fn handle_client_message(
             Some(ServerMessage::InputResult { bytes_written })
         }
 
-        ClientMessage::Keys { keys } => {
+        ClientMessage::SendKeys { keys } => {
             require_auth!(authed);
             match handle_keys(state, &keys).await {
                 Ok(bytes_written) => Some(ServerMessage::InputResult { bytes_written }),
                 Err(bad_key) => {
                     Some(ws_error(ErrorCode::BadRequest, &format!("unknown key: {bad_key}")))
+                }
+            }
+        }
+
+        ClientMessage::SendSignal { signal } => {
+            require_auth!(authed);
+            match handle_signal(state, &signal).await {
+                Ok(()) => Some(ServerMessage::SignalResult { delivered: true }),
+                Err(bad_signal) => {
+                    Some(ws_error(ErrorCode::BadRequest, &format!("unknown signal: {bad_signal}")))
                 }
             }
         }
@@ -324,6 +315,30 @@ async fn handle_client_message(
                 Ok(()) => Some(ServerMessage::ResizeResult { cols, rows }),
                 Err(_) => Some(ws_error(ErrorCode::BadRequest, "cols and rows must be positive")),
             }
+        }
+
+        // Agent
+        ClientMessage::GetAgent {} => {
+            require_auth!(authed);
+            let agent = state.driver.agent_state.read().await;
+            let screen = state.terminal.screen.read().await;
+            let detection = state.driver.detection.read().await;
+            let error_detail = state.driver.error.read().await.as_ref().map(|e| e.detail.clone());
+            let error_category =
+                state.driver.error.read().await.as_ref().map(|e| e.category.as_str().to_owned());
+            let last_message = state.driver.last_message.read().await.clone();
+            Some(ServerMessage::AgentState {
+                agent: state.config.agent.to_string(),
+                state: agent.as_str().to_owned(),
+                since_seq: state.driver.state_seq.load(std::sync::atomic::Ordering::Acquire),
+                screen_seq: screen.seq(),
+                detection_tier: detection.tier_str(),
+                detection_cause: detection.cause.clone(),
+                prompt: agent.prompt().cloned(),
+                error_detail,
+                error_category,
+                last_message,
+            })
         }
 
         ClientMessage::Nudge { message } => {
@@ -342,43 +357,7 @@ async fn handle_client_message(
             }
         }
 
-        ClientMessage::Signal { signal } => {
-            require_auth!(authed);
-            match handle_signal(state, &signal).await {
-                Ok(()) => Some(ServerMessage::SignalResult { delivered: true }),
-                Err(bad_signal) => {
-                    Some(ws_error(ErrorCode::BadRequest, &format!("unknown signal: {bad_signal}")))
-                }
-            }
-        }
-
-        ClientMessage::Shutdown {} => {
-            require_auth!(authed);
-            state.lifecycle.shutdown.cancel();
-            Some(ServerMessage::ShutdownResult { accepted: true })
-        }
-
-        // Health and ready are auth-exempt (matching HTTP).
-        ClientMessage::HealthRequest {} => {
-            let h = compute_health(state).await;
-            Some(ServerMessage::Health {
-                status: h.status,
-                pid: h.pid,
-                uptime_secs: h.uptime_secs,
-                agent: h.agent,
-                terminal_cols: h.terminal_cols,
-                terminal_rows: h.terminal_rows,
-                ws_clients: h.ws_clients,
-                ready: h.ready,
-            })
-        }
-
-        ClientMessage::ReadyRequest {} => {
-            let ready = state.ready.load(Ordering::Acquire);
-            Some(ServerMessage::Ready { ready })
-        }
-
-        // Config operations require auth (matching HTTP).
+        // Stop hook
         ClientMessage::GetStopConfig {} => {
             require_auth!(authed);
             let config = state.stop.config.read().await;
@@ -399,6 +378,15 @@ async fn handle_client_message(
             }
         }
 
+        ClientMessage::ResolveStop { body } => {
+            require_auth!(authed);
+            let stop = &state.stop;
+            *stop.signal_body.write().await = Some(body);
+            stop.signaled.store(true, std::sync::atomic::Ordering::Release);
+            Some(ServerMessage::StopResult { accepted: true })
+        }
+
+        // Start hook
         ClientMessage::GetStartConfig {} => {
             require_auth!(authed);
             let config = state.start.config.read().await;
@@ -419,12 +407,27 @@ async fn handle_client_message(
             }
         }
 
-        ClientMessage::ResolveStop { body } => {
+        // Lifecycle
+        ClientMessage::Shutdown {} => {
             require_auth!(authed);
-            let stop = &state.stop;
-            *stop.signal_body.write().await = Some(body);
-            stop.signaled.store(true, std::sync::atomic::Ordering::Release);
-            Some(ServerMessage::ResolveStopResult { accepted: true })
+            state.lifecycle.shutdown.cancel();
+            Some(ServerMessage::ShutdownResult { accepted: true })
+        }
+
+        // Connection
+        ClientMessage::Ping {} => Some(ServerMessage::Pong {}),
+
+        ClientMessage::Auth { token } => {
+            match auth::validate_ws_auth(&token, state.config.auth_token.as_deref()) {
+                Ok(()) => {
+                    *authed = true;
+                    None
+                }
+                Err(code) => Some(ServerMessage::Error {
+                    code: code.as_str().to_owned(),
+                    message: "authentication failed".to_owned(),
+                }),
+            }
         }
     }
 }

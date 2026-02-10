@@ -44,7 +44,7 @@ Once coop is running, consumers interact with agents over HTTP or gRPC:
 
 ```bash
 # Check agent state
-curl localhost:8080/api/v1/agent/state
+curl localhost:8080/api/v1/agent
 
 # Give the agent a task
 curl -X POST localhost:8080/api/v1/agent/nudge \
@@ -74,7 +74,7 @@ websocat ws://localhost:8080/ws?mode=state
 | POST | `/api/v1/input/keys` | Send key sequences |
 | POST | `/api/v1/resize` | Resize terminal |
 | POST | `/api/v1/signal` | Signal child process |
-| GET | `/api/v1/agent/state` | Agent state + prompt context |
+| GET | `/api/v1/agent` | Agent state + prompt context |
 | POST | `/api/v1/agent/nudge` | Deliver message to idle agent |
 | POST | `/api/v1/agent/respond` | Answer agent prompt |
 | GET | `/ws` | WebSocket (raw, screen, state, or all) |

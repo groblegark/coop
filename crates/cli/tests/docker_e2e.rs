@@ -158,7 +158,7 @@ async fn docker_agent_state_transitions() -> anyhow::Result<()> {
     container.wait_healthy(Duration::from_secs(30)).await?;
 
     let client = reqwest::Client::new();
-    let url = format!("{}/api/v1/agent/state", container.base_url());
+    let url = format!("{}/api/v1/agent", container.base_url());
 
     // Poll until we see a non-initializing state
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);

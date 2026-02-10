@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::{encode_response, resolve_permission_option, resolve_plan_option, spawn_enter_retry};
 use crate::driver::claude::encoding::ClaudeRespondEncoder;
 use crate::driver::{AgentState, PromptContext, PromptKind};
-use crate::event::StateChangeEvent;
+use crate::event::TransitionEvent;
 
 #[test]
 fn permission_option_takes_precedence_over_accept() {
@@ -119,7 +119,7 @@ fn setup_prompt_respects_explicit_option() {
 #[tokio::test]
 async fn enter_retry_sends_cr_on_timeout() -> anyhow::Result<()> {
     let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(16);
-    let (state_tx, _) = tokio::sync::broadcast::channel::<StateChangeEvent>(16);
+    let (state_tx, _) = tokio::sync::broadcast::channel::<TransitionEvent>(16);
     let state_rx = state_tx.subscribe();
     let activity = Arc::new(tokio::sync::Notify::new());
 
@@ -143,7 +143,7 @@ async fn enter_retry_sends_cr_on_timeout() -> anyhow::Result<()> {
 async fn enter_retry_cancelled_by_state_transition() -> anyhow::Result<()> {
     let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(16);
     let _keep_alive = input_tx.clone(); // keep channel open after task exits
-    let (state_tx, _) = tokio::sync::broadcast::channel::<StateChangeEvent>(16);
+    let (state_tx, _) = tokio::sync::broadcast::channel::<TransitionEvent>(16);
     let state_rx = state_tx.subscribe();
     let activity = Arc::new(tokio::sync::Notify::new());
 
@@ -151,7 +151,7 @@ async fn enter_retry_cancelled_by_state_transition() -> anyhow::Result<()> {
         spawn_enter_retry(input_tx, state_rx, activity, std::time::Duration::from_millis(200));
 
     // Send a Working state transition — should cancel the retry
-    let _ = state_tx.send(StateChangeEvent {
+    let _ = state_tx.send(TransitionEvent {
         prev: AgentState::Idle,
         next: AgentState::Working,
         seq: 1,
@@ -170,7 +170,7 @@ async fn enter_retry_cancelled_by_state_transition() -> anyhow::Result<()> {
 async fn enter_retry_cancelled_by_input_activity() -> anyhow::Result<()> {
     let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(16);
     let _keep_alive = input_tx.clone(); // keep channel open after task exits
-    let (state_tx, _) = tokio::sync::broadcast::channel::<StateChangeEvent>(16);
+    let (state_tx, _) = tokio::sync::broadcast::channel::<TransitionEvent>(16);
     let state_rx = state_tx.subscribe();
     let activity = Arc::new(tokio::sync::Notify::new());
 
@@ -198,14 +198,14 @@ async fn enter_retry_cancelled_by_input_activity() -> anyhow::Result<()> {
 async fn enter_retry_cancelled_by_token() -> anyhow::Result<()> {
     let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(16);
     let _keep_alive = input_tx.clone(); // keep channel open after task exits
-    let (state_tx, _) = tokio::sync::broadcast::channel::<StateChangeEvent>(16);
+    let (state_tx, _) = tokio::sync::broadcast::channel::<TransitionEvent>(16);
     let state_rx = state_tx.subscribe();
     let activity = Arc::new(tokio::sync::Notify::new());
 
     let cancel =
         spawn_enter_retry(input_tx, state_rx, activity, std::time::Duration::from_millis(200));
 
-    // Cancel via the token (simulates next DeliveryGate::acquire)
+    // Cancel via the token (simulates next InputGate::acquire)
     cancel.cancel();
 
     // The retry should NOT fire

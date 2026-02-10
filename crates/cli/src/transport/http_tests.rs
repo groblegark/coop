@@ -11,8 +11,7 @@ use crate::event::InputEvent;
 use crate::test_support::{AnyhowExt, AppStateBuilder, StubNudgeEncoder};
 use crate::transport::build_router;
 
-fn test_state() -> (Arc<crate::transport::state::AppState>, tokio::sync::mpsc::Receiver<InputEvent>)
-{
+fn test_state() -> (Arc<crate::transport::state::Store>, tokio::sync::mpsc::Receiver<InputEvent>) {
     AppStateBuilder::new().child_pid(1234).build()
 }
 
@@ -224,7 +223,7 @@ async fn agent_state_without_driver_returns_state() -> anyhow::Result<()> {
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
-    let resp = server.get("/api/v1/agent/state").await;
+    let resp = server.get("/api/v1/agent").await;
     resp.assert_status(StatusCode::OK);
     let body = resp.text();
     assert!(body.contains("\"state\":\"starting\""), "body: {body}");
@@ -313,7 +312,7 @@ async fn agent_state_includes_error_fields() -> anyhow::Result<()> {
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
-    let resp = server.get("/api/v1/agent/state").await;
+    let resp = server.get("/api/v1/agent").await;
     resp.assert_status(StatusCode::OK);
     let body = resp.text();
     assert!(body.contains("\"error_detail\":\"rate_limit_error\""), "body: {body}");
@@ -329,7 +328,7 @@ async fn agent_state_omits_error_fields_when_not_error() -> anyhow::Result<()> {
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
-    let resp = server.get("/api/v1/agent/state").await;
+    let resp = server.get("/api/v1/agent").await;
     resp.assert_status(StatusCode::OK);
     let body = resp.text();
     assert!(!body.contains("error_detail"), "error_detail should be absent: {body}");
@@ -445,7 +444,7 @@ use crate::stop::{StopConfig, StopMode};
 
 fn stop_state(
     config: StopConfig,
-) -> (Arc<crate::transport::state::AppState>, tokio::sync::mpsc::Receiver<InputEvent>) {
+) -> (Arc<crate::transport::state::Store>, tokio::sync::mpsc::Receiver<InputEvent>) {
     AppStateBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Working)
@@ -641,7 +640,7 @@ async fn hooks_stop_emits_stop_events() -> anyhow::Result<()> {
         .await;
 
     let event = stop_rx.try_recv()?;
-    assert_eq!(event.stop_type.as_str(), "blocked");
+    assert_eq!(event.r#type.as_str(), "blocked");
     assert_eq!(event.seq, 0);
     Ok(())
 }
@@ -707,7 +706,7 @@ async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
 
 fn start_state(
     config: StartConfig,
-) -> (Arc<crate::transport::state::AppState>, tokio::sync::mpsc::Receiver<InputEvent>) {
+) -> (Arc<crate::transport::state::Store>, tokio::sync::mpsc::Receiver<InputEvent>) {
     AppStateBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Working)

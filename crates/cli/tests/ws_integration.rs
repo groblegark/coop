@@ -11,7 +11,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use coop::driver::AgentState;
-use coop::event::{OutputEvent, StateChangeEvent};
+use coop::event::{OutputEvent, TransitionEvent};
 use coop::test_support::{spawn_http_server, AppStateBuilder};
 
 type WsStream =
@@ -160,7 +160,7 @@ async fn ws_subscription_mode_state() -> anyhow::Result<()> {
     let (mut _tx, mut rx) = ws_connect(&addr, "mode=state").await?;
 
     // Push state change
-    let _ = app_state.channels.state_tx.send(StateChangeEvent {
+    let _ = app_state.channels.state_tx.send(TransitionEvent {
         prev: AgentState::Starting,
         next: AgentState::Working,
         seq: 1,
@@ -225,7 +225,7 @@ async fn ws_replay_from_offset() -> anyhow::Result<()> {
     ws_send(&mut tx, &serde_json::json!({"event": "replay", "offset": 0})).await?;
 
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
-    assert_eq!(resp.get("event").and_then(|t| t.as_str()), Some("replay_result"));
+    assert_eq!(resp.get("event").and_then(|t| t.as_str()), Some("replay:result"));
     assert_eq!(resp.get("offset").and_then(|o| o.as_u64()), Some(0));
 
     // Decode data
@@ -250,7 +250,7 @@ async fn ws_concurrent_readers() -> anyhow::Result<()> {
     }
 
     // Push one state change
-    let _ = app_state.channels.state_tx.send(StateChangeEvent {
+    let _ = app_state.channels.state_tx.send(TransitionEvent {
         prev: AgentState::Starting,
         next: AgentState::Working,
         seq: 1,

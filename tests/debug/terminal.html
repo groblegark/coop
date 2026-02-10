@@ -499,7 +499,7 @@ function esc(v) {
 
 async function pollAgentState() {
   try {
-    const agent = await fetch(`${BASE}/api/v1/agent/state`).then(r => r.ok ? r.json() : null);
+    const agent = await fetch(`${BASE}/api/v1/agent`).then(r => r.ok ? r.json() : null);
     if (agent?.state) {
       setAgentState(agent.state);
       updateRespondUI(agent.prompt ?? null);
@@ -514,7 +514,7 @@ async function pollApi() {
     const [health, status, agent] = await Promise.all([
       fetch(`${BASE}/api/v1/health`).then(r => r.ok ? r.json() : null).catch(() => null),
       fetch(`${BASE}/api/v1/status`).then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch(`${BASE}/api/v1/agent/state`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${BASE}/api/v1/agent`).then(r => r.ok ? r.json() : null).catch(() => null),
     ]);
     renderTable(tHealth, health, '');
     renderTable(tStatus, status, '');
@@ -625,7 +625,7 @@ function logEvent(msg) {
       detail = `${msg.cols}x${msg.rows}`;
       break;
     case 'stop':
-      detail = msg.stop_type || '';
+      detail = msg.type || '';
       break;
     case 'start':
       detail = msg.source || '';
@@ -1087,13 +1087,13 @@ const encoder = new TextEncoder();
 
 term.onData((str) => {
   const bytes = encoder.encode(str);
-  send(ws, { event: 'input_raw', data: b64encode(bytes) });
+  send(ws, { event: 'input:raw', data: b64encode(bytes) });
 });
 
 term.onBinary((data) => {
   const bytes = new Uint8Array(data.length);
   for (let i = 0; i < data.length; i++) bytes[i] = data.charCodeAt(i);
-  send(ws, { event: 'input_raw', data: b64encode(bytes) });
+  send(ws, { event: 'input:raw', data: b64encode(bytes) });
 });
 
 window.addEventListener('resize', () => fitAddon.fit());

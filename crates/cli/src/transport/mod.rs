@@ -10,7 +10,7 @@ pub mod http;
 pub mod state;
 pub mod ws;
 
-pub use state::AppState;
+pub use state::Store;
 
 use std::sync::Arc;
 
@@ -26,7 +26,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::{AgentState, NudgeStep, PromptKind, QuestionAnswer, RespondEncoder};
 use crate::error::ErrorCode;
-use crate::event::{InputEvent, StateChangeEvent};
+use crate::event::{InputEvent, TransitionEvent};
 
 /// Translate a named key to its terminal escape sequence (case-insensitive).
 pub fn encode_key(name: &str) -> Option<Vec<u8>> {
@@ -107,13 +107,13 @@ pub async fn deliver_steps(
 /// Cancellation conditions (any of these cancels the retry):
 /// - State transitions to Working, Prompt, or Exited
 /// - Any input activity on the PTY (raw keys, resize, signal, new delivery)
-/// - The returned `CancellationToken` is cancelled (by next `DeliveryGate::acquire`)
+/// - The returned `CancellationToken` is cancelled (by next `InputGate::acquire`)
 ///
 /// **Scope:** nudge only.  Respond is excluded because double-Enter on a
 /// prompt could select the wrong option.
 pub fn spawn_enter_retry(
     input_tx: tokio::sync::mpsc::Sender<InputEvent>,
-    mut state_rx: broadcast::Receiver<StateChangeEvent>,
+    mut state_rx: broadcast::Receiver<TransitionEvent>,
     input_activity: Arc<tokio::sync::Notify>,
     timeout: std::time::Duration,
 ) -> CancellationToken {
@@ -227,7 +227,7 @@ pub fn encode_response(
 
 /// Advance `question_current` on the current `Question` state after answers
 /// have been delivered to the PTY.
-pub async fn update_question_current(state: &AppState, answers_delivered: usize) {
+pub async fn update_question_current(state: &Store, answers_delivered: usize) {
     let mut agent = state.driver.agent_state.write().await;
     if let AgentState::Prompt { ref mut prompt } = *agent {
         if prompt.kind != PromptKind::Question {
@@ -242,7 +242,7 @@ pub async fn update_question_current(state: &AppState, answers_delivered: usize)
             let seq = state.driver.state_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             // Broadcast updated state so clients see question_current progress.
             let last_message = state.driver.last_message.read().await.clone();
-            let _ = state.channels.state_tx.send(crate::event::StateChangeEvent {
+            let _ = state.channels.state_tx.send(crate::event::TransitionEvent {
                 prev: next.clone(),
                 next,
                 seq,
@@ -307,7 +307,7 @@ pub fn keys_to_bytes(keys: &[String]) -> Result<Vec<u8>, String> {
 }
 
 /// Build the axum `Router` with all HTTP and WebSocket routes.
-pub fn build_router(state: Arc<AppState>) -> Router {
+pub fn build_router(state: Arc<Store>) -> Router {
     Router::new()
         .route("/api/v1/health", get(http::health))
         .route("/api/v1/ready", get(http::ready))
@@ -320,7 +320,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/input/keys", post(http::input_keys))
         .route("/api/v1/resize", post(http::resize))
         .route("/api/v1/signal", post(http::signal))
-        .route("/api/v1/agent/state", get(http::agent_state))
+        .route("/api/v1/agent", get(http::agent_state))
         .route("/api/v1/agent/nudge", post(http::agent_nudge))
         .route("/api/v1/agent/respond", post(http::agent_respond))
         .route("/api/v1/hooks/stop", post(http::hooks_stop))
@@ -336,11 +336,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 }
 
 /// Build a minimal health-only router (for `--port-health`).
-pub fn build_health_router(state: Arc<AppState>) -> Router {
+pub fn build_health_router(state: Arc<Store>) -> Router {
     Router::new()
         .route("/api/v1/health", get(http::health))
         .route("/api/v1/ready", get(http::ready))
-        .route("/api/v1/agent/state", get(http::agent_state))
+        .route("/api/v1/agent", get(http::agent_state))
         .with_state(state)
 }
 

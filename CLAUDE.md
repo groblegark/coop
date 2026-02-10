@@ -51,7 +51,7 @@ crates/cli/               # Single crate (binary + lib)
 │   ├── lib.rs             # Library root (re-exports modules)
 │   ├── run.rs             # prepare() + run() session entrypoint
 │   ├── error.rs           # ErrorCode enum
-│   ├── event.rs           # OutputEvent, StateChangeEvent, InputEvent, HookEvent
+│   ├── event.rs           # OutputEvent, TransitionEvent, InputEvent, HookEvent
 │   ├── screen.rs          # Screen, ScreenSnapshot
 │   ├── ring.rs            # RingBuffer
 │   ├── pty/

@@ -9,7 +9,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
 use crate::error::ErrorCode;
-use crate::transport::state::AppState;
+use crate::transport::state::Store;
 use crate::transport::ErrorResponse;
 
 /// Constant-time string comparison to prevent timing side-channel attacks.
@@ -84,7 +84,7 @@ pub fn validate_ws_auth(token: &str, expected: Option<&str>) -> Result<(), Error
 ///
 /// When `auth_token` is `None` in `AppState`, all requests pass through.
 pub async fn auth_layer(
-    State(state): State<Arc<AppState>>,
+    state: State<Arc<Store>>,
     req: Request<axum::body::Body>,
     next: Next,
 ) -> Response {

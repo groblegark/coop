@@ -14,7 +14,7 @@ use tonic::{Request, Response, Status};
 use super::read_ring_combined;
 use crate::driver::PromptContext;
 use crate::error::ErrorCode;
-use crate::event::{OutputEvent, StateChangeEvent};
+use crate::event::{OutputEvent, TransitionEvent};
 use crate::start::StartConfig;
 use crate::stop::StopConfig;
 use crate::transport::handler::{
@@ -22,7 +22,7 @@ use crate::transport::handler::{
     handle_input_raw, handle_keys, handle_nudge, handle_resize, handle_respond, handle_signal,
     TransportQuestionAnswer,
 };
-use crate::transport::state::AppState;
+use crate::transport::state::Store;
 
 /// Generated protobuf types for the `coop.v1` package.
 pub mod proto {
@@ -85,8 +85,8 @@ pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
     }
 }
 
-/// Convert a domain [`StateChangeEvent`] to proto [`proto::AgentStateEvent`].
-pub fn state_change_to_proto(e: &StateChangeEvent) -> proto::AgentStateEvent {
+/// Convert a domain [`TransitionEvent`] to proto [`proto::AgentStateEvent`].
+pub fn state_change_to_proto(e: &TransitionEvent) -> proto::AgentStateEvent {
     let (error_detail, error_category) = extract_error_fields(&e.next);
     let cause = if e.cause.is_empty() { None } else { Some(e.cause.clone()) };
     proto::AgentStateEvent {
@@ -131,12 +131,12 @@ where
 
 /// gRPC implementation of the `coop.v1.Coop` service.
 pub struct CoopGrpc {
-    state: Arc<AppState>,
+    state: Arc<Store>,
 }
 
 impl CoopGrpc {
     /// Create a new gRPC service backed by the given shared state.
-    pub fn new(state: Arc<AppState>) -> Self {
+    pub fn new(state: Arc<Store>) -> Self {
         Self { state }
     }
 
@@ -190,6 +190,8 @@ type GrpcStream<T> = Pin<Box<dyn tokio_stream::Stream<Item = Result<T, Status>> 
 
 #[tonic::async_trait]
 impl proto::coop_server::Coop for CoopGrpc {
+    // -- Terminal -------------------------------------------------------------
+
     async fn get_health(
         &self,
         _request: Request<proto::GetHealthRequest>,
@@ -205,6 +207,14 @@ impl proto::coop_server::Coop for CoopGrpc {
             terminal_rows: h.terminal_rows as i32,
             ready: h.ready,
         }))
+    }
+
+    async fn get_ready(
+        &self,
+        _request: Request<proto::GetReadyRequest>,
+    ) -> Result<Response<proto::GetReadyResponse>, Status> {
+        let ready = self.state.ready.load(Ordering::Acquire);
+        Ok(Response::new(proto::GetReadyResponse { ready }))
     }
 
     async fn get_screen(
@@ -232,140 +242,6 @@ impl proto::coop_server::Coop for CoopGrpc {
             bytes_written: st.bytes_written,
             ws_clients: st.ws_clients,
         }))
-    }
-
-    async fn send_input(
-        &self,
-        request: Request<proto::SendInputRequest>,
-    ) -> Result<Response<proto::SendInputResponse>, Status> {
-        let req = request.into_inner();
-        let len = handle_input(&self.state, req.text, req.enter).await;
-        Ok(Response::new(proto::SendInputResponse { bytes_written: len }))
-    }
-
-    async fn send_keys(
-        &self,
-        request: Request<proto::SendKeysRequest>,
-    ) -> Result<Response<proto::SendKeysResponse>, Status> {
-        let req = request.into_inner();
-        let len = handle_keys(&self.state, &req.keys).await.map_err(|bad_key| {
-            ErrorCode::BadRequest.to_grpc_status(format!("unknown key: {bad_key}"))
-        })?;
-        Ok(Response::new(proto::SendKeysResponse { bytes_written: len }))
-    }
-
-    async fn resize(
-        &self,
-        request: Request<proto::ResizeRequest>,
-    ) -> Result<Response<proto::ResizeResponse>, Status> {
-        let req = request.into_inner();
-        let cols: u16 = req
-            .cols
-            .try_into()
-            .map_err(|_| ErrorCode::BadRequest.to_grpc_status("cols must be a positive u16"))?;
-        let rows: u16 = req
-            .rows
-            .try_into()
-            .map_err(|_| ErrorCode::BadRequest.to_grpc_status("rows must be a positive u16"))?;
-        handle_resize(&self.state, cols, rows)
-            .await
-            .map_err(|code| code.to_grpc_status("cols and rows must be positive"))?;
-        Ok(Response::new(proto::ResizeResponse { cols: cols as i32, rows: rows as i32 }))
-    }
-
-    async fn send_signal(
-        &self,
-        request: Request<proto::SendSignalRequest>,
-    ) -> Result<Response<proto::SendSignalResponse>, Status> {
-        let req = request.into_inner();
-        handle_signal(&self.state, &req.signal).await.map_err(|bad_signal| {
-            ErrorCode::BadRequest.to_grpc_status(format!("unknown signal: {bad_signal}"))
-        })?;
-        Ok(Response::new(proto::SendSignalResponse { delivered: true }))
-    }
-
-    async fn send_input_raw(
-        &self,
-        request: Request<proto::SendInputRawRequest>,
-    ) -> Result<Response<proto::SendInputRawResponse>, Status> {
-        let req = request.into_inner();
-        let len = handle_input_raw(&self.state, req.data).await;
-        Ok(Response::new(proto::SendInputRawResponse { bytes_written: len }))
-    }
-
-    async fn get_ready(
-        &self,
-        _request: Request<proto::GetReadyRequest>,
-    ) -> Result<Response<proto::GetReadyResponse>, Status> {
-        let ready = self.state.ready.load(Ordering::Acquire);
-        Ok(Response::new(proto::GetReadyResponse { ready }))
-    }
-
-    async fn get_agent_state(
-        &self,
-        _request: Request<proto::GetAgentStateRequest>,
-    ) -> Result<Response<proto::GetAgentStateResponse>, Status> {
-        let agent = self.state.driver.agent_state.read().await;
-        let screen = self.state.terminal.screen.read().await;
-
-        let detection = self.state.driver.detection.read().await;
-
-        Ok(Response::new(proto::GetAgentStateResponse {
-            agent: self.state.config.agent.to_string(),
-            state: agent.as_str().to_owned(),
-            since_seq: self.state.driver.state_seq.load(Ordering::Acquire),
-            screen_seq: screen.seq(),
-            detection_tier: detection.tier_str(),
-            detection_cause: detection.cause.clone(),
-            prompt: agent.prompt().map(prompt_to_proto),
-            error_detail: self.state.driver.error.read().await.as_ref().map(|e| e.detail.clone()),
-            error_category: self
-                .state
-                .driver
-                .error
-                .read()
-                .await
-                .as_ref()
-                .map(|e| e.category.as_str().to_owned()),
-            last_message: self.state.driver.last_message.read().await.clone(),
-        }))
-    }
-
-    async fn nudge(
-        &self,
-        request: Request<proto::NudgeRequest>,
-    ) -> Result<Response<proto::NudgeResponse>, Status> {
-        let req = request.into_inner();
-        match handle_nudge(&self.state, &req.message).await {
-            Ok(outcome) => Ok(Response::new(proto::NudgeResponse {
-                delivered: outcome.delivered,
-                state_before: outcome.state_before,
-                reason: outcome.reason,
-            })),
-            Err(code) => Err(code.to_grpc_status(error_message(code))),
-        }
-    }
-
-    async fn respond(
-        &self,
-        request: Request<proto::RespondRequest>,
-    ) -> Result<Response<proto::RespondResponse>, Status> {
-        let req = request.into_inner();
-        let answers: Vec<TransportQuestionAnswer> = req
-            .answers
-            .iter()
-            .map(|a| TransportQuestionAnswer { option: a.option, text: a.text.clone() })
-            .collect();
-        match handle_respond(&self.state, req.accept, req.option, req.text.as_deref(), &answers)
-            .await
-        {
-            Ok(outcome) => Ok(Response::new(proto::RespondResponse {
-                delivered: outcome.delivered,
-                prompt_type: outcome.prompt_type,
-                reason: outcome.reason,
-            })),
-            Err(code) => Err(code.to_grpc_status(error_message(code))),
-        }
     }
 
     type StreamOutputStream = GrpcStream<proto::OutputChunk>;
@@ -448,12 +324,140 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
     }
 
-    type StreamStateStream = GrpcStream<proto::AgentStateEvent>;
-
-    async fn stream_state(
+    async fn send_input(
         &self,
-        _request: Request<proto::StreamStateRequest>,
-    ) -> Result<Response<Self::StreamStateStream>, Status> {
+        request: Request<proto::SendInputRequest>,
+    ) -> Result<Response<proto::SendInputResponse>, Status> {
+        let req = request.into_inner();
+        let len = handle_input(&self.state, req.text, req.enter).await;
+        Ok(Response::new(proto::SendInputResponse { bytes_written: len }))
+    }
+
+    async fn send_input_raw(
+        &self,
+        request: Request<proto::SendInputRawRequest>,
+    ) -> Result<Response<proto::SendInputRawResponse>, Status> {
+        let req = request.into_inner();
+        let len = handle_input_raw(&self.state, req.data).await;
+        Ok(Response::new(proto::SendInputRawResponse { bytes_written: len }))
+    }
+
+    async fn send_keys(
+        &self,
+        request: Request<proto::SendKeysRequest>,
+    ) -> Result<Response<proto::SendKeysResponse>, Status> {
+        let req = request.into_inner();
+        let len = handle_keys(&self.state, &req.keys).await.map_err(|bad_key| {
+            ErrorCode::BadRequest.to_grpc_status(format!("unknown key: {bad_key}"))
+        })?;
+        Ok(Response::new(proto::SendKeysResponse { bytes_written: len }))
+    }
+
+    async fn resize(
+        &self,
+        request: Request<proto::ResizeRequest>,
+    ) -> Result<Response<proto::ResizeResponse>, Status> {
+        let req = request.into_inner();
+        let cols: u16 = req
+            .cols
+            .try_into()
+            .map_err(|_| ErrorCode::BadRequest.to_grpc_status("cols must be a positive u16"))?;
+        let rows: u16 = req
+            .rows
+            .try_into()
+            .map_err(|_| ErrorCode::BadRequest.to_grpc_status("rows must be a positive u16"))?;
+        handle_resize(&self.state, cols, rows)
+            .await
+            .map_err(|code| code.to_grpc_status("cols and rows must be positive"))?;
+        Ok(Response::new(proto::ResizeResponse { cols: cols as i32, rows: rows as i32 }))
+    }
+
+    async fn send_signal(
+        &self,
+        request: Request<proto::SendSignalRequest>,
+    ) -> Result<Response<proto::SendSignalResponse>, Status> {
+        let req = request.into_inner();
+        handle_signal(&self.state, &req.signal).await.map_err(|bad_signal| {
+            ErrorCode::BadRequest.to_grpc_status(format!("unknown signal: {bad_signal}"))
+        })?;
+        Ok(Response::new(proto::SendSignalResponse { delivered: true }))
+    }
+
+    // -- Agent ----------------------------------------------------------------
+
+    async fn get_agent(
+        &self,
+        _request: Request<proto::GetAgentRequest>,
+    ) -> Result<Response<proto::GetAgentResponse>, Status> {
+        let agent = self.state.driver.agent_state.read().await;
+        let screen = self.state.terminal.screen.read().await;
+
+        let detection = self.state.driver.detection.read().await;
+
+        Ok(Response::new(proto::GetAgentResponse {
+            agent: self.state.config.agent.to_string(),
+            state: agent.as_str().to_owned(),
+            since_seq: self.state.driver.state_seq.load(Ordering::Acquire),
+            screen_seq: screen.seq(),
+            detection_tier: detection.tier_str(),
+            detection_cause: detection.cause.clone(),
+            prompt: agent.prompt().map(prompt_to_proto),
+            error_detail: self.state.driver.error.read().await.as_ref().map(|e| e.detail.clone()),
+            error_category: self
+                .state
+                .driver
+                .error
+                .read()
+                .await
+                .as_ref()
+                .map(|e| e.category.as_str().to_owned()),
+            last_message: self.state.driver.last_message.read().await.clone(),
+        }))
+    }
+
+    async fn nudge(
+        &self,
+        request: Request<proto::NudgeRequest>,
+    ) -> Result<Response<proto::NudgeResponse>, Status> {
+        let req = request.into_inner();
+        match handle_nudge(&self.state, &req.message).await {
+            Ok(outcome) => Ok(Response::new(proto::NudgeResponse {
+                delivered: outcome.delivered,
+                state_before: outcome.state_before,
+                reason: outcome.reason,
+            })),
+            Err(code) => Err(code.to_grpc_status(error_message(code))),
+        }
+    }
+
+    async fn respond(
+        &self,
+        request: Request<proto::RespondRequest>,
+    ) -> Result<Response<proto::RespondResponse>, Status> {
+        let req = request.into_inner();
+        let answers: Vec<TransportQuestionAnswer> = req
+            .answers
+            .iter()
+            .map(|a| TransportQuestionAnswer { option: a.option, text: a.text.clone() })
+            .collect();
+        match handle_respond(&self.state, req.accept, req.option, req.text.as_deref(), &answers)
+            .await
+        {
+            Ok(outcome) => Ok(Response::new(proto::RespondResponse {
+                delivered: outcome.delivered,
+                prompt_type: outcome.prompt_type,
+                reason: outcome.reason,
+            })),
+            Err(code) => Err(code.to_grpc_status(error_message(code))),
+        }
+    }
+
+    type StreamAgentStream = GrpcStream<proto::AgentStateEvent>;
+
+    async fn stream_agent(
+        &self,
+        _request: Request<proto::StreamAgentRequest>,
+    ) -> Result<Response<Self::StreamAgentStream>, Status> {
         let state_rx = self.state.channels.state_tx.subscribe();
         let stream = spawn_broadcast_stream(state_rx, |event| Some(state_change_to_proto(&event)));
         Ok(Response::new(stream))
@@ -477,12 +481,27 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(stream))
     }
 
-    async fn shutdown(
+    // -- Stop hook ------------------------------------------------------------
+
+    async fn get_stop_config(
         &self,
-        _request: Request<proto::ShutdownRequest>,
-    ) -> Result<Response<proto::ShutdownResponse>, Status> {
-        self.state.lifecycle.shutdown.cancel();
-        Ok(Response::new(proto::ShutdownResponse { accepted: true }))
+        _request: Request<proto::GetStopConfigRequest>,
+    ) -> Result<Response<proto::GetStopConfigResponse>, Status> {
+        let config = self.state.stop.config.read().await;
+        let json = serde_json::to_string(&*config)
+            .map_err(|e| Status::internal(format!("serialize error: {e}")))?;
+        Ok(Response::new(proto::GetStopConfigResponse { config_json: json }))
+    }
+
+    async fn put_stop_config(
+        &self,
+        request: Request<proto::PutStopConfigRequest>,
+    ) -> Result<Response<proto::PutStopConfigResponse>, Status> {
+        let req = request.into_inner();
+        let new_config: StopConfig = serde_json::from_str(&req.config_json)
+            .map_err(|e| Status::invalid_argument(format!("invalid config JSON: {e}")))?;
+        *self.state.stop.config.write().await = new_config;
+        Ok(Response::new(proto::PutStopConfigResponse { updated: true }))
     }
 
     async fn resolve_stop(
@@ -498,27 +517,6 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(proto::ResolveStopResponse { accepted: true }))
     }
 
-    async fn put_stop_config(
-        &self,
-        request: Request<proto::PutStopConfigRequest>,
-    ) -> Result<Response<proto::PutStopConfigResponse>, Status> {
-        let req = request.into_inner();
-        let new_config: StopConfig = serde_json::from_str(&req.config_json)
-            .map_err(|e| Status::invalid_argument(format!("invalid config JSON: {e}")))?;
-        *self.state.stop.config.write().await = new_config;
-        Ok(Response::new(proto::PutStopConfigResponse { updated: true }))
-    }
-
-    async fn get_stop_config(
-        &self,
-        _request: Request<proto::GetStopConfigRequest>,
-    ) -> Result<Response<proto::GetStopConfigResponse>, Status> {
-        let config = self.state.stop.config.read().await;
-        let json = serde_json::to_string(&*config)
-            .map_err(|e| Status::internal(format!("serialize error: {e}")))?;
-        Ok(Response::new(proto::GetStopConfigResponse { config_json: json }))
-    }
-
     type StreamStopEventsStream = GrpcStream<proto::StopEvent>;
 
     async fn stream_stop_events(
@@ -528,13 +526,25 @@ impl proto::coop_server::Coop for CoopGrpc {
         let stop_rx = self.state.stop.stop_tx.subscribe();
         let stream = spawn_broadcast_stream(stop_rx, |event| {
             Some(proto::StopEvent {
-                stop_type: event.stop_type.as_str().to_owned(),
+                r#type: event.r#type.as_str().to_owned(),
                 signal_json: event.signal.map(|v| v.to_string()),
                 error_detail: event.error_detail,
                 seq: event.seq,
             })
         });
         Ok(Response::new(stream))
+    }
+
+    // -- Start hook -----------------------------------------------------------
+
+    async fn get_start_config(
+        &self,
+        _request: Request<proto::GetStartConfigRequest>,
+    ) -> Result<Response<proto::GetStartConfigResponse>, Status> {
+        let config = self.state.start.config.read().await;
+        let json = serde_json::to_string(&*config)
+            .map_err(|e| Status::internal(format!("serialize error: {e}")))?;
+        Ok(Response::new(proto::GetStartConfigResponse { config_json: json }))
     }
 
     async fn put_start_config(
@@ -546,16 +556,6 @@ impl proto::coop_server::Coop for CoopGrpc {
             .map_err(|e| Status::invalid_argument(format!("invalid config JSON: {e}")))?;
         *self.state.start.config.write().await = new_config;
         Ok(Response::new(proto::PutStartConfigResponse { updated: true }))
-    }
-
-    async fn get_start_config(
-        &self,
-        _request: Request<proto::GetStartConfigRequest>,
-    ) -> Result<Response<proto::GetStartConfigResponse>, Status> {
-        let config = self.state.start.config.read().await;
-        let json = serde_json::to_string(&*config)
-            .map_err(|e| Status::internal(format!("serialize error: {e}")))?;
-        Ok(Response::new(proto::GetStartConfigResponse { config_json: json }))
     }
 
     type StreamStartEventsStream = GrpcStream<proto::StartEvent>;
@@ -574,6 +574,16 @@ impl proto::coop_server::Coop for CoopGrpc {
             })
         });
         Ok(Response::new(stream))
+    }
+
+    // -- Lifecycle ------------------------------------------------------------
+
+    async fn shutdown(
+        &self,
+        _request: Request<proto::ShutdownRequest>,
+    ) -> Result<Response<proto::ShutdownResponse>, Status> {
+        self.state.lifecycle.shutdown.cancel();
+        Ok(Response::new(proto::ShutdownResponse { accepted: true }))
     }
 }
 
