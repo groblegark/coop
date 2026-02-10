@@ -45,6 +45,29 @@ async fn screen_snapshot() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn screen_include_cursor() -> anyhow::Result<()> {
+    let (state, _rx) = test_state();
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    // Default: cursor is null
+    let resp = server.get("/api/v1/screen").await;
+    let body: serde_json::Value = serde_json::from_str(&resp.text())?;
+    assert!(body["cursor"].is_null(), "cursor should be null by default");
+
+    // include_cursor=true: cursor is an object
+    let resp = server.get("/api/v1/screen?include_cursor=true").await;
+    let body: serde_json::Value = serde_json::from_str(&resp.text())?;
+    assert!(body["cursor"].is_object(), "cursor should be an object when requested");
+
+    // Backward compat: cursor=true alias
+    let resp = server.get("/api/v1/screen?cursor=true").await;
+    let body: serde_json::Value = serde_json::from_str(&resp.text())?;
+    assert!(body["cursor"].is_object(), "cursor alias should work");
+    Ok(())
+}
+
+#[tokio::test]
 async fn screen_text_plain() -> anyhow::Result<()> {
     let (state, _rx) = test_state();
     let app = build_router(state);

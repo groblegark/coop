@@ -45,8 +45,8 @@ pub struct TerminalSize {
 pub struct ScreenQuery {
     #[serde(default)]
     pub format: ScreenFormat,
-    #[serde(default)]
-    pub cursor: bool,
+    #[serde(default, alias = "cursor")]
+    pub include_cursor: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -200,7 +200,7 @@ pub async fn screen(
         cols: snap.cols,
         rows: snap.rows,
         alt_screen: snap.alt_screen,
-        cursor: if q.cursor { Some(snap.cursor) } else { None },
+        cursor: if q.include_cursor { Some(snap.cursor) } else { None },
         seq: snap.sequence,
     })
 }

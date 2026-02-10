@@ -21,7 +21,7 @@ fn ping_pong_serialization() -> anyhow::Result<()> {
 
 #[test]
 fn screen_request_serialization() -> anyhow::Result<()> {
-    let msg = ClientMessage::ScreenRequest {};
+    let msg = ClientMessage::ScreenRequest { include_cursor: false };
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"screen_request\""));
     Ok(())
@@ -507,6 +507,35 @@ fn shutdown_result_serialization() -> anyhow::Result<()> {
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"type\":\"shutdown_result\""));
     assert!(json.contains("\"accepted\":true"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn screen_request_excludes_cursor_by_default() -> anyhow::Result<()> {
+    let (state, _rx) = ws_test_state(AgentState::Working);
+    let msg: ClientMessage = serde_json::from_str(r#"{"type":"screen_request"}"#)?;
+    let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
+    match reply {
+        Some(ServerMessage::Screen { cursor, .. }) => {
+            assert!(cursor.is_none(), "cursor should be excluded by default");
+        }
+        other => anyhow::bail!("expected Screen, got {other:?}"),
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn screen_request_includes_cursor_when_requested() -> anyhow::Result<()> {
+    let (state, _rx) = ws_test_state(AgentState::Working);
+    let msg: ClientMessage =
+        serde_json::from_str(r#"{"type":"screen_request","include_cursor":true}"#)?;
+    let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
+    match reply {
+        Some(ServerMessage::Screen { cursor, .. }) => {
+            assert!(cursor.is_some(), "cursor should be included when requested");
+        }
+        other => anyhow::bail!("expected Screen, got {other:?}"),
+    }
     Ok(())
 }
 

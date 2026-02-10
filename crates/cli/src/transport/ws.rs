@@ -165,7 +165,10 @@ pub enum ClientMessage {
         cols: u16,
         rows: u16,
     },
-    ScreenRequest {},
+    ScreenRequest {
+        #[serde(default)]
+        include_cursor: bool,
+    },
     StateRequest {},
     StatusRequest {},
     Nudge {
@@ -456,10 +459,17 @@ async fn handle_client_message(
             }
         }
 
-        ClientMessage::ScreenRequest {} => {
+        ClientMessage::ScreenRequest { include_cursor } => {
             let snap = state.terminal.screen.read().await.snapshot();
             let seq = snap.sequence;
-            Some(snapshot_to_msg(snap, seq))
+            Some(ServerMessage::Screen {
+                lines: snap.lines,
+                cols: snap.cols,
+                rows: snap.rows,
+                alt_screen: snap.alt_screen,
+                cursor: if include_cursor { Some(snap.cursor) } else { None },
+                seq,
+            })
         }
 
         ClientMessage::StateRequest {} => {
