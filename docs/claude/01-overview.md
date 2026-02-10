@@ -320,15 +320,14 @@ When coop restarts, it can reconnect to a previous Claude conversation. The
 `--resume` flag triggers session discovery:
 
 1. **Discover** the most recent `.jsonl` log in `~/.claude/projects/<workspace-hash>/`
-2. **Parse** the log to recover the last agent state, byte offset, and conversation ID
-3. **Append** `--resume <id>` to Claude's command-line arguments (or `--continue` if no ID)
-4. **Append** `--settings <path>` so hooks are active in the new process
-5. **Start** the log watcher from the recovered byte offset
+2. **Derive** the session ID from the log file stem (filename without extension)
+3. **Parse** the log to recover the last agent state and byte offset
+4. **Append** `--resume <id>` to Claude's command-line arguments
+5. **Append** `--settings <path>` so hooks are active in the new process
+6. **Start** the log watcher from the recovered byte offset
 
 This spawns a new Claude process that loads the previous conversation history,
-then resumes log watching from where the previous coop session left off. The
-conversation ID is extracted from the `sessionId` or `conversationId` field in
-the log's first entry.
+then resumes log watching from where the previous coop session left off.
 
 
 ## Stop Hook Gating

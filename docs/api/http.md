@@ -75,6 +75,7 @@ Health check. **No authentication required.**
 ```json
 {
   "status": "running",
+  "session_id": "a1b2c3d4-...",
   "pid": 12345,
   "uptime_secs": 120,
   "agent": "claude",
@@ -90,6 +91,7 @@ Health check. **No authentication required.**
 | Field | Type | Description |
 |-------|------|-------------|
 | `status` | string | Always `"running"` |
+| `session_id` | string | Agent session ID (UUID) |
 | `pid` | int or null | Child process PID, null if not yet spawned |
 | `uptime_secs` | int | Seconds since coop started |
 | `agent` | string | Agent type (`"claude"`, `"codex"`, `"gemini"`, `"unknown"`) |
@@ -191,6 +193,7 @@ Session status summary.
 
 ```json
 {
+  "session_id": "a1b2c3d4-...",
   "state": "running",
   "pid": 12345,
   "uptime_secs": 120,
@@ -204,6 +207,7 @@ Session status summary.
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `session_id` | string | Agent session ID (UUID) |
 | `state` | string | `"starting"`, `"running"`, or `"exited"` |
 | `pid` | int or null | Child process PID |
 | `uptime_secs` | int | Seconds since coop started |
@@ -403,6 +407,7 @@ Current agent state and prompt context.
 ```json
 {
   "agent": "claude",
+  "session_id": "a1b2c3d4-...",
   "state": "prompt",
   "since_seq": 15,
   "screen_seq": 42,
@@ -428,6 +433,7 @@ Current agent state and prompt context.
 | Field | Type | Description |
 |-------|------|-------------|
 | `agent` | string | Agent type |
+| `session_id` | string | Agent session ID (UUID) |
 | `state` | string | Current agent state (see table below) |
 | `since_seq` | int | Sequence number when this state was entered |
 | `screen_seq` | int | Current screen sequence number |

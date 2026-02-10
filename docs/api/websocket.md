@@ -303,6 +303,7 @@ Health check response. Sent in reply to `health:get`.
 {
   "event": "health",
   "status": "running",
+  "session_id": "a1b2c3d4-...",
   "pid": 12345,
   "uptime_secs": 120,
   "agent": "claude",
@@ -316,6 +317,7 @@ Health check response. Sent in reply to `health:get`.
 | Field | Type | Description |
 |-------|------|-------------|
 | `status` | string | Always `"running"` |
+| `session_id` | string | Agent session ID (UUID) |
 | `pid` | int or null | Child process PID |
 | `uptime_secs` | int | Seconds since coop started |
 | `agent` | string | Agent type (`"claude"`, `"codex"`, `"gemini"`, `"unknown"`) |
@@ -349,6 +351,7 @@ Agent state response. Sent in reply to `agent:get`.
 {
   "event": "agent",
   "agent": "claude",
+  "session_id": "a1b2c3d4-...",
   "state": "prompt",
   "since_seq": 15,
   "screen_seq": 42,
@@ -364,6 +367,7 @@ Agent state response. Sent in reply to `agent:get`.
 | Field | Type | Description |
 |-------|------|-------------|
 | `agent` | string | Agent type |
+| `session_id` | string | Agent session ID (UUID) |
 | `state` | string | Current agent state |
 | `since_seq` | int | Sequence number when this state was entered |
 | `screen_seq` | int | Current screen sequence number |
@@ -382,6 +386,7 @@ Session status summary. Sent in response to `status:get`.
 ```json
 {
   "event": "status",
+  "session_id": "a1b2c3d4-...",
   "state": "running",
   "pid": 12345,
   "uptime_secs": 120,
@@ -395,6 +400,7 @@ Session status summary. Sent in response to `status:get`.
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `session_id` | string | Agent session ID (UUID) |
 | `state` | string | `"starting"`, `"running"`, or `"exited"` |
 | `pid` | int or null | Child process PID |
 | `uptime_secs` | int | Seconds since coop started |
