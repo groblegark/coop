@@ -63,8 +63,6 @@ impl NatsConfig {
 struct NatsInfo {
     url: Option<String>,
     token: Option<String>,
-    #[allow(dead_code)]
-    port: Option<u16>,
 }
 
 /// Discover NATS URL from nats-info.json.
