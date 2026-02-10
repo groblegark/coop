@@ -10,7 +10,7 @@
 use bytes::Bytes;
 use coop::driver::ExitStatus;
 use coop::pty::attach::TmuxBackend;
-use coop::pty::Backend;
+use coop::pty::{Backend, BackendInput};
 use std::path::PathBuf;
 use std::process::Command;
 use tokio::sync::mpsc;
@@ -64,13 +64,13 @@ async fn send_command_and_capture_output() -> anyhow::Result<()> {
     let mut backend = session.backend()?;
 
     let (output_tx, mut output_rx) = mpsc::channel::<Bytes>(16);
-    let (input_tx, input_rx) = mpsc::channel::<Bytes>(16);
+    let (input_tx, input_rx) = mpsc::channel::<BackendInput>(16);
 
     let (_resize_tx, resize_rx) = mpsc::channel(4);
     let run_handle = tokio::spawn(async move { backend.run(output_tx, input_rx, resize_rx).await });
 
     // Send a command
-    input_tx.send(Bytes::from("echo hello\r")).await?;
+    input_tx.send(BackendInput::Write(Bytes::from("echo hello\r"))).await?;
 
     // Wait for output containing "hello"
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -122,7 +122,7 @@ async fn session_kill_resolves_run() -> anyhow::Result<()> {
     let mut backend = session.backend()?;
 
     let (output_tx, _output_rx) = mpsc::channel::<Bytes>(16);
-    let (_input_tx, input_rx) = mpsc::channel::<Bytes>(16);
+    let (_input_tx, input_rx) = mpsc::channel::<BackendInput>(16);
 
     let (_resize_tx, resize_rx) = mpsc::channel(4);
     let run_handle = tokio::spawn(async move { backend.run(output_tx, input_rx, resize_rx).await });

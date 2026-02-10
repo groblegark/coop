@@ -24,11 +24,18 @@ pub struct StateChangeEvent {
 }
 
 /// Input sent to the child process through the PTY.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum InputEvent {
     Write(Bytes),
-    Resize { cols: u16, rows: u16 },
+    Resize {
+        cols: u16,
+        rows: u16,
+    },
     Signal(PtySignal),
+    /// Drain marker: notifies the sender (via oneshot) when all prior
+    /// writes have been flushed to the PTY.  Used by `deliver_steps` to
+    /// ensure the delay timer starts *after* the PTY write completes.
+    WaitForDrain(tokio::sync::oneshot::Sender<()>),
 }
 
 /// Named signals that can be delivered to the child process.

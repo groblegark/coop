@@ -442,6 +442,7 @@ fn test_state_with_stop(
             auth_token: None,
             nudge_encoder: None,
             respond_encoder: None,
+            nudge_timeout: std::time::Duration::ZERO,
         },
         lifecycle: crate::transport::state::LifecycleState {
             shutdown: tokio_util::sync::CancellationToken::new(),
@@ -456,6 +457,7 @@ fn test_state_with_stop(
             config,
             "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
         )),
+        input_activity: Arc::new(tokio::sync::Notify::new()),
     });
     (state, input_rx)
 }
@@ -708,6 +710,7 @@ async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
             auth_token: Some("secret-token".to_owned()),
             nudge_encoder: None,
             respond_encoder: None,
+            nudge_timeout: std::time::Duration::ZERO,
         },
         lifecycle: crate::transport::state::LifecycleState {
             shutdown: tokio_util::sync::CancellationToken::new(),
@@ -722,6 +725,7 @@ async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
             config,
             "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
         )),
+        input_activity: Arc::new(tokio::sync::Notify::new()),
     });
     let _input_rx = input_rx;
 

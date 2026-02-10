@@ -7,9 +7,17 @@ use crate::driver::{NudgeEncoder, QuestionAnswer, RespondEncoder};
 
 use super::{GeminiNudgeEncoder, GeminiRespondEncoder};
 
+fn test_nudge_encoder() -> GeminiNudgeEncoder {
+    GeminiNudgeEncoder {
+        keyboard_delay: Duration::from_millis(200),
+        keyboard_delay_per_byte: Duration::from_millis(1),
+        keyboard_delay_max: Duration::from_millis(5000),
+    }
+}
+
 #[test]
 fn nudge_encodes_message_then_enter() {
-    let encoder = GeminiNudgeEncoder { keyboard_delay: Duration::from_millis(200) };
+    let encoder = test_nudge_encoder();
     let steps = encoder.encode("Fix the bug");
     assert_eq!(steps.len(), 2);
     assert_eq!(steps[0].bytes, b"Fix the bug");
@@ -20,7 +28,7 @@ fn nudge_encodes_message_then_enter() {
 
 #[test]
 fn nudge_with_multiline_message() {
-    let encoder = GeminiNudgeEncoder { keyboard_delay: Duration::from_millis(200) };
+    let encoder = test_nudge_encoder();
     let steps = encoder.encode("line1\nline2");
     assert_eq!(steps.len(), 2);
     assert_eq!(steps[0].bytes, b"line1\nline2");

@@ -96,6 +96,9 @@ impl Detector for HookDetector {
                                     _ => continue,
                                 }
                             }
+                            Some(HookEvent::UserPromptSubmit) => {
+                                (AgentState::Working, "hook:working".to_owned())
+                            }
                             Some(_) => continue,
                             None => break,
                         };

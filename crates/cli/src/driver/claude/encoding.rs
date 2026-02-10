@@ -7,17 +7,24 @@ use crate::driver::{NudgeEncoder, NudgeStep, QuestionAnswer, RespondEncoder};
 
 /// Encodes nudge messages for Claude Code's terminal input.
 pub struct ClaudeNudgeEncoder {
-    /// Delay between typing the message and pressing enter to send.
+    /// Base delay between typing the message and pressing enter to send.
     pub keyboard_delay: Duration,
+    /// Per-byte delay added for messages longer than 256 bytes.
+    pub keyboard_delay_per_byte: Duration,
+    /// Maximum nudge delay (caps the base + per-byte scaling).
+    pub keyboard_delay_max: Duration,
 }
 
 impl NudgeEncoder for ClaudeNudgeEncoder {
     fn encode(&self, message: &str) -> Vec<NudgeStep> {
+        let delay = crate::driver::compute_nudge_delay(
+            self.keyboard_delay,
+            self.keyboard_delay_per_byte,
+            self.keyboard_delay_max,
+            message.len(),
+        );
         vec![
-            NudgeStep {
-                bytes: message.as_bytes().to_vec(),
-                delay_after: Some(self.keyboard_delay),
-            },
+            NudgeStep { bytes: message.as_bytes().to_vec(), delay_after: Some(delay) },
             NudgeStep { bytes: b"\r".to_vec(), delay_after: None },
         ]
     }

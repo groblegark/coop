@@ -14,6 +14,7 @@ fn generated_config_has_required_hooks() {
     assert!(hooks.get("Stop").is_some());
     assert!(hooks.get("Notification").is_some());
     assert!(hooks.get("PreToolUse").is_some());
+    assert!(hooks.get("UserPromptSubmit").is_some());
 
     // Verify nested matcher + hooks structure
     let post_tool = &hooks["PostToolUse"];

@@ -272,6 +272,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             auth_token: config.auth_token.clone(),
             nudge_encoder,
             respond_encoder,
+            nudge_timeout: config.nudge_timeout(),
         },
         lifecycle: LifecycleState {
             shutdown: shutdown.clone(),
@@ -283,6 +284,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             config.keyboard_delay(),
         )),
         stop: stop_state,
+        input_activity: Arc::new(tokio::sync::Notify::new()),
     });
 
     // Spawn HTTP server

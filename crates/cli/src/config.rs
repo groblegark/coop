@@ -175,6 +175,23 @@ impl Config {
         env_duration_ms("COOP_KEYBOARD_DELAY_MS", 200)
     }
 
+    /// Per-byte delay added to the base keyboard delay for long nudge messages.
+    pub fn keyboard_delay_per_byte(&self) -> Duration {
+        env_duration_ms("COOP_KEYBOARD_DELAY_PER_BYTE_MS", 1)
+    }
+
+    /// Maximum nudge delay (caps the base + per-byte scaling).
+    pub fn keyboard_delay_max(&self) -> Duration {
+        env_duration_ms("COOP_KEYBOARD_DELAY_MAX_MS", 5000)
+    }
+
+    /// Timeout before retrying Enter after a nudge delivery.
+    /// If the agent doesn't transition to Working within this window,
+    /// a single `\r` is re-sent. Set to 0 to disable.
+    pub fn nudge_timeout(&self) -> Duration {
+        env_duration_ms("COOP_NUDGE_TIMEOUT_MS", 4000)
+    }
+
     /// Idle timeout (0 = disabled).
     pub fn idle_timeout(&self) -> Duration {
         env_duration_secs("COOP_IDLE_TIMEOUT_SECS", 0)

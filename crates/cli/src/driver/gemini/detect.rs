@@ -67,7 +67,7 @@ impl Detector for HookDetector {
                                 }
                             }
                             Some(HookEvent::AgentStop) => (AgentState::WaitingForInput, "hook:idle".to_owned()),
-                            Some(HookEvent::PreToolUse { .. }) => {
+                            Some(HookEvent::PreToolUse { .. }) | Some(HookEvent::UserPromptSubmit) => {
                                 // BeforeTool fires for every tool call (including
                                 // auto-approved ones). Map to Working; actual
                                 // permission prompts are detected via Notification.

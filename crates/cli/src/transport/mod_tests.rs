@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use super::{encode_response, resolve_permission_option, resolve_plan_option};
+use std::sync::Arc;
+
+use super::{encode_response, resolve_permission_option, resolve_plan_option, spawn_enter_retry};
 use crate::driver::claude::encoding::ClaudeRespondEncoder;
 use crate::driver::{AgentState, PromptContext, PromptKind};
+use crate::event::StateChangeEvent;
 
 #[test]
 fn permission_option_takes_precedence_over_accept() {
@@ -146,4 +149,103 @@ fn setup_prompt_respects_explicit_option() {
     assert_eq!(steps.len(), 2);
     assert_eq!(steps[0].bytes, b"2");
     assert_eq!(steps[1].bytes, b"\r");
+}
+
+#[tokio::test]
+async fn enter_retry_sends_cr_on_timeout() -> anyhow::Result<()> {
+    let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(16);
+    let (state_tx, _) = tokio::sync::broadcast::channel::<StateChangeEvent>(16);
+    let state_rx = state_tx.subscribe();
+    let activity = Arc::new(tokio::sync::Notify::new());
+
+    let _cancel =
+        spawn_enter_retry(input_tx, state_rx, activity, std::time::Duration::from_millis(50));
+
+    // Wait for the retry to fire
+    let event =
+        tokio::time::timeout(std::time::Duration::from_millis(200), input_rx.recv()).await?;
+
+    match event {
+        Some(crate::event::InputEvent::Write(data)) => {
+            assert_eq!(&data[..], b"\r");
+        }
+        other => panic!("expected Write(\\r), got {other:?}"),
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn enter_retry_cancelled_by_state_transition() -> anyhow::Result<()> {
+    let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(16);
+    let _keep_alive = input_tx.clone(); // keep channel open after task exits
+    let (state_tx, _) = tokio::sync::broadcast::channel::<StateChangeEvent>(16);
+    let state_rx = state_tx.subscribe();
+    let activity = Arc::new(tokio::sync::Notify::new());
+
+    let _cancel =
+        spawn_enter_retry(input_tx, state_rx, activity, std::time::Duration::from_millis(200));
+
+    // Send a Working state transition — should cancel the retry
+    let _ = state_tx.send(StateChangeEvent {
+        prev: AgentState::WaitingForInput,
+        next: AgentState::Working,
+        seq: 1,
+        cause: "test".to_owned(),
+        last_message: None,
+    });
+
+    // The retry should NOT fire
+    let result = tokio::time::timeout(std::time::Duration::from_millis(300), input_rx.recv()).await;
+
+    assert!(result.is_err(), "expected timeout (no retry), got {result:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn enter_retry_cancelled_by_input_activity() -> anyhow::Result<()> {
+    let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(16);
+    let _keep_alive = input_tx.clone(); // keep channel open after task exits
+    let (state_tx, _) = tokio::sync::broadcast::channel::<StateChangeEvent>(16);
+    let state_rx = state_tx.subscribe();
+    let activity = Arc::new(tokio::sync::Notify::new());
+
+    let _cancel = spawn_enter_retry(
+        input_tx,
+        state_rx,
+        Arc::clone(&activity),
+        std::time::Duration::from_millis(200),
+    );
+
+    // Give the spawned task time to register the notified() future
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+    // Notify input activity — should cancel the retry
+    activity.notify_waiters();
+
+    // The retry should NOT fire
+    let result = tokio::time::timeout(std::time::Duration::from_millis(300), input_rx.recv()).await;
+
+    assert!(result.is_err(), "expected timeout (no retry), got {result:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn enter_retry_cancelled_by_token() -> anyhow::Result<()> {
+    let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(16);
+    let _keep_alive = input_tx.clone(); // keep channel open after task exits
+    let (state_tx, _) = tokio::sync::broadcast::channel::<StateChangeEvent>(16);
+    let state_rx = state_tx.subscribe();
+    let activity = Arc::new(tokio::sync::Notify::new());
+
+    let cancel =
+        spawn_enter_retry(input_tx, state_rx, activity, std::time::Duration::from_millis(200));
+
+    // Cancel via the token (simulates next DeliveryGate::acquire)
+    cancel.cancel();
+
+    // The retry should NOT fire
+    let result = tokio::time::timeout(std::time::Duration::from_millis(300), input_rx.recv()).await;
+
+    assert!(result.is_err(), "expected timeout (no retry), got {result:?}");
+    Ok(())
 }

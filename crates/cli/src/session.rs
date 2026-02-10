@@ -21,7 +21,7 @@ use crate::driver::{
     OptionParser, PromptKind,
 };
 use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
-use crate::pty::{Backend, Boxed};
+use crate::pty::{Backend, BackendInput, Boxed};
 use crate::transport::AppState;
 
 /// Runtime objects for building a new [`Session`] (not derivable from [`Config`]).
@@ -72,7 +72,7 @@ impl SessionConfig {
 pub struct Session {
     app_state: Arc<AppState>,
     backend_output_rx: mpsc::Receiver<Bytes>,
-    backend_input_tx: mpsc::Sender<Bytes>,
+    backend_input_tx: mpsc::Sender<BackendInput>,
     resize_tx: mpsc::Sender<(u16, u16)>,
     consumer_input_rx: mpsc::Receiver<InputEvent>,
     detector_rx: mpsc::Receiver<DetectedState>,
@@ -109,7 +109,7 @@ impl Session {
 
         // Create backend I/O channels
         let (backend_output_tx, backend_output_rx) = mpsc::channel(256);
-        let (backend_input_tx, backend_input_rx) = mpsc::channel(256);
+        let (backend_input_tx, backend_input_rx) = mpsc::channel::<BackendInput>(256);
         let (resize_tx, resize_rx) = mpsc::channel(4);
 
         // Spawn backend task
@@ -177,11 +177,23 @@ impl Session {
 
                 // 2. Consumer input → forward to backend or handle resize/signal
                 event = self.consumer_input_rx.recv() => {
+                    // Notify the enter-retry monitor that input activity occurred.
+                    // WaitForDrain is excluded because it's an internal sync
+                    // marker, not user/transport-initiated input.
+                    if !matches!(event, Some(InputEvent::WaitForDrain(_)) | None) {
+                        self.app_state.input_activity.notify_waiters();
+                    }
                     match event {
                         Some(InputEvent::Write(data)) => {
                             let len = data.len() as u64;
                             self.app_state.lifecycle.bytes_written.fetch_add(len, std::sync::atomic::Ordering::Relaxed);
-                            if self.backend_input_tx.send(data).await.is_err() {
+                            if self.backend_input_tx.send(BackendInput::Write(data)).await.is_err() {
+                                debug!("backend input channel closed");
+                                break;
+                            }
+                        }
+                        Some(InputEvent::WaitForDrain(tx)) => {
+                            if self.backend_input_tx.send(BackendInput::Drain(tx)).await.is_err() {
                                 debug!("backend input channel closed");
                                 break;
                             }

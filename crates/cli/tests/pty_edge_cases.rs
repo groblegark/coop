@@ -11,14 +11,14 @@ use tokio::sync::mpsc;
 
 use coop::config::Config;
 use coop::pty::spawn::NativePty;
-use coop::pty::Backend;
+use coop::pty::{Backend, BackendInput};
 use coop::session::{Session, SessionConfig};
 use coop::test_support::AppStateBuilder;
 
 #[tokio::test]
 async fn child_exit_produces_eof() -> anyhow::Result<()> {
     let (output_tx, mut output_rx) = mpsc::channel(64);
-    let (_input_tx, input_rx) = mpsc::channel(64);
+    let (_input_tx, input_rx) = mpsc::channel::<BackendInput>(64);
     let (_resize_tx, resize_rx) = mpsc::channel(4);
 
     let mut pty = NativePty::spawn(&["true".into()], 80, 24, &[])?;
@@ -37,7 +37,7 @@ async fn child_exit_produces_eof() -> anyhow::Result<()> {
 #[tokio::test]
 async fn child_killed_produces_signal() -> anyhow::Result<()> {
     let (output_tx, _output_rx) = mpsc::channel(64);
-    let (_input_tx, input_rx) = mpsc::channel(64);
+    let (_input_tx, input_rx) = mpsc::channel::<BackendInput>(64);
     let (_resize_tx, resize_rx) = mpsc::channel(4);
 
     let mut pty = NativePty::spawn(&["/bin/sleep".into(), "60".into()], 80, 24, &[])?;
@@ -62,7 +62,7 @@ async fn child_killed_produces_signal() -> anyhow::Result<()> {
 #[tokio::test]
 async fn eio_on_child_death() -> anyhow::Result<()> {
     let (output_tx, mut output_rx) = mpsc::channel(64);
-    let (_input_tx, input_rx) = mpsc::channel(64);
+    let (_input_tx, input_rx) = mpsc::channel::<BackendInput>(64);
     let (_resize_tx, resize_rx) = mpsc::channel(4);
 
     let mut pty =
@@ -84,7 +84,7 @@ async fn eio_on_child_death() -> anyhow::Result<()> {
 #[tokio::test]
 async fn resize_reflected_in_stty() -> anyhow::Result<()> {
     let (output_tx, mut output_rx) = mpsc::channel(64);
-    let (input_tx, input_rx) = mpsc::channel(64);
+    let (input_tx, input_rx) = mpsc::channel::<BackendInput>(64);
     let (resize_tx, resize_rx) = mpsc::channel(4);
 
     let mut pty = NativePty::spawn(&["/bin/sh".into()], 80, 24, &[])?;
@@ -104,7 +104,7 @@ async fn resize_reflected_in_stty() -> anyhow::Result<()> {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Query terminal size via stty
-        input_tx.send(bytes::Bytes::from("stty size\n")).await?;
+        input_tx.send(BackendInput::Write(bytes::Bytes::from("stty size\n"))).await?;
 
         // Collect output until we see the expected dimensions
         let expected = format!("{rows} {cols}");
@@ -179,7 +179,7 @@ async fn large_output_through_session() -> anyhow::Result<()> {
 #[tokio::test]
 async fn binary_output_no_panic() -> anyhow::Result<()> {
     let (output_tx, mut output_rx) = mpsc::channel(256);
-    let (_input_tx, input_rx) = mpsc::channel(64);
+    let (_input_tx, input_rx) = mpsc::channel::<BackendInput>(64);
     let (_resize_tx, resize_rx) = mpsc::channel(4);
 
     let mut pty = NativePty::spawn(
@@ -204,7 +204,7 @@ async fn binary_output_no_panic() -> anyhow::Result<()> {
 #[tokio::test]
 async fn rapid_input_output() -> anyhow::Result<()> {
     let (output_tx, mut output_rx) = mpsc::channel(256);
-    let (input_tx, input_rx) = mpsc::channel(256);
+    let (input_tx, input_rx) = mpsc::channel::<BackendInput>(256);
     let (_resize_tx, resize_rx) = mpsc::channel(4);
 
     let mut pty = NativePty::spawn(&["/bin/cat".into()], 80, 24, &[])?;
@@ -214,12 +214,12 @@ async fn rapid_input_output() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(100)).await;
     for i in 0..100 {
         let line = format!("line{i}\n");
-        input_tx.send(Bytes::from(line)).await?;
+        input_tx.send(BackendInput::Write(Bytes::from(line))).await?;
     }
 
     // Wait for output to settle then send EOF
     tokio::time::sleep(Duration::from_millis(500)).await;
-    input_tx.send(Bytes::from_static(b"\x04")).await?;
+    input_tx.send(BackendInput::Write(Bytes::from_static(b"\x04"))).await?;
     drop(input_tx);
 
     let status = handle.await??;

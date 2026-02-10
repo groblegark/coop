@@ -125,6 +125,19 @@ fn after_tool_missing_tool_name_returns_empty() {
 }
 
 #[test]
+fn parses_user_prompt_submit_event() {
+    let event =
+        parse_hook_line(r#"{"event":"user_prompt_submit","data":{"prompt":"Fix the bug"}}"#);
+    assert_eq!(event, Some(HookEvent::UserPromptSubmit));
+}
+
+#[test]
+fn parses_user_prompt_submit_without_data() {
+    let event = parse_hook_line(r#"{"event":"user_prompt_submit"}"#);
+    assert_eq!(event, Some(HookEvent::UserPromptSubmit));
+}
+
+#[test]
 fn ignores_malformed_lines() {
     assert_eq!(parse_hook_line("not json"), None);
     assert_eq!(parse_hook_line("{}"), None);

@@ -3,7 +3,7 @@
 
 use bytes::Bytes;
 use coop::pty::spawn::NativePty;
-use coop::pty::Backend;
+use coop::pty::{Backend, BackendInput};
 use coop::ring::RingBuffer;
 use coop::screen::Screen;
 use tokio::sync::mpsc;
@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 #[tokio::test]
 async fn spawn_and_capture() {
     let (output_tx, mut output_rx) = mpsc::channel(64);
-    let (_input_tx, input_rx) = mpsc::channel(64);
+    let (_input_tx, input_rx) = mpsc::channel::<BackendInput>(64);
     let (_resize_tx, resize_rx) = mpsc::channel(4);
 
     let mut pty =
@@ -34,7 +34,7 @@ async fn spawn_and_capture() {
 #[tokio::test]
 async fn input_delivery() {
     let (output_tx, mut output_rx) = mpsc::channel(64);
-    let (input_tx, input_rx) = mpsc::channel(64);
+    let (input_tx, input_rx) = mpsc::channel::<BackendInput>(64);
     let (_resize_tx, resize_rx) = mpsc::channel(4);
 
     let mut pty = NativePty::spawn(&["/bin/cat".into()], 80, 24, &[]).expect("spawn failed");
@@ -42,10 +42,10 @@ async fn input_delivery() {
     let handle = tokio::spawn(async move { pty.run(output_tx, input_rx, resize_rx).await });
 
     // Write data with newline, then Ctrl-D on empty line to signal EOF
-    input_tx.send(Bytes::from_static(b"ping\n")).await.expect("send failed");
+    input_tx.send(BackendInput::Write(Bytes::from_static(b"ping\n"))).await.expect("send failed");
     // Short delay so cat processes the line before we send EOF
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    input_tx.send(Bytes::from_static(b"\x04")).await.expect("send eof failed");
+    input_tx.send(BackendInput::Write(Bytes::from_static(b"\x04"))).await.expect("send eof failed");
     drop(input_tx);
 
     let status = handle.await.expect("join").expect("run");
@@ -70,7 +70,7 @@ async fn resize_no_error() {
 #[tokio::test]
 async fn resize_via_channel() -> anyhow::Result<()> {
     let (output_tx, mut output_rx) = mpsc::channel(64);
-    let (_input_tx, input_rx) = mpsc::channel(64);
+    let (_input_tx, input_rx) = mpsc::channel::<BackendInput>(64);
     let (resize_tx, resize_rx) = mpsc::channel(4);
 
     // stty size prints "<rows> <cols>\n" on the PTY
@@ -128,7 +128,7 @@ async fn resize_via_channel() -> anyhow::Result<()> {
 #[tokio::test]
 async fn screen_integration() {
     let (output_tx, mut output_rx) = mpsc::channel(64);
-    let (_input_tx, input_rx) = mpsc::channel(64);
+    let (_input_tx, input_rx) = mpsc::channel::<BackendInput>(64);
     let (_resize_tx, resize_rx) = mpsc::channel(4);
 
     let mut pty =
@@ -148,7 +148,7 @@ async fn screen_integration() {
 #[tokio::test]
 async fn ring_buffer_integration() {
     let (output_tx, mut output_rx) = mpsc::channel(64);
-    let (_input_tx, input_rx) = mpsc::channel(64);
+    let (_input_tx, input_rx) = mpsc::channel::<BackendInput>(64);
     let (_resize_tx, resize_rx) = mpsc::channel(4);
 
     let mut pty =

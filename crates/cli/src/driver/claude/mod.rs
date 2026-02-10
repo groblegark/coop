@@ -75,7 +75,11 @@ impl ClaudeDriver {
         detectors.sort_by_key(|d| d.tier());
 
         Ok(Self {
-            nudge: ClaudeNudgeEncoder { keyboard_delay: config.keyboard_delay() },
+            nudge: ClaudeNudgeEncoder {
+                keyboard_delay: config.keyboard_delay(),
+                keyboard_delay_per_byte: config.keyboard_delay_per_byte(),
+                keyboard_delay_max: config.keyboard_delay_max(),
+            },
             respond: ClaudeRespondEncoder { input_delay: config.keyboard_delay() },
             detectors,
         })

@@ -58,7 +58,11 @@ impl GeminiDriver {
         detectors.sort_by_key(|d| d.tier());
 
         Ok(Self {
-            nudge: GeminiNudgeEncoder { keyboard_delay: config.keyboard_delay() },
+            nudge: GeminiNudgeEncoder {
+                keyboard_delay: config.keyboard_delay(),
+                keyboard_delay_per_byte: config.keyboard_delay_per_byte(),
+                keyboard_delay_max: config.keyboard_delay_max(),
+            },
             respond: GeminiRespondEncoder { input_delay: config.keyboard_delay() },
             detectors,
         })

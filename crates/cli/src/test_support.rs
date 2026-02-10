@@ -119,6 +119,7 @@ impl AppStateBuilder {
                 auth_token: self.auth_token,
                 nudge_encoder: self.nudge_encoder,
                 respond_encoder: self.respond_encoder,
+                nudge_timeout: Duration::ZERO,
             },
             lifecycle: LifecycleState {
                 shutdown: CancellationToken::new(),
@@ -131,6 +132,7 @@ impl AppStateBuilder {
                 StopConfig::default(),
                 "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
             )),
+            input_activity: Arc::new(tokio::sync::Notify::new()),
         })
     }
 }
@@ -189,7 +191,7 @@ impl Backend for MockPty {
     fn run(
         &mut self,
         output_tx: mpsc::Sender<Bytes>,
-        mut input_rx: mpsc::Receiver<Bytes>,
+        mut input_rx: mpsc::Receiver<crate::pty::BackendInput>,
         _resize_rx: mpsc::Receiver<(u16, u16)>,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<ExitStatus>> + Send + '_>> {
         let output = std::mem::take(&mut self.output);
@@ -208,8 +210,15 @@ impl Backend for MockPty {
                 }
             }
             if drain_input {
-                while let Some(data) = input_rx.recv().await {
-                    captured_input.lock().push(data);
+                while let Some(msg) = input_rx.recv().await {
+                    match msg {
+                        crate::pty::BackendInput::Write(data) => {
+                            captured_input.lock().push(data);
+                        }
+                        crate::pty::BackendInput::Drain(tx) => {
+                            let _ = tx.send(());
+                        }
+                    }
                 }
             }
             Ok(exit_status)

@@ -89,9 +89,7 @@ fn parse_numbered_option(content: &str) -> Option<(u32, String)> {
 /// Box border lines start/end with corner or horizontal box-drawing chars.
 fn is_box_border(trimmed: &str) -> bool {
     !trimmed.is_empty()
-        && trimmed
-            .chars()
-            .all(|c| matches!(c, '─' | '╌' | '━' | '═' | '╭' | '╮' | '╰' | '╯'))
+        && trimmed.chars().all(|c| matches!(c, '─' | '╌' | '━' | '═' | '╭' | '╮' | '╰' | '╯'))
 }
 
 /// Status/spinner lines outside the box (e.g. "⠏ Waiting for user confirmation...")

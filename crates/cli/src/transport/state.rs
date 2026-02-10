@@ -38,6 +38,10 @@ pub struct AppState {
     pub delivery_gate: Arc<DeliveryGate>,
     /// Stop hook gating state. Always present (defaults to mode=allow).
     pub stop: Arc<StopState>,
+    /// Notified by the session loop whenever any `InputEvent` is processed.
+    /// Used by the enter-retry monitor to cancel itself if other input
+    /// activity occurs on the PTY (e.g. raw keys, resize, signal, new delivery).
+    pub input_activity: Arc<tokio::sync::Notify>,
 }
 
 /// Terminal I/O: screen, ring buffer, child process.
@@ -98,6 +102,9 @@ pub struct SessionSettings {
     pub auth_token: Option<String>,
     pub nudge_encoder: Option<Arc<dyn NudgeEncoder>>,
     pub respond_encoder: Option<Arc<dyn RespondEncoder>>,
+    /// Timeout for the enter-retry safety net after nudge delivery.
+    /// `Duration::ZERO` disables the retry.
+    pub nudge_timeout: Duration,
 }
 
 /// Runtime lifecycle primitives.
@@ -116,20 +123,38 @@ pub struct LifecycleState {
 /// `debounce` time elapses between the end of one delivery and the start
 /// of the next.
 pub struct DeliveryGate {
-    lock: tokio::sync::Mutex<Option<Instant>>,
+    lock: tokio::sync::Mutex<DeliveryGateInner>,
     debounce: Duration,
+}
+
+struct DeliveryGateInner {
+    last_delivery: Option<Instant>,
+    /// Cancel token for any pending enter-retry from the previous delivery.
+    retry_cancel: Option<CancellationToken>,
 }
 
 impl DeliveryGate {
     pub fn new(debounce: Duration) -> Self {
-        Self { lock: tokio::sync::Mutex::new(None), debounce }
+        Self {
+            lock: tokio::sync::Mutex::new(DeliveryGateInner {
+                last_delivery: None,
+                retry_cancel: None,
+            }),
+            debounce,
+        }
     }
 
     /// Acquire exclusive delivery access, sleeping if the minimum
     /// inter-delivery gap has not yet elapsed.
+    ///
+    /// Cancels any pending enter-retry from the previous delivery.
     pub async fn acquire(&self) -> DeliveryGuard<'_> {
         let guard = self.lock.lock().await;
-        if let Some(last) = *guard {
+        // Cancel pending retry from previous delivery
+        if let Some(ref token) = guard.retry_cancel {
+            token.cancel();
+        }
+        if let Some(last) = guard.last_delivery {
             let elapsed = last.elapsed();
             if elapsed < self.debounce {
                 tokio::time::sleep(self.debounce - elapsed).await;
@@ -144,12 +169,20 @@ impl DeliveryGate {
 /// Records the delivery completion timestamp on drop so that subsequent
 /// acquisitions can enforce the debounce interval.
 pub struct DeliveryGuard<'a> {
-    inner: tokio::sync::MutexGuard<'a, Option<Instant>>,
+    inner: tokio::sync::MutexGuard<'a, DeliveryGateInner>,
+}
+
+impl DeliveryGuard<'_> {
+    /// Store a cancellation token for the enter-retry monitor spawned
+    /// after this delivery.  The next `acquire()` call will cancel it.
+    pub fn set_retry_cancel(&mut self, token: CancellationToken) {
+        self.inner.retry_cancel = Some(token);
+    }
 }
 
 impl Drop for DeliveryGuard<'_> {
     fn drop(&mut self) {
-        *self.inner = Some(Instant::now());
+        self.inner.last_delivery = Some(Instant::now());
     }
 }
 

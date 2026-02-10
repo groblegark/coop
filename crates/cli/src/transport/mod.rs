@@ -21,9 +21,12 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 
+use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
+
 use crate::driver::{AgentState, NudgeStep, PromptKind, QuestionAnswer, RespondEncoder};
 use crate::error::ErrorCode;
-use crate::event::InputEvent;
+use crate::event::{InputEvent, StateChangeEvent};
 
 /// Translate a named key to its terminal escape sequence (case-insensitive).
 pub fn encode_key(name: &str) -> Option<Vec<u8>> {
@@ -72,6 +75,11 @@ pub fn encode_key(name: &str) -> Option<Vec<u8>> {
 }
 
 /// Send encoder steps to the PTY, respecting inter-step delays.
+///
+/// For steps with a `delay_after`, we first send a `WaitForDrain` marker
+/// and wait for the backend to confirm the write completed before starting
+/// the delay timer.  This prevents the channel-timing bug where large
+/// writes block in the backend while the delay runs concurrently.
 pub async fn deliver_steps(
     input_tx: &tokio::sync::mpsc::Sender<InputEvent>,
     steps: Vec<NudgeStep>,
@@ -82,10 +90,58 @@ pub async fn deliver_steps(
             .await
             .map_err(|_| ErrorCode::Internal)?;
         if let Some(delay) = step.delay_after {
+            // Wait for all prior writes to be flushed to the PTY before
+            // starting the delay timer.
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            input_tx.send(InputEvent::WaitForDrain(tx)).await.map_err(|_| ErrorCode::Internal)?;
+            let _ = rx.await;
             tokio::time::sleep(delay).await;
         }
     }
     Ok(())
+}
+
+/// Spawn a background monitor that retries Enter once if the agent doesn't
+/// transition away from `WaitingForInput` within `timeout`.
+///
+/// Cancellation conditions (any of these cancels the retry):
+/// - State transitions to Working, Prompt, or Exited
+/// - Any input activity on the PTY (raw keys, resize, signal, new delivery)
+/// - The returned `CancellationToken` is cancelled (by next `DeliveryGate::acquire`)
+///
+/// **Scope:** nudge only.  Respond is excluded because double-Enter on a
+/// prompt could select the wrong option.
+pub fn spawn_enter_retry(
+    input_tx: tokio::sync::mpsc::Sender<InputEvent>,
+    mut state_rx: broadcast::Receiver<StateChangeEvent>,
+    input_activity: Arc<tokio::sync::Notify>,
+    timeout: std::time::Duration,
+) -> CancellationToken {
+    let cancel = CancellationToken::new();
+    let cancel_clone = cancel.clone();
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = cancel_clone.cancelled() => {}
+            _ = input_activity.notified() => {}
+            _ = async {
+                // Wait for a state transition that confirms Enter was processed.
+                while let Ok(event) = state_rx.recv().await {
+                    match &event.next {
+                        AgentState::Working
+                        | AgentState::Prompt { .. }
+                        | AgentState::Exited { .. } => break,
+                        _ => continue,
+                    }
+                }
+            } => {}
+            _ = tokio::time::sleep(timeout) => {
+                // Timeout — retry Enter once
+                tracing::debug!("nudge enter-retry: timeout reached, resending \\r");
+                let _ = input_tx.send(InputEvent::Write(bytes::Bytes::from_static(b"\r"))).await;
+            }
+        }
+    });
+    cancel
 }
 
 /// Resolve the option number for a permission prompt from `accept` and `option`.

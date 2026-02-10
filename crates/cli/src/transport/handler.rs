@@ -12,12 +12,15 @@ use std::sync::Arc;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
+use crate::driver::AgentType;
 use crate::driver::{classify_error_detail, AgentState, QuestionAnswer};
 use crate::error::ErrorCode;
 use crate::event::InputEvent;
 use crate::event::PtySignal;
 use crate::transport::state::AppState;
-use crate::transport::{deliver_steps, encode_response, keys_to_bytes, update_question_current};
+use crate::transport::{
+    deliver_steps, encode_response, keys_to_bytes, spawn_enter_retry, update_question_current,
+};
 
 /// Health check result.
 pub struct HealthInfo {
@@ -169,7 +172,11 @@ pub async fn handle_nudge(state: &AppState, message: &str) -> Result<NudgeOutcom
         None => return Err(ErrorCode::NoDriver),
     };
 
-    let _delivery = state.delivery_gate.acquire().await;
+    // Subscribe to state changes BEFORE delivering so we don't miss
+    // the Working transition that confirms Enter was processed.
+    let state_rx = state.channels.state_tx.subscribe();
+
+    let mut _delivery = state.delivery_gate.acquire().await;
 
     let agent = state.driver.agent_state.read().await;
     let state_before = agent.as_str().to_owned();
@@ -188,6 +195,19 @@ pub async fn handle_nudge(state: &AppState, message: &str) -> Result<NudgeOutcom
 
     let steps = encoder.encode(message);
     let _ = deliver_steps(&state.channels.input_tx, steps).await;
+
+    // Safety net: if Enter didn't register, retry once after timeout.
+    // Only for Claude — other agents don't have the ink TUI rendering bug.
+    let nudge_timeout = state.config.nudge_timeout;
+    if state.config.agent == AgentType::Claude && nudge_timeout > std::time::Duration::ZERO {
+        let cancel = spawn_enter_retry(
+            state.channels.input_tx.clone(),
+            state_rx,
+            Arc::clone(&state.input_activity),
+            nudge_timeout,
+        );
+        _delivery.set_retry_cancel(cancel);
+    }
 
     Ok(NudgeOutcome { delivered: true, state_before: Some(state_before), reason: None })
 }

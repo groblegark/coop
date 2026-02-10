@@ -182,11 +182,28 @@ pub enum HookEvent {
     SessionEnd,
     Notification { notification_type: String },
     PreToolUse { tool: String, tool_input: Option<serde_json::Value> },
+    UserPromptSubmit,
 }
 
 /// Driver-provided function that parses numbered option labels from rendered
 /// screen lines. Used by the session's prompt enrichment loop.
 pub type OptionParser = Arc<dyn Fn(&[String]) -> Vec<String> + Send + Sync>;
+
+/// Compute a scaled nudge delay based on message length.
+///
+/// For short messages (≤256 bytes), returns the base delay.
+/// For longer messages, adds `per_byte` for each byte beyond 256,
+/// capped at `max`.
+pub fn compute_nudge_delay(
+    base: Duration,
+    per_byte: Duration,
+    max: Duration,
+    len: usize,
+) -> Duration {
+    let extra_bytes = len.saturating_sub(256);
+    let scaled = base + per_byte * extra_bytes as u32;
+    scaled.min(max)
+}
 
 impl AgentState {
     /// Return the wire-format string for this state (e.g. `"working"`,

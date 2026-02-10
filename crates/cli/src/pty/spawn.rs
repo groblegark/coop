@@ -18,7 +18,7 @@ use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc;
 
 use super::nbio::{read_chunk, set_nonblocking, write_all, PtyFd};
-use super::Backend;
+use super::{Backend, BackendInput};
 use crate::driver::ExitStatus;
 
 /// Native PTY backend that spawns a child process via `forkpty`.
@@ -100,7 +100,7 @@ impl Backend for NativePty {
     fn run(
         &mut self,
         output_tx: mpsc::Sender<Bytes>,
-        mut input_rx: mpsc::Receiver<Bytes>,
+        mut input_rx: mpsc::Receiver<BackendInput>,
         mut resize_rx: mpsc::Receiver<(u16, u16)>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<ExitStatus>> + Send + '_>>
     {
@@ -149,13 +149,16 @@ impl Backend for NativePty {
                         }
                         input = input_rx.recv() => {
                             match input {
-                                Some(data) => {
+                                Some(BackendInput::Write(data)) => {
                                     if let Err(e) = write_all(&self.master, &data).await {
                                         if e.raw_os_error() == Some(libc::EIO) {
                                             break; // Child exited; fall through to wait_for_exit
                                         }
                                         return Err(e.into());
                                     }
+                                }
+                                Some(BackendInput::Drain(tx)) => {
+                                    let _ = tx.send(());
                                 }
                                 None => input_closed = true,
                             }

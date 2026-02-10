@@ -157,6 +157,7 @@ fn parse_hook_line(line: &str) -> Option<HookEvent> {
             let tool_input = data.get("tool_input").cloned();
             Some(HookEvent::PreToolUse { tool, tool_input })
         }
+        "user_prompt_submit" => Some(HookEvent::UserPromptSubmit),
         _ => None,
     }
 }

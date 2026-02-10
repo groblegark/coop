@@ -90,5 +90,8 @@ fn env_duration_defaults() {
     assert_eq!(config.tmux_poll(), Duration::from_secs(1));
     assert_eq!(config.pty_reap(), Duration::from_millis(50));
     assert_eq!(config.keyboard_delay(), Duration::from_millis(200));
+    assert_eq!(config.keyboard_delay_per_byte(), Duration::from_millis(1));
+    assert_eq!(config.keyboard_delay_max(), Duration::from_millis(5000));
+    assert_eq!(config.nudge_timeout(), Duration::from_millis(4000));
     assert_eq!(config.idle_timeout(), Duration::ZERO);
 }

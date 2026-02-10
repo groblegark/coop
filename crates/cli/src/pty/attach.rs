@@ -9,7 +9,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::driver::ExitStatus;
-use crate::pty::Backend;
+use crate::pty::{Backend, BackendInput};
 
 /// Specifies which terminal multiplexer session to attach to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,7 +114,7 @@ impl Backend for TmuxBackend {
     fn run(
         &mut self,
         output_tx: mpsc::Sender<Bytes>,
-        mut input_rx: mpsc::Receiver<Bytes>,
+        mut input_rx: mpsc::Receiver<BackendInput>,
         mut resize_rx: mpsc::Receiver<(u16, u16)>,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<ExitStatus>> + Send + '_>> {
         Box::pin(async move {
@@ -155,7 +155,7 @@ impl Backend for TmuxBackend {
                     }
                     data = input_rx.recv() => {
                         match data {
-                            Some(bytes) => {
+                            Some(BackendInput::Write(bytes)) => {
                                 let text = String::from_utf8_lossy(&bytes);
                                 let status = self.tmux_async_cmd()
                                     .args([
@@ -171,6 +171,9 @@ impl Backend for TmuxBackend {
                                         signal: None,
                                     });
                                 }
+                            }
+                            Some(BackendInput::Drain(tx)) => {
+                                let _ = tx.send(());
                             }
                             None => {
                                 return Ok(ExitStatus {

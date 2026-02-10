@@ -3,16 +3,25 @@
 
 use std::time::Duration;
 
-use crate::driver::{NudgeEncoder, QuestionAnswer, RespondEncoder};
+use crate::driver::{compute_nudge_delay, NudgeEncoder, QuestionAnswer, RespondEncoder};
 
 use super::{ClaudeNudgeEncoder, ClaudeRespondEncoder};
 
+fn test_nudge_encoder() -> ClaudeNudgeEncoder {
+    ClaudeNudgeEncoder {
+        keyboard_delay: Duration::from_millis(200),
+        keyboard_delay_per_byte: Duration::from_millis(1),
+        keyboard_delay_max: Duration::from_millis(5000),
+    }
+}
+
 #[test]
 fn nudge_encodes_message_then_enter() {
-    let encoder = ClaudeNudgeEncoder { keyboard_delay: Duration::from_millis(200) };
+    let encoder = test_nudge_encoder();
     let steps = encoder.encode("Fix the bug");
     assert_eq!(steps.len(), 2);
     assert_eq!(steps[0].bytes, b"Fix the bug");
+    // Short message (11 bytes < 256): delay == base
     assert_eq!(steps[0].delay_after, Some(Duration::from_millis(200)));
     assert_eq!(steps[1].bytes, b"\r");
     assert!(steps[1].delay_after.is_none());
@@ -20,11 +29,64 @@ fn nudge_encodes_message_then_enter() {
 
 #[test]
 fn nudge_with_multiline_message() {
-    let encoder = ClaudeNudgeEncoder { keyboard_delay: Duration::from_millis(200) };
+    let encoder = test_nudge_encoder();
     let steps = encoder.encode("line1\nline2");
     assert_eq!(steps.len(), 2);
     assert_eq!(steps[0].bytes, b"line1\nline2");
     assert_eq!(steps[1].bytes, b"\r");
+}
+
+#[test]
+fn nudge_delay_scales_with_length() {
+    let encoder = test_nudge_encoder();
+    // 1024 bytes: base 200ms + (1024-256)*1ms = 200+768 = 968ms
+    let msg = "x".repeat(1024);
+    let steps = encoder.encode(&msg);
+    assert_eq!(steps[0].delay_after, Some(Duration::from_millis(968)));
+}
+
+#[test]
+fn nudge_delay_capped_at_max() {
+    let encoder = test_nudge_encoder();
+    // 10000 bytes would compute 200+9744=9944ms but cap is 5000ms
+    let msg = "x".repeat(10000);
+    let steps = encoder.encode(&msg);
+    assert_eq!(steps[0].delay_after, Some(Duration::from_millis(5000)));
+}
+
+#[test]
+fn compute_nudge_delay_short_message() {
+    let d = compute_nudge_delay(
+        Duration::from_millis(200),
+        Duration::from_millis(1),
+        Duration::from_millis(5000),
+        100,
+    );
+    assert_eq!(d, Duration::from_millis(200));
+}
+
+#[test]
+fn compute_nudge_delay_medium_message() {
+    // 512 bytes: 200ms + (512-256)*1ms = 456ms
+    let d = compute_nudge_delay(
+        Duration::from_millis(200),
+        Duration::from_millis(1),
+        Duration::from_millis(5000),
+        512,
+    );
+    assert_eq!(d, Duration::from_millis(456));
+}
+
+#[test]
+fn compute_nudge_delay_large_message_capped() {
+    // 20000 bytes: 200ms + 19744ms = 19944ms, capped at 5000ms
+    let d = compute_nudge_delay(
+        Duration::from_millis(200),
+        Duration::from_millis(1),
+        Duration::from_millis(5000),
+        20000,
+    );
+    assert_eq!(d, Duration::from_millis(5000));
 }
 
 #[yare::parameterized(

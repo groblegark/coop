@@ -60,6 +60,13 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
                     "type": "command",
                     "command": "input=$(cat); printf '{\"event\":\"pre_tool_use\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
                 }]
+            }],
+            "UserPromptSubmit": [{
+                "matcher": "",
+                "hooks": [{
+                    "type": "command",
+                    "command": "input=$(cat); printf '{\"event\":\"user_prompt_submit\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
+                }]
             }]
         }
     })
