@@ -9,21 +9,34 @@ use crate::driver::{AgentState, Detector};
 
 use super::LogDetector;
 
-#[tokio::test]
-async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
-    let dir = tempfile::tempdir()?;
-    let log_path = dir.path().join("session.jsonl");
-    // Create empty file so the watcher can start
-    std::fs::write(&log_path, "")?;
-
-    let detector = Box::new(LogDetector {
-        log_path: log_path.clone(),
+/// Build a LogDetector with fast test-appropriate poll interval.
+fn test_log_detector(log_path: std::path::PathBuf) -> Box<LogDetector> {
+    Box::new(LogDetector {
+        log_path,
         start_offset: 0,
+        // Short poll for tests; production uses config.log_poll() (3s default).
         poll_interval: std::time::Duration::from_millis(50),
         last_message: None,
         raw_message_tx: None,
         usage: None,
-    });
+    })
+}
+
+#[tokio::test]
+async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let log_path = dir.path().join("session.jsonl");
+
+    // Write data before starting the detector — the first poll tick reads immediately.
+    std::fs::write(
+        &log_path,
+        concat!(
+            "{\"type\":\"system\",\"message\":{\"content\":[]}}\n",
+            "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"done\"}]}}\n",
+        ),
+    )?;
+
+    let detector = test_log_detector(log_path);
     assert_eq!(detector.tier(), 2);
 
     let (state_tx, mut state_rx) = mpsc::channel(32);
@@ -33,17 +46,6 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
     let handle = tokio::spawn(async move {
         detector.run(state_tx, shutdown_clone).await;
     });
-
-    // Brief sleep to let the spawned detector complete its first empty poll,
-    // then write data so the next 50ms poll tick finds it.
-    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    std::fs::write(
-        &log_path,
-        concat!(
-            "{\"type\":\"system\",\"message\":{\"content\":[]}}\n",
-            "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"done\"}]}}\n",
-        ),
-    )?;
 
     // Wait for states to arrive
     let mut states = Vec::new();
@@ -71,17 +73,11 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
 async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let log_path = dir.path().join("session.jsonl");
-    // Create empty file so the watcher can start
-    std::fs::write(&log_path, "")?;
 
-    let detector = Box::new(LogDetector {
-        log_path: log_path.clone(),
-        start_offset: 0,
-        poll_interval: std::time::Duration::from_millis(50),
-        last_message: None,
-        raw_message_tx: None,
-        usage: None,
-    });
+    // Write data before starting the detector.
+    std::fs::write(&log_path, "{\"type\":\"user\",\"message\":{\"content\":[]}}\n")?;
+
+    let detector = test_log_detector(log_path);
     let (state_tx, mut state_rx) = mpsc::channel(32);
     let shutdown = CancellationToken::new();
     let shutdown_clone = shutdown.clone();
@@ -89,11 +85,6 @@ async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
     let handle = tokio::spawn(async move {
         detector.run(state_tx, shutdown_clone).await;
     });
-
-    // Brief sleep to let the spawned detector complete its first empty poll,
-    // then write data so the next 50ms poll tick finds it.
-    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    std::fs::write(&log_path, "{\"type\":\"user\",\"message\":{\"content\":[]}}\n")?;
 
     // User messages produce Working (not Idle)
     let timeout =
