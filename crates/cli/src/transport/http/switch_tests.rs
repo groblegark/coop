@@ -27,7 +27,11 @@ async fn switch_rejects_when_in_progress() -> anyhow::Result<()> {
     let StoreCtx { store: state, switch_rx: _switch_rx, .. } =
         StoreBuilder::new().child_pid(1234).build();
     // Pre-fill the switch channel so next try_send returns Full.
-    state.switch.switch_tx.try_send(SwitchRequest { credentials: None, force: false }).ok();
+    state
+        .switch
+        .switch_tx
+        .try_send(SwitchRequest { credentials: None, force: false, profile: None })
+        .ok();
 
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;

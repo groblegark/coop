@@ -18,7 +18,7 @@ use tracing::{debug, warn};
 use crate::config::{Config, GroomLevel};
 use crate::driver::{
     classify_error_detail, disruption_option, AgentState, CompositeDetector, DetectedState,
-    Detector, ExitStatus, NudgeStep, OptionParser, PromptKind,
+    Detector, ErrorCategory, ExitStatus, NudgeStep, OptionParser, PromptKind,
 };
 use crate::event::{InputEvent, OutputEvent, PromptOutcome, TransitionEvent};
 use crate::pty::{Backend, BackendInput, Boxed};
@@ -275,6 +275,13 @@ impl Session {
                                     category,
                                 },
                             );
+
+                            // Auto-rotate on rate limit when profiles are registered.
+                            if category == ErrorCategory::RateLimited {
+                                if let Some(req) = self.store.profile.try_auto_rotate().await {
+                                    let _ = self.store.switch.switch_tx.try_send(req);
+                                }
+                            }
                         } else {
                             *self.store.driver.error.write().await = None;
                         }

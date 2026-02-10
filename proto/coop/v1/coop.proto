@@ -89,6 +89,13 @@ service Coop {
   // Stream usage update events in real time.
   rpc StreamUsageEvents(StreamUsageEventsRequest) returns (stream UsageEvent);
 
+  // Profile management
+
+  // Register named credential profiles for rotation.
+  rpc RegisterProfiles(RegisterProfilesRequest) returns (RegisterProfilesResponse);
+  // List all registered profiles with status.
+  rpc ListProfiles(ListProfilesRequest) returns (ListProfilesResponse);
+
   // Session management
 
   // Switch credentials and restart the agent process.
@@ -566,6 +573,58 @@ message UsageEvent {
   uint64 request_count = 6;
   uint64 total_api_ms = 7;
   uint64 seq = 8;
+}
+
+
+// -- Profile management -------------------------------------------------------
+
+// A named credential profile entry.
+message ProfileEntry {
+  // Profile name.
+  string name = 1;
+  // Credential env vars (e.g. ANTHROPIC_API_KEY).
+  map<string, string> credentials = 2;
+}
+
+// Rotation policy configuration.
+message ProfileConfig {
+  // Whether to automatically rotate on rate limit errors.
+  bool rotate_on_rate_limit = 1;
+  // Cooldown duration in seconds before a rate-limited profile is available.
+  uint64 cooldown_secs = 2;
+  // Maximum rotation switches per hour (anti-flap).
+  uint32 max_switches_per_hour = 3;
+}
+
+// Status information for a single profile.
+message ProfileInfo {
+  // Profile name.
+  string name = 1;
+  // Status: "active", "available", or "rate_limited".
+  string status = 2;
+  // Remaining cooldown seconds (only when rate_limited).
+  optional uint64 cooldown_remaining_secs = 3;
+}
+
+message RegisterProfilesRequest {
+  // Named credential profiles to register. First entry becomes active.
+  repeated ProfileEntry profiles = 1;
+  // Optional rotation policy. Uses defaults if omitted.
+  optional ProfileConfig config = 2;
+}
+message RegisterProfilesResponse {
+  // Number of profiles registered.
+  uint32 registered = 1;
+}
+
+message ListProfilesRequest {}
+message ListProfilesResponse {
+  // All registered profiles with current status.
+  repeated ProfileInfo profiles = 1;
+  // Current rotation policy.
+  ProfileConfig config = 2;
+  // Name of the currently active profile, if any.
+  optional string active_profile = 3;
 }
 
 

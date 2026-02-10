@@ -18,8 +18,18 @@ use crate::transport::state::Store;
 /// `POST /api/v1/session/switch` — schedule a credential switch (202 Accepted).
 pub async fn switch_session(
     State(s): State<Arc<Store>>,
-    Json(req): Json<SwitchRequest>,
+    Json(mut req): Json<SwitchRequest>,
 ) -> impl IntoResponse {
+    // Resolve profile credentials when profile is specified without explicit credentials.
+    if req.profile.is_some() && req.credentials.is_none() {
+        let name = req.profile.as_deref().unwrap_or_default();
+        match s.profile.resolve_credentials(name).await {
+            Some(creds) => req.credentials = Some(creds),
+            None => {
+                return ErrorCode::BadRequest.to_http_response("unknown profile").into_response()
+            }
+        }
+    }
     match s.switch.switch_tx.try_send(req) {
         Ok(()) => axum::http::StatusCode::ACCEPTED.into_response(),
         Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => ErrorCode::SwitchInProgress

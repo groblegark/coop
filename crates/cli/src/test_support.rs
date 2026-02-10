@@ -20,6 +20,7 @@ use crate::driver::{
 use crate::event::{
     InputEvent, OutputEvent, PromptOutcome, RawHookEvent, RawMessageEvent, TransitionEvent,
 };
+use crate::profile::ProfileState;
 use crate::pty::Backend;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
@@ -190,6 +191,7 @@ impl StoreBuilder {
                 mcp_config: None,
             }),
             usage: Arc::new(UsageState::new()),
+            profile: Arc::new(ProfileState::new()),
             transcript: self.transcript_state.unwrap_or_else(|| {
                 Arc::new({
                     let dir = std::env::temp_dir().join("coop-test-transcripts");

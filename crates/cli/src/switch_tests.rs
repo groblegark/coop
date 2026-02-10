@@ -15,6 +15,7 @@ fn switch_request_round_trips() {
     let req = SwitchRequest {
         credentials: Some([("ANTHROPIC_API_KEY".to_owned(), "sk-test".to_owned())].into()),
         force: true,
+        profile: None,
     };
     let json = serde_json::to_string(&req).unwrap_or_else(|e| panic!("{e}"));
     let decoded: SwitchRequest = serde_json::from_str(&json).unwrap_or_else(|e| panic!("{e}"));

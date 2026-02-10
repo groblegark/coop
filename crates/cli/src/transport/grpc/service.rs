@@ -564,6 +564,53 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(stream))
     }
 
+    // -- Profile management ---------------------------------------------------
+
+    async fn register_profiles(
+        &self,
+        request: Request<proto::RegisterProfilesRequest>,
+    ) -> Result<Response<proto::RegisterProfilesResponse>, Status> {
+        let req = request.into_inner();
+        let entries: Vec<crate::profile::ProfileEntry> = req
+            .profiles
+            .into_iter()
+            .map(|p| crate::profile::ProfileEntry { name: p.name, credentials: p.credentials })
+            .collect();
+        let config = req.config.map(|c| crate::profile::ProfileConfig {
+            rotate_on_rate_limit: c.rotate_on_rate_limit,
+            cooldown_secs: c.cooldown_secs,
+            max_switches_per_hour: c.max_switches_per_hour,
+        });
+        let count = entries.len();
+        self.state.profile.register(entries, config).await;
+        Ok(Response::new(proto::RegisterProfilesResponse { registered: count as u32 }))
+    }
+
+    async fn list_profiles(
+        &self,
+        _request: Request<proto::ListProfilesRequest>,
+    ) -> Result<Response<proto::ListProfilesResponse>, Status> {
+        let profiles = self.state.profile.list().await;
+        let config = self.state.profile.config().await;
+        let active_profile = self.state.profile.active_name().await;
+        Ok(Response::new(proto::ListProfilesResponse {
+            profiles: profiles
+                .into_iter()
+                .map(|p| proto::ProfileInfo {
+                    name: p.name,
+                    status: p.status,
+                    cooldown_remaining_secs: p.cooldown_remaining_secs,
+                })
+                .collect(),
+            config: Some(proto::ProfileConfig {
+                rotate_on_rate_limit: config.rotate_on_rate_limit,
+                cooldown_secs: config.cooldown_secs,
+                max_switches_per_hour: config.max_switches_per_hour,
+            }),
+            active_profile,
+        }))
+    }
+
     // -- Session management ---------------------------------------------------
 
     async fn switch_session(
@@ -574,6 +621,7 @@ impl proto::coop_server::Coop for CoopGrpc {
         let switch_req = crate::switch::SwitchRequest {
             credentials: if req.credentials.is_empty() { None } else { Some(req.credentials) },
             force: req.force,
+            profile: None,
         };
         match self.state.switch.switch_tx.try_send(switch_req) {
             Ok(()) => Ok(Response::new(proto::SwitchSessionResponse { scheduled: true })),

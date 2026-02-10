@@ -25,6 +25,9 @@ pub struct SwitchRequest {
     /// Skip waiting for idle — SIGHUP immediately.
     #[serde(default)]
     pub force: bool,
+    /// Named profile for active tracking (set by auto-rotation or manual switch).
+    #[serde(default)]
+    pub profile: Option<String>,
 }
 
 /// Shared state for the switch subsystem.

@@ -5,6 +5,7 @@
 
 mod agent;
 mod hooks;
+mod profile;
 mod screen;
 mod switch;
 mod transcript;
@@ -12,6 +13,7 @@ mod usage;
 
 pub use agent::*;
 pub use hooks::*;
+pub use profile::*;
 pub use screen::*;
 pub use switch::*;
 pub use transcript::*;
@@ -44,6 +46,9 @@ mod hooks_tests;
 
 #[cfg(test)]
 mod transcript_tests;
+
+#[cfg(test)]
+mod profile_tests;
 
 #[cfg(test)]
 mod switch_tests;

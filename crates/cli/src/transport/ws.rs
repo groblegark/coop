@@ -523,10 +523,26 @@ async fn handle_client_message(
             })
         }
 
+        // Profiles
+        ClientMessage::RegisterProfiles { profiles, config } => {
+            require_auth!(authed);
+            let count = profiles.len();
+            state.profile.register(profiles, config).await;
+            Some(ServerMessage::ProfilesRegistered { count })
+        }
+
+        ClientMessage::ListProfiles {} => {
+            require_auth!(authed);
+            let profiles = state.profile.list().await;
+            let config = state.profile.config().await;
+            let active_profile = state.profile.active_name().await;
+            Some(ServerMessage::ProfileList { profiles, config, active_profile })
+        }
+
         // Session switch
         ClientMessage::SwitchSession { credentials, force } => {
             require_auth!(authed);
-            let req = crate::switch::SwitchRequest { credentials, force };
+            let req = crate::switch::SwitchRequest { credentials, force, profile: None };
             match state.switch.switch_tx.try_send(req) {
                 Ok(()) => Some(ServerMessage::SessionSwitched { scheduled: true }),
                 Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {

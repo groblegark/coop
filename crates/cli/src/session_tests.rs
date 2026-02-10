@@ -307,7 +307,8 @@ async fn switch_when_idle_returns_switch_outcome() -> anyhow::Result<()> {
     let sd = shutdown.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        let _ = switch_tx.send(SwitchRequest { credentials: None, force: false }).await;
+        let _ =
+            switch_tx.send(SwitchRequest { credentials: None, force: false, profile: None }).await;
         tokio::time::sleep(Duration::from_millis(100)).await;
         sd.cancel();
     });
@@ -341,7 +342,8 @@ async fn force_switch_while_working() -> anyhow::Result<()> {
     let sd = shutdown.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        let _ = switch_tx.send(SwitchRequest { credentials: None, force: true }).await;
+        let _ =
+            switch_tx.send(SwitchRequest { credentials: None, force: true, profile: None }).await;
         tokio::time::sleep(Duration::from_millis(100)).await;
         sd.cancel();
     });
@@ -382,7 +384,8 @@ async fn graceful_switch_waits_for_idle() -> anyhow::Result<()> {
     let sd = shutdown.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        let _ = switch_tx.send(SwitchRequest { credentials: None, force: false }).await;
+        let _ =
+            switch_tx.send(SwitchRequest { credentials: None, force: false, profile: None }).await;
         tokio::time::sleep(Duration::from_millis(350)).await;
         sd.cancel();
     });

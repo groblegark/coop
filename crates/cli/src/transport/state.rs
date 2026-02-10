@@ -15,6 +15,7 @@ use crate::driver::{
 use crate::event::{
     InputEvent, OutputEvent, PromptOutcome, RawHookEvent, RawMessageEvent, TransitionEvent,
 };
+use crate::profile::ProfileState;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::start::StartState;
@@ -52,6 +53,8 @@ pub struct Store {
     pub transcript: Arc<TranscriptState>,
     /// Per-session API usage tracking. Always present.
     pub usage: Arc<UsageState>,
+    /// Named credential profiles for rotation. Always present (defaults to empty).
+    pub profile: Arc<ProfileState>,
     /// Serializes structured input delivery (nudge, respond) and enforces
     /// a minimum inter-delivery gap to prevent garbled terminal input.
     pub input_gate: Arc<InputGate>,

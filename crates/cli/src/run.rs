@@ -25,6 +25,7 @@ use crate::driver::{
     SessionSetup,
 };
 use crate::event::InputEvent;
+use crate::profile::ProfileState;
 use crate::pty::adapter::{AttachSpec, TmuxBackend};
 use crate::pty::spawn::NativePty;
 use crate::pty::Backend;
@@ -219,7 +220,12 @@ impl PreparedSession {
             *self.store.session_id.write().await = s.session_id.clone();
         }
 
-        // 10. Broadcast Starting transition.
+        // 10. Track active profile if this switch was profile-triggered.
+        if let Some(ref name) = request.profile {
+            self.store.profile.set_active(name).await;
+        }
+
+        // 11. Broadcast Starting transition.
         let last_message = self.store.driver.last_message.read().await.clone();
         let _ = self.store.channels.state_tx.send(crate::event::TransitionEvent {
             prev: AgentState::Switching,
@@ -435,6 +441,8 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         .map(|s| s.session_id.clone())
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
+    let profile_state = Arc::new(ProfileState::new());
+
     let store = Arc::new(Store {
         terminal,
         driver: Arc::new(DriverState {
@@ -474,6 +482,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         start: start_state,
         transcript: transcript_state,
         usage: usage_state,
+        profile: profile_state,
         input_activity: Arc::new(tokio::sync::Notify::new()),
     });
 
