@@ -32,12 +32,13 @@ since Tier 1 hooks handle them with higher confidence.
 Coop creates a named FIFO pipe before spawning Claude and writes a settings
 file containing the hook configuration. Claude loads this via `--settings`.
 
-Four hooks are registered:
+Five hooks are registered:
 
 - **PostToolUse** (matcher: `""`) -- fires after each tool call, writes the tool name and payload
 - **Stop** (matcher: `""`) -- fires when the agent stops; writes to FIFO then curls `$COOP_URL/api/v1/hooks/stop` for stop gating
 - **Notification** (matcher: `"idle_prompt|permission_prompt"`) -- fires on idle and permission notifications
 - **PreToolUse** (matcher: `"ExitPlanMode|AskUserQuestion|EnterPlanMode"`) -- fires before specific prompt-related tools
+- **UserPromptSubmit** (no matcher) -- fires when the user submits a prompt; used as a Working signal
 
 The hooks execute shell commands that write JSON to `$COOP_HOOK_PIPE`:
 
@@ -71,6 +72,12 @@ The hooks execute shell commands that write JSON to `$COOP_HOOK_PIPE`:
         "type": "command",
         "command": "input=$(cat); printf '{\"event\":\"pre_tool_use\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
       }]
+    }],
+    "UserPromptSubmit": [{
+      "hooks": [{
+        "type": "command",
+        "command": "input=$(cat); printf '{\"event\":\"user_prompt_submit\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""
+      }]
     }]
   }
 }
@@ -87,6 +94,7 @@ State mapping:
 | `PreToolUse("AskUserQuestion")` | `Prompt(Question)` with extracted context |
 | `PreToolUse("ExitPlanMode")` | `Prompt(Plan)` |
 | `PreToolUse("EnterPlanMode")` | `Working` |
+| `UserPromptSubmit` | `Working` |
 
 ### Tier 2: Session Log Watching
 
@@ -247,6 +255,18 @@ Sends a plain-text message followed by carriage return:
 ```
 
 Only succeeds when the agent is in `WaitingForInput`.
+
+The delay between the message and `\r` scales with message length:
+
+```
+delay = base + max(0, len - 256) * per_byte_factor
+capped at max_delay
+```
+
+Defaults: base 200ms, per-byte 1ms, max 5s. After delivery, a background
+monitor waits for a state transition to `Working`. If none arrives within
+`COOP_NUDGE_TIMEOUT_MS` (default 4s), `\r` is resent once. The retry is
+cancelled by any state transition, PTY input activity, or the next delivery.
 
 ### Prompt Responses
 

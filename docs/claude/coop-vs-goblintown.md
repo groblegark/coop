@@ -49,7 +49,7 @@ The hook types overlap but serve completely different purposes.
 | PostToolUse hook      | ✓  | ✓    | GT: drain inject/nudge. Coop: Working signal. Both use `""` matcher |
 | Stop hook             | ✓  | ✓    | GT: decision check. Coop: detection + gating. Both use `""` matcher |
 | SessionStart hook     | ✓  | ✗    | GT only: `gt prime`, mail inject, deacon notify                     |
-| UserPromptSubmit hook | ✓  | ✗    | GT only: mail check, decision auto-close                            |
+| UserPromptSubmit hook | ✓  | ✓    | GT: mail check, decision auto-close. Coop: Working signal           |
 | Session log watcher   | ✗  | ✓    | Tier 2                                                              |
 | Stdout JSONL          | ✗  | ✓    | Tier 3                                                              |
 | Process monitor       | ✓  | ✓    | Tier 4                                                              |
@@ -102,13 +102,15 @@ sending health check pings.
 
 ## Input Encoding
 
-| Action             | GT | Coop | Notes                                                         |
-| ------------------ | -- | ---- | ------------------------------------------------------------- |
-| Nudge              | ✓  | ✓    | GT: `send-keys -l` + Enter + SIGWINCH. Coop: `{message}\r`    |
-| Permission respond | ✗  | ✓    |                                                               |
-| AskUser respond    | ✗  | ✓    |                                                               |
-| Plan respond       | ✗  | ✓    |                                                               |
-| Input debouncing   | ✓  | ✓    |                                                               |
+| Action              | GT | Coop | Notes                                                         |
+| ------------------- | -- | ---- | ------------------------------------------------------------- |
+| Nudge               | ✓  | ✓    |                                                               |
+| Nudge delay scaling | ✗  | ✓    | base + per-byte factor, capped at max                         |
+| Nudge retry         | ✗  | ✓    | Resend `\r` once if no state transition within timeout        |
+| Permission respond  | ✗  | ✓    |                                                               |
+| AskUser respond     | ✗  | ✓    |                                                               |
+| Plan respond        | ✗  | ✓    |                                                               |
+| Input debouncing    | ✓  | ✓    |                                                               |
 
 
 ## Session Resume

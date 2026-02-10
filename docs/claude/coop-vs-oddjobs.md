@@ -87,6 +87,8 @@ timer to distinguish "idle between tools" from "actually idle."
 | Action           | OJ | Coop | Notes                                             |
 | ---------------- | -- | ---- | ------------------------------------------------- |
 | Nudge            | ✓  | ✓    | OJ clears partial input (Esc+pause+Esc) first     |
+| Delay scaling    | ✗  | ✓    | base + per-byte factor, capped at max             |
+| Nudge retry      | ✗  | ✓    | Resend `\r` once if no state transition in timeout|
 | Input clearing   | ✓  | ✗    | Coop relies on consumer sending at the right time |
 | Input debouncing | ✗  | ✓    | `DeliveryGate`: 200ms min gap between deliveries  |
 
@@ -118,6 +120,7 @@ conflict.
 | **Notification** | `oj agent hook notify`             | FIFO → Tier 1                    |
 | **PreToolUse**   | `oj agent hook pretooluse`         | FIFO → Tier 1                    |
 | **PostToolUse**  | Not used                           | FIFO → Tier 1 Working            |
+| **UserPromptSubmit** | Not used                       | FIFO → Tier 1 Working            |
 | **SessionStart** | Prime scripts                      | Not used                         |
 
 The Stop hook serves different purposes: OJ **prevents** exit until the
