@@ -17,7 +17,7 @@ use crate::config::GroomLevel;
 use crate::driver::{
     AgentState, AgentType, Detector, ExitStatus, NudgeEncoder, NudgeStep, RespondEncoder,
 };
-use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
+use crate::event::{InputEvent, OutputEvent, PromptEvent, StateChangeEvent};
 use crate::pty::Backend;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
@@ -117,6 +117,7 @@ impl AppStateBuilder {
     pub fn build_with_sender(self, input_tx: mpsc::Sender<InputEvent>) -> Arc<AppState> {
         let (output_tx, _) = broadcast::channel::<OutputEvent>(256);
         let (state_tx, _) = broadcast::channel::<StateChangeEvent>(64);
+        let (prompt_tx, _) = broadcast::channel::<PromptEvent>(64);
 
         Arc::new(AppState {
             terminal: Arc::new(TerminalState {
@@ -135,7 +136,7 @@ impl AppStateBuilder {
                 error_category: RwLock::new(None),
                 last_message: Arc::new(RwLock::new(None)),
             }),
-            channels: TransportChannels { input_tx, output_tx, state_tx },
+            channels: TransportChannels { input_tx, output_tx, state_tx, prompt_tx },
             config: SessionSettings {
                 started_at: Instant::now(),
                 agent: AgentType::Unknown,

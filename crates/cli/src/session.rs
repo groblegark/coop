@@ -18,9 +18,9 @@ use tracing::{debug, warn};
 use crate::config::{Config, GroomLevel};
 use crate::driver::{
     classify_error_detail, disruption_option, AgentState, CompositeDetector, DetectedState,
-    Detector, ExitStatus, OptionParser, PromptKind,
+    Detector, ExitStatus, NudgeStep, OptionParser, PromptKind,
 };
-use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
+use crate::event::{InputEvent, OutputEvent, PromptEvent, StateChangeEvent};
 use crate::pty::{Backend, BackendInput, Boxed};
 use crate::transport::AppState;
 
@@ -294,17 +294,43 @@ impl Session {
                                         warn!("auto-dismissing settings error dialog (option {option})");
                                     }
                                     if let Some(ref encoder) = self.app_state.config.respond_encoder {
-                                        let steps = if prompt.kind == PromptKind::Permission {
+                                        // "Press Enter to continue" screens have no numbered
+                                        // options — just send Enter instead of "N" + delay + Enter.
+                                        let steps = if prompt.options.is_empty() {
+                                            vec![NudgeStep { bytes: b"\r".to_vec(), delay_after: None }]
+                                        } else if prompt.kind == PromptKind::Permission {
                                             encoder.encode_permission(option)
                                         } else {
                                             encoder.encode_setup(option)
                                         };
                                         let tx = self.app_state.channels.input_tx.clone();
                                         let gate = Arc::clone(&self.app_state.delivery_gate);
+                                        let expected_seq = state_seq;
+                                        let driver = Arc::clone(&self.app_state.driver);
+                                        let prompt_tx = self.app_state.channels.prompt_tx.clone();
+                                        let prompt_type = prompt.kind.as_str().to_owned();
+                                        let prompt_subtype = prompt.subtype.clone();
+                                        let groom_option = if prompt.options.is_empty() { None } else { Some(option) };
                                         tokio::spawn(async move {
                                             tokio::time::sleep(Duration::from_millis(500)).await;
+                                            // Guard: skip if state changed (someone already responded).
+                                            let current = driver.state_seq.load(std::sync::atomic::Ordering::Relaxed);
+                                            if current != expected_seq {
+                                                return;
+                                            }
                                             let _delivery = gate.acquire().await;
+                                            // Re-check after gate acquisition.
+                                            let current = driver.state_seq.load(std::sync::atomic::Ordering::Relaxed);
+                                            if current != expected_seq {
+                                                return;
+                                            }
                                             let _ = crate::transport::deliver_steps(&tx, steps).await;
+                                            let _ = prompt_tx.send(PromptEvent {
+                                                source: "groom".to_owned(),
+                                                r#type: prompt_type,
+                                                subtype: prompt_subtype,
+                                                option: groom_option,
+                                            });
                                         });
                                     }
                                 }

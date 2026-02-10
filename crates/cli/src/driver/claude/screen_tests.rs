@@ -378,3 +378,63 @@ fn parse_options_no_match() {
     let opts = parse_options_from_screen(&lines);
     assert!(opts.is_empty());
 }
+
+/// Login success fixture (real TUI screen with ASCII art)
+#[test]
+fn login_success_fixture_emits_setup() {
+    let lines = fixture_lines(include_str!("fixtures/login_success.screen.txt"));
+    let snap = ScreenSnapshot {
+        lines,
+        cols: 200,
+        rows: 50,
+        alt_screen: false,
+        cursor: CursorPosition { row: 0, col: 0 },
+        sequence: 1,
+    };
+    let (s, c) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.kind, PromptKind::Setup);
+    assert_eq!(prompt.subtype.as_deref(), Some("login_success"));
+    assert!(prompt.options.is_empty(), "press-Enter screens have no numbered options");
+    assert_eq!(c, "screen:setup");
+}
+
+/// Security notes fixture (real TUI screen with ASCII art)
+#[test]
+fn security_notes_fixture_emits_setup() {
+    let lines = fixture_lines(include_str!("fixtures/security_notes.screen.txt"));
+    let snap = ScreenSnapshot {
+        lines,
+        cols: 200,
+        rows: 50,
+        alt_screen: false,
+        cursor: CursorPosition { row: 0, col: 0 },
+        sequence: 1,
+    };
+    let (s, c) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.kind, PromptKind::Setup);
+    assert_eq!(prompt.subtype.as_deref(), Some("security_notes"));
+    assert!(prompt.options.is_empty(), "press-Enter screens have no numbered options");
+    assert_eq!(c, "screen:setup");
+}
+
+/// Accessing workspace fixture (real TUI trust dialog with numbered options)
+#[test]
+fn accessing_workspace_fixture_emits_permission() {
+    let lines = fixture_lines(include_str!("fixtures/accessing_workspace.screen.txt"));
+    let snap = ScreenSnapshot {
+        lines,
+        cols: 200,
+        rows: 50,
+        alt_screen: false,
+        cursor: CursorPosition { row: 0, col: 0 },
+        sequence: 1,
+    };
+    let (s, c) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.kind, PromptKind::Permission);
+    assert_eq!(prompt.subtype.as_deref(), Some("trust"));
+    assert_eq!(prompt.options, vec!["Yes, I trust this folder", "No, exit"]);
+    assert_eq!(c, "screen:permission");
+}

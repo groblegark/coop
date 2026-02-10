@@ -120,9 +120,9 @@ fn env_duration_defaults() {
     let config = parse(&["coop", "--port", "8080", "--", "echo"]);
     assert_eq!(config.shutdown_timeout(), Duration::from_secs(10));
     assert_eq!(config.screen_debounce(), Duration::from_millis(50));
-    assert_eq!(config.process_poll(), Duration::from_secs(5));
-    assert_eq!(config.screen_poll(), Duration::from_secs(2));
-    assert_eq!(config.log_poll(), Duration::from_secs(5));
+    assert_eq!(config.process_poll(), Duration::from_secs(10));
+    assert_eq!(config.screen_poll(), Duration::from_secs(3));
+    assert_eq!(config.log_poll(), Duration::from_secs(3));
     assert_eq!(config.tmux_poll(), Duration::from_secs(1));
     assert_eq!(config.reap_poll(), Duration::from_millis(50));
     assert_eq!(config.input_delay(), Duration::from_millis(200));

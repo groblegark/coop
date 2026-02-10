@@ -239,6 +239,7 @@ pub async fn handle_respond(
 
     let agent = state.driver.agent_state.read().await;
     let prompt_type = agent.prompt().map(|p| p.kind.as_str().to_owned());
+    let prompt_subtype = agent.prompt().and_then(|p| p.subtype.clone());
 
     let (steps, answers_delivered) = match encode_response(
         &agent,
@@ -264,6 +265,14 @@ pub async fn handle_respond(
     if answers_delivered > 0 {
         update_question_current(state, answers_delivered).await;
     }
+
+    // Broadcast prompt event so WebSocket/event stream shows the response.
+    let _ = state.channels.prompt_tx.send(crate::event::PromptEvent {
+        source: "api".to_owned(),
+        r#type: prompt_type.clone().unwrap_or_default(),
+        subtype: prompt_subtype,
+        option: resolved_option,
+    });
 
     Ok(RespondOutcome { delivered: true, prompt_type, reason: None })
 }

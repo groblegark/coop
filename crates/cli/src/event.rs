@@ -38,6 +38,19 @@ pub enum InputEvent {
     WaitForDrain(tokio::sync::oneshot::Sender<()>),
 }
 
+/// A prompt response was delivered to the agent's terminal (auto-dismiss or API).
+#[derive(Debug, Clone)]
+pub struct PromptEvent {
+    /// How the response was triggered: `"groom"` (auto-dismiss) or `"api"`.
+    pub source: String,
+    /// Prompt type responded to (e.g. `"setup"`, `"permission"`).
+    pub r#type: String,
+    /// Prompt subtype (e.g. `"login_success"`, `"trust"`).
+    pub subtype: Option<String>,
+    /// Option number selected (e.g. 1 for "Yes"), or `None` for Enter-only.
+    pub option: Option<u32>,
+}
+
 /// Named signals that can be delivered to the child process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PtySignal {

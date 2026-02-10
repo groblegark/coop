@@ -87,6 +87,7 @@
   .ev-type-resize       { color: #6cc; }
   .ev-type-pong         { color: #666; }
   .ev-type-stop         { color: #e8a317; }
+  .ev-type-prompt_action { color: #4ec950; }
   .ev-detail { color: #999; margin-left: 4px; }
 
   /* --- Actions panel --- */
@@ -611,6 +612,11 @@ function logEvent(msg) {
       break;
     case 'stop':
       detail = msg.stop_type || '';
+      break;
+    case 'prompt_action':
+      detail = `${msg.source}: ${msg.type || '?'}`;
+      if (msg.subtype) detail += `(${msg.subtype})`;
+      if (msg.option != null) detail += ` opt=${msg.option}`;
       break;
   }
 

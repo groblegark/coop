@@ -283,6 +283,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let (input_tx, consumer_input_rx) = mpsc::channel(256);
     let (output_tx, _) = broadcast::channel(256);
     let (state_tx, _) = broadcast::channel(64);
+    let (prompt_tx, _) = broadcast::channel(64);
 
     let resolve_url = format!("{coop_url_for_setup}/api/v1/hooks/stop/resolve");
     let stop_state = Arc::new(StopState::new(stop_config, resolve_url));
@@ -299,7 +300,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             error_category: RwLock::new(None),
             last_message,
         }),
-        channels: TransportChannels { input_tx, output_tx, state_tx },
+        channels: TransportChannels { input_tx, output_tx, state_tx, prompt_tx },
         config: SessionSettings {
             started_at: Instant::now(),
             agent: agent_enum,

@@ -108,6 +108,14 @@ pub enum ServerMessage {
         injected: bool,
         seq: u64,
     },
+    PromptAction {
+        source: String,
+        prompt_type: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        subtype: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        option: Option<u32>,
+    },
     Pong {},
 }
 
@@ -274,12 +282,30 @@ async fn handle_connection(
     let (mut ws_tx, mut ws_rx) = socket.split();
     let mut output_rx = state.channels.output_tx.subscribe();
     let mut state_rx = state.channels.state_tx.subscribe();
+    let mut prompt_rx = state.channels.prompt_tx.subscribe();
     let mut stop_rx = state.stop.stop_tx.subscribe();
     let mut start_rx = state.start.start_tx.subscribe();
     let mut authed = !needs_auth;
 
     loop {
         tokio::select! {
+            event = prompt_rx.recv() => {
+                let event = match event {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                if matches!(mode, SubscriptionMode::State | SubscriptionMode::All) {
+                    let msg = ServerMessage::PromptAction {
+                        source: event.source,
+                        prompt_type: event.r#type,
+                        subtype: event.subtype,
+                        option: event.option,
+                    };
+                    if send_json(&mut ws_tx, &msg).await.is_err() {
+                        break;
+                    }
+                }
+            }
             event = stop_rx.recv() => {
                 let event = match event {
                     Ok(e) => e,
