@@ -50,6 +50,9 @@ skip = [
     { crate = "hashbrown@0.15" },
     # getrandom 0.2 pulled by ring (via rustls), while 0.3 is used by rand/tempfile/uuid
     { crate = "getrandom@0.2" },
+    # thiserror 1.x pulled by async-nats, while 2.x is used by the rest of the codebase
+    { crate = "thiserror@1" },
+    { crate = "thiserror-impl@1" },
 ]
 
 [sources]

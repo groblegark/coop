@@ -191,7 +191,8 @@ async fn nats_publishes_stop_event_with_signal() -> anyhow::Result<()> {
     assert_eq!(payload.stop_type, "signaled");
     assert!(payload.signal_json.is_some());
     // signal_json is the stringified JSON value.
-    let parsed: serde_json::Value = serde_json::from_str(payload.signal_json.as_deref().unwrap_or(""))?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(payload.signal_json.as_deref().unwrap_or(""))?;
     assert_eq!(parsed, signal_body);
     assert_eq!(payload.seq, 0);
 
