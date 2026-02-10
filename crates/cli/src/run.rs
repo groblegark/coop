@@ -459,7 +459,9 @@ fn build_driver(
                     .with_poll_interval(config.process_poll()),
             ));
             detectors.sort_by_key(|d| d.tier());
-            Ok((Some(nudge), Some(respond), detectors, None))
+            let option_parser: OptionParser =
+                Arc::new(crate::driver::gemini::screen::parse_options_from_screen);
+            Ok((Some(nudge), Some(respond), detectors, Some(option_parser)))
         }
         AgentType::Unknown => {
             let detectors = crate::driver::unknown::build_detectors(

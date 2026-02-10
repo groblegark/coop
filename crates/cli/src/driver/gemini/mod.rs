@@ -5,6 +5,7 @@ pub mod detect;
 pub mod encoding;
 pub mod hooks;
 pub mod parse;
+pub mod screen;
 pub mod setup;
 
 use std::path::Path;
