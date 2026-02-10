@@ -4,8 +4,6 @@
 syntax = "proto3";
 package coop.v1;
 
-option go_package = "github.com/anthropics/gas-town/gen/coop/v1;coopv1";
-
 // Terminal session management and agent orchestration API.
 service Coop {
   // Terminal
@@ -35,7 +33,7 @@ service Coop {
   rpc GetAgentState(GetAgentStateRequest) returns (GetAgentStateResponse);
   // Send a follow-up message. Only succeeds when state is waiting_for_input.
   rpc Nudge(NudgeRequest) returns (NudgeResponse);
-  // Respond to an active prompt (permission, plan, or question).
+  // Respond to an active prompt.
   rpc Respond(RespondRequest) returns (RespondResponse);
   // Stream agent state transitions in real time.
   rpc StreamState(StreamStateRequest) returns (stream AgentStateEvent);
@@ -193,11 +191,14 @@ message OutputChunk {
 
 message StreamScreenRequest {}
 message ScreenSnapshot {
+  // One string per terminal row.
   repeated string lines = 1;
   int32 cols = 2;
   int32 rows = 3;
+  // Whether the alternate screen buffer is active.
   bool alt_screen = 4;
   CursorPosition cursor = 5;
+  // Monotonic screen update seq number.
   uint64 seq = 6;
 }
 
@@ -266,7 +267,7 @@ message GetAgentStateResponse {
   optional string error_detail = 7;
   // Error classification (when state is "error").
   optional string error_category = 8;
-  // Last assistant message text (concatenated text blocks).
+  // Last message extracted from agent output.
   optional string last_message = 9;
 }
 
@@ -283,18 +284,19 @@ message NudgeResponse {
   optional string reason = 3;
 }
 
-// Respond to an active prompt. Fields used depend on the current agent state:
-//   permission_prompt: accept or option
-//   plan_prompt: accept or option, text (feedback)
+// Respond to an active prompt. Fields used depend on prompt type:
+//   permission: accept or option
+//   plan: accept or option, text (feedback)
 //   question: answers
+//   setup: option
 message RespondRequest {
-  // Accept/deny (permission and plan prompts). Deprecated: use option instead.
+  // Accept/deny (permission and plan prompts). Overridden by option when set.
   optional bool accept = 1;
   // Freeform text (plan feedback).
   optional string text = 3;
   // Structured answers for multi-question dialogs.
   repeated QuestionAnswer answers = 4;
-  // 1-indexed option number for permission/plan prompts.
+  // 1-indexed option number for permission/plan/setup prompts.
   optional int32 option = 5;
 }
 message RespondResponse {
@@ -392,8 +394,8 @@ message AgentStateEvent {
   optional string error_detail = 5;
   // Error classification (when next is "error").
   optional string error_category = 6;
-  // What caused this transition (e.g. "hook:idle", "log:tool(Bash)").
+  // Detection source that triggered this transition.
   optional string cause = 7;
-  // Last assistant message text (concatenated text blocks).
+  // Last message extracted from agent output.
   optional string last_message = 8;
 }

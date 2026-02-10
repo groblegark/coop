@@ -13,11 +13,15 @@ Coop exposes an HTTP REST API for terminal control and agent orchestration.
 ## Authentication
 
 When coop is started with `--auth-token <token>` (or `COOP_AUTH_TOKEN` env var),
-all endpoints except `/api/v1/health` require a Bearer token:
+all endpoints require a Bearer token except those marked **No authentication required**:
 
 ```
 Authorization: Bearer <token>
 ```
+
+**Auth-exempt paths:** `/api/v1/health`, `/api/v1/hooks/stop`,
+`/api/v1/hooks/stop/resolve`, `/api/v1/hooks/start`, and `/ws` (WebSocket
+handles auth separately via query param or Auth message).
 
 Unauthenticated requests receive a `401` response:
 
@@ -90,7 +94,7 @@ Health check. **No authentication required.**
 | `agent` | string | Agent type (`"claude"`, `"codex"`, `"gemini"`, `"unknown"`) |
 | `terminal` | object | Current terminal dimensions |
 | `ws_clients` | int | Number of connected WebSocket clients |
-| `ready` | bool | Whether the agent is ready for interaction |
+| `ready` | bool | Whether the session is ready (agent has left starting state) |
 
 
 ### `GET /api/v1/ready`
@@ -189,6 +193,7 @@ Session status summary.
 {
   "state": "running",
   "pid": 12345,
+  "uptime_secs": 120,
   "exit_code": null,
   "screen_seq": 42,
   "bytes_read": 8192,
@@ -201,6 +206,7 @@ Session status summary.
 |-------|------|-------------|
 | `state` | string | `"starting"`, `"running"`, or `"exited"` |
 | `pid` | int or null | Child process PID |
+| `uptime_secs` | int | Seconds since coop started |
 | `exit_code` | int or null | Exit code if exited |
 | `screen_seq` | int | Current screen sequence number |
 | `bytes_read` | int | Total bytes read from PTY |
@@ -233,6 +239,33 @@ Write text to the PTY.
   "bytes_written": 6
 }
 ```
+
+
+### `POST /api/v1/input/raw`
+
+Write base64-encoded raw bytes to the PTY.
+
+**Request:**
+
+```json
+{
+  "data": "SGVsbG8="
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `data` | string | Base64-encoded bytes to write |
+
+**Response:**
+
+```json
+{
+  "bytes_written": 5
+}
+```
+
+**Errors:** `BAD_REQUEST` if `data` is not valid base64.
 
 
 ### `POST /api/v1/input/keys`
@@ -370,19 +403,24 @@ Current agent state and prompt context.
 ```json
 {
   "agent": "claude",
-  "state": "permission_prompt",
+  "state": "prompt",
   "since_seq": 15,
   "screen_seq": 42,
   "detection_tier": "tier1_hooks",
   "prompt": {
-    "prompt_type": "permission",
+    "type": "permission",
+    "subtype": "tool",
     "tool": "Bash",
     "input": "{\"command\":\"ls -la\"}",
+    "options": ["Yes", "Yes, and don't ask again for this tool", "No"],
+    "options_fallback": false,
     "questions": [],
-    "question_current": 0
+    "question_current": 0,
+    "ready": true
   },
   "error_detail": null,
-  "error_category": null
+  "error_category": null,
+  "last_message": null
 }
 ```
 
@@ -393,9 +431,10 @@ Current agent state and prompt context.
 | `since_seq` | int | Sequence number when this state was entered |
 | `screen_seq` | int | Current screen sequence number |
 | `detection_tier` | string | Which detection tier produced this state |
-| `prompt` | object or null | Prompt context (present for prompt states) |
-| `error_detail` | string or null | Error description (when state is `error`) |
-| `error_category` | string or null | Error classification (when state is `error`) |
+| `prompt` | PromptContext or null | Prompt context (present when state is `"prompt"`) |
+| `error_detail` | string or null | Error description (when state is `"error"`) |
+| `error_category` | string or null | Error classification (when state is `"error"`) |
+| `last_message` | string or null | Last message extracted from agent output |
 
 **Agent states:**
 
@@ -404,31 +443,21 @@ Current agent state and prompt context.
 | `starting` | Initial state before first detection |
 | `working` | Executing tool calls or thinking |
 | `waiting_for_input` | Idle, ready for a nudge |
-| `permission_prompt` | Requesting tool permission (has `prompt`) |
-| `plan_prompt` | Presenting a plan for approval (has `prompt`) |
-| `question` | Multi-question dialog (has `prompt`) |
+| `prompt` | Presenting a prompt (see `prompt.type` for kind) |
 | `error` | Error occurred (has `error_detail`) |
-| `alt_screen` | Alternate screen buffer active |
 | `exited` | Child process exited |
 | `unknown` | State not yet determined |
 
-**PromptContext shape:**
+**Error categories** (values of `error_category` when state is `"error"`):
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `prompt_type` | string | `"permission"`, `"plan"`, `"question"` |
-| `tool` | string or null | Tool name (permission prompts) |
-| `input` | string or null | Truncated tool input (permission prompts) |
-| `auth_url` | string or null | OAuth authorization URL (setup oauth_login prompts) |
-| `questions` | QuestionContext[] | All questions in a multi-question dialog |
-| `question_current` | int | 0-indexed current question; equals `questions.len()` at confirm phase |
-
-**QuestionContext shape:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `question` | string | The question text |
-| `options` | string[] | Available option labels |
+| Category | Description |
+|----------|-------------|
+| `unauthorized` | Authentication or API key error |
+| `out_of_credits` | Billing or credit limit reached |
+| `rate_limited` | Rate limit exceeded |
+| `no_internet` | Network connectivity issue |
+| `server_error` | Upstream API server error |
+| `other` | Unclassified error |
 
 
 ### `POST /api/v1/agent/nudge`
@@ -460,7 +489,7 @@ Send a follow-up message to the agent. Only succeeds when the agent is in
 {
   "delivered": false,
   "state_before": "working",
-  "reason": "agent_busy"
+  "reason": "agent is working"
 }
 ```
 
@@ -477,13 +506,14 @@ Send a follow-up message to the agent. Only succeeds when the agent is in
 
 ### `POST /api/v1/agent/respond`
 
-Respond to an active prompt. Behavior depends on the current agent state.
+Respond to an active prompt. Fields used depend on prompt type.
 
 **Request:**
 
 ```json
 {
   "accept": true,
+  "option": null,
   "text": null,
   "answers": []
 }
@@ -491,24 +521,19 @@ Respond to an active prompt. Behavior depends on the current agent state.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `accept` | bool or null | Accept/deny (permission and plan prompts) |
-| `text` | string or null | Freeform text (plan rejection feedback) |
+| `accept` | bool or null | Accept/deny (permission and plan prompts). Overridden by `option` when set |
+| `option` | int or null | 1-indexed option number for permission/plan/setup prompts |
+| `text` | string or null | Freeform text (plan feedback) |
 | `answers` | QuestionAnswer[] | Structured answers for multi-question dialogs |
-
-**QuestionAnswer shape:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `option` | int or null | 1-indexed option number |
-| `text` | string or null | Freeform text (used when selecting "Other") |
 
 **Per-prompt behavior:**
 
-| Agent state | Fields used | Action |
+| Prompt type | Fields used | Action |
 |-------------|-------------|--------|
-| `permission_prompt` | `accept` | Accept (`true`) or deny (`false`) the tool call |
-| `plan_prompt` | `accept`, `text` | Accept the plan, or reject with optional feedback in `text` |
+| `permission` | `accept` or `option` | Accept or deny the tool call |
+| `plan` | `accept` or `option`, `text` | Accept the plan, or reject with optional feedback |
 | `question` | `answers` | Answer one or more questions in the dialog |
+| `setup` | `option` | Select a setup option (defaults to 1) |
 
 **Multi-question flow:**
 
@@ -523,7 +548,7 @@ the next unanswered question starting from `question_current`. After delivery,
 ```json
 {
   "delivered": true,
-  "prompt_type": "permission_prompt",
+  "prompt_type": "permission",
   "reason": null
 }
 ```
@@ -531,10 +556,358 @@ the next unanswered question starting from `question_current`. After delivery,
 | Field | Type | Description |
 |-------|------|-------------|
 | `delivered` | bool | Whether the response was written to the PTY |
-| `prompt_type` | string or null | Agent state at the time of the request |
+| `prompt_type` | string or null | Prompt type at the time of the request |
 | `reason` | string or null | Why the response was not delivered |
 
 **Errors:**
 - `NOT_READY` (503) -- agent is still starting
 - `NO_DRIVER` (404) -- no agent driver configured
 - `NO_PROMPT` (409) -- agent is not in a prompt state
+
+
+## Stop Hook Endpoints
+
+The hook script calls `hooks/stop` and receives a verdict (allow or block).
+The resolve endpoint unblocks pending stops.
+
+**No authentication required** -- called from inside the PTY by hook scripts.
+
+
+### `POST /api/v1/hooks/stop`
+
+Called by the stop hook script. Returns a verdict.
+
+**Request:**
+
+```json
+{
+  "event": "stop",
+  "data": {
+    "stop_hook_active": false
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `event` | string | Event name (always `"stop"`) |
+| `data` | object or null | Hook data payload |
+| `data.stop_hook_active` | bool | When `true`, this is a safety-valve invocation that must be allowed |
+
+**Response (allow):**
+
+```json
+{
+  "last_message": "Completed the refactoring task"
+}
+```
+
+**Response (block):**
+
+```json
+{
+  "decision": "block",
+  "reason": "When ready to stop, run: `coop send '{...}'`",
+  "last_message": "Completed the refactoring task"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `decision` | string or null | `"block"` when blocked, absent when allowed |
+| `reason` | string or null | Instructions for the agent (when blocked) |
+| `last_message` | string or null | Last message from agent output |
+
+**Verdict logic:**
+
+1. Mode is `allow` → always allow
+2. `stop_hook_active` is `true` → safety valve, must allow
+3. Agent has an unrecoverable error (unauthorized, out of credits) → allow
+4. Signal has been received via resolve endpoint → allow and reset
+5. Otherwise → block
+
+
+### `POST /api/v1/hooks/stop/resolve`
+
+Resolve a pending stop gate so the agent is allowed to stop. Stores the
+JSON body as the signal payload.
+
+**Request:** Any valid JSON body.
+
+```json
+{
+  "status": "done",
+  "message": "Task completed successfully"
+}
+```
+
+**Response:**
+
+```json
+{
+  "accepted": true
+}
+```
+
+
+### `GET /api/v1/config/stop`
+
+Read the current stop hook configuration.
+
+**Response:**
+
+```json
+{
+  "mode": "signal",
+  "prompt": "Before stopping, summarize what you accomplished.",
+  "schema": {
+    "fields": {
+      "status": {
+        "required": true,
+        "enum": ["done", "continue"],
+        "descriptions": {
+          "done": "Work is complete",
+          "continue": "Still working, need more time"
+        }
+      },
+      "message": {
+        "required": true,
+        "description": "Summary of work done"
+      }
+    }
+  }
+}
+```
+
+See [StopConfig](#stopconfig) for the full type definition.
+
+
+### `PUT /api/v1/config/stop`
+
+Update the stop hook configuration.
+
+**Request:** A `StopConfig` JSON object.
+
+**Response:**
+
+```json
+{
+  "updated": true
+}
+```
+
+
+## Start Hook Endpoints
+
+Context injection on session lifecycle events (startup, resume, clear, compact).
+The hook script calls `hooks/start` and evaluates the returned shell script.
+
+**No authentication required** -- called from inside the PTY by hook scripts.
+
+
+### `POST /api/v1/hooks/start`
+
+Called by the start hook script. Returns a shell script to evaluate.
+
+**Request:**
+
+```json
+{
+  "event": "start",
+  "data": {
+    "source": "resume",
+    "session_id": "abc123"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `event` | string | Event name (always `"start"`) |
+| `data` | object or null | Hook data payload |
+| `data.source` | string | Lifecycle event type (e.g. `"start"`, `"resume"`, `"clear"`) |
+| `data.session_id` | string or null | Session identifier if available |
+
+**Response:** `text/plain` shell script to evaluate. May be empty if no
+injection is configured for this event source.
+
+
+### `GET /api/v1/config/start`
+
+Read the current start hook configuration.
+
+**Response:**
+
+```json
+{
+  "text": "Remember: always run tests before committing.",
+  "shell": [],
+  "event": {
+    "resume": {
+      "text": "Welcome back. Continue where you left off.",
+      "shell": []
+    }
+  }
+}
+```
+
+See [StartConfig](#startconfig) for the full type definition.
+
+
+### `PUT /api/v1/config/start`
+
+Update the start hook configuration.
+
+**Request:** A `StartConfig` JSON object.
+
+**Response:**
+
+```json
+{
+  "updated": true
+}
+```
+
+
+## Lifecycle Endpoints
+
+
+### `POST /api/v1/shutdown`
+
+Initiate graceful shutdown of the coop process.
+
+**Response:**
+
+```json
+{
+  "accepted": true
+}
+```
+
+
+## Shared Types
+
+
+### PromptContext
+
+```json
+{
+  "type": "permission",
+  "subtype": "tool",
+  "tool": "Bash",
+  "input": "{\"command\":\"ls\"}",
+  "auth_url": null,
+  "options": ["Yes", "Yes, and don't ask again for this tool", "No"],
+  "options_fallback": false,
+  "questions": [],
+  "question_current": 0,
+  "ready": true
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | Prompt type: `"permission"`, `"plan"`, `"question"`, `"setup"` |
+| `subtype` | string or null | Further classification (see below) |
+| `tool` | string or null | Tool name (permission prompts) |
+| `input` | string or null | Truncated tool input JSON (permission prompts) |
+| `auth_url` | string or null | OAuth authorization URL (setup `oauth_login` prompts) |
+| `options` | string[] | Numbered option labels parsed from the terminal screen |
+| `options_fallback` | bool | True when options are fallback labels (parser couldn't find real ones) |
+| `questions` | QuestionContext[] | All questions in a multi-question dialog |
+| `question_current` | int | 0-indexed current question; equals `questions.len()` at confirm phase |
+| `ready` | bool | True when all async enrichment (e.g. option parsing) is complete |
+
+**Known subtypes by prompt type:**
+
+| Kind | Subtypes |
+|------|----------|
+| `permission` | `"trust"` (workspace trust), `"tool"` (tool permission) |
+| `setup` | `"theme_picker"`, `"terminal_setup"`, `"security_notes"`, `"login_success"`, `"login_method"`, `"oauth_login"` |
+| `plan` | (none currently) |
+| `question` | (none currently) |
+
+
+### QuestionContext
+
+```json
+{
+  "question": "Which database should we use?",
+  "options": ["PostgreSQL", "SQLite", "MySQL"]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `question` | string | The question text |
+| `options` | string[] | Available option labels |
+
+
+### QuestionAnswer
+
+```json
+{
+  "option": 1,
+  "text": null
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `option` | int or null | 1-indexed option number |
+| `text` | string or null | Freeform text (used when selecting "Other") |
+
+
+### StopConfig
+
+```json
+{
+  "mode": "signal",
+  "prompt": "Custom prompt text",
+  "schema": {
+    "fields": {
+      "status": {
+        "required": true,
+        "enum": ["done", "continue"],
+        "descriptions": { "done": "Work complete", "continue": "Still working" },
+        "description": "Current status"
+      }
+    }
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mode` | string | `"allow"` (always allow stops) or `"signal"` (block until signaled) |
+| `prompt` | string or null | Custom prompt text included in the block reason |
+| `schema` | object or null | Schema describing expected signal body fields |
+| `schema.fields` | object | Map of field name → field definition |
+| `schema.fields.*.required` | bool | Whether this field is required |
+| `schema.fields.*.enum` | string[] or null | Allowed values |
+| `schema.fields.*.descriptions` | object or null | Per-value descriptions for enum fields |
+| `schema.fields.*.description` | string or null | Field-level description |
+
+
+### StartConfig
+
+```json
+{
+  "text": "Static text to inject",
+  "shell": ["echo hello"],
+  "event": {
+    "resume": {
+      "text": "Override text for resume events",
+      "shell": []
+    }
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `text` | string or null | Static text to inject (delivered as base64-decoded printf) |
+| `shell` | string[] | Shell commands to run |
+| `event` | object | Per-event overrides keyed by source (e.g. `"clear"`, `"resume"`) |
+| `event.*.text` | string or null | Override text for this event type |
+| `event.*.shell` | string[] | Override shell commands for this event type |

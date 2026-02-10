@@ -28,12 +28,13 @@ query string, the connection starts in an unauthenticated state.
 | Token in query | Auth state | Read operations | Write operations |
 |----------------|------------|-----------------|------------------|
 | Valid | Authenticated | Allowed | Allowed |
-| Missing | Unauthenticated | Allowed | Blocked until `Auth` message |
+| Missing | Unauthenticated | Allowed | Blocked until `auth` message |
 | Invalid | Rejected | Connection refused (401) | -- |
 
-Read-only operations (subscriptions, `screen_request`, `state_request`, `replay`,
-`ping`) are always available. Write operations (`input`, `input_raw`, `keys`,
-`nudge`, `respond`, `signal`) require authentication.
+Read-only operations (subscriptions, `screen_request`, `state_request`,
+`status_request`, `replay`, `ping`) are always available. Write operations
+(`input`, `input_raw`, `keys`, `nudge`, `respond`, `signal`, `shutdown`)
+require authentication. `resize` does not require authentication.
 
 
 ## Subscription Modes
@@ -44,7 +45,7 @@ Set via the `mode` query parameter on the upgrade URL.
 |------|-------------|---------------|
 | Raw output | `raw` | `output` messages with base64-encoded PTY bytes |
 | Screen updates | `screen` | `screen` messages with rendered terminal state |
-| State changes | `state` | `state_change` and `exit` messages |
+| State changes | `state` | `state_change`, `exit`, `stop`, and `start` messages |
 | All (default) | `all` | All of the above |
 
 Example: `ws://localhost:8080/ws?mode=screen&token=mytoken`
@@ -107,17 +108,23 @@ to a `state_request`.
 {
   "type": "state_change",
   "prev": "working",
-  "next": "permission_prompt",
+  "next": "prompt",
   "seq": 15,
   "prompt": {
-    "prompt_type": "permission",
+    "type": "permission",
+    "subtype": "tool",
     "tool": "Bash",
     "input": "{\"command\":\"rm -rf /tmp/test\"}",
+    "options": ["Yes", "Yes, and don't ask again for this tool", "No"],
+    "options_fallback": false,
     "questions": [],
-    "question_current": 0
+    "question_current": 0,
+    "ready": true
   },
   "error_detail": null,
-  "error_category": null
+  "error_category": null,
+  "cause": "tier1_hooks",
+  "last_message": null
 }
 ```
 
@@ -126,9 +133,11 @@ to a `state_request`.
 | `prev` | string | Previous agent state |
 | `next` | string | New agent state |
 | `seq` | int | State sequence number |
-| `prompt` | PromptContext or null | Prompt context (for prompt states) |
+| `prompt` | PromptContext or null | Prompt context (when `next` is `"prompt"`) |
 | `error_detail` | string or null | Error text (when `next` is `"error"`) |
 | `error_category` | string or null | Error classification (when `next` is `"error"`) |
+| `cause` | string | Detection source that triggered this transition |
+| `last_message` | string or null | Last message extracted from agent output |
 
 
 ### `exit`
@@ -148,6 +157,132 @@ Agent process exited. Sent in `state` and `all` modes. This replaces
 |-------|------|-------------|
 | `code` | int or null | Process exit code |
 | `signal` | int or null | Signal number that killed the process |
+
+
+### `nudge_result`
+
+Result of a `nudge` request. Always sent in response to a client `nudge`.
+
+```json
+{
+  "type": "nudge_result",
+  "delivered": true,
+  "state_before": "waiting_for_input",
+  "reason": null
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `delivered` | bool | Whether the nudge was written to the PTY |
+| `state_before` | string or null | Agent state at the time of the request |
+| `reason` | string or null | Why the nudge was not delivered |
+
+
+### `respond_result`
+
+Result of a `respond` request. Always sent in response to a client `respond`.
+
+```json
+{
+  "type": "respond_result",
+  "delivered": true,
+  "prompt_type": "permission",
+  "reason": null
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `delivered` | bool | Whether the response was written to the PTY |
+| `prompt_type` | string or null | Prompt type at the time of the request |
+| `reason` | string or null | Why the response was not delivered |
+
+
+### `status`
+
+Session status summary. Sent in response to a `status_request`.
+
+```json
+{
+  "type": "status",
+  "state": "running",
+  "pid": 12345,
+  "uptime_secs": 120,
+  "exit_code": null,
+  "screen_seq": 42,
+  "bytes_read": 8192,
+  "bytes_written": 256,
+  "ws_clients": 2
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `state` | string | `"starting"`, `"running"`, or `"exited"` |
+| `pid` | int or null | Child process PID |
+| `uptime_secs` | int | Seconds since coop started |
+| `exit_code` | int or null | Exit code if exited |
+| `screen_seq` | int | Current screen sequence number |
+| `bytes_read` | int | Total bytes read from PTY |
+| `bytes_written` | int | Total bytes written to PTY |
+| `ws_clients` | int | Connected WebSocket clients |
+
+
+### `stop`
+
+Stop hook verdict event. Sent in `state` and `all` modes whenever a stop
+hook check occurs.
+
+```json
+{
+  "type": "stop",
+  "stop_type": "blocked",
+  "signal": null,
+  "error_detail": null,
+  "seq": 0
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `stop_type` | string | Verdict type (see table below) |
+| `signal` | JSON or null | Signal body (when `stop_type` is `"signaled"`) |
+| `error_detail` | string or null | Error details (when `stop_type` is `"error"`) |
+| `seq` | int | Monotonic stop event sequence number |
+
+**Stop types:**
+
+| Type | Description |
+|------|-------------|
+| `signaled` | Signal received via resolve endpoint; agent allowed to stop |
+| `error` | Agent in unrecoverable error state; allowed to stop |
+| `safety_valve` | Claude's safety valve triggered; must allow |
+| `blocked` | Stop was blocked; agent should continue working |
+| `allowed` | Mode is `allow`; agent always allowed to stop |
+
+
+### `start`
+
+Start hook event. Sent in `state` and `all` modes whenever a session
+lifecycle event fires.
+
+```json
+{
+  "type": "start",
+  "source": "resume",
+  "session_id": "abc123",
+  "injected": true,
+  "seq": 0
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | string | Lifecycle event type (e.g. `"start"`, `"resume"`, `"clear"`) |
+| `session_id` | string or null | Session identifier if available |
+| `injected` | bool | Whether a non-empty script was injected |
+| `seq` | int | Monotonic start event sequence number |
 
 
 ### `error`
@@ -251,6 +386,19 @@ Server replies with a `state_change` message where `prev` and `next` are the
 same (representing current state, not a transition).
 
 
+### `status_request`
+
+Request the current session status. No auth required.
+
+```json
+{
+  "type": "status_request"
+}
+```
+
+Server replies with a `status` message.
+
+
 ### `replay`
 
 Request raw output from a specific byte offset. No auth required.
@@ -276,13 +424,15 @@ Write UTF-8 text to the PTY. **Requires auth.**
 ```json
 {
   "type": "input",
-  "text": "hello\n"
+  "text": "hello",
+  "enter": true
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `text` | string | Text to write to the PTY |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `text` | string | required | Text to write to the PTY |
+| `enter` | bool | `false` | Append carriage return (`\r`) after text |
 
 No response on success. Error on auth failure.
 
@@ -325,7 +475,7 @@ No response on success. Error with `BAD_REQUEST` if a key name is unrecognized.
 
 ### `resize`
 
-Resize the PTY. Auth not required.
+Resize the PTY. No auth required.
 
 ```json
 {
@@ -359,7 +509,8 @@ Only succeeds when the agent is in `waiting_for_input` state.
 |-------|------|-------------|
 | `message` | string | Text message to send to the agent |
 
-No response on success. Error with `AGENT_BUSY` if the agent is not waiting.
+Server replies with a `nudge_result`. Error on auth failure or if no
+agent driver is configured.
 
 
 ### `respond`
@@ -371,6 +522,7 @@ agent state.
 {
   "type": "respond",
   "accept": true,
+  "option": null,
   "text": null,
   "answers": []
 }
@@ -378,14 +530,15 @@ agent state.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `accept` | bool or null | Accept/deny (permission and plan prompts) |
-| `text` | string or null | Freeform text (plan rejection feedback) |
+| `accept` | bool or null | Accept/deny (permission and plan prompts). Overridden by `option` when set |
+| `option` | int or null | 1-indexed option number for permission/plan/setup prompts |
+| `text` | string or null | Freeform text (plan feedback) |
 | `answers` | QuestionAnswer[] | Structured answers for multi-question dialogs |
 
-See the HTTP API `POST /api/v1/agent/respond` documentation for per-prompt
-behavior and multi-question flow details.
+See the HTTP API `POST /api/v1/agent/respond` for per-prompt behavior.
 
-No response on success. Error with `NO_PROMPT` if no prompt is active.
+Server replies with a `respond_result`. Error on auth failure or if no agent
+driver is configured.
 
 
 ### `signal`
@@ -404,6 +557,19 @@ Send a signal to the child process. **Requires auth.**
 | `signal` | string | Signal name or number (see HTTP API signal table) |
 
 No response on success. Error with `BAD_REQUEST` if the signal is unrecognized.
+
+
+### `shutdown`
+
+Initiate graceful shutdown of the coop process. **Requires auth.**
+
+```json
+{
+  "type": "shutdown"
+}
+```
+
+No response on success. The connection will close as the server shuts down.
 
 
 ## Shared Types
@@ -428,22 +594,31 @@ No response on success. Error with `BAD_REQUEST` if the signal is unrecognized.
 
 ```json
 {
-  "prompt_type": "permission",
+  "type": "permission",
+  "subtype": "tool",
   "tool": "Bash",
   "input": "{\"command\":\"ls\"}",
+  "auth_url": null,
+  "options": ["Yes", "Yes, and don't ask again for this tool", "No"],
+  "options_fallback": false,
   "questions": [],
-  "question_current": 0
+  "question_current": 0,
+  "ready": true
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `prompt_type` | string | `"permission"`, `"plan"`, `"question"` |
+| `type` | string | Prompt type: `"permission"`, `"plan"`, `"question"`, `"setup"` |
+| `subtype` | string or null | Further classification (see HTTP API for known subtypes) |
 | `tool` | string or null | Tool name (permission prompts) |
-| `input` | string or null | Truncated tool input (permission prompts) |
-| `auth_url` | string or null | OAuth authorization URL (setup oauth_login prompts) |
+| `input` | string or null | Truncated tool input JSON (permission prompts) |
+| `auth_url` | string or null | OAuth authorization URL (setup `oauth_login` prompts) |
+| `options` | string[] | Numbered option labels parsed from the terminal screen |
+| `options_fallback` | bool | True when options are fallback labels (parser couldn't find real ones) |
 | `questions` | QuestionContext[] | All questions in a multi-question dialog |
 | `question_current` | int | 0-indexed current question; equals `questions.len()` at confirm phase |
+| `ready` | bool | True when all async enrichment (e.g. option parsing) is complete |
 
 
 ### QuestionContext
