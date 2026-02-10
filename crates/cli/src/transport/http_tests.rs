@@ -474,7 +474,7 @@ async fn hooks_stop_allow_mode_returns_empty() -> anyhow::Result<()> {
 
     let resp = server
         .post("/api/v1/hooks/stop")
-        .json(&serde_json::json!({"stop_hook_active": false}))
+        .json(&serde_json::json!({"event": "stop", "data": {"stop_hook_active": false}}))
         .await;
     resp.assert_status(StatusCode::OK);
     let body: serde_json::Value = serde_json::from_str(&resp.text())?;
@@ -496,7 +496,7 @@ async fn hooks_stop_signal_mode_blocks_without_signal() -> anyhow::Result<()> {
 
     let resp = server
         .post("/api/v1/hooks/stop")
-        .json(&serde_json::json!({"stop_hook_active": false}))
+        .json(&serde_json::json!({"event": "stop", "data": {"stop_hook_active": false}}))
         .await;
     resp.assert_status(StatusCode::OK);
     let body: serde_json::Value = serde_json::from_str(&resp.text())?;
@@ -522,7 +522,7 @@ async fn hooks_stop_signal_mode_allows_after_signal() -> anyhow::Result<()> {
     // Now stop should be allowed.
     let resp = server
         .post("/api/v1/hooks/stop")
-        .json(&serde_json::json!({"stop_hook_active": false}))
+        .json(&serde_json::json!({"event": "stop", "data": {"stop_hook_active": false}}))
         .await;
     resp.assert_status(StatusCode::OK);
     let body: serde_json::Value = serde_json::from_str(&resp.text())?;
@@ -540,7 +540,7 @@ async fn hooks_stop_safety_valve_always_allows() -> anyhow::Result<()> {
     // stop_hook_active = true => must allow
     let resp = server
         .post("/api/v1/hooks/stop")
-        .json(&serde_json::json!({"stop_hook_active": true}))
+        .json(&serde_json::json!({"event": "stop", "data": {"stop_hook_active": true}}))
         .await;
     resp.assert_status(StatusCode::OK);
     let body: serde_json::Value = serde_json::from_str(&resp.text())?;
@@ -561,7 +561,7 @@ async fn hooks_stop_unrecoverable_error_allows() -> anyhow::Result<()> {
 
     let resp = server
         .post("/api/v1/hooks/stop")
-        .json(&serde_json::json!({"stop_hook_active": false}))
+        .json(&serde_json::json!({"event": "stop", "data": {"stop_hook_active": false}}))
         .await;
     resp.assert_status(StatusCode::OK);
     let body: serde_json::Value = serde_json::from_str(&resp.text())?;
@@ -646,7 +646,7 @@ async fn hooks_stop_emits_stop_events() -> anyhow::Result<()> {
     let server = axum_test::TestServer::new(app).anyhow()?;
 
     // First call should block.
-    server.post("/api/v1/hooks/stop").json(&serde_json::json!({"stop_hook_active": false})).await;
+    server.post("/api/v1/hooks/stop").json(&serde_json::json!({"event": "stop", "data": {"stop_hook_active": false}})).await;
 
     let event = stop_rx.try_recv()?;
     assert_eq!(event.stop_type.as_str(), "blocked");
@@ -665,7 +665,7 @@ async fn signal_consumed_after_stop_check() -> anyhow::Result<()> {
     server.post("/api/v1/hooks/stop/resolve").json(&serde_json::json!({"ok": true})).await;
     let resp = server
         .post("/api/v1/hooks/stop")
-        .json(&serde_json::json!({"stop_hook_active": false}))
+        .json(&serde_json::json!({"event": "stop", "data": {"stop_hook_active": false}}))
         .await;
     let body: serde_json::Value = serde_json::from_str(&resp.text())?;
     assert!(body.get("decision").is_none(), "first check after signal should allow");
@@ -673,7 +673,7 @@ async fn signal_consumed_after_stop_check() -> anyhow::Result<()> {
     // Second stop check should block again (signal was consumed).
     let resp = server
         .post("/api/v1/hooks/stop")
-        .json(&serde_json::json!({"stop_hook_active": false}))
+        .json(&serde_json::json!({"event": "stop", "data": {"stop_hook_active": false}}))
         .await;
     let body: serde_json::Value = serde_json::from_str(&resp.text())?;
     assert_eq!(body["decision"], "block", "second check should block (signal consumed)");
@@ -732,7 +732,7 @@ async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
     // Hooks stop should work without auth.
     let resp = server
         .post("/api/v1/hooks/stop")
-        .json(&serde_json::json!({"stop_hook_active": false}))
+        .json(&serde_json::json!({"event": "stop", "data": {"stop_hook_active": false}}))
         .await;
     resp.assert_status(StatusCode::OK);
 

@@ -20,10 +20,12 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
     // Stop hook uses curl to call coop's gating endpoint. If curl fails
     // (coop not ready), the hook outputs nothing and exits 0 → agent proceeds.
     // The -f flag makes curl return non-zero on HTTP errors.
+    // Builds the event envelope once and sends it to both the pipe and the endpoint.
     let stop_command = concat!(
         "input=$(cat); ",
-        "printf '{\"event\":\"stop\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\"; ",
-        "response=$(printf '%s' \"$input\" | curl -sf -X POST ",
+        "event=$(printf '{\"event\":\"stop\",\"data\":%s}' \"$input\"); ",
+        "printf '%s\\n' \"$event\" > \"$COOP_HOOK_PIPE\"; ",
+        "response=$(printf '%s' \"$event\" | curl -sf -X POST ",
         "-H 'Content-Type: application/json' ",
         "-d @- \"$COOP_URL/api/v1/hooks/stop\" 2>/dev/null); ",
         "[ -n \"$response\" ] && printf '%s' \"$response\""

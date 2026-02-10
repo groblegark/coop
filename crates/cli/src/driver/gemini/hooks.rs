@@ -23,10 +23,12 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
     // AfterAgent hook: write stop event to pipe, then curl gating endpoint.
     // Gemini uses {"continue":true} to prevent stopping (vs Claude's {"decision":"block"}).
     // If curl fails (coop not ready), the hook outputs nothing → agent proceeds.
+    // Builds the event envelope once and sends it to both the pipe and the endpoint.
     let after_agent_command = concat!(
         "input=$(cat); ",
-        "printf '{\"event\":\"stop\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\"; ",
-        "response=$(printf '%s' \"$input\" | curl -sf -X POST ",
+        "event=$(printf '{\"event\":\"stop\",\"data\":%s}' \"$input\"); ",
+        "printf '%s\\n' \"$event\" > \"$COOP_HOOK_PIPE\"; ",
+        "response=$(printf '%s' \"$event\" | curl -sf -X POST ",
         "-H 'Content-Type: application/json' ",
         "-d @- \"$COOP_URL/api/v1/hooks/stop\" 2>/dev/null); ",
         "if printf '%s' \"$response\" | grep -q '\"block\"'; then printf '{\"continue\":true}'; fi"

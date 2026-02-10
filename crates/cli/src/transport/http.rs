@@ -356,9 +356,21 @@ pub async fn agent_respond(
 // Stop hook gating
 // ---------------------------------------------------------------------------
 
-/// Input from the Claude Code Stop hook (piped from stdin via curl).
+/// Event-wrapped input from the stop hook (piped from stdin via curl).
+///
+/// Matches the same `{"event":"stop","data":{...}}` envelope that hooks
+/// write to the FIFO pipe, so the endpoint receives the same format.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StopHookInput {
+    #[allow(dead_code)]
+    pub event: String,
+    #[serde(default)]
+    pub data: Option<StopHookData>,
+}
+
+/// Inner data carried inside the stop-event envelope.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StopHookData {
     /// When `true`, this is a safety-valve invocation that must be allowed.
     #[serde(default)]
     pub stop_hook_active: bool,
@@ -396,7 +408,8 @@ pub async fn hooks_stop(
     }
 
     // 2. Safety valve: stop_hook_active = true → must allow.
-    if input.stop_hook_active {
+    let stop_hook_active = input.data.as_ref().is_some_and(|d| d.stop_hook_active);
+    if stop_hook_active {
         drop(config);
         stop.emit(StopType::SafetyValve, None, None);
         return Json(StopHookVerdict { decision: None, reason: None, last_message })
