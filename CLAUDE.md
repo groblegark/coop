@@ -31,7 +31,7 @@ Opens a browser terminal running coop → claudeless with the given scenario. Us
 
 ## Architecture
 
-- `run::prepare()` sets up the full session (driver, backend, servers) and returns a `PreparedSession` with access to `AppState` before the session loop starts. `run::run()` is the simple wrapper that calls `prepare().run()`.
+- `run::prepare()` sets up the full session (driver, backend, servers) and returns a `PreparedSession` with access to `Store` before the session loop starts. `run::run()` is the simple wrapper that calls `prepare().run()`.
 - Claude driver detection has three tiers: Tier 1 (hook FIFO), Tier 2 (session log), Tier 3 (stdout JSONL). Hooks are the primary detection path.
 - Session artifacts (FIFO pipe, settings) live at `$XDG_STATE_HOME/coop/sessions/<session-id>/` for debugging and recovery.
 - Integration tests use claudeless (scenario-driven Claude CLI mock). Tests call `run::prepare()`, subscribe to state broadcasts, spawn the session, `wait_for` expected states, then cancel shutdown.
@@ -50,20 +50,52 @@ crates/cli/               # Single crate (binary + lib)
 │   ├── main.rs            # CLI, startup
 │   ├── lib.rs             # Library root (re-exports modules)
 │   ├── run.rs             # prepare() + run() session entrypoint
+│   ├── session.rs         # Session event loop
+│   ├── attach.rs          # Attach to existing tmux/screen sessions
+│   ├── config.rs          # SessionSettings, duration knobs
+│   ├── send.rs            # Input delivery (InputGate, nudge, respond)
+│   ├── start.rs           # Start hook state (context injection)
+│   ├── stop.rs            # Stop hook state (gating)
 │   ├── error.rs           # ErrorCode enum
 │   ├── event.rs           # OutputEvent, TransitionEvent, InputEvent, HookEvent
 │   ├── screen.rs          # Screen, ScreenSnapshot
 │   ├── ring.rs            # RingBuffer
 │   ├── pty/
 │   │   ├── mod.rs         # Backend trait
+│   │   ├── adapter.rs     # TmuxAdapter for --attach mode
 │   │   ├── nbio.rs        # Non-blocking I/O helpers (PtyFd, AsyncFd)
 │   │   └── spawn.rs       # NativePty backend (forkpty + exec)
+│   ├── transport/
+│   │   ├── mod.rs         # Router builder, Store
+│   │   ├── state.rs       # Store (shared state hub)
+│   │   ├── auth.rs        # Bearer token auth middleware
+│   │   ├── handler.rs     # Shared handler logic
+│   │   ├── http.rs        # HTTP endpoints
+│   │   ├── ws.rs          # WebSocket handler
+│   │   ├── ws_msg.rs      # WebSocket message types
+│   │   └── grpc.rs        # gRPC server
 │   └── driver/
-│       ├── mod.rs          # AgentState, Detector, NudgeEncoder traits
-│       └── jsonl_stdout.rs # JsonlParser
+│       ├── mod.rs          # AgentState, Detector, DetectorSinks, traits
+│       ├── composite.rs    # CompositeDetector (tier-priority resolution)
+│       ├── hook_recv.rs    # FIFO pipe receiver
+│       ├── hook_detect.rs  # GenericHookDetector (Tier 1)
+│       ├── log_watch.rs    # Log file watcher (Tier 2)
+│       ├── stdout_detect.rs # GenericStdoutDetector (Tier 3)
+│       ├── process.rs      # Process monitor (Tier 4)
+│       ├── screen_parse.rs # Screen parsing utilities (Tier 5)
+│       ├── nudge.rs        # StandardNudgeEncoder
+│       ├── jsonl_stdout.rs # JsonlParser
+│       ├── error_category.rs # Error classification
+│       ├── claude/         # Claude-specific driver
+│       ├── gemini/         # Gemini-specific driver
+│       └── unknown/        # Unknown agent fallback
 └── tests/
-    ├── pty_backend.rs           # Integration tests for PTY backend
     ├── claude_integration.rs    # E2E tests via claudeless
+    ├── session_loop.rs          # Session lifecycle tests
+    ├── grpc_integration.rs      # gRPC integration tests
+    ├── ws_integration.rs        # WebSocket integration tests
+    ├── pty_backend.rs           # PTY backend tests
+    ├── tmux_backend.rs          # Tmux adapter tests
     └── scenarios/               # Claudeless scenario fixtures
 ```
 

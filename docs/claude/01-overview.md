@@ -39,7 +39,7 @@ Six hooks are registered:
 - **Stop** (matcher: `""`) -- fires when the agent stops; writes to FIFO then curls `$COOP_URL/api/v1/hooks/stop` for stop gating
 - **Notification** (matcher: `"idle_prompt|permission_prompt"`) -- fires on idle and permission notifications
 - **PreToolUse** (matcher: `"ExitPlanMode|AskUserQuestion|EnterPlanMode"`) -- fires before specific prompt-related tools
-- **UserPromptSubmit** (no matcher) -- fires when the user submits a prompt; used as a Working signal
+- **UserPromptSubmit** (matcher: `""`) -- fires when the user submits a prompt; used as a Working signal
 
 The hooks execute shell commands that write JSON to `$COOP_HOOK_PIPE`:
 
@@ -82,6 +82,7 @@ The hooks execute shell commands that write JSON to `$COOP_HOOK_PIPE`:
       }]
     }],
     "UserPromptSubmit": [{
+      "matcher": "",
       "hooks": [{
         "type": "command",
         "command": "input=$(cat); printf '{\"event\":\"user_prompt_submit\",\"data\":%s}\\n' \"$input\" > \"$COOP_HOOK_PIPE\""

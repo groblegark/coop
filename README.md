@@ -66,18 +66,26 @@ websocat ws://localhost:8080/ws?subscribe=state
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/health` | Health check |
+| GET | `/api/v1/ready` | Readiness probe |
 | GET | `/api/v1/screen` | Rendered screen (JSON) |
 | GET | `/api/v1/screen/text` | Plain text screen |
 | GET | `/api/v1/output` | Raw ring buffer |
 | GET | `/api/v1/status` | Process status |
 | POST | `/api/v1/input` | Send text input |
+| POST | `/api/v1/input/raw` | Send raw bytes (base64) |
 | POST | `/api/v1/input/keys` | Send key sequences |
 | POST | `/api/v1/resize` | Resize terminal |
 | POST | `/api/v1/signal` | Signal child process |
 | GET | `/api/v1/agent` | Agent state + prompt context |
 | POST | `/api/v1/agent/nudge` | Deliver message to idle agent |
 | POST | `/api/v1/agent/respond` | Answer agent prompt |
-| GET | `/ws` | WebSocket (raw, screen, state, or all) |
+| POST | `/api/v1/hooks/stop` | Stop hook verdict |
+| POST | `/api/v1/hooks/stop/resolve` | Resolve pending stop |
+| GET/PUT | `/api/v1/config/stop` | Stop configuration |
+| POST | `/api/v1/hooks/start` | Start hook context injection |
+| GET/PUT | `/api/v1/config/start` | Start configuration |
+| POST | `/api/v1/shutdown` | Graceful shutdown |
+| GET | `/ws` | WebSocket (output, screen, state, hooks, messages) |
 
 gRPC is also available when `--port-grpc` is set, mirroring the HTTP endpoints with streaming RPCs for output, screen, and state.
 
@@ -92,7 +100,7 @@ Coop uses structured data sources (not screen scraping) to classify agent state:
 | `gemini` | Pre-alpha | AfterTool, SessionEnd | `~/.gemini/tmp/` | `stream-json` | Yes |
 | `unknown` | Experimental | -- | -- | -- | Yes |
 
-Agent states: `starting`, `working`, `waiting_for_input`, `permission_prompt`, `plan_prompt`, `ask_user`, `error`, `alt_screen`, `exited`, `unknown`.
+Agent states: `starting`, `working`, `idle`, `prompt`, `error`, `exited`, `unknown`. Prompt subtypes: `permission`, `plan`, `question`, `setup`.
 
 ## Development
 
