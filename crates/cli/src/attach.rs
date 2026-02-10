@@ -33,10 +33,6 @@ const DEFAULT_STATUSLINE_INTERVAL: u64 = 5;
 /// Ping keepalive interval.
 const PING_INTERVAL: Duration = Duration::from_secs(30);
 
-// ---------------------------------------------------------------------------
-// Statusline config
-// ---------------------------------------------------------------------------
-
 struct StatuslineConfig {
     /// Shell command to run for statusline content. None = built-in.
     cmd: Option<String>,
@@ -94,10 +90,6 @@ impl AttachState {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Terminal raw mode via nix
-// ---------------------------------------------------------------------------
-
 /// RAII guard that restores the original terminal attributes on drop.
 ///
 /// Stores a raw fd (stdin) and the original termios state. The fd is valid
@@ -135,10 +127,6 @@ fn borrow_fd(fd: i32) -> BorrowedFd<'static> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Terminal size
-// ---------------------------------------------------------------------------
-
 fn terminal_size() -> Option<(u16, u16)> {
     let fd = std::io::stdout().as_raw_fd();
     let mut ws = nix::libc::winsize { ws_row: 0, ws_col: 0, ws_xpixel: 0, ws_ypixel: 0 };
@@ -153,10 +141,6 @@ fn terminal_size() -> Option<(u16, u16)> {
         None
     }
 }
-
-// ---------------------------------------------------------------------------
-// DECSTBM scroll region helpers
-// ---------------------------------------------------------------------------
 
 /// Set the scroll region to rows 1..content_rows (leaving the last row free
 /// for the statusline). Moves cursor to home position.
@@ -220,10 +204,6 @@ async fn run_statusline_cmd(cmd: &str, state: &AttachState) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Public entry point
-// ---------------------------------------------------------------------------
-
 /// Run the `coop attach` subcommand. Returns a process exit code.
 ///
 /// `args` contains everything after "attach" on the command line.
@@ -267,14 +247,10 @@ pub async fn run(args: &[String]) -> i32 {
 
     let auth_token = std::env::var("COOP_AUTH_TOKEN").ok();
 
-    attach_inner(&coop_url, auth_token.as_deref(), &statusline_cfg).await
+    attach(&coop_url, auth_token.as_deref(), &statusline_cfg).await
 }
 
-// ---------------------------------------------------------------------------
-// Async core
-// ---------------------------------------------------------------------------
-
-async fn attach_inner(coop_url: &str, auth_token: Option<&str>, sl_cfg: &StatuslineConfig) -> i32 {
+async fn attach(coop_url: &str, auth_token: Option<&str>, sl_cfg: &StatuslineConfig) -> i32 {
     // Convert HTTP URL to WebSocket URL.
     // Use mode=all when statusline is enabled so we get state_change events.
     let mode = if sl_cfg.enabled { "all" } else { "raw" };

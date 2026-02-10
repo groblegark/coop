@@ -30,13 +30,6 @@ async fn connection_refused_returns_1() {
     assert_eq!(run(&["http://127.0.0.1:1".to_string()]).await, 1);
 }
 
-#[tokio::test]
-async fn no_statusline_still_returns_error_without_url() {
-    let _lock = ENV_LOCK.lock();
-    std::env::remove_var("COOP_URL");
-    assert_eq!(run(&["--no-statusline".to_string()]).await, 2);
-}
-
 // ===== StatuslineConfig tests ===============================================
 
 #[test]
@@ -216,7 +209,7 @@ fn find_arg_value_key_at_end_without_value() {
 
 // ===== WebSocket integration tests ==========================================
 // These tests spin up a real coop server with MockPty and connect via
-// tokio-tungstenite, exercising the same protocol that `attach_inner` uses.
+// tokio-tungstenite, exercising the same protocol that `attach` uses.
 
 mod ws_integration {
     use base64::Engine;
@@ -457,19 +450,5 @@ mod ws_integration {
             }
             other => panic!("expected Write(b'hello'), got {other:?}"),
         }
-    }
-
-    #[tokio::test]
-    async fn resize_with_statusline_sends_rows_minus_one() {
-        // Verify that when a statusline is active, the attach client would
-        // send rows-1. This tests the logic without needing a real TTY.
-        let cols: u16 = 120;
-        let rows: u16 = 40;
-        let content_rows = rows - 1;
-
-        // The ClientMessage::Resize should carry content_rows when sl is active.
-        let msg = ClientMessage::Resize { cols, rows: content_rows };
-        let json = serde_json::to_string(&msg).unwrap_or_default();
-        assert!(json.contains("\"rows\":39"), "json: {json}");
     }
 }

@@ -61,9 +61,6 @@ const sessionName =
 const useDocker = !values.local; // Docker is the default
 const passAuth = values.auth ?? false;
 
-// ---------------------------------------------------------------------------
-// Output layout
-// ---------------------------------------------------------------------------
 
 const captureDir = join(scriptDir(), "captures", sessionName);
 const configDir = join(captureDir, "config");
@@ -81,9 +78,6 @@ await mkdir(diffDir, { recursive: true });
 await mkdir(agentDir, { recursive: true });
 await mkdir(screenDir, { recursive: true });
 
-// ---------------------------------------------------------------------------
-// Load env + seed credentials
-// ---------------------------------------------------------------------------
 
 await loadEnvFile();
 
@@ -129,9 +123,6 @@ if (configMode === "trusted" || configMode === "authorized") {
 	process.exit(1);
 }
 
-// ---------------------------------------------------------------------------
-// Snapshot machinery
-// ---------------------------------------------------------------------------
 
 let snapNum = 0;
 let prevTag = "";
@@ -304,9 +295,6 @@ async function snapshot(name: string): Promise<void> {
 	snapNum++;
 }
 
-// ---------------------------------------------------------------------------
-// Banner
-// ---------------------------------------------------------------------------
 
 const modeLabel = useDocker ? "docker" : "local";
 
@@ -326,9 +314,6 @@ console.log("━━━ [000] initial ━━━");
 await snapshot("initial");
 console.log("");
 
-// ---------------------------------------------------------------------------
-// Launch
-// ---------------------------------------------------------------------------
 
 let coopProc: ReturnType<typeof Bun.spawn> | null = null;
 let containerId = "";
