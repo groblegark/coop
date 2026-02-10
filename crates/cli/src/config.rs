@@ -17,7 +17,7 @@ use crate::stop::StopConfig;
 ///   so the agent reaches idle ASAP.
 /// - `Manual`: detection works and API exposes prompts, but nothing is
 ///   auto-dismissed (today's behavior).
-/// - `Pristine`: reserved for future use (rejected at parse time).
+/// - `Pristine`: no hook/FIFO injection; passive monitoring only (Tier 2 log + Tier 5 screen).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum GroomLevel {
@@ -194,11 +194,8 @@ impl Config {
         // Validate agent type
         self.agent_enum()?;
 
-        // Validate groom level (reject pristine for now)
+        // Validate groom level
         let groom = self.groom_level()?;
-        if groom == GroomLevel::Pristine {
-            anyhow::bail!("groom=pristine is not yet implemented");
-        }
 
         // --resume is only valid with --agent claude and cannot combine with --attach
         if self.resume.is_some() {
@@ -207,6 +204,9 @@ impl Config {
             }
             if self.attach.is_some() {
                 anyhow::bail!("--resume cannot be combined with --attach");
+            }
+            if groom == GroomLevel::Pristine {
+                anyhow::bail!("--resume cannot be combined with groom=pristine");
             }
         }
 

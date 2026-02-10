@@ -14,7 +14,7 @@ use tracing::{error, info};
 
 use tracing_subscriber::EnvFilter;
 
-use crate::config::{self, Config};
+use crate::config::{self, Config, GroomLevel};
 use crate::driver::claude::resume;
 use crate::driver::claude::setup::{self as claude_setup, ClaudeSessionSetup};
 use crate::driver::claude::ClaudeDriver;
@@ -131,15 +131,15 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         (None, None)
     };
 
-    // 2. Prepare Claude session setup (creates FIFO pipe path, writes settings,
-    //    computes extra args). Must happen BEFORE backend spawn so the child
-    //    finds the FIFO and settings file on startup.
+    // 2. Prepare agent session setup. In pristine mode, skip FIFO creation and
+    //    hook injection but still generate a session-id and log path for Tier 2.
     let working_dir = std::env::current_dir()?;
-    // Compute coop_url early so it's available for Claude setup.
+    // Compute coop_url early so it's available for setup.
     // Uses port 0 as placeholder if no HTTP port configured.
     let coop_url_for_setup = format!("http://127.0.0.1:{}", config.port.unwrap_or(0));
+    let pristine = config.groom_level()? == GroomLevel::Pristine;
 
-    let claude_setup: Option<ClaudeSessionSetup> = if agent_enum == AgentType::Claude {
+    let claude_setup: Option<ClaudeSessionSetup> = if agent_enum == AgentType::Claude && !pristine {
         let setup = if let (Some(ref state), Some(ref log_path)) = (&resume_state, &resume_log_path)
         {
             claude_setup::prepare_claude_resume(
@@ -161,7 +161,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     };
 
     // 2b. Prepare Gemini session setup (creates FIFO pipe path, writes settings).
-    let gemini_setup: Option<GeminiSessionSetup> = if agent_enum == AgentType::Gemini {
+    let gemini_setup: Option<GeminiSessionSetup> = if agent_enum == AgentType::Gemini && !pristine {
         Some(gemini_setup::prepare_gemini_session(
             &working_dir,
             &coop_url_for_setup,
@@ -172,8 +172,23 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         None
     };
 
-    // 2c. Write MCP config for Claude (file in session dir + --mcp-config arg).
+    // 2c. Pristine extras: session-id + log path (Tier 2) for Claude,
+    //     settings/MCP passthrough for any agent — but no FIFO or hooks.
+    let (pristine_extra_args, pristine_extra_env, pristine_log_path) = if pristine {
+        prepare_pristine_extras(
+            agent_enum,
+            &working_dir,
+            &coop_url_for_setup,
+            base_settings.as_ref(),
+            mcp_config.as_ref(),
+        )?
+    } else {
+        (vec![], vec![], None)
+    };
+
+    // 2d. Write MCP config for Claude (file in session dir + --mcp-config arg).
     // The `mcp` field holds the server map; Claude expects `{"mcpServers": ...}`.
+    // (Pristine handles MCP in prepare_pristine_extras instead.)
     if let (Some(ref setup), Some(ref mcp)) = (&claude_setup, &mcp_config) {
         let wrapped = serde_json::json!({ "mcpServers": mcp });
         let mcp_path = setup.session_dir.join("mcp.json");
@@ -195,6 +210,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     if let Some(ref setup) = gemini_setup {
         command.extend(setup.extra_args.clone());
     }
+    command.extend(pristine_extra_args);
 
     // 4. Build terminal state early so driver closures can reference its atomics.
     let terminal = Arc::new(TerminalState {
@@ -227,6 +243,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         Arc::new(move || rtw_for_driver.load(std::sync::atomic::Ordering::Relaxed)),
         log_start_offset,
         &last_message,
+        pristine_log_path,
     )?;
 
     // Tier 5: Claude screen detector for idle prompt detection.
@@ -253,11 +270,15 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     }
 
     // 6. Spawn backend AFTER driver is built (FIFO must exist before child starts).
-    let extra_env: Vec<(String, String)> = claude_setup
-        .as_ref()
-        .map(|s| s.env_vars.clone())
-        .or_else(|| gemini_setup.as_ref().map(|s| s.env_vars.clone()))
-        .unwrap_or_default();
+    let extra_env: Vec<(String, String)> = if pristine {
+        pristine_extra_env
+    } else {
+        claude_setup
+            .as_ref()
+            .map(|s| s.env_vars.clone())
+            .or_else(|| gemini_setup.as_ref().map(|s| s.env_vars.clone()))
+            .unwrap_or_default()
+    };
     let extra_env = extra_env.as_slice();
     let backend: Box<dyn Backend> = if let Some(ref attach_spec) = config.attach {
         let spec: AttachSpec = attach_spec.parse()?;
@@ -466,13 +487,17 @@ fn build_driver(
     ring_total_written_fn: Arc<dyn Fn() -> u64 + Send + Sync>,
     log_start_offset: u64,
     last_message: &Arc<RwLock<Option<String>>>,
+    pristine_log_path: Option<std::path::PathBuf>,
 ) -> anyhow::Result<DriverComponents> {
     match agent {
         AgentType::Claude => {
+            // In pristine mode: no hook pipe (Tier 1), but keep session log (Tier 2).
+            let hook_pipe = claude_setup.map(|s| s.hook_pipe_path.as_path());
+            let log_path = claude_setup.map(|s| s.session_log_path.clone()).or(pristine_log_path);
             let driver = ClaudeDriver::new(
                 config,
-                claude_setup.map(|s| s.hook_pipe_path.as_path()),
-                claude_setup.map(|s| s.session_log_path.clone()),
+                hook_pipe,
+                log_path,
                 None,
                 log_start_offset,
                 Some(Arc::clone(last_message)),
@@ -513,4 +538,75 @@ fn build_driver(
             anyhow::bail!("{agent:?} driver is not yet implemented");
         }
     }
+}
+
+/// Pristine-mode extras: CLI args, env vars, and optional session log path for Tier 2.
+type PristineExtras = (Vec<String>, Vec<(String, String)>, Option<std::path::PathBuf>);
+
+/// Prepare extras for pristine mode: no FIFO, no hooks, but session-id + log
+/// path (Tier 2) for Claude and settings/MCP passthrough for any agent.
+fn prepare_pristine_extras(
+    agent: AgentType,
+    working_dir: &std::path::Path,
+    coop_url: &str,
+    base_settings: Option<&serde_json::Value>,
+    mcp_config: Option<&serde_json::Value>,
+) -> anyhow::Result<PristineExtras> {
+    let mut extra_args = Vec::new();
+    let mut extra_env = vec![("COOP_URL".to_string(), coop_url.to_string())];
+    let mut session_log_path = None;
+
+    match agent {
+        AgentType::Claude => {
+            let session_id = uuid::Uuid::new_v4().to_string();
+            let log_path = claude_setup::session_log_path(working_dir, &session_id);
+            let session_dir = claude_setup::coop_session_dir(&session_id)?;
+
+            extra_args.push("--session-id".to_owned());
+            extra_args.push(session_id);
+
+            // Write orchestrator settings as-is (no coop hooks merged).
+            if let Some(settings) = base_settings {
+                let path = session_dir.join("coop-settings.json");
+                std::fs::write(&path, serde_json::to_string_pretty(settings)?)?;
+                extra_args.push("--settings".to_owned());
+                extra_args.push(path.display().to_string());
+            }
+
+            // Write MCP config (same format as non-pristine).
+            if let Some(mcp) = mcp_config {
+                let wrapped = serde_json::json!({ "mcpServers": mcp });
+                let mcp_path = session_dir.join("mcp.json");
+                std::fs::write(&mcp_path, serde_json::to_string_pretty(&wrapped)?)?;
+                extra_args.push("--mcp-config".to_owned());
+                extra_args.push(mcp_path.display().to_string());
+            }
+
+            session_log_path = Some(log_path);
+        }
+        AgentType::Gemini => {
+            // Only create a session dir if we need to write files.
+            if base_settings.is_some() || mcp_config.is_some() {
+                let dir_id = uuid::Uuid::new_v4().to_string();
+                let session_dir = claude_setup::coop_session_dir(&dir_id)?;
+
+                // Build settings with MCP embedded (no hooks).
+                let mut settings = base_settings.cloned().unwrap_or(serde_json::json!({}));
+                if let Some(mcp) = mcp_config {
+                    if let Some(obj) = settings.as_object_mut() {
+                        obj.insert("mcpServers".to_string(), mcp.clone());
+                    }
+                }
+                let path = session_dir.join("coop-gemini-settings.json");
+                std::fs::write(&path, serde_json::to_string_pretty(&settings)?)?;
+                extra_env.push((
+                    "GEMINI_CLI_SYSTEM_SETTINGS_PATH".to_string(),
+                    path.display().to_string(),
+                ));
+            }
+        }
+        _ => {}
+    }
+
+    Ok((extra_args, extra_env, session_log_path))
 }

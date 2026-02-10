@@ -144,7 +144,7 @@ fn inject_coop_permissions(config: &mut serde_json::Value) {
 /// `$XDG_STATE_HOME/coop/sessions/<session-id>/` (defaulting to
 /// `~/.local/state/coop/sessions/<session-id>/`) so they survive for
 /// debugging and session recovery.
-fn coop_session_dir(session_id: &str) -> anyhow::Result<PathBuf> {
+pub(crate) fn coop_session_dir(session_id: &str) -> anyhow::Result<PathBuf> {
     let state_home = std::env::var("XDG_STATE_HOME").unwrap_or_else(|_| {
         let home = std::env::var("HOME").unwrap_or_default();
         format!("{home}/.local/state")
@@ -158,7 +158,7 @@ fn coop_session_dir(session_id: &str) -> anyhow::Result<PathBuf> {
 /// and session ID.
 ///
 /// Claude stores logs at `~/.claude/projects/<project-dir-name>/<uuid>.jsonl`.
-fn session_log_path(working_dir: &Path, session_id: &str) -> PathBuf {
+pub(crate) fn session_log_path(working_dir: &Path, session_id: &str) -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
     let dir_name = project_dir_name(working_dir);
     Path::new(&home)

@@ -92,9 +92,23 @@ fn groom_case_insensitive() -> anyhow::Result<()> {
 }
 
 #[test]
-fn groom_pristine_rejected_at_validate() {
+fn groom_pristine_validates() -> anyhow::Result<()> {
     let config = parse(&["coop", "--port", "8080", "--groom", "pristine", "--", "echo"]);
-    crate::assert_err_contains!(config.validate(), "pristine is not yet implemented");
+    config.validate()?;
+    assert_eq!(config.groom_level()?, GroomLevel::Pristine);
+    Ok(())
+}
+
+#[test]
+fn groom_pristine_rejects_resume() {
+    let config = parse(&[
+        "coop", "--port", "8080", "--agent", "claude", "--groom", "pristine", "--resume",
+        "some-id", "--", "claude",
+    ]);
+    crate::assert_err_contains!(
+        config.validate(),
+        "--resume cannot be combined with groom=pristine"
+    );
 }
 
 #[test]
