@@ -105,11 +105,33 @@ fn prepare_session_with_base_settings_merges_hooks() -> anyhow::Result<()> {
     assert!(session_start.len() >= 2);
     assert_eq!(session_start[0]["hooks"][0]["command"], "gt-prime");
 
-    // Permissions pass through from orchestrator
-    assert_eq!(parsed["permissions"]["allow"][0], "Bash");
+    // Orchestrator permissions pass through, coop send rule appended
+    let allow = parsed["permissions"]["allow"].as_array().unwrap();
+    assert_eq!(allow[0], "Bash");
+    assert_eq!(allow[1], "Read");
+    assert!(allow.contains(&json!("Bash(coop send:*)")));
 
     // Coop-only hook types present
     assert!(parsed["hooks"]["PostToolUse"].as_array().is_some());
     assert!(parsed["hooks"]["Stop"].as_array().is_some());
+    Ok(())
+}
+
+#[test]
+fn prepare_session_injects_coop_send_permission() -> anyhow::Result<()> {
+    let work_dir = tempfile::tempdir()?;
+    let setup = prepare_claude_session(work_dir.path(), "http://127.0.0.1:0", None)?;
+
+    let settings_arg_idx = setup
+        .extra_args
+        .iter()
+        .position(|a| a == "--settings")
+        .ok_or_else(|| anyhow::anyhow!("no --settings arg"))?;
+    let settings_path = Path::new(&setup.extra_args[settings_arg_idx + 1]);
+    let content = std::fs::read_to_string(settings_path)?;
+    let parsed: serde_json::Value = serde_json::from_str(&content)?;
+
+    let allow = parsed["permissions"]["allow"].as_array().unwrap();
+    assert!(allow.contains(&json!("Bash(coop send:*)")));
     Ok(())
 }

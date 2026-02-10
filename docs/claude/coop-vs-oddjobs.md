@@ -132,10 +132,10 @@ orchestrator is satisfied; coop uses it for **detection** and optional
 
 These remain orchestrator-level concerns in oddjobs:
 
-| Component | Description |
-| --- | --- |
-| Decision system | Human-in-the-loop records with numbered options, context, resolution tracking |
-| Job lifecycle | Multi-step workflows, suspend/resume/cancel |
-| Workspace management | Git worktrees, directory setup, cleanup |
+| Component             | Description |
+| --------------------- | --- |
+| Decision system       | Human-in-the-loop records with numbered options, context, resolution tracking |
+| Job lifecycle         | Multi-step workflows, suspend/resume/cancel |
+| Workspace management  | Git worktrees, directory setup, cleanup |
 | Stuck recovery policy | Nudge attempts, escalation thresholds, retry limits |
 | Desktop notifications | Alert humans when decisions are needed |

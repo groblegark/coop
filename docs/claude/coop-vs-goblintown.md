@@ -104,9 +104,7 @@ sending health check pings.
 
 | Action              | GT | Coop | Notes                                                         |
 | ------------------- | -- | ---- | ------------------------------------------------------------- |
-| Nudge               | ✓  | ✓    |                                                               |
-| Nudge delay scaling | ✗  | ✓    | base + per-byte factor, capped at max                         |
-| Nudge retry         | ✗  | ✓    | Resend `\r` once if no state transition within timeout        |
+| Nudge               | ✓  | ✓+   |                                                               |
 | Permission respond  | ✗  | ✓    |                                                               |
 | AskUser respond     | ✗  | ✓    |                                                               |
 | Plan respond        | ✗  | ✓    |                                                               |
@@ -138,17 +136,17 @@ passed via `--mcp-config`.
 
 These remain orchestrator-level concerns in Goblintown:
 
-| Component | Description |
-| --------- | ----------- |
+| Component                   | Description |
+| --------------------------- | ----------- |
 | Config bead materialization | Merges settings from structured metadata layers (passed to coop via `--agent-config`) |
-| Witness protocol | POLECAT_DONE, HELP, MERGED, RATE_LIMITED messages (runs inside coop PTY) |
-| Deacon health policy | Stuck recovery: thresholds, cooldowns, force-kill (subscribes to coop state events) |
-| Beacon / predecessor | Session continuity for `/resume` picker |
-| Credential management | Multi-account OAuth, `CLAUDE_CONFIG_DIR`, rate limit tracking |
-| Merge queue (refinery) | Sequential rebase, conflict → fresh polecat |
-| Polecat lifecycle | Spawn, work, `gt done`, die |
-| Work assignment | `gt sling`, beads, hook-driven context injection |
-| Inter-agent mail | Messaging between polecats, witness, deacon |
+| Witness protocol            | POLECAT_DONE, HELP, MERGED, RATE_LIMITED messages (runs inside coop PTY) |
+| Deacon health policy        | Stuck recovery: thresholds, cooldowns, force-kill (subscribes to coop state events) |
+| Beacon / predecessor        | Session continuity for `/resume` picker |
+| Credential management       | Multi-account OAuth, `CLAUDE_CONFIG_DIR`, rate limit tracking |
+| Merge queue (refinery)      | Sequential rebase, conflict → fresh polecat |
+| Polecat lifecycle           | Spawn, work, `gt done`, die |
+| Work assignment             | `gt sling`, beads, hook-driven context injection |
+| Inter-agent mail            | Messaging between polecats, witness, deacon |
 
 
 ## Migration Path

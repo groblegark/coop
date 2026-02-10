@@ -101,14 +101,41 @@ fn write_settings_file(
     base_settings: Option<&serde_json::Value>,
 ) -> anyhow::Result<PathBuf> {
     let coop_config = generate_hook_config(pipe_path);
-    let merged = match base_settings {
+    let mut merged = match base_settings {
         Some(orch) => crate::config::merge_settings(orch, coop_config),
         None => coop_config,
     };
+    // Ensure `coop send` is allowed — the stop hook tells the agent to run it.
+    inject_coop_permissions(&mut merged);
     let path = dir.join("coop-settings.json");
     let contents = serde_json::to_string_pretty(&merged)?;
     std::fs::write(&path, contents)?;
     Ok(path)
+}
+
+/// Append coop's own permission rules to the merged settings.
+///
+/// The stop hook block reason tells the agent to run `coop send '...'`,
+/// so coop must ensure that command is pre-approved.
+fn inject_coop_permissions(config: &mut serde_json::Value) {
+    use serde_json::json;
+
+    let rule = json!("Bash(coop send:*)");
+
+    // Navigate to config.permissions.allow, creating along the way.
+    let Some(obj) = config.as_object_mut() else {
+        return;
+    };
+    let perms = obj.entry("permissions").or_insert_with(|| json!({}));
+    let Some(perms_obj) = perms.as_object_mut() else {
+        return;
+    };
+    let allow = perms_obj.entry("allow").or_insert_with(|| json!([]));
+    if let Some(arr) = allow.as_array_mut() {
+        if !arr.contains(&rule) {
+            arr.push(rule);
+        }
+    }
 }
 
 /// Create and return the coop session directory for the given session ID.
