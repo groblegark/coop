@@ -70,10 +70,10 @@ crates/cli/               # Single crate (binary + lib)
 │   │   ├── state.rs       # Store (shared state hub)
 │   │   ├── auth.rs        # Bearer token auth middleware
 │   │   ├── handler.rs     # Shared handler logic
-│   │   ├── http.rs        # HTTP endpoints
+│   │   ├── http/           # HTTP endpoints (split by domain)
 │   │   ├── ws.rs          # WebSocket handler
 │   │   ├── ws_msg.rs      # WebSocket message types
-│   │   └── grpc/           # gRPC server
+│   │   └── grpc/           # gRPC server (mod, convert, service)
 │   └── driver/
 │       ├── mod.rs          # AgentState, Detector, DetectorSinks, traits
 │       ├── composite.rs    # CompositeDetector (tier-priority resolution)
