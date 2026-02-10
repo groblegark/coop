@@ -31,10 +31,15 @@ fn screen_request_serialization() -> anyhow::Result<()> {
 
 #[test]
 fn output_message_serialization() -> anyhow::Result<()> {
-    let msg = ServerMessage::Output { data: "aGVsbG8=".to_owned(), offset: 0 };
+    let msg = ServerMessage::Pty { data: "aGVsbG8=".to_owned(), offset: 0 };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"event\":\"output\""));
+    assert!(json.contains("\"event\":\"pty\""));
     assert!(json.contains("\"data\":\"aGVsbG8=\""));
+
+    // Backwards compat: "output" alias deserializes to Pty
+    let back: ServerMessage =
+        serde_json::from_str(r#"{"event":"output","data":"aGVsbG8=","offset":0}"#)?;
+    assert!(matches!(back, ServerMessage::Pty { .. }));
     Ok(())
 }
 
@@ -87,7 +92,7 @@ fn state_change_with_error_serialization() -> anyhow::Result<()> {
 #[test]
 fn subscription_flags_default_is_empty() {
     let flags = SubscriptionFlags::default();
-    assert!(!flags.output);
+    assert!(!flags.pty);
     assert!(!flags.screen);
     assert!(!flags.state);
     assert!(!flags.hooks);
@@ -96,13 +101,17 @@ fn subscription_flags_default_is_empty() {
 
 #[test]
 fn subscription_flags_parse_individual() {
-    let flags = SubscriptionFlags::parse("output");
-    assert!(flags.output);
+    let flags = SubscriptionFlags::parse("pty");
+    assert!(flags.pty);
     assert!(!flags.screen);
     assert!(!flags.state);
 
+    // "output" is a backwards-compat alias for "pty"
+    let flags = SubscriptionFlags::parse("output");
+    assert!(flags.pty);
+
     let flags = SubscriptionFlags::parse("state");
-    assert!(!flags.output);
+    assert!(!flags.pty);
     assert!(flags.state);
 
     let flags = SubscriptionFlags::parse("hooks");
@@ -113,7 +122,7 @@ fn subscription_flags_parse_individual() {
 #[test]
 fn subscription_flags_parse_combined() {
     let flags = SubscriptionFlags::parse("output,screen,state");
-    assert!(flags.output);
+    assert!(flags.pty);
     assert!(flags.screen);
     assert!(flags.state);
     assert!(!flags.hooks);
@@ -123,7 +132,7 @@ fn subscription_flags_parse_combined() {
 #[test]
 fn subscription_flags_parse_with_hooks_and_messages() {
     let flags = SubscriptionFlags::parse("output,state,hooks,messages");
-    assert!(flags.output);
+    assert!(flags.pty);
     assert!(!flags.screen);
     assert!(flags.state);
     assert!(flags.hooks);
@@ -133,7 +142,7 @@ fn subscription_flags_parse_with_hooks_and_messages() {
 #[test]
 fn subscription_flags_ignores_unknown() {
     let flags = SubscriptionFlags::parse("output,unknown,state");
-    assert!(flags.output);
+    assert!(flags.pty);
     assert!(flags.state);
     assert!(!flags.screen);
 }

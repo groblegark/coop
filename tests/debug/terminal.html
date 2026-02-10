@@ -405,7 +405,7 @@ import { Terminal }  from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm'
 const params = new URLSearchParams(location.search);
 const PORT = params.get('port') || '7070';
 const BASE = `http://localhost:${PORT}`;
-const WS_URL = `ws://localhost:${PORT}/ws?subscribe=output,state,usage`;
+const WS_URL = `ws://localhost:${PORT}/ws?subscribe=pty,state,usage`;
 
 const dot        = document.getElementById('dot');
 const label      = document.getElementById('label');
@@ -549,7 +549,7 @@ const eventLog = document.getElementById('event-log');
 const MAX_EVENTS = 200;
 let eventCount = 0;
 
-// Collapse consecutive output bursts into a single updating row.
+// Collapse consecutive pty bursts into a single updating row.
 let streamEl = null;   // current collapsed row element
 let streamAcc = null;  // { count, totalBytes, lastOffset }
 
@@ -562,8 +562,8 @@ function logEvent(msg) {
   const now = new Date();
   const ts = now.toTimeString().slice(0, 8);
 
-  // Collapse consecutive output bursts in-place
-  if (type === 'output' || type === 'replay') {
+  // Collapse consecutive pty bursts in-place
+  if (type === 'pty' || type === 'replay') {
     pongEl = null; pongCount = 0;
     const len = msg.data ? atob(msg.data).length : 0;
     if (streamEl && streamAcc) {
@@ -1077,7 +1077,7 @@ function connect() {
     // Log all events to sidebar
     logEvent(msg);
 
-    if (msg.event === 'output' || msg.event === 'replay') {
+    if (msg.event === 'pty' || msg.event === 'replay') {
       const bytes = b64decode(msg.data);
       term.write(bytes);
       info.textContent = `offset: ${msg.offset + bytes.length}`;

@@ -123,7 +123,7 @@ async fn ws_subscription_mode_raw() -> anyhow::Result<()> {
     let StoreCtx { store, .. } = StoreBuilder::new().ring_size(65536).build();
     let (addr, _handle) = spawn_http_server(Arc::clone(&store)).await?;
 
-    let (mut _tx, mut rx) = ws_connect(&addr, "subscribe=output").await?;
+    let (mut _tx, mut rx) = ws_connect(&addr, "subscribe=pty").await?;
 
     // Push raw output via broadcast
     let data = bytes::Bytes::from("hello raw");
@@ -137,8 +137,8 @@ async fn ws_subscription_mode_raw() -> anyhow::Result<()> {
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
     assert_eq!(
         resp.get("event").and_then(|t| t.as_str()),
-        Some("output"),
-        "raw mode should receive output: {resp}"
+        Some("pty"),
+        "pty mode should receive pty event: {resp}"
     );
 
     // Push a ScreenUpdate — should NOT be forwarded in raw mode

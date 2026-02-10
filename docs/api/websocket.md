@@ -41,7 +41,7 @@ Set via the `subscribe` query parameter on the upgrade URL (comma-separated flag
 
 | Flag | Server pushes |
 |------|---------------|
-| `output` | `output` messages with base64-encoded PTY bytes |
+| `pty` | `pty` messages with base64-encoded PTY bytes (`output` accepted as alias) |
 | `screen` | `screen` messages with rendered terminal state |
 | `state` | `transition`, `exit`, `prompt:outcome`, `stop:outcome`, `start:outcome` messages |
 | `hooks` | `hook:raw` messages with raw hook FIFO JSON |
@@ -50,19 +50,19 @@ Set via the `subscribe` query parameter on the upgrade URL (comma-separated flag
 
 Default (no `subscribe` param) = no push events (request-reply only).
 
-Example: `ws://localhost:8080/ws?subscribe=output,state&token=mytoken`
+Example: `ws://localhost:8080/ws?subscribe=pty,state&token=mytoken`
 
 
 ## Server → Client Messages
 
 
-### `output`
+### `pty`
 
-Raw PTY output chunk. Sent when `output` is subscribed.
+Raw PTY output chunk. Sent when `pty` is subscribed.
 
 ```json
 {
-  "event": "output",
+  "event": "pty",
   "data": "SGVsbG8gV29ybGQ=",
   "offset": 1024
 }

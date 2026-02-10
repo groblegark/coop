@@ -265,7 +265,7 @@ pub async fn run(args: &[String]) -> i32 {
 
 /// Build the WebSocket URL with subscription flags.
 fn build_ws_url(base_url: &str) -> String {
-    let subscribe = "output,state";
+    let subscribe = "pty,state";
     let base = base_url.trim_end_matches('/');
     if let Some(rest) = base.strip_prefix("https://") {
         format!("wss://{rest}/ws?subscribe={subscribe}")
@@ -553,7 +553,7 @@ where
                 match msg {
                     Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) => {
                         match serde_json::from_str::<ServerMessage>(&text) {
-                            Ok(ServerMessage::Output { data, offset, .. })
+                            Ok(ServerMessage::Pty { data, offset, .. })
                             | Ok(ServerMessage::Replay { data, offset, .. }) => {
                                 if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&data) {
                                     ctx.state.next_offset = offset + decoded.len() as u64;
@@ -568,7 +568,7 @@ where
                                 while let Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text)))) =
                                     tokio::time::timeout_at(drain_deadline, ws_rx.next()).await
                                 {
-                                    if let Ok(ServerMessage::Output { data, offset, .. } | ServerMessage::Replay { data, offset, .. }) = serde_json::from_str(&text) {
+                                    if let Ok(ServerMessage::Pty { data, offset, .. } | ServerMessage::Replay { data, offset, .. }) = serde_json::from_str(&text) {
                                         if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&data) {
                                             ctx.state.next_offset = offset + decoded.len() as u64;
                                             let _ = ctx.stdout.write_all(&decoded);

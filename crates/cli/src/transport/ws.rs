@@ -167,11 +167,11 @@ async fn handle_connection(
                     Err(_) => continue,
                 };
                 match &event {
-                    OutputEvent::Raw(data) if flags.output => {
+                    OutputEvent::Raw(data) if flags.pty => {
                         let encoded = base64::engine::general_purpose::STANDARD.encode(data);
                         let ring = state.terminal.ring.read().await;
                         let offset = ring.total_written().saturating_sub(data.len() as u64);
-                        let msg = ServerMessage::Output { data: encoded, offset };
+                        let msg = ServerMessage::Pty { data: encoded, offset };
                         if send_json(&mut ws_tx, &msg).await.is_err() {
                             break;
                         }

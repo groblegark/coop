@@ -163,7 +163,8 @@ pub enum ServerMessage {
         next_offset: u64,
         total_written: u64,
     },
-    Output {
+    #[serde(rename = "pty", alias = "output")]
+    Pty {
         data: String,
         offset: u64,
     },
@@ -364,13 +365,13 @@ pub enum ServerMessage {
     },
 }
 
-/// WebSocket subscription flags parsed from `?subscribe=output,screen,state,hooks,messages`.
+/// WebSocket subscription flags parsed from `?subscribe=pty,screen,state,hooks,messages`.
 ///
 /// Defaults to no messages.
 /// Clients must opt-in with `?subscribe=` param.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SubscriptionFlags {
-    pub output: bool,
+    pub pty: bool,
     pub screen: bool,
     pub state: bool,
     pub hooks: bool,
@@ -380,13 +381,13 @@ pub struct SubscriptionFlags {
 }
 
 impl SubscriptionFlags {
-    /// Parse a comma-separated flags string (e.g. `"output,state,hooks"`).
+    /// Parse a comma-separated flags string (e.g. `"pty,state,hooks"`).
     /// Unknown flag names are silently ignored.
     pub fn parse(s: &str) -> Self {
         let mut flags = Self::default();
         for token in s.split(',') {
             match token.trim() {
-                "output" => flags.output = true,
+                "pty" | "output" => flags.pty = true,
                 "screen" => flags.screen = true,
                 "state" => flags.state = true,
                 "hooks" => flags.hooks = true,
