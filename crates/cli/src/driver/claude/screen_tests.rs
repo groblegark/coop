@@ -47,9 +47,54 @@ fn no_idle_on_working_output() {
 }
 
 #[test]
-fn no_idle_on_startup_prompt() {
+fn startup_trust_prompt_emits_setup() {
     let snap = snapshot(&["Do you trust the files in this folder?", "(y/n)", ""]);
-    assert_eq!(classify_claude_screen(&snap), None);
+    let (s, c) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.kind, PromptKind::Setup);
+    assert_eq!(prompt.subtype.as_deref(), Some("startup_trust"));
+    assert!(prompt.options.is_empty(), "text prompts have no parsed options");
+    assert_eq!(c, "screen:setup");
+}
+
+#[test]
+fn startup_bypass_prompt_emits_setup() {
+    let snap = snapshot(&["Allow tool use without prompting?", "dangerously-skip-permissions", ""]);
+    let (s, c) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.kind, PromptKind::Setup);
+    assert_eq!(prompt.subtype.as_deref(), Some("startup_bypass"));
+    assert_eq!(c, "screen:setup");
+}
+
+#[test]
+fn startup_login_prompt_emits_setup() {
+    let snap = snapshot(&["Please sign in to continue", ""]);
+    let (s, c) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.kind, PromptKind::Setup);
+    assert_eq!(prompt.subtype.as_deref(), Some("startup_login"));
+    assert_eq!(c, "screen:setup");
+}
+
+#[test]
+fn settings_error_emits_setup() {
+    let lines: Vec<String> =
+        include_str!("fixtures/bad_settings.screen.txt").lines().map(String::from).collect();
+    let snap = ScreenSnapshot {
+        lines,
+        cols: 200,
+        rows: 50,
+        alt_screen: false,
+        cursor: CursorPosition { row: 0, col: 0 },
+        sequence: 1,
+    };
+    let (s, c) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.kind, PromptKind::Setup);
+    assert_eq!(prompt.subtype.as_deref(), Some("settings_error"));
+    assert!(!prompt.options.is_empty(), "should parse numbered options");
+    assert_eq!(c, "screen:setup");
 }
 
 #[test]

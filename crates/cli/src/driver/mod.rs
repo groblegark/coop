@@ -206,6 +206,26 @@ pub fn compute_nudge_delay(
     scaled.min(max)
 }
 
+/// If this prompt is a disruption (safe to auto-dismiss), returns the
+/// option number to select. Returns `None` for elicitations.
+pub fn disruption_option(prompt: &PromptContext) -> Option<u32> {
+    match prompt.kind {
+        PromptKind::Setup => match prompt.subtype.as_deref() {
+            Some("security_notes") => Some(1),
+            Some("login_success") => Some(1),
+            Some("terminal_setup") => Some(1),
+            Some("theme_picker") => Some(1),
+            Some("settings_error") => Some(2), // "Continue without these settings"
+            _ => None, // oauth_login, login_method, startup_* = elicitations
+        },
+        PromptKind::Permission => match prompt.subtype.as_deref() {
+            Some("trust") => Some(1), // "Yes, I trust this folder"
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 impl AgentState {
     /// Return the wire-format string for this state (e.g. `"working"`,
     /// `"prompt"`).
@@ -258,3 +278,7 @@ impl std::fmt::Display for AgentState {
         f.write_str(self.as_str())
     }
 }
+
+#[cfg(test)]
+#[path = "driver_tests.rs"]
+mod driver_tests;

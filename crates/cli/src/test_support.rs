@@ -13,6 +13,7 @@ use bytes::Bytes;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
+use crate::config::GroomLevel;
 use crate::driver::{
     AgentState, AgentType, Detector, ExitStatus, NudgeEncoder, NudgeStep, RespondEncoder,
 };
@@ -36,6 +37,7 @@ pub struct AppStateBuilder {
     respond_encoder: Option<Arc<dyn RespondEncoder>>,
     stop_config: Option<StopConfig>,
     start_config: Option<StartConfig>,
+    groom: GroomLevel,
 }
 
 impl Default for AppStateBuilder {
@@ -55,6 +57,7 @@ impl AppStateBuilder {
             respond_encoder: None,
             stop_config: None,
             start_config: None,
+            groom: GroomLevel::Manual,
         }
     }
 
@@ -98,6 +101,11 @@ impl AppStateBuilder {
         self
     }
 
+    pub fn groom(mut self, level: GroomLevel) -> Self {
+        self.groom = level;
+        self
+    }
+
     /// Build state and return the `input_rx` receiver alongside it.
     pub fn build(self) -> (Arc<AppState>, mpsc::Receiver<InputEvent>) {
         let (input_tx, input_rx) = mpsc::channel(16);
@@ -135,6 +143,7 @@ impl AppStateBuilder {
                 nudge_encoder: self.nudge_encoder,
                 respond_encoder: self.respond_encoder,
                 nudge_timeout: Duration::ZERO,
+                groom: self.groom,
             },
             lifecycle: LifecycleState {
                 shutdown: CancellationToken::new(),

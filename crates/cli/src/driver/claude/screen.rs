@@ -153,13 +153,34 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<(AgentState, Stri
         None => {}
     }
 
-    // Skip if a known startup text prompt is present — those are handled
-    // separately by the session auto-responder and should not appear as
-    // WaitingForInput. Checked after dialog classification because the
-    // startup detector matches broadly (e.g. "trust this folder" appears in
-    // both the simple y/n prompt and the interactive Accessing workspace dialog).
-    if detect_startup_prompt(&snapshot.lines).is_some() {
-        return None;
+    // Emit text-based startup prompts as Prompt(Setup) for API visibility.
+    // These are NOT auto-dismissed (no reliable keystroke encoding for text
+    // prompts). Checked after dialog classification because the startup
+    // detector matches broadly (e.g. "trust this folder" appears in both the
+    // simple y/n prompt and the interactive Accessing workspace dialog).
+    if let Some(startup) = detect_startup_prompt(&snapshot.lines) {
+        let subtype = match startup {
+            StartupPrompt::WorkspaceTrust => "startup_trust",
+            StartupPrompt::BypassPermissions => "startup_bypass",
+            StartupPrompt::LoginRequired => "startup_login",
+        };
+        return Some((
+            AgentState::Prompt {
+                prompt: PromptContext {
+                    kind: PromptKind::Setup,
+                    subtype: Some(subtype.to_owned()),
+                    tool: None,
+                    input: None,
+                    auth_url: None,
+                    options: vec![],
+                    options_fallback: false,
+                    questions: vec![],
+                    question_current: 0,
+                    ready: true,
+                },
+            },
+            "screen:setup".to_owned(),
+        ));
     }
 
     // Look for Claude's idle prompt indicator anywhere in the visible lines.
@@ -232,6 +253,15 @@ const DIALOG_SCREENS: &[DialogScreen] = &[
     (
         DialogKind::Setup("theme_picker"),
         &[("Choose the text style", false), ("Dark mode", false), ("enter to confirm", true)],
+    ),
+    // Settings error
+    (
+        DialogKind::Setup("settings_error"),
+        &[
+            ("Settings Error", false),
+            ("Continue without these settings", false),
+            ("Exit and fix manually", false),
+        ],
     ),
     // Tool permission
     (

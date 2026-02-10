@@ -6,7 +6,7 @@ use std::time::Duration;
 use clap::Parser;
 use serde_json::json;
 
-use super::{merge_settings, AgentFileConfig, AgentType, Config};
+use super::{merge_settings, AgentFileConfig, AgentType, Config, GroomLevel};
 
 fn parse(args: &[&str]) -> Config {
     Config::parse_from(args)
@@ -66,6 +66,41 @@ fn agent_unknown_default() -> anyhow::Result<()> {
 fn agent_invalid() {
     let config = parse(&["coop", "--port", "8080", "--agent", "gpt", "--", "echo"]);
     assert!(config.agent_enum().is_err());
+}
+
+// -- GroomLevel --
+
+#[test]
+fn groom_auto_default() -> anyhow::Result<()> {
+    let config = parse(&["coop", "--port", "8080", "--", "echo"]);
+    assert_eq!(config.groom_level()?, GroomLevel::Auto);
+    Ok(())
+}
+
+#[test]
+fn groom_manual() -> anyhow::Result<()> {
+    let config = parse(&["coop", "--port", "8080", "--groom", "manual", "--", "echo"]);
+    assert_eq!(config.groom_level()?, GroomLevel::Manual);
+    Ok(())
+}
+
+#[test]
+fn groom_case_insensitive() -> anyhow::Result<()> {
+    let config = parse(&["coop", "--port", "8080", "--groom", "AUTO", "--", "echo"]);
+    assert_eq!(config.groom_level()?, GroomLevel::Auto);
+    Ok(())
+}
+
+#[test]
+fn groom_pristine_rejected_at_validate() {
+    let config = parse(&["coop", "--port", "8080", "--groom", "pristine", "--", "echo"]);
+    crate::assert_err_contains!(config.validate(), "pristine is not yet implemented");
+}
+
+#[test]
+fn groom_invalid() {
+    let config = parse(&["coop", "--port", "8080", "--groom", "nope", "--", "echo"]);
+    assert!(config.groom_level().is_err());
 }
 
 #[test]

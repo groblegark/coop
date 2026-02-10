@@ -15,10 +15,10 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
-use crate::config::Config;
+use crate::config::{Config, GroomLevel};
 use crate::driver::{
-    classify_error_detail, AgentState, CompositeDetector, DetectedState, Detector, ExitStatus,
-    OptionParser, PromptKind,
+    classify_error_detail, disruption_option, AgentState, CompositeDetector, DetectedState,
+    Detector, ExitStatus, OptionParser, PromptKind,
 };
 use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
 use crate::pty::{Backend, BackendInput, Boxed};
@@ -280,6 +280,33 @@ impl Session {
                                     let seq = state_seq;
                                     let parser = Arc::clone(parser);
                                     tokio::spawn(enrich_prompt_options(app, seq, parser));
+                                }
+                            }
+                        }
+
+                        // Auto-dismiss disruption prompts in groom=auto mode.
+                        // The prompt state is broadcast BEFORE auto-dismiss so API
+                        // clients see the action transparently.
+                        if let AgentState::Prompt { ref prompt } = detected.state {
+                            if self.app_state.config.groom == GroomLevel::Auto {
+                                if let Some(option) = disruption_option(prompt) {
+                                    if prompt.subtype.as_deref() == Some("settings_error") {
+                                        warn!("auto-dismissing settings error dialog (option {option})");
+                                    }
+                                    if let Some(ref encoder) = self.app_state.config.respond_encoder {
+                                        let steps = if prompt.kind == PromptKind::Permission {
+                                            encoder.encode_permission(option)
+                                        } else {
+                                            encoder.encode_setup(option)
+                                        };
+                                        let tx = self.app_state.channels.input_tx.clone();
+                                        let gate = Arc::clone(&self.app_state.delivery_gate);
+                                        tokio::spawn(async move {
+                                            tokio::time::sleep(Duration::from_millis(500)).await;
+                                            let _delivery = gate.acquire().await;
+                                            let _ = crate::transport::deliver_steps(&tx, steps).await;
+                                        });
+                                    }
                                 }
                             }
                         }

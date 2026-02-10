@@ -307,6 +307,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             nudge_encoder,
             respond_encoder,
             nudge_timeout: config.nudge_timeout(),
+            groom: config.groom_level()?,
         },
         lifecycle: LifecycleState {
             shutdown: shutdown.clone(),

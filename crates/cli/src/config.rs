@@ -11,6 +11,45 @@ use crate::driver::AgentType;
 use crate::start::StartConfig;
 use crate::stop::StopConfig;
 
+/// Controls how much coop auto-responds to agent prompts during startup.
+///
+/// - `Auto`: auto-dismiss "disruption" prompts (setup dialogs, workspace trust)
+///   so the agent reaches idle ASAP.
+/// - `Manual`: detection works and API exposes prompts, but nothing is
+///   auto-dismissed (today's behavior).
+/// - `Pristine`: reserved for future use (rejected at parse time).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GroomLevel {
+    #[default]
+    Auto,
+    Manual,
+    Pristine,
+}
+
+impl std::fmt::Display for GroomLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Auto => f.write_str("auto"),
+            Self::Manual => f.write_str("manual"),
+            Self::Pristine => f.write_str("pristine"),
+        }
+    }
+}
+
+impl std::str::FromStr for GroomLevel {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "auto" => Ok(Self::Auto),
+            "manual" => Ok(Self::Manual),
+            "pristine" => Ok(Self::Pristine),
+            other => anyhow::bail!("invalid groom level: {other}"),
+        }
+    }
+}
+
 /// Terminal session manager for AI coding agents.
 #[derive(Debug, Parser)]
 #[command(name = "coop", version, about)]
@@ -83,6 +122,10 @@ pub struct Config {
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub command: Vec<String>,
 
+    /// Groom level: auto, manual, pristine.
+    #[arg(long, env = "COOP_GROOM", default_value = "auto")]
+    pub groom: String,
+
     /// Graceful shutdown timeout in ms (0 = disabled, immediate kill).
     #[clap(skip)]
     pub graceful_shutdown_ms: Option<u64>,
@@ -109,6 +152,12 @@ impl Config {
 
         // Validate agent type
         self.agent_enum()?;
+
+        // Validate groom level (reject pristine for now)
+        let groom = self.groom_level()?;
+        if groom == GroomLevel::Pristine {
+            anyhow::bail!("groom=pristine is not yet implemented");
+        }
 
         // --resume is only valid with --agent claude and cannot combine with --attach
         if self.resume.is_some() {
@@ -231,9 +280,15 @@ impl Config {
             log_format: "json".into(),
             log_level: "debug".into(),
             resume: None,
+            groom: "manual".into(),
             command: vec!["echo".into()],
             graceful_shutdown_ms: Some(100),
         }
+    }
+
+    /// Parse the groom level string into an enum.
+    pub fn groom_level(&self) -> anyhow::Result<GroomLevel> {
+        self.groom.parse()
     }
 
     /// Parse the agent type string into an enum.

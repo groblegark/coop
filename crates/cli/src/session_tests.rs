@@ -7,11 +7,11 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::Config;
-use crate::driver::AgentState;
+use crate::config::{Config, GroomLevel};
+use crate::driver::{AgentState, PromptContext, PromptKind};
 use crate::pty::spawn::NativePty;
 use crate::session::{Session, SessionConfig};
-use crate::test_support::{AppStateBuilder, MockDetector, MockPty};
+use crate::test_support::{AppStateBuilder, MockDetector, MockPty, StubRespondEncoder};
 
 #[tokio::test]
 async fn echo_exits_with_zero() -> anyhow::Result<()> {
@@ -198,6 +198,109 @@ async fn graceful_drain_disabled_when_zero() -> anyhow::Result<()> {
     let input = captured.lock();
     let has_escape = input.iter().any(|b| b.as_ref() == b"\x1b");
     assert!(!has_escape, "unexpected Escape bytes in captured input: {input:?}");
+
+    Ok(())
+}
+
+fn disruption_prompt() -> AgentState {
+    AgentState::Prompt {
+        prompt: PromptContext {
+            kind: PromptKind::Setup,
+            subtype: Some("theme_picker".to_owned()),
+            tool: None,
+            input: None,
+            auth_url: None,
+            options: vec!["Dark mode".to_owned(), "Light mode".to_owned()],
+            options_fallback: false,
+            questions: vec![],
+            question_current: 0,
+            ready: true,
+        },
+    }
+}
+
+/// groom=Auto auto-dismisses disruption prompts.
+#[tokio::test]
+async fn groom_auto_dismisses_disruption() -> anyhow::Result<()> {
+    let mut config = Config::test();
+    config.graceful_shutdown_ms = Some(0);
+    let (input_tx, consumer_input_rx) = mpsc::channel(64);
+    let app_state = AppStateBuilder::new()
+        .ring_size(65536)
+        .groom(GroomLevel::Auto)
+        .respond_encoder(Arc::new(StubRespondEncoder))
+        .build_with_sender(input_tx);
+
+    let backend = MockPty::new().drain_input();
+    let captured = backend.captured_input();
+
+    // Detector emits a disruption prompt, then after a delay triggers shutdown.
+    let detector = MockDetector::new(1, vec![(Duration::from_millis(10), disruption_prompt())]);
+
+    let shutdown = CancellationToken::new();
+    let session = Session::new(
+        &config,
+        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx)
+            .with_shutdown(shutdown.clone())
+            .with_detectors(vec![Box::new(detector)]),
+    );
+
+    // Give enough time for the 500ms auto-dismiss delay + delivery, then shut down.
+    let sd = shutdown.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        sd.cancel();
+    });
+
+    let _ = session.run(&config).await?;
+
+    // The auto-dismiss should have delivered keystrokes to the backend.
+    let input = captured.lock();
+    assert!(!input.is_empty(), "expected auto-dismiss keystrokes, got none");
+    // StubRespondEncoder.encode_setup(1) → "1\r"
+    let has_setup_response = input.iter().any(|b| b.as_ref() == b"1\r");
+    assert!(has_setup_response, "expected '1\\r' in captured input: {input:?}");
+
+    Ok(())
+}
+
+/// groom=Manual does NOT auto-dismiss disruption prompts.
+#[tokio::test]
+async fn groom_manual_does_not_dismiss() -> anyhow::Result<()> {
+    let mut config = Config::test();
+    config.graceful_shutdown_ms = Some(0);
+    let (input_tx, consumer_input_rx) = mpsc::channel(64);
+    let app_state = AppStateBuilder::new()
+        .ring_size(65536)
+        .groom(GroomLevel::Manual)
+        .respond_encoder(Arc::new(StubRespondEncoder))
+        .build_with_sender(input_tx);
+
+    let backend = MockPty::new().drain_input();
+    let captured = backend.captured_input();
+
+    let detector = MockDetector::new(1, vec![(Duration::from_millis(10), disruption_prompt())]);
+
+    let shutdown = CancellationToken::new();
+    let session = Session::new(
+        &config,
+        SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx)
+            .with_shutdown(shutdown.clone())
+            .with_detectors(vec![Box::new(detector)]),
+    );
+
+    let sd = shutdown.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        sd.cancel();
+    });
+
+    let _ = session.run(&config).await?;
+
+    // No auto-dismiss keystrokes should have been sent.
+    let input = captured.lock();
+    let has_setup_response = input.iter().any(|b| b.as_ref() == b"1\r");
+    assert!(!has_setup_response, "unexpected auto-dismiss in manual mode: {input:?}");
 
     Ok(())
 }

@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
+use crate::config::GroomLevel;
 use crate::driver::{
     AgentState, AgentType, ErrorCategory, ExitStatus, NudgeEncoder, RespondEncoder,
 };
@@ -108,6 +109,8 @@ pub struct SessionSettings {
     /// Timeout for the enter-retry safety net after nudge delivery.
     /// `Duration::ZERO` disables the retry.
     pub nudge_timeout: Duration,
+    /// How aggressively coop auto-responds to agent prompts.
+    pub groom: GroomLevel,
 }
 
 /// Runtime lifecycle primitives.
