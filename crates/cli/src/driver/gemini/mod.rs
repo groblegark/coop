@@ -17,7 +17,7 @@ use crate::config::Config;
 
 use super::hook_recv::HookReceiver;
 use super::Detector;
-use detect::{HookDetector, StdoutDetector};
+use detect::StdoutDetector;
 use encoding::{GeminiNudgeEncoder, GeminiRespondEncoder};
 
 /// Gemini CLI agent driver.
@@ -46,7 +46,7 @@ impl GeminiDriver {
         // Tier 1: Hook events (highest confidence)
         if let Some(pipe_path) = hook_pipe_path {
             let receiver = HookReceiver::new(pipe_path)?;
-            detectors.push(Box::new(HookDetector { receiver }));
+            detectors.push(Box::new(detect::new_hook_detector(receiver)));
         }
 
         // Tier 3: Structured stdout JSONL

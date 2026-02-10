@@ -8,6 +8,7 @@ use bytes::Bytes;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::driver::hook_detect::HookDetector;
 use crate::driver::hook_recv::HookReceiver;
 use crate::driver::jsonl_stdout::JsonlParser;
 use crate::driver::HookEvent;
@@ -15,67 +16,43 @@ use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
 
 use super::parse::{format_gemini_cause, parse_gemini_state};
 
-/// Tier 1 detector: receives push events from Gemini's hook system.
+/// Map a Gemini hook event to an `(AgentState, cause)` pair.
 ///
-/// Maps hook events to agent states:
-/// - `TurnStart` / `ToolBefore` / `ToolAfter` -> `Working`
-/// - `TurnEnd` / `SessionEnd` -> `Idle`
-/// - `Notification("ToolPermission")` -> `Prompt(Permission)`
-pub struct HookDetector {
-    pub receiver: HookReceiver,
+/// - `TurnStart` / `ToolBefore` / `ToolAfter` → `Working`
+/// - `TurnEnd` / `SessionEnd` → `Idle`
+/// - `Notification("ToolPermission")` → `Prompt(Permission)`
+///
+/// Returns `None` for events that should be ignored (e.g. `SessionStart`, unrecognised notifications).
+pub fn map_gemini_hook(event: HookEvent) -> Option<(AgentState, String)> {
+    match event {
+        HookEvent::TurnStart | HookEvent::ToolAfter { .. } => {
+            Some((AgentState::Working, "hook:working".to_owned()))
+        }
+        HookEvent::ToolBefore { .. } => {
+            // BeforeTool fires for every tool call (including
+            // auto-approved ones). Map to Working; actual
+            // permission prompts are detected via Notification.
+            Some((AgentState::Working, "hook:working".to_owned()))
+        }
+        HookEvent::TurnEnd | HookEvent::SessionEnd => {
+            Some((AgentState::Idle, "hook:idle".to_owned()))
+        }
+        HookEvent::Notification { notification_type } => match notification_type.as_str() {
+            "ToolPermission" => Some((
+                AgentState::Prompt {
+                    prompt: PromptContext::new(PromptKind::Permission).with_subtype("tool"),
+                },
+                "hook:prompt(permission)".to_owned(),
+            )),
+            _ => None,
+        },
+        HookEvent::SessionStart => None,
+    }
 }
 
-impl Detector for HookDetector {
-    fn run(
-        self: Box<Self>,
-        state_tx: mpsc::Sender<(AgentState, String)>,
-        shutdown: CancellationToken,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        Box::pin(async move {
-            let mut receiver = self.receiver;
-            loop {
-                tokio::select! {
-                    _ = shutdown.cancelled() => break,
-                    event = receiver.next_event() => {
-                        let (state, cause) = match event {
-                            Some(HookEvent::TurnStart) => {
-                                (AgentState::Working, "hook:working".to_owned())
-                            }
-                            Some(HookEvent::SessionEnd) => {
-                                (AgentState::Idle, "hook:idle".to_owned())
-                            }
-                            Some(HookEvent::ToolAfter { .. }) => {
-                                (AgentState::Working, "hook:working".to_owned())
-                            }
-                            Some(HookEvent::Notification { notification_type }) => {
-                                match notification_type.as_str() {
-                                    "ToolPermission" => (AgentState::Prompt {
-                                        prompt: PromptContext::new(PromptKind::Permission)
-                                            .with_subtype("tool"),
-                                    }, "hook:prompt(permission)".to_owned()),
-                                    _ => continue,
-                                }
-                            }
-                            Some(HookEvent::TurnEnd) => (AgentState::Idle, "hook:idle".to_owned()),
-                            Some(HookEvent::SessionStart) => continue,
-                            Some(HookEvent::ToolBefore { .. }) => {
-                                // BeforeTool fires for every tool call (including
-                                // auto-approved ones). Map to Working; actual
-                                // permission prompts are detected via Notification.
-                                (AgentState::Working, "hook:working".to_owned())
-                            }
-                            None => break,
-                        };
-                        let _ = state_tx.send((state, cause)).await;
-                    }
-                }
-            }
-        })
-    }
-
-    fn tier(&self) -> u8 {
-        1
-    }
+/// Create a Tier 1 hook detector for Gemini.
+pub fn new_hook_detector(receiver: HookReceiver) -> impl Detector {
+    HookDetector { receiver, map_event: map_gemini_hook }
 }
 
 /// Tier 3 detector: parses structured JSONL from Gemini's stdout stream.

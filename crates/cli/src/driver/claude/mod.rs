@@ -21,7 +21,7 @@ use crate::config::Config;
 use super::hook_recv::HookReceiver;
 use super::Detector;
 use encoding::{ClaudeNudgeEncoder, ClaudeRespondEncoder};
-use stream::{HookDetector, LogDetector, StdoutDetector};
+use stream::{LogDetector, StdoutDetector};
 
 /// Claude Code agent driver.
 ///
@@ -53,7 +53,7 @@ impl ClaudeDriver {
         // Tier 1: Hook events (highest confidence)
         if let Some(pipe_path) = hook_pipe_path {
             let receiver = HookReceiver::new(pipe_path)?;
-            detectors.push(Box::new(HookDetector { receiver }));
+            detectors.push(Box::new(stream::new_hook_detector(receiver)));
         }
 
         // Tier 2: Session log watching

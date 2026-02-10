@@ -11,6 +11,7 @@ use bytes::Bytes;
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
+use crate::driver::hook_detect::HookDetector;
 use crate::driver::hook_recv::HookReceiver;
 use crate::driver::jsonl_stdout::JsonlParser;
 use crate::driver::log_watch::LogWatcher;
@@ -20,9 +21,8 @@ use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
 use super::parse::{extract_assistant_text, format_claude_cause, parse_claude_state};
 use super::prompt::extract_ask_user_from_tool_input;
 
-/// Tier 1 detector: receives push events from Claude's hook system.
+/// Map a Claude hook event to an `(AgentState, cause)` pair.
 ///
-/// Maps hook events to agent states:
 /// - `TurnEnd` / `SessionEnd` → `Idle`
 /// - `Notification(idle_prompt)` → `Idle`
 /// - `Notification(permission_prompt)` → `Prompt(Permission)`
@@ -30,66 +30,44 @@ use super::prompt::extract_ask_user_from_tool_input;
 /// - `ToolBefore(ExitPlanMode)` → `Prompt(Plan)`
 /// - `ToolBefore(EnterPlanMode)` → `Working`
 /// - `ToolAfter` → `Working`
-pub struct HookDetector {
-    pub receiver: HookReceiver,
+///
+/// Returns `None` for events that should be ignored (e.g. `SessionStart`, unrecognised notifications).
+pub fn map_claude_hook(event: HookEvent) -> Option<(AgentState, String)> {
+    match event {
+        HookEvent::TurnEnd | HookEvent::SessionEnd => {
+            Some((AgentState::Idle, "hook:idle".to_owned()))
+        }
+        HookEvent::ToolAfter { .. } => Some((AgentState::Working, "hook:working".to_owned())),
+        HookEvent::Notification { notification_type } => match notification_type.as_str() {
+            "idle_prompt" => Some((AgentState::Idle, "hook:idle".to_owned())),
+            "permission_prompt" => Some((
+                AgentState::Prompt { prompt: PromptContext::new(PromptKind::Permission) },
+                "hook:prompt(permission)".to_owned(),
+            )),
+            _ => None,
+        },
+        HookEvent::ToolBefore { ref tool, ref tool_input } => match tool.as_str() {
+            "AskUserQuestion" => Some((
+                AgentState::Prompt {
+                    prompt: extract_ask_user_from_tool_input(tool_input.as_ref()),
+                },
+                "hook:prompt(question)".to_owned(),
+            )),
+            "ExitPlanMode" => Some((
+                AgentState::Prompt { prompt: PromptContext::new(PromptKind::Plan) },
+                "hook:prompt(plan)".to_owned(),
+            )),
+            "EnterPlanMode" => Some((AgentState::Working, "hook:working".to_owned())),
+            _ => None,
+        },
+        HookEvent::TurnStart => Some((AgentState::Working, "hook:working".to_owned())),
+        HookEvent::SessionStart => None,
+    }
 }
 
-impl Detector for HookDetector {
-    fn run(
-        self: Box<Self>,
-        state_tx: mpsc::Sender<(AgentState, String)>,
-        shutdown: CancellationToken,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        Box::pin(async move {
-            let mut receiver = self.receiver;
-            loop {
-                tokio::select! {
-                    _ = shutdown.cancelled() => break,
-                    event = receiver.next_event() => {
-                        let (state, cause) = match event {
-                            Some(HookEvent::TurnEnd) | Some(HookEvent::SessionEnd) => {
-                                (AgentState::Idle, "hook:idle".to_owned())
-                            }
-                            Some(HookEvent::ToolAfter { .. }) => {
-                                (AgentState::Working, "hook:working".to_owned())
-                            }
-                            Some(HookEvent::Notification { notification_type }) => {
-                                match notification_type.as_str() {
-                                    "idle_prompt" => (AgentState::Idle, "hook:idle".to_owned()),
-                                    "permission_prompt" => (AgentState::Prompt {
-                                        prompt: PromptContext::new(PromptKind::Permission),
-                                    }, "hook:prompt(permission)".to_owned()),
-                                    _ => continue,
-                                }
-                            }
-                            Some(HookEvent::ToolBefore { ref tool, ref tool_input }) => {
-                                match tool.as_str() {
-                                    "AskUserQuestion" => (AgentState::Prompt {
-                                        prompt: extract_ask_user_from_tool_input(tool_input.as_ref()),
-                                    }, "hook:prompt(question)".to_owned()),
-                                    "ExitPlanMode" => (AgentState::Prompt {
-                                        prompt: PromptContext::new(PromptKind::Plan),
-                                    }, "hook:prompt(plan)".to_owned()),
-                                    "EnterPlanMode" => (AgentState::Working, "hook:working".to_owned()),
-                                    _ => continue,
-                                }
-                            }
-                            Some(HookEvent::TurnStart) => {
-                                (AgentState::Working, "hook:working".to_owned())
-                            }
-                            Some(HookEvent::SessionStart) => continue,
-                            None => break,
-                        };
-                        let _ = state_tx.send((state, cause)).await;
-                    }
-                }
-            }
-        })
-    }
-
-    fn tier(&self) -> u8 {
-        1
-    }
+/// Create a Tier 1 hook detector for Claude.
+pub fn new_hook_detector(receiver: HookReceiver) -> impl Detector {
+    HookDetector { receiver, map_event: map_claude_hook }
 }
 
 /// Tier 2 detector: watches Claude's session log file for new JSONL entries.

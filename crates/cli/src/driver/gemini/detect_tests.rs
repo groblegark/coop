@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::{AgentState, Detector};
 
-use super::{HookDetector, StdoutDetector};
+use super::StdoutDetector;
 
 #[tokio::test]
 async fn stdout_detector_parses_gemini_stream_json() -> anyhow::Result<()> {
@@ -81,7 +81,7 @@ async fn run_hook_detector(events: Vec<&str>) -> anyhow::Result<Vec<AgentState>>
     let dir = tempfile::tempdir()?;
     let pipe_path = dir.path().join("hook.pipe");
     let receiver = HookReceiver::new(&pipe_path)?;
-    let detector = Box::new(HookDetector { receiver });
+    let detector = Box::new(super::new_hook_detector(receiver));
     assert_eq!(detector.tier(), 1);
 
     let (state_tx, mut state_rx) = mpsc::channel(32);

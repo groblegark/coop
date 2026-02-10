@@ -5,6 +5,7 @@ pub mod claude;
 pub mod composite;
 pub mod error_category;
 pub mod gemini;
+pub mod hook_detect;
 pub mod hook_recv;
 pub mod jsonl_stdout;
 pub mod log_watch;
