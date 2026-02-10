@@ -140,9 +140,13 @@ impl Session {
     pub async fn run(mut self, config: &Config) -> anyhow::Result<ExitStatus> {
         let idle_timeout = config.idle_timeout();
         let shutdown_timeout = config.shutdown_timeout();
+        let graceful_timeout = config.graceful_shutdown_timeout();
         let mut screen_debounce = tokio::time::interval(config.screen_debounce());
         let mut state_seq: u64 = 0;
         let mut idle_since: Option<tokio::time::Instant> = None;
+        let mut last_state = AgentState::Starting;
+        let mut drain_deadline: Option<tokio::time::Instant> = None;
+        let mut next_escape_at: Option<tokio::time::Instant> = None;
 
         loop {
             tokio::select! {
@@ -230,6 +234,7 @@ impl Session {
                         let prev = current.clone();
                         *current = detected.state.clone();
                         drop(current);
+                        last_state = detected.state.clone();
 
                         // Mark ready on first transition away from Starting.
                         if matches!(prev, AgentState::Starting)
@@ -289,6 +294,16 @@ impl Session {
                         } else {
                             idle_since = None;
                         }
+
+                        // Drain check: agent reached idle during drain → kill now.
+                        if drain_deadline.is_some() && matches!(detected.state, AgentState::WaitingForInput) {
+                            debug!("drain: agent reached idle, sending SIGHUP");
+                            let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
+                            if pid != 0 {
+                                let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGHUP);
+                            }
+                            break;
+                        }
                     }
                 }
 
@@ -317,16 +332,53 @@ impl Session {
                     break;
                 }
 
-                // 6. Shutdown signal
-                _ = self.shutdown.cancelled() => {
-                    debug!("shutdown signal received");
-                    // Send SIGHUP to the process group (negative PID) to also
-                    // clean up grandchildren spawned by the agent.
+                // 6. Drain escape ticker — periodically send Escape during drain
+                _ = async {
+                    match next_escape_at {
+                        Some(at) => tokio::time::sleep_until(at).await,
+                        None => std::future::pending().await,
+                    }
+                }, if next_escape_at.is_some() => {
+                    debug!("drain: sending Escape");
+                    let esc = Bytes::from_static(b"\x1b");
+                    self.app_state.lifecycle.bytes_written.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    self.app_state.input_activity.notify_waiters();
+                    let _ = self.backend_input_tx.send(BackendInput::Write(esc)).await;
+                    next_escape_at = Some(tokio::time::Instant::now() + Duration::from_secs(2));
+                }
+
+                // 7. Drain deadline — force-kill after graceful timeout
+                _ = async {
+                    match drain_deadline {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        None => std::future::pending().await,
+                    }
+                }, if drain_deadline.is_some() => {
+                    debug!("drain: deadline reached, force-killing");
                     let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
                     if pid != 0 {
                         let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGHUP);
                     }
                     break;
+                }
+
+                // 8. Shutdown signal (disabled once drain mode is active)
+                _ = self.shutdown.cancelled(), if drain_deadline.is_none() => {
+                    debug!("shutdown signal received");
+                    let pid = self.app_state.terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
+                    if graceful_timeout > Duration::ZERO
+                        && !matches!(last_state, AgentState::WaitingForInput)
+                    {
+                        debug!("entering graceful drain mode (timeout={graceful_timeout:?})");
+                        drain_deadline = Some(tokio::time::Instant::now() + graceful_timeout);
+                        next_escape_at = Some(tokio::time::Instant::now());
+                    } else {
+                        // Immediate kill (graceful disabled or agent already idle)
+                        if pid != 0 {
+                            let _ = kill(Pid::from_raw(-(pid as i32)), Signal::SIGHUP);
+                        }
+                        break;
+                    }
                 }
             }
         }

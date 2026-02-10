@@ -82,6 +82,10 @@ pub struct Config {
     /// Command to run (after --).
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub command: Vec<String>,
+
+    /// Graceful shutdown timeout in ms (0 = disabled, immediate kill).
+    #[clap(skip)]
+    pub graceful_shutdown_ms: Option<u64>,
 }
 
 impl Config {
@@ -153,7 +157,7 @@ impl Config {
 
     /// Claude screen detector: how long to use the fast startup poll.
     pub fn screen_startup_window(&self) -> Duration {
-        env_duration_secs("COOP_SCREEN_STARTUP_WINDOW_SECS", 15)
+        env_duration_ms("COOP_SCREEN_STARTUP_WINDOW_MS", 15_000)
     }
 
     /// Log watcher fallback poll interval (Tier 2).
@@ -195,7 +199,16 @@ impl Config {
 
     /// Idle timeout (0 = disabled).
     pub fn idle_timeout(&self) -> Duration {
-        env_duration_secs("COOP_IDLE_TIMEOUT_SECS", 0)
+        env_duration_ms("COOP_IDLE_TIMEOUT_MS", 0)
+    }
+
+    /// Graceful shutdown timeout: how long to wait for the agent to reach idle
+    /// after receiving SIGTERM before force-killing (0 = disabled, immediate kill).
+    pub fn graceful_shutdown_timeout(&self) -> Duration {
+        match self.graceful_shutdown_ms {
+            Some(ms) => Duration::from_millis(ms),
+            None => env_duration_ms("COOP_GRACEFUL_SHUTDOWN_MS", 20_000),
+        }
     }
 
     /// Build a minimal `Config` for tests (port 0, `echo` command).
@@ -219,6 +232,7 @@ impl Config {
             log_level: "debug".into(),
             resume: None,
             command: vec!["echo".into()],
+            graceful_shutdown_ms: Some(100),
         }
     }
 
@@ -310,11 +324,6 @@ pub fn merge_settings(
     }
 
     merged
-}
-
-fn env_duration_secs(var: &str, default: u64) -> Duration {
-    let secs = std::env::var(var).ok().and_then(|v| v.parse().ok()).unwrap_or(default);
-    Duration::from_secs(secs)
 }
 
 fn env_duration_ms(var: &str, default: u64) -> Duration {

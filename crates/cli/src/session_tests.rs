@@ -2,14 +2,16 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
+use crate::driver::AgentState;
 use crate::pty::spawn::NativePty;
 use crate::session::{Session, SessionConfig};
-use crate::test_support::AppStateBuilder;
+use crate::test_support::{AppStateBuilder, MockDetector, MockPty};
 
 #[tokio::test]
 async fn echo_exits_with_zero() -> anyhow::Result<()> {
@@ -59,7 +61,8 @@ async fn output_captured_in_ring_and_screen() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn shutdown_cancels_session() -> anyhow::Result<()> {
-    let config = Config::test();
+    let mut config = Config::test();
+    config.graceful_shutdown_ms = Some(0);
     let (input_tx, consumer_input_rx) = mpsc::channel(64);
     let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
     let shutdown = CancellationToken::new();
@@ -81,5 +84,120 @@ async fn shutdown_cancels_session() -> anyhow::Result<()> {
     let status = session.run(&config).await?;
     // Should have exited (signal or timeout)
     assert!(status.code.is_some() || status.signal.is_some(), "expected exit: {status:?}");
+    Ok(())
+}
+
+/// Agent is already idle when shutdown fires → immediate SIGHUP (no drain wait).
+#[tokio::test]
+async fn graceful_drain_kills_when_already_idle() -> anyhow::Result<()> {
+    let mut config = Config::test();
+    config.graceful_shutdown_ms = Some(2000);
+    let (input_tx, consumer_input_rx) = mpsc::channel(64);
+    let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let shutdown = CancellationToken::new();
+
+    let backend = MockPty::new().drain_input();
+    // Detector emits WaitingForInput almost immediately.
+    let detector =
+        MockDetector::new(1, vec![(Duration::from_millis(10), AgentState::WaitingForInput)]);
+
+    let session = Session::new(
+        &config,
+        SessionConfig::new(app_state, backend, consumer_input_rx)
+            .with_shutdown(shutdown.clone())
+            .with_detectors(vec![Box::new(detector)]),
+    );
+
+    // Cancel after the detector has fired (10ms) + margin.
+    let sd = shutdown.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        sd.cancel();
+    });
+
+    let start = std::time::Instant::now();
+    let _ = session.run(&config).await?;
+    let elapsed = start.elapsed();
+
+    // Should exit promptly (not wait for the 2s graceful timeout).
+    assert!(elapsed < Duration::from_secs(1), "expected quick exit, took {elapsed:?}");
+    Ok(())
+}
+
+/// Agent never reaches idle → drain deadline force-kills after timeout.
+#[tokio::test]
+async fn graceful_drain_timeout_force_kills() -> anyhow::Result<()> {
+    let mut config = Config::test();
+    config.graceful_shutdown_ms = Some(500);
+    let (input_tx, consumer_input_rx) = mpsc::channel(64);
+    let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let shutdown = CancellationToken::new();
+
+    let backend = MockPty::new().drain_input();
+    let captured = backend.captured_input();
+
+    let session = Session::new(
+        &config,
+        SessionConfig::new(app_state, backend, consumer_input_rx).with_shutdown(shutdown.clone()),
+    );
+
+    // Cancel after a short delay; no detector → state stays Starting → drain entered.
+    let sd = shutdown.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        sd.cancel();
+    });
+
+    let start = std::time::Instant::now();
+    let _ = session.run(&config).await?;
+    let elapsed = start.elapsed();
+
+    // Should wait for the ~500ms drain deadline, not exit immediately.
+    assert!(elapsed >= Duration::from_millis(300), "exited too fast: {elapsed:?}");
+    assert!(elapsed < Duration::from_secs(3), "took too long: {elapsed:?}");
+
+    // Verify Escape bytes were sent during drain.
+    let input = captured.lock();
+    let has_escape = input.iter().any(|b| b.as_ref() == b"\x1b");
+    assert!(has_escape, "expected Escape bytes in captured input: {input:?}");
+
+    Ok(())
+}
+
+/// graceful_shutdown_ms=0 disables drain → immediate SIGHUP like pre-feature.
+#[tokio::test]
+async fn graceful_drain_disabled_when_zero() -> anyhow::Result<()> {
+    let mut config = Config::test();
+    config.graceful_shutdown_ms = Some(0);
+    let (input_tx, consumer_input_rx) = mpsc::channel(64);
+    let app_state = AppStateBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let shutdown = CancellationToken::new();
+
+    let backend = MockPty::new().drain_input();
+    let captured = backend.captured_input();
+
+    let session = Session::new(
+        &config,
+        SessionConfig::new(app_state, backend, consumer_input_rx).with_shutdown(shutdown.clone()),
+    );
+
+    let sd = shutdown.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        sd.cancel();
+    });
+
+    let start = std::time::Instant::now();
+    let _ = session.run(&config).await?;
+    let elapsed = start.elapsed();
+
+    // Should exit immediately (no drain mode).
+    assert!(elapsed < Duration::from_secs(2), "expected quick exit, took {elapsed:?}");
+
+    // No Escape bytes should have been sent.
+    let input = captured.lock();
+    let has_escape = input.iter().any(|b| b.as_ref() == b"\x1b");
+    assert!(!has_escape, "unexpected Escape bytes in captured input: {input:?}");
+
     Ok(())
 }
