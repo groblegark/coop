@@ -98,7 +98,7 @@ async fn handle_connection(
                     Err(_) => continue,
                 };
                 if matches!(mode, SubscriptionMode::State | SubscriptionMode::All) {
-                    let msg = ServerMessage::PromptAction {
+                    let msg = ServerMessage::PromptOutcome {
                         source: event.source,
                         r#type: event.r#type,
                         subtype: event.subtype,
@@ -163,7 +163,7 @@ async fn handle_connection(
                     Err(_) => continue,
                 };
                 if matches!(mode, SubscriptionMode::State | SubscriptionMode::All) {
-                    let msg = state_change_to_msg(&event);
+                    let msg = transition_to_msg(&event);
                     if send_json(&mut ws_tx, &msg).await.is_err() {
                         break;
                     }
@@ -255,7 +255,7 @@ async fn handle_client_message(
             Some(compute_status(state).await.into())
         }
 
-        ClientMessage::Replay { offset, limit } => {
+        ClientMessage::GetReplay { offset, limit } => {
             require_auth!(authed);
             let ring = state.terminal.ring.read().await;
             let total_written = ring.total_written();
@@ -265,7 +265,7 @@ async fn handle_client_message(
             }
             let read_len = combined.len() as u64;
             let encoded = base64::engine::general_purpose::STANDARD.encode(&combined);
-            Some(ServerMessage::ReplayResult {
+            Some(ServerMessage::Replay {
                 data: encoded,
                 offset,
                 next_offset: offset + read_len,
@@ -276,7 +276,7 @@ async fn handle_client_message(
         ClientMessage::SendInput { text, enter } => {
             require_auth!(authed);
             let bytes_written = handle_input(state, text, enter).await;
-            Some(ServerMessage::InputResult { bytes_written })
+            Some(ServerMessage::InputSent { bytes_written })
         }
 
         ClientMessage::SendInputRaw { data } => {
@@ -286,13 +286,13 @@ async fn handle_client_message(
                 Err(_) => return Some(ws_error(ErrorCode::BadRequest, "invalid base64 data")),
             };
             let bytes_written = handle_input_raw(state, decoded).await;
-            Some(ServerMessage::InputResult { bytes_written })
+            Some(ServerMessage::InputSent { bytes_written })
         }
 
         ClientMessage::SendKeys { keys } => {
             require_auth!(authed);
             match handle_keys(state, &keys).await {
-                Ok(bytes_written) => Some(ServerMessage::InputResult { bytes_written }),
+                Ok(bytes_written) => Some(ServerMessage::InputSent { bytes_written }),
                 Err(bad_key) => {
                     Some(ws_error(ErrorCode::BadRequest, &format!("unknown key: {bad_key}")))
                 }
@@ -302,7 +302,7 @@ async fn handle_client_message(
         ClientMessage::SendSignal { signal } => {
             require_auth!(authed);
             match handle_signal(state, &signal).await {
-                Ok(()) => Some(ServerMessage::SignalResult { delivered: true }),
+                Ok(()) => Some(ServerMessage::SignalSent { delivered: true }),
                 Err(bad_signal) => {
                     Some(ws_error(ErrorCode::BadRequest, &format!("unknown signal: {bad_signal}")))
                 }
@@ -312,7 +312,7 @@ async fn handle_client_message(
         ClientMessage::Resize { cols, rows } => {
             require_auth!(authed);
             match handle_resize(state, cols, rows).await {
-                Ok(()) => Some(ServerMessage::ResizeResult { cols, rows }),
+                Ok(()) => Some(ServerMessage::Resized { cols, rows }),
                 Err(_) => Some(ws_error(ErrorCode::BadRequest, "cols and rows must be positive")),
             }
         }
@@ -327,7 +327,7 @@ async fn handle_client_message(
             let error_category =
                 state.driver.error.read().await.as_ref().map(|e| e.category.as_str().to_owned());
             let last_message = state.driver.last_message.read().await.clone();
-            Some(ServerMessage::AgentState {
+            Some(ServerMessage::Agent {
                 agent: state.config.agent.to_string(),
                 state: agent.as_str().to_owned(),
                 since_seq: state.driver.state_seq.load(std::sync::atomic::Ordering::Acquire),
@@ -370,7 +370,7 @@ async fn handle_client_message(
             match serde_json::from_value::<StopConfig>(config) {
                 Ok(new_config) => {
                     *state.stop.config.write().await = new_config;
-                    Some(ServerMessage::ConfigUpdated { updated: true })
+                    Some(ServerMessage::StopConfigured { updated: true })
                 }
                 Err(e) => {
                     Some(ws_error(ErrorCode::BadRequest, &format!("invalid stop config: {e}")))
@@ -383,7 +383,7 @@ async fn handle_client_message(
             let stop = &state.stop;
             *stop.signal_body.write().await = Some(body);
             stop.signaled.store(true, std::sync::atomic::Ordering::Release);
-            Some(ServerMessage::StopResult { accepted: true })
+            Some(ServerMessage::StopResolved { accepted: true })
         }
 
         // Start hook
@@ -399,7 +399,7 @@ async fn handle_client_message(
             match serde_json::from_value::<StartConfig>(config) {
                 Ok(new_config) => {
                     *state.start.config.write().await = new_config;
-                    Some(ServerMessage::ConfigUpdated { updated: true })
+                    Some(ServerMessage::StartConfigured { updated: true })
                 }
                 Err(e) => {
                     Some(ws_error(ErrorCode::BadRequest, &format!("invalid start config: {e}")))
@@ -411,7 +411,7 @@ async fn handle_client_message(
         ClientMessage::Shutdown {} => {
             require_auth!(authed);
             state.lifecycle.shutdown.cancel();
-            Some(ServerMessage::ShutdownResult { accepted: true })
+            Some(ServerMessage::Shutdown { accepted: true })
         }
 
         // Connection

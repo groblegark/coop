@@ -114,7 +114,7 @@ fn prompt_to_proto_handles_none_fields() {
 }
 
 #[test]
-fn state_change_to_proto_converts_simple_transition() {
+fn transition_to_proto_converts_simple_transition() {
     let event = crate::event::TransitionEvent {
         prev: AgentState::Starting,
         next: AgentState::Working,
@@ -122,7 +122,7 @@ fn state_change_to_proto_converts_simple_transition() {
         cause: String::new(),
         last_message: None,
     };
-    let p = state_change_to_proto(&event);
+    let p = transition_to_proto(&event);
     assert_eq!(p.prev, "starting");
     assert_eq!(p.next, "working");
     assert_eq!(p.seq, 7);
@@ -130,7 +130,7 @@ fn state_change_to_proto_converts_simple_transition() {
 }
 
 #[test]
-fn state_change_to_proto_includes_prompt() {
+fn transition_to_proto_includes_prompt() {
     let prompt =
         crate::driver::PromptContext::new(crate::driver::PromptKind::Permission).with_tool("write");
     let event = crate::event::TransitionEvent {
@@ -140,7 +140,7 @@ fn state_change_to_proto_includes_prompt() {
         cause: String::new(),
         last_message: None,
     };
-    let p = state_change_to_proto(&event);
+    let p = transition_to_proto(&event);
     assert_eq!(p.next, "prompt");
     assert!(p.prompt.is_some());
     let pp = p.prompt.as_ref();
@@ -148,7 +148,7 @@ fn state_change_to_proto_includes_prompt() {
 }
 
 #[test]
-fn state_change_to_proto_includes_error_fields() {
+fn transition_to_proto_includes_error_fields() {
     let event = crate::event::TransitionEvent {
         prev: AgentState::Working,
         next: AgentState::Error { detail: "rate_limit_error".to_owned() },
@@ -156,14 +156,14 @@ fn state_change_to_proto_includes_error_fields() {
         cause: String::new(),
         last_message: None,
     };
-    let p = state_change_to_proto(&event);
+    let p = transition_to_proto(&event);
     assert_eq!(p.next, "error");
     assert_eq!(p.error_detail.as_deref(), Some("rate_limit_error"));
     assert_eq!(p.error_category.as_deref(), Some("rate_limited"));
 }
 
 #[test]
-fn state_change_to_proto_omits_error_fields_for_non_error() {
+fn transition_to_proto_omits_error_fields_for_non_error() {
     let event = crate::event::TransitionEvent {
         prev: AgentState::Starting,
         next: AgentState::Working,
@@ -171,7 +171,7 @@ fn state_change_to_proto_omits_error_fields_for_non_error() {
         cause: String::new(),
         last_message: None,
     };
-    let p = state_change_to_proto(&event);
+    let p = transition_to_proto(&event);
     assert!(p.error_detail.is_none());
     assert!(p.error_category.is_none());
 }

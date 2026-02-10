@@ -85,11 +85,11 @@ pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
     }
 }
 
-/// Convert a domain [`TransitionEvent`] to proto [`proto::AgentStateEvent`].
-pub fn state_change_to_proto(e: &TransitionEvent) -> proto::AgentStateEvent {
+/// Convert a domain [`TransitionEvent`] to proto [`proto::TransitionEvent`].
+pub fn transition_to_proto(e: &TransitionEvent) -> proto::TransitionEvent {
     let (error_detail, error_category) = extract_error_fields(&e.next);
     let cause = if e.cause.is_empty() { None } else { Some(e.cause.clone()) };
-    proto::AgentStateEvent {
+    proto::TransitionEvent {
         prev: e.prev.as_str().to_owned(),
         next: e.next.as_str().to_owned(),
         seq: e.seq,
@@ -452,26 +452,26 @@ impl proto::coop_server::Coop for CoopGrpc {
         }
     }
 
-    type StreamAgentStream = GrpcStream<proto::AgentStateEvent>;
+    type StreamAgentStream = GrpcStream<proto::TransitionEvent>;
 
     async fn stream_agent(
         &self,
         _request: Request<proto::StreamAgentRequest>,
     ) -> Result<Response<Self::StreamAgentStream>, Status> {
         let state_rx = self.state.channels.state_tx.subscribe();
-        let stream = spawn_broadcast_stream(state_rx, |event| Some(state_change_to_proto(&event)));
+        let stream = spawn_broadcast_stream(state_rx, |event| Some(transition_to_proto(&event)));
         Ok(Response::new(stream))
     }
 
-    type StreamPromptActionsStream = GrpcStream<proto::PromptActionEvent>;
+    type StreamPromptOutcomesStream = GrpcStream<proto::PromptOutcomeEvent>;
 
-    async fn stream_prompt_actions(
+    async fn stream_prompt_outcomes(
         &self,
-        _request: Request<proto::StreamPromptActionsRequest>,
-    ) -> Result<Response<Self::StreamPromptActionsStream>, Status> {
+        _request: Request<proto::StreamPromptOutcomesRequest>,
+    ) -> Result<Response<Self::StreamPromptOutcomesStream>, Status> {
         let prompt_rx = self.state.channels.prompt_tx.subscribe();
         let stream = spawn_broadcast_stream(prompt_rx, |event| {
-            Some(proto::PromptActionEvent {
+            Some(proto::PromptOutcomeEvent {
                 source: event.source,
                 r#type: event.r#type,
                 subtype: event.subtype,

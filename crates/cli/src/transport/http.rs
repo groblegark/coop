@@ -132,7 +132,7 @@ pub struct SignalResponse {
 // -- Agent types --------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentStateResponse {
+pub struct AgentResponse {
     pub agent: String,
     pub state: String,
     pub since_seq: u64,
@@ -311,13 +311,13 @@ pub async fn signal(
 // -- Agent handlers -----------------------------------------------------------
 
 /// `GET /api/v1/agent`
-pub async fn agent_state(State(s): State<Arc<Store>>) -> impl IntoResponse {
+pub async fn agent(State(s): State<Arc<Store>>) -> impl IntoResponse {
     let state = s.driver.agent_state.read().await;
     let screen = s.terminal.screen.read().await;
 
     let detection = s.driver.detection.read().await;
 
-    Json(AgentStateResponse {
+    Json(AgentResponse {
         agent: s.config.agent.to_string(),
         state: state.as_str().to_owned(),
         since_seq: s.driver.state_seq.load(Ordering::Acquire),

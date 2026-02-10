@@ -19,32 +19,38 @@ use crate::transport::handler::{
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum ClientMessage {
     // Terminal
-    #[serde(rename = "get:health")]
+    #[serde(rename = "health:get")]
     GetHealth {},
-    #[serde(rename = "get:ready")]
+    #[serde(rename = "ready:get")]
     GetReady {},
-    #[serde(rename = "get:screen")]
+    #[serde(rename = "screen:get")]
     GetScreen {
         #[serde(default)]
         cursor: bool,
     },
-    #[serde(rename = "get:status")]
+    #[serde(rename = "replay:get")]
+    GetReplay {
+        offset: u64,
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    #[serde(rename = "status:get")]
     GetStatus {},
-    #[serde(rename = "send:input")]
+    #[serde(rename = "input:send")]
     SendInput {
         text: String,
         #[serde(default)]
         enter: bool,
     },
-    #[serde(rename = "send:input:raw")]
+    #[serde(rename = "input:send:raw")]
     SendInputRaw {
         data: String,
     },
-    #[serde(rename = "send:keys")]
+    #[serde(rename = "keys:send")]
     SendKeys {
         keys: Vec<String>,
     },
-    #[serde(rename = "send:signal")]
+    #[serde(rename = "signal:send")]
     SendSignal {
         signal: String,
     },
@@ -52,14 +58,9 @@ pub enum ClientMessage {
         cols: u16,
         rows: u16,
     },
-    Replay {
-        offset: u64,
-        #[serde(default)]
-        limit: Option<usize>,
-    },
 
     // Agent
-    #[serde(rename = "get:agent")]
+    #[serde(rename = "agent:get")]
     GetAgent {},
     Nudge {
         message: String,
@@ -73,21 +74,21 @@ pub enum ClientMessage {
     },
 
     // Stop hook
-    #[serde(rename = "get:config:stop")]
+    #[serde(rename = "stop:config:get")]
     GetStopConfig {},
-    #[serde(rename = "put:config:stop")]
+    #[serde(rename = "stop:config:put")]
     PutStopConfig {
         config: serde_json::Value,
     },
-    #[serde(rename = "resolve:stop")]
+    #[serde(rename = "stop:resolve")]
     ResolveStop {
         body: serde_json::Value,
     },
 
     // Start hook
-    #[serde(rename = "get:config:start")]
+    #[serde(rename = "config:start:get")]
     GetStartConfig {},
-    #[serde(rename = "put:config:start")]
+    #[serde(rename = "config:put:get")]
     PutStartConfig {
         config: serde_json::Value,
     },
@@ -127,6 +128,12 @@ pub enum ServerMessage {
         cursor: Option<CursorPosition>,
         seq: u64,
     },
+    Replay {
+        data: String,
+        offset: u64,
+        next_offset: u64,
+        total_written: u64,
+    },
     Output {
         data: String,
         offset: u64,
@@ -141,30 +148,22 @@ pub enum ServerMessage {
         bytes_written: u64,
         ws_clients: i32,
     },
-    #[serde(rename = "replay:result")]
-    ReplayResult {
-        data: String,
-        offset: u64,
-        next_offset: u64,
-        total_written: u64,
-    },
-    #[serde(rename = "input:result")]
-    InputResult {
+    #[serde(rename = "input:sent")]
+    InputSent {
         bytes_written: i32,
     },
-    #[serde(rename = "resize:result")]
-    ResizeResult {
+    #[serde(rename = "signal:sent")]
+    SignalSent {
+        delivered: bool,
+    },
+    Resized {
         cols: u16,
         rows: u16,
     },
-    #[serde(rename = "signal:result")]
-    SignalResult {
-        delivered: bool,
-    },
 
     // Agent
-    #[serde(rename = "agent:state")]
-    AgentState {
+    #[serde(rename = "agent")]
+    Agent {
         agent: String,
         state: String,
         since_seq: u64,
@@ -179,16 +178,14 @@ pub enum ServerMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         last_message: Option<String>,
     },
-    #[serde(rename = "nudge:result")]
-    NudgeResult {
+    Nudged {
         delivered: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         state_before: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
-    #[serde(rename = "response:result")]
-    RespondResult {
+    Response {
         delivered: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         prompt_type: Option<String>,
@@ -213,8 +210,8 @@ pub enum ServerMessage {
         code: Option<i32>,
         signal: Option<i32>,
     },
-    #[serde(rename = "prompt:action")]
-    PromptAction {
+    #[serde(rename = "prompt:outcome")]
+    PromptOutcome {
         source: String,
         r#type: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -224,15 +221,20 @@ pub enum ServerMessage {
     },
 
     // Stop hook
-    #[serde(rename = "config:stop")]
+    #[serde(rename = "stop:config")]
     StopConfig {
         config: serde_json::Value,
     },
-    #[serde(rename = "stop:result")]
-    StopResult {
+    #[serde(rename = "stop:configured")]
+    StopConfigured {
+        updated: bool,
+    },
+    #[serde(rename = "stop:resolved")]
+    StopResolved {
         accepted: bool,
     },
-    Stop {
+    #[serde(rename = "stop:outcome")]
+    StopOutcome {
         r#type: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         signal: Option<serde_json::Value>,
@@ -242,11 +244,16 @@ pub enum ServerMessage {
     },
 
     // Start hook
-    #[serde(rename = "config:start")]
+    #[serde(rename = "start:config")]
     StartConfig {
         config: serde_json::Value,
     },
-    Start {
+    #[serde(rename = "start:configured")]
+    StartConfigured {
+        updated: bool,
+    },
+    #[serde(rename = "start:outcome")]
+    StartOutcome {
         source: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
@@ -254,15 +261,8 @@ pub enum ServerMessage {
         seq: u64,
     },
 
-    // Config (shared)
-    #[serde(rename = "config:updated")]
-    ConfigUpdated {
-        updated: bool,
-    },
-
     // Lifecycle
-    #[serde(rename = "shutdown:result")]
-    ShutdownResult {
+    Shutdown {
         accepted: bool,
     },
 
@@ -310,7 +310,7 @@ impl From<SessionStatus> for ServerMessage {
 
 impl From<NudgeOutcome> for ServerMessage {
     fn from(o: NudgeOutcome) -> Self {
-        ServerMessage::NudgeResult {
+        ServerMessage::Nudged {
             delivered: o.delivered,
             state_before: o.state_before,
             reason: o.reason,
@@ -320,7 +320,7 @@ impl From<NudgeOutcome> for ServerMessage {
 
 impl From<RespondOutcome> for ServerMessage {
     fn from(o: RespondOutcome) -> Self {
-        ServerMessage::RespondResult {
+        ServerMessage::Response {
             delivered: o.delivered,
             prompt_type: o.prompt_type,
             reason: o.reason,
@@ -346,7 +346,7 @@ pub fn ws_error(code: ErrorCode, message: &str) -> ServerMessage {
 }
 
 /// Convert a `TransitionEvent` to a `ServerMessage`.
-pub fn state_change_to_msg(event: &TransitionEvent) -> ServerMessage {
+pub fn transition_to_msg(event: &TransitionEvent) -> ServerMessage {
     if let AgentState::Exited { status } = &event.next {
         return ServerMessage::Exit { code: status.code, signal: status.signal };
     }
@@ -365,7 +365,7 @@ pub fn state_change_to_msg(event: &TransitionEvent) -> ServerMessage {
 
 /// Convert a `StopEvent` to a `ServerMessage`.
 pub fn stop_event_to_msg(event: &StopEvent) -> ServerMessage {
-    ServerMessage::Stop {
+    ServerMessage::StopOutcome {
         r#type: event.r#type.as_str().to_owned(),
         signal: event.signal.clone(),
         error_detail: event.error_detail.clone(),
@@ -375,7 +375,7 @@ pub fn stop_event_to_msg(event: &StopEvent) -> ServerMessage {
 
 /// Convert a `StartEvent` to a `ServerMessage`.
 pub fn start_event_to_msg(event: &StartEvent) -> ServerMessage {
-    ServerMessage::Start {
+    ServerMessage::StartOutcome {
         source: event.source.clone(),
         session_id: event.session_id.clone(),
         injected: event.injected,

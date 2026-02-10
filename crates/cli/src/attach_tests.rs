@@ -301,12 +301,12 @@ mod ws_integration {
         let (addr, _state) = spawn_test_server(vec!["hello world"]).await;
         let (mut tx, mut rx) = connect_ws(addr, "raw").await;
 
-        let msg = ClientMessage::Replay { offset: 0, limit: None };
+        let msg = ClientMessage::GetReplay { offset: 0, limit: None };
         let response = send_and_recv(&mut tx, &mut rx, &msg).await;
 
         let parsed: Result<ServerMessage, _> = serde_json::from_str(&response);
         match parsed {
-            Ok(ServerMessage::ReplayResult { data, offset, .. }) => {
+            Ok(ServerMessage::Replay { data, offset, .. }) => {
                 assert_eq!(offset, 0);
                 let decoded =
                     base64::engine::general_purpose::STANDARD.decode(&data).unwrap_or_default();
@@ -330,7 +330,7 @@ mod ws_integration {
 
         let parsed: Result<ServerMessage, _> = serde_json::from_str(&response);
         match parsed {
-            Ok(ServerMessage::AgentState { state, .. }) => {
+            Ok(ServerMessage::Agent { state, .. }) => {
                 assert_eq!(state, "starting", "default AppState starts as 'starting'");
             }
             other => panic!("expected AgentState, got {other:?}"),

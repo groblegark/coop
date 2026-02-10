@@ -20,7 +20,7 @@ use crate::driver::{
     classify_error_detail, disruption_option, AgentState, CompositeDetector, DetectedState,
     Detector, ExitStatus, NudgeStep, OptionParser, PromptKind,
 };
-use crate::event::{InputEvent, OutputEvent, PromptAction, TransitionEvent};
+use crate::event::{InputEvent, OutputEvent, PromptOutcome, TransitionEvent};
 use crate::pty::{Backend, BackendInput, Boxed};
 use crate::transport::Store;
 
@@ -366,7 +366,7 @@ impl Session {
                                                     }
                                                 }
                                             }
-                                            let _ = prompt_tx.send(PromptAction {
+                                            let _ = prompt_tx.send(PromptOutcome {
                                                 source: "groom".to_owned(),
                                                 r#type: prompt_type,
                                                 subtype: prompt_subtype,

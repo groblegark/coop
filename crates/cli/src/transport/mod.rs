@@ -320,7 +320,7 @@ pub fn build_router(state: Arc<Store>) -> Router {
         .route("/api/v1/input/keys", post(http::input_keys))
         .route("/api/v1/resize", post(http::resize))
         .route("/api/v1/signal", post(http::signal))
-        .route("/api/v1/agent", get(http::agent_state))
+        .route("/api/v1/agent", get(http::agent))
         .route("/api/v1/agent/nudge", post(http::agent_nudge))
         .route("/api/v1/agent/respond", post(http::agent_respond))
         .route("/api/v1/hooks/stop", post(http::hooks_stop))
@@ -340,7 +340,7 @@ pub fn build_health_router(state: Arc<Store>) -> Router {
     Router::new()
         .route("/api/v1/health", get(http::health))
         .route("/api/v1/ready", get(http::ready))
-        .route("/api/v1/agent", get(http::agent_state))
+        .route("/api/v1/agent", get(http::agent))
         .with_state(state)
 }
 

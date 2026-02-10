@@ -450,9 +450,11 @@ async fn attach(
                     .await;
         }
 
-        let _ =
-            send_msg(&mut ws_tx, &ClientMessage::Replay { offset: state.next_offset, limit: None })
-                .await;
+        let _ = send_msg(
+            &mut ws_tx,
+            &ClientMessage::GetReplay { offset: state.next_offset, limit: None },
+        )
+        .await;
 
         if sl_active {
             let _ = send_msg(&mut ws_tx, &ClientMessage::GetAgent {}).await;
@@ -575,7 +577,7 @@ where
                     Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) => {
                         match serde_json::from_str::<ServerMessage>(&text) {
                             Ok(ServerMessage::Output { data, offset, .. })
-                            | Ok(ServerMessage::ReplayResult { data, offset, .. }) => {
+                            | Ok(ServerMessage::Replay { data, offset, .. }) => {
                                 if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&data) {
                                     ctx.state.next_offset = offset + decoded.len() as u64;
                                     let _ = ctx.stdout.write_all(&decoded);
@@ -589,7 +591,7 @@ where
                                 while let Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text)))) =
                                     tokio::time::timeout_at(drain_deadline, ws_rx.next()).await
                                 {
-                                    if let Ok(ServerMessage::Output { data, offset, .. } | ServerMessage::ReplayResult { data, offset, .. }) = serde_json::from_str(&text) {
+                                    if let Ok(ServerMessage::Output { data, offset, .. } | ServerMessage::Replay { data, offset, .. }) = serde_json::from_str(&text) {
                                         if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&data) {
                                             ctx.state.next_offset = offset + decoded.len() as u64;
                                             let _ = ctx.stdout.write_all(&decoded);

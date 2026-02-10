@@ -31,10 +31,8 @@ query string, the connection starts in an unauthenticated state.
 | Missing | Unauthenticated | Allowed | Blocked until `auth` message |
 | Invalid | Rejected | Connection refused (401) | -- |
 
-Read-only operations (subscriptions, `screen:get`, `state:get`,
-`get:status`, `replay`, `ping`) are always available. Write operations
-(`input`, `input:raw`, `keys`, `nudge`, `respond`, `signal`, `shutdown`)
-require authentication. `resize` does not require authentication.
+Only `health:get`, `ready:get`, and `ping` are available without
+authentication. All other operations require authentication.
 
 
 ## Subscription Modes
@@ -45,7 +43,7 @@ Set via the `mode` query parameter on the upgrade URL.
 |------|-------------|---------------|
 | Raw output | `raw` | `output` messages with base64-encoded PTY bytes |
 | Screen updates | `screen` | `screen` messages with rendered terminal state |
-| State changes | `state` | `transition`, `exit`, `stop`, and `start` messages |
+| State changes | `state` | `transition`, `exit`, `prompt:action`, `stop:outcome`, `start:outcome` |
 | All (default) | `all` | All of the above |
 
 Example: `ws://localhost:8080/ws?mode=screen&token=mytoken`
@@ -101,8 +99,7 @@ screen update, or in response to a `screen:get`.
 
 ### `transition`
 
-Agent state transition. Sent in `state` and `all` modes, or in response
-to a `state:get`.
+Agent state transition. Sent in `state` and `all` modes.
 
 ```json
 {
@@ -159,49 +156,168 @@ This replaces `transition` for the terminal `exited` state.
 | `signal` | int or null | Signal number that killed the process |
 
 
-### `nudge:result`
+### `prompt:action`
 
-Result of a `nudge` request. Always sent in response to a client `nudge`.
+Prompt action event. Sent in `state` and `all` modes when a prompt is
+responded to via the API.
 
 ```json
 {
-  "event": "nudge:result",
-  "delivered": true,
-  "state_before": "idle",
-  "reason": null
+  "event": "prompt:action",
+  "source": "api",
+  "type": "permission",
+  "subtype": "tool",
+  "option": 1
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `delivered` | bool | Whether the nudge was written to the PTY |
-| `state_before` | string or null | Agent state at the time of the request |
-| `reason` | string or null | Why the nudge was not delivered |
+| `source` | string | Source of the action (e.g. `"api"`) |
+| `type` | string | Prompt type that was responded to |
+| `subtype` | string or null | Prompt subtype |
+| `option` | int or null | Option number that was selected |
 
 
-### `respond:result`
+### `stop:outcome`
 
-Result of a `respond` request. Always sent in response to a client `respond`.
+Stop hook verdict event. Sent in `state` and `all` modes whenever a
+stop hook check occurs.
 
 ```json
 {
-  "event": "respond:result",
-  "delivered": true,
-  "prompt_type": "permission",
-  "reason": null
+  "event": "stop:outcome",
+  "type": "blocked",
+  "signal": null,
+  "error_detail": null,
+  "seq": 0
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `delivered` | bool | Whether the response was written to the PTY |
-| `prompt_type` | string or null | Prompt type at the time of the request |
-| `reason` | string or null | Why the response was not delivered |
+| `type` | string | Verdict type (see table below) |
+| `signal` | JSON or null | Signal body (when `type` is `"signaled"`) |
+| `error_detail` | string or null | Error details (when `type` is `"error"`) |
+| `seq` | int | Monotonic stop event sequence number |
+
+**Stop types:**
+
+| Type | Description |
+|------|-------------|
+| `signaled` | Signal received via resolve endpoint; agent allowed to stop |
+| `error` | Agent in unrecoverable error state; allowed to stop |
+| `safety_valve` | Claude's safety valve triggered; must allow |
+| `blocked` | Stop was blocked; agent should continue working |
+| `allowed` | Mode is `allow`; agent always allowed to stop |
+
+
+### `start:outcome`
+
+Start hook event. Sent in `state` and `all` modes whenever a session
+lifecycle event fires.
+
+```json
+{
+  "event": "start:outcome",
+  "source": "resume",
+  "session_id": "abc123",
+  "injected": true,
+  "seq": 0
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | string | Lifecycle event type (e.g. `"start"`, `"resume"`, `"clear"`) |
+| `session_id` | string or null | Session identifier if available |
+| `injected` | bool | Whether a non-empty script was injected |
+| `seq` | int | Monotonic start event sequence number |
+
+
+### `health`
+
+Health check response. Sent in reply to `health:get`.
+
+```json
+{
+  "event": "health",
+  "status": "running",
+  "pid": 12345,
+  "uptime_secs": 120,
+  "agent": "claude",
+  "terminal_cols": 120,
+  "terminal_rows": 40,
+  "ws_clients": 2,
+  "ready": true
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | Always `"running"` |
+| `pid` | int or null | Child process PID |
+| `uptime_secs` | int | Seconds since coop started |
+| `agent` | string | Agent type (`"claude"`, `"codex"`, `"gemini"`, `"unknown"`) |
+| `terminal_cols` | int | Terminal width |
+| `terminal_rows` | int | Terminal height |
+| `ws_clients` | int | Connected WebSocket clients |
+| `ready` | bool | Whether the session is ready |
+
+
+### `ready`
+
+Readiness probe response. Sent in reply to `ready:get`.
+
+```json
+{
+  "event": "ready",
+  "ready": true
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ready` | bool | Whether the session is ready |
+
+
+### `agent`
+
+Agent state response. Sent in reply to `agent:get`.
+
+```json
+{
+  "event": "agent",
+  "agent": "claude",
+  "state": "prompt",
+  "since_seq": 15,
+  "screen_seq": 42,
+  "detection_tier": "tier1_hooks",
+  "detection_cause": "hook:permission",
+  "prompt": { "type": "permission", "..." : "..." },
+  "error_detail": null,
+  "error_category": null,
+  "last_message": null
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `agent` | string | Agent type |
+| `state` | string | Current agent state |
+| `since_seq` | int | Sequence number when this state was entered |
+| `screen_seq` | int | Current screen sequence number |
+| `detection_tier` | string | Which detection tier produced this state |
+| `detection_cause` | string | Freeform cause string from the detector |
+| `prompt` | PromptContext or null | Prompt context (when state is `"prompt"`) |
+| `error_detail` | string or null | Error text (when state is `"error"`) |
+| `error_category` | string or null | Error classification (when state is `"error"`) |
+| `last_message` | string or null | Last message extracted from agent output |
 
 
 ### `status`
 
-Session status summary. Sent in response to a `get:status`.
+Session status summary. Sent in response to `status:get`.
 
 ```json
 {
@@ -229,60 +345,151 @@ Session status summary. Sent in response to a `get:status`.
 | `ws_clients` | int | Connected WebSocket clients |
 
 
-### `stop`
+### `replay`
 
-Stop hook verdict event. Sent in `state` and `all` modes whenever a stop
-hook check occurs.
+Replay response. Sent in reply to a `replay` request.
 
 ```json
 {
-  "event": "stop",
-  "type": "blocked",
-  "signal": null,
-  "error_detail": null,
-  "seq": 0
+  "event": "replay",
+  "data": "SGVsbG8gV29ybGQ=",
+  "offset": 0,
+  "next_offset": 1024,
+  "total_written": 4096
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | string | Verdict type (see table below) |
-| `signal` | JSON or null | Signal body (when `type` is `"signaled"`) |
-| `error_detail` | string or null | Error details (when `type` is `"error"`) |
-| `seq` | int | Monotonic stop event sequence number |
-
-**Stop types:**
-
-| Type | Description |
-|------|-------------|
-| `signaled` | Signal received via resolve endpoint; agent allowed to stop |
-| `error` | Agent in unrecoverable error state; allowed to stop |
-| `safety_valve` | Claude's safety valve triggered; must allow |
-| `blocked` | Stop was blocked; agent should continue working |
-| `allowed` | Mode is `allow`; agent always allowed to stop |
+| `data` | string | Base64-encoded raw bytes |
+| `offset` | int | Starting byte offset |
+| `next_offset` | int | Byte offset after the returned data |
+| `total_written` | int | Total bytes written to the ring buffer |
 
 
-### `start`
+### `input:sent`
 
-Start hook event. Sent in `state` and `all` modes whenever a session
-lifecycle event fires.
+Confirmation that input was written to the PTY. Sent in reply to
+`input:send`, `input:send:raw`, and `keys:send`.
 
 ```json
 {
-  "event": "start",
-  "source": "resume",
-  "session_id": "abc123",
-  "injected": true,
-  "seq": 0
+  "event": "input:sent",
+  "bytes_written": 6
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `source` | string | Lifecycle event type (e.g. `"start"`, `"resume"`, `"clear"`) |
-| `session_id` | string or null | Session identifier if available |
-| `injected` | bool | Whether a non-empty script was injected |
-| `seq` | int | Monotonic start event sequence number |
+| `bytes_written` | int | Number of bytes written to the PTY |
+
+
+### `nudged`
+
+Result of a nudge request.
+
+```json
+{
+  "event": "nudged",
+  "delivered": true,
+  "state_before": "idle",
+  "reason": null
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `delivered` | bool | Whether the nudge was written to the PTY |
+| `state_before` | string or null | Agent state at the time of the request |
+| `reason` | string or null | Why the nudge was not delivered |
+
+
+### `response`
+
+Result of a respond request.
+
+```json
+{
+  "event": "response",
+  "delivered": true,
+  "prompt_type": "permission",
+  "reason": null
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `delivered` | bool | Whether the response was written to the PTY |
+| `prompt_type` | string or null | Prompt type at the time of the request |
+| `reason` | string or null | Why the response was not delivered |
+
+
+### `stop:config`
+
+Stop hook configuration. Sent in reply to `stop:config:get`.
+
+```json
+{
+  "event": "stop:config",
+  "config": { "mode": "signal", "prompt": "wait" }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `config` | object | Current StopConfig as JSON |
+
+
+### `stop:configured`
+
+Confirmation that stop config was updated. Sent in reply to `stop:config:put`.
+
+```json
+{
+  "event": "stop:configured",
+  "updated": true
+}
+```
+
+
+### `stop:resolved`
+
+Confirmation that stop was resolved. Sent in reply to `stop:resolve`.
+
+```json
+{
+  "event": "stop:resolved",
+  "accepted": true
+}
+```
+
+
+### `start:config`
+
+Start hook configuration. Sent in reply to `config:start:get`.
+
+```json
+{
+  "event": "start:config",
+  "config": { "text": "hello", "shell": ["echo hi"] }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `config` | object | Current StartConfig as JSON |
+
+
+### `start:configured`
+
+Confirmation that start config was updated. Sent in reply to `config:put:get`.
+
+```json
+{
+  "event": "start:configured",
+  "updated": true
+}
+```
 
 
 ### `error`
@@ -301,19 +508,6 @@ Error response to a client message.
 |-------|------|-------------|
 | `code` | string | Error code (same codes as HTTP API) |
 | `message` | string | Human-readable error description |
-
-
-### `resize`
-
-Terminal resize notification. Sent when the PTY is resized.
-
-```json
-{
-  "event": "resize",
-  "cols": 120,
-  "rows": 40
-}
-```
 
 
 ### `pong`
@@ -359,9 +553,35 @@ On success: no response (connection is now authenticated).
 On failure: `error` message with code `UNAUTHORIZED`.
 
 
+### `health:get`
+
+Request the health check. No auth required.
+
+```json
+{
+  "event": "health:get"
+}
+```
+
+Server replies with a `health` message.
+
+
+### `ready:get`
+
+Request the readiness probe. No auth required.
+
+```json
+{
+  "event": "ready:get"
+}
+```
+
+Server replies with a `ready` message.
+
+
 ### `screen:get`
 
-Request the current screen snapshot. No auth required.
+Request the current screen snapshot. Requires auth.
 
 ```json
 {
@@ -372,27 +592,26 @@ Request the current screen snapshot. No auth required.
 Server replies with a `screen` message.
 
 
-### `state:get`
+### `agent:get`
 
-Request the current agent state. No auth required.
+Request the current agent state. Requires auth.
 
 ```json
 {
-  "event": "state:get"
+  "event": "agent:get"
 }
 ```
 
-Server replies with a `transition` message where `prev` and `next` are the
-same (representing current state, not a transition).
+Server replies with an `agent` message.
 
 
-### `get:status`
+### `status:get`
 
-Request the current session status. No auth required.
+Request the current session status. Requires auth.
 
 ```json
 {
-  "event": "get:status"
+  "event": "status:get"
 }
 ```
 
@@ -401,7 +620,7 @@ Server replies with a `status` message.
 
 ### `replay`
 
-Request raw output from a specific byte offset. No auth required.
+Request raw output from a specific byte offset. **Requires auth.**
 
 ```json
 {
@@ -413,17 +632,18 @@ Request raw output from a specific byte offset. No auth required.
 | Field | Type | Description |
 |-------|------|-------------|
 | `offset` | int | Byte offset to start reading from |
+| `limit` | int or null | Maximum bytes to return |
 
-Server replies with a `replay_result` message containing the buffered data.
+Server replies with a `replay` message containing the buffered data.
 
 
-### `input`
+### `input:send`
 
 Write UTF-8 text to the PTY. **Requires auth.**
 
 ```json
 {
-  "event": "input",
+  "event": "input:send",
   "text": "hello",
   "enter": true
 }
@@ -434,16 +654,16 @@ Write UTF-8 text to the PTY. **Requires auth.**
 | `text` | string | required | Text to write to the PTY |
 | `enter` | bool | `false` | Append carriage return (`\r`) after text |
 
-No response on success. Error on auth failure.
+Server replies with an `input:sent` message. Error on auth failure.
 
 
-### `input:raw`
+### `input:send:raw`
 
 Write base64-encoded raw bytes to the PTY. **Requires auth.**
 
 ```json
 {
-  "event": "input:raw",
+  "event": "input:send:raw",
   "data": "SGVsbG8="
 }
 ```
@@ -452,16 +672,16 @@ Write base64-encoded raw bytes to the PTY. **Requires auth.**
 |-------|------|-------------|
 | `data` | string | Base64-encoded bytes |
 
-No response on success.
+Server replies with an `input:sent` message.
 
 
-### `keys`
+### `keys:send`
 
 Send named key sequences to the PTY. **Requires auth.**
 
 ```json
 {
-  "event": "keys",
+  "event": "keys:send",
   "keys": ["ctrl-c", "enter"]
 }
 ```
@@ -470,12 +690,13 @@ Send named key sequences to the PTY. **Requires auth.**
 |-------|------|-------------|
 | `keys` | string[] | Key names (see HTTP API key table for supported names) |
 
-No response on success. Error with `BAD_REQUEST` if a key name is unrecognized.
+Server replies with an `input:sent` message. Error with `BAD_REQUEST`
+if a key name is unrecognized.
 
 
 ### `resize`
 
-Resize the PTY. No auth required.
+Resize the PTY. **Requires auth.**
 
 ```json
 {
@@ -490,7 +711,8 @@ Resize the PTY. No auth required.
 | `cols` | int | New column count (must be > 0) |
 | `rows` | int | New row count (must be > 0) |
 
-No response on success. Error with `BAD_REQUEST` if dimensions are zero.
+Server replies with a `resized` confirmation message. Error with
+`BAD_REQUEST` if dimensions are zero.
 
 
 ### `nudge`
@@ -509,7 +731,7 @@ Only succeeds when the agent is in `idle` state.
 |-------|------|-------------|
 | `message` | string | Text message to send to the agent |
 
-Server replies with a `nudge:result`. Error on auth failure or if no
+Server replies with a `nudged` message. Error on auth failure or if no
 agent driver is configured.
 
 
@@ -537,17 +759,17 @@ agent state.
 
 See the HTTP API `POST /api/v1/agent/respond` for per-prompt behavior.
 
-Server replies with a `respond:result`. Error on auth failure or if no agent
-driver is configured.
+Server replies with a `response` message. Error on auth failure or if no
+agent driver is configured.
 
 
-### `signal`
+### `signal:send`
 
 Send a signal to the child process. **Requires auth.**
 
 ```json
 {
-  "event": "signal",
+  "event": "signal:send",
   "signal": "SIGINT"
 }
 ```
@@ -556,7 +778,8 @@ Send a signal to the child process. **Requires auth.**
 |-------|------|-------------|
 | `signal` | string | Signal name or number (see HTTP API signal table) |
 
-No response on success. Error with `BAD_REQUEST` if the signal is unrecognized.
+Server replies with a `signal:sent` confirmation message. Error with
+`BAD_REQUEST` if the signal is unrecognized.
 
 
 ### `shutdown`
@@ -569,7 +792,88 @@ Initiate graceful shutdown of the coop process. **Requires auth.**
 }
 ```
 
-No response on success. The connection will close as the server shuts down.
+Server replies with a `shutdown` confirmation message. The connection will
+close as the server shuts down.
+
+
+### `stop:config:get`
+
+Read the current stop hook configuration. **Requires auth.**
+
+```json
+{
+  "event": "stop:config:get"
+}
+```
+
+Server replies with a `stop:config` message.
+
+
+### `stop:config:put`
+
+Update the stop hook configuration. **Requires auth.**
+
+```json
+{
+  "event": "stop:config:put",
+  "config": { "mode": "signal", "prompt": "wait" }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `config` | object | New StopConfig as JSON |
+
+Server replies with a `stop:configured` message.
+
+
+### `stop:resolve`
+
+Resolve a pending stop gate so the agent is allowed to stop. **Requires auth.**
+
+```json
+{
+  "event": "stop:resolve",
+  "body": { "done": true }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `body` | JSON | Freeform signal body |
+
+Server replies with a `stop:resolved` message.
+
+
+### `config:start:get`
+
+Read the current start hook configuration. **Requires auth.**
+
+```json
+{
+  "event": "config:start:get"
+}
+```
+
+Server replies with a `start:config` message.
+
+
+### `config:put:get`
+
+Update the start hook configuration. **Requires auth.**
+
+```json
+{
+  "event": "config:put:get",
+  "config": { "text": "hello", "shell": ["echo hi"] }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `config` | object | New StartConfig as JSON |
+
+Server replies with a `start:configured` message.
 
 
 ## Shared Types

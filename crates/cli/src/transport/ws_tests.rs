@@ -23,7 +23,7 @@ fn ping_pong_serialization() -> anyhow::Result<()> {
 fn screen_request_serialization() -> anyhow::Result<()> {
     let msg = ClientMessage::GetScreen { cursor: false };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"event\":\"get:screen\""));
+    assert!(json.contains("\"event\":\"screen:get\""));
     Ok(())
 }
 
@@ -126,13 +126,13 @@ fn exit_message_serialization() -> anyhow::Result<()> {
 
 #[test]
 fn replay_message_serialization() -> anyhow::Result<()> {
-    let msg = ClientMessage::Replay { offset: 1024, limit: None };
+    let msg = ClientMessage::GetReplay { offset: 1024, limit: None };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"event\":\"replay\""));
+    assert!(json.contains("\"event\":\"replay:get\""));
     assert!(json.contains("\"offset\":1024"));
 
     // With limit
-    let msg = ClientMessage::Replay { offset: 0, limit: Some(100) };
+    let msg = ClientMessage::GetReplay { offset: 0, limit: Some(100) };
     let json = serde_json::to_string(&msg).anyhow()?;
     assert!(json.contains("\"limit\":100"));
     Ok(())
@@ -150,27 +150,27 @@ fn auth_message_serialization() -> anyhow::Result<()> {
 #[test]
 fn client_message_roundtrip() -> anyhow::Result<()> {
     let messages = vec![
-        r#"{"event":"send:input","text":"hello"}"#,
-        r#"{"event":"send:input","text":"hello","enter":true}"#,
-        r#"{"event":"send:input:raw","data":"aGVsbG8="}"#,
-        r#"{"event":"send:keys","keys":["Enter"]}"#,
+        r#"{"event":"input:send","text":"hello"}"#,
+        r#"{"event":"input:send","text":"hello","enter":true}"#,
+        r#"{"event":"input:send:raw","data":"aGVsbG8="}"#,
+        r#"{"event":"keys:send","keys":["Enter"]}"#,
         r#"{"event":"resize","cols":200,"rows":50}"#,
-        r#"{"event":"get:screen"}"#,
-        r#"{"event":"get:agent"}"#,
-        r#"{"event":"get:status"}"#,
+        r#"{"event":"agent:get"}"#,
+        r#"{"event":"status:get"}"#,
+        r#"{"event":"screen:get"}"#,
+        r#"{"event":"replay:get","offset":0}"#,
         r#"{"event":"nudge","message":"fix bug"}"#,
         r#"{"event":"respond","accept":true}"#,
-        r#"{"event":"replay","offset":0}"#,
         r#"{"event":"auth","token":"tok"}"#,
-        r#"{"event":"send:signal","signal":"SIGINT"}"#,
+        r#"{"event":"signal:send","signal":"SIGINT"}"#,
         r#"{"event":"shutdown"}"#,
-        r#"{"event":"get:health"}"#,
-        r#"{"event":"get:ready"}"#,
-        r#"{"event":"get:config:stop"}"#,
-        r#"{"event":"put:config:stop","config":{"mode":"allow"}}"#,
-        r#"{"event":"get:config:start"}"#,
-        r#"{"event":"put:config:start","config":{}}"#,
-        r#"{"event":"resolve:stop","body":{"ok":true}}"#,
+        r#"{"event":"health:get"}"#,
+        r#"{"event":"ready:get"}"#,
+        r#"{"event":"stop:config:get"}"#,
+        r#"{"event":"stop:config:put","config":{"mode":"allow"}}"#,
+        r#"{"event":"config:start:get"}"#,
+        r#"{"event":"config:put:get","config":{}}"#,
+        r#"{"event":"stop:resolve","body":{"ok":true}}"#,
         r#"{"event":"ping"}"#,
     ];
 
@@ -218,7 +218,7 @@ async fn state_request_returns_agent_state() -> anyhow::Result<()> {
     let msg = ClientMessage::GetAgent {};
     let reply = handle_client_message(&state, msg, "test-client", &mut true).await;
     match reply {
-        Some(ServerMessage::AgentState {
+        Some(ServerMessage::Agent {
             agent,
             state: st,
             since_seq: _,
@@ -276,7 +276,7 @@ async fn nudge_rejected_when_agent_working() -> anyhow::Result<()> {
     let msg = ClientMessage::Nudge { message: "hello".to_owned() };
     let reply = handle_client_message(&state, msg, client_id, &mut true).await;
     match reply {
-        Some(ServerMessage::NudgeResult { delivered, state_before, reason }) => {
+        Some(ServerMessage::Nudged { delivered, state_before, reason }) => {
             assert!(!delivered);
             assert_eq!(state_before.as_deref(), Some("working"));
             assert!(reason.as_deref().unwrap_or("").contains("agent is working"));
@@ -295,7 +295,7 @@ async fn nudge_accepted_when_agent_waiting() -> anyhow::Result<()> {
     let msg = ClientMessage::Nudge { message: "hello".to_owned() };
     let reply = handle_client_message(&state, msg, client_id, &mut true).await;
     match reply {
-        Some(ServerMessage::NudgeResult { delivered, state_before, reason }) => {
+        Some(ServerMessage::Nudged { delivered, state_before, reason }) => {
             assert!(delivered);
             assert_eq!(state_before.as_deref(), Some("idle"));
             assert!(reason.is_none());
@@ -313,8 +313,8 @@ async fn shutdown_cancels_token() -> anyhow::Result<()> {
     let msg = ClientMessage::Shutdown {};
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
-        Some(ServerMessage::ShutdownResult { accepted }) => assert!(accepted),
-        other => anyhow::bail!("expected ShutdownResult, got {other:?}"),
+        Some(ServerMessage::Shutdown { accepted }) => assert!(accepted),
+        other => anyhow::bail!("expected Shutdown, got {other:?}"),
     }
     assert!(state.lifecycle.shutdown.is_cancelled());
     Ok(())
@@ -343,7 +343,7 @@ async fn read_operations_require_auth() -> anyhow::Result<()> {
         ClientMessage::GetScreen { cursor: false },
         ClientMessage::GetAgent {},
         ClientMessage::GetStatus {},
-        ClientMessage::Replay { offset: 0, limit: None },
+        ClientMessage::GetReplay { offset: 0, limit: None },
     ] {
         let reply = handle_client_message(&state, msg, "test-ws", &mut false).await;
         match reply {
@@ -362,7 +362,7 @@ async fn signal_delivers_sigint() -> anyhow::Result<()> {
     let msg = ClientMessage::SendSignal { signal: "SIGINT".to_owned() };
     let reply = handle_client_message(&state, msg, client_id, &mut true).await;
     match reply {
-        Some(ServerMessage::SignalResult { delivered }) => assert!(delivered),
+        Some(ServerMessage::SignalSent { delivered }) => assert!(delivered),
         other => anyhow::bail!("expected SignalResult, got {other:?}"),
     }
 
@@ -411,20 +411,20 @@ async fn keys_rejects_unknown_key() -> anyhow::Result<()> {
 fn signal_message_serialization() -> anyhow::Result<()> {
     let msg = ClientMessage::SendSignal { signal: "SIGTERM".to_owned() };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"event\":\"send:signal\""));
+    assert!(json.contains("\"event\":\"signal:send\""));
     assert!(json.contains("\"signal\":\"SIGTERM\""));
     Ok(())
 }
 
 #[test]
 fn nudge_result_serialization() -> anyhow::Result<()> {
-    let msg = ServerMessage::NudgeResult {
+    let msg = ServerMessage::Nudged {
         delivered: false,
         state_before: Some("working".to_owned()),
         reason: Some("agent is working".to_owned()),
     };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"event\":\"nudge:result\""));
+    assert!(json.contains("\"event\":\"nudged\""));
     assert!(json.contains("\"delivered\":false"));
     assert!(json.contains("\"state_before\":\"working\""));
     assert!(json.contains("\"reason\":\"agent is working\""));
@@ -433,7 +433,7 @@ fn nudge_result_serialization() -> anyhow::Result<()> {
 
 #[test]
 fn nudge_result_omits_none_fields() -> anyhow::Result<()> {
-    let msg = ServerMessage::NudgeResult {
+    let msg = ServerMessage::Nudged {
         delivered: true,
         state_before: Some("idle".to_owned()),
         reason: None,
@@ -446,13 +446,13 @@ fn nudge_result_omits_none_fields() -> anyhow::Result<()> {
 
 #[test]
 fn respond_result_serialization() -> anyhow::Result<()> {
-    let msg = ServerMessage::RespondResult {
+    let msg = ServerMessage::Response {
         delivered: true,
         prompt_type: Some("permission".to_owned()),
         reason: None,
     };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"event\":\"response:result\""));
+    assert!(json.contains("\"event\":\"response\""));
     assert!(json.contains("\"delivered\":true"));
     assert!(json.contains("\"prompt_type\":\"permission\""));
     Ok(())
@@ -482,7 +482,7 @@ fn status_message_serialization() -> anyhow::Result<()> {
 fn status_request_serialization() -> anyhow::Result<()> {
     let msg = ClientMessage::GetStatus {};
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"event\":\"get:status\""));
+    assert!(json.contains("\"event\":\"status:get\""));
     Ok(())
 }
 
@@ -493,7 +493,7 @@ fn input_with_enter_serialization() -> anyhow::Result<()> {
     assert!(json.contains("\"enter\":true"));
 
     // enter defaults to false when omitted
-    let parsed: ClientMessage = serde_json::from_str(r#"{"event":"send:input","text":"hello"}"#)
+    let parsed: ClientMessage = serde_json::from_str(r#"{"event":"input:send","text":"hello"}"#)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     match parsed {
         ClientMessage::SendInput { enter, .. } => assert!(!enter),
@@ -504,18 +504,18 @@ fn input_with_enter_serialization() -> anyhow::Result<()> {
 
 #[test]
 fn input_result_serialization() -> anyhow::Result<()> {
-    let msg = ServerMessage::InputResult { bytes_written: 5 };
+    let msg = ServerMessage::InputSent { bytes_written: 5 };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"event\":\"input:result\""));
+    assert!(json.contains("\"event\":\"input:sent\""));
     assert!(json.contains("\"bytes_written\":5"));
     Ok(())
 }
 
 #[test]
 fn resize_result_serialization() -> anyhow::Result<()> {
-    let msg = ServerMessage::ResizeResult { cols: 120, rows: 40 };
+    let msg = ServerMessage::Resized { cols: 120, rows: 40 };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"event\":\"resize:result\""));
+    assert!(json.contains("\"event\":\"resized\""));
     assert!(json.contains("\"cols\":120"));
     assert!(json.contains("\"rows\":40"));
     Ok(())
@@ -523,18 +523,18 @@ fn resize_result_serialization() -> anyhow::Result<()> {
 
 #[test]
 fn signal_result_serialization() -> anyhow::Result<()> {
-    let msg = ServerMessage::SignalResult { delivered: true };
+    let msg = ServerMessage::SignalSent { delivered: true };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"event\":\"signal:result\""));
+    assert!(json.contains("\"event\":\"signal:sent\""));
     assert!(json.contains("\"delivered\":true"));
     Ok(())
 }
 
 #[test]
 fn shutdown_result_serialization() -> anyhow::Result<()> {
-    let msg = ServerMessage::ShutdownResult { accepted: true };
+    let msg = ServerMessage::Shutdown { accepted: true };
     let json = serde_json::to_string(&msg).anyhow()?;
-    assert!(json.contains("\"event\":\"shutdown:result\""));
+    assert!(json.contains("\"event\":\"shutdown\""));
     assert!(json.contains("\"accepted\":true"));
     Ok(())
 }
@@ -542,7 +542,7 @@ fn shutdown_result_serialization() -> anyhow::Result<()> {
 #[tokio::test]
 async fn screen_request_excludes_cursor_by_default() -> anyhow::Result<()> {
     let (state, _rx) = ws_test_state(AgentState::Working);
-    let msg: ClientMessage = serde_json::from_str(r#"{"event":"get:screen"}"#)?;
+    let msg: ClientMessage = serde_json::from_str(r#"{"event":"screen:get"}"#)?;
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
         Some(ServerMessage::Screen { cursor, .. }) => {
@@ -556,7 +556,7 @@ async fn screen_request_excludes_cursor_by_default() -> anyhow::Result<()> {
 #[tokio::test]
 async fn screen_request_includes_cursor_when_requested() -> anyhow::Result<()> {
     let (state, _rx) = ws_test_state(AgentState::Working);
-    let msg: ClientMessage = serde_json::from_str(r#"{"event":"get:screen","cursor":true}"#)?;
+    let msg: ClientMessage = serde_json::from_str(r#"{"event":"screen:get","cursor":true}"#)?;
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
         Some(ServerMessage::Screen { cursor, .. }) => {
@@ -642,7 +642,7 @@ async fn stop_config_roundtrip() -> anyhow::Result<()> {
     };
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
-        Some(ServerMessage::ConfigUpdated { updated }) => assert!(updated),
+        Some(ServerMessage::StopConfigured { updated }) => assert!(updated),
         other => anyhow::bail!("expected ConfigUpdated, got {other:?}"),
     }
 
@@ -664,7 +664,7 @@ async fn resolve_stop_stores_signal() -> anyhow::Result<()> {
     let msg = ClientMessage::ResolveStop { body: serde_json::json!({"done": true}) };
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
-        Some(ServerMessage::StopResult { accepted }) => assert!(accepted),
+        Some(ServerMessage::StopResolved { accepted }) => assert!(accepted),
         other => anyhow::bail!("expected StopResult, got {other:?}"),
     }
     assert!(state.stop.signaled.load(std::sync::atomic::Ordering::Acquire));
@@ -681,7 +681,7 @@ async fn start_config_roundtrip() -> anyhow::Result<()> {
     };
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
-        Some(ServerMessage::ConfigUpdated { updated }) => assert!(updated),
+        Some(ServerMessage::StartConfigured { updated }) => assert!(updated),
         other => anyhow::bail!("expected ConfigUpdated, got {other:?}"),
     }
 

@@ -40,9 +40,9 @@ service Coop {
   // Respond to an active prompt.
   rpc Respond(RespondRequest) returns (RespondResponse);
   // Stream agent state transitions in real time.
-  rpc StreamAgent(StreamAgentRequest) returns (stream AgentStateEvent);
+  rpc StreamAgent(StreamAgentRequest) returns (stream TransitionEvent);
   // Stream prompt action events in real time.
-  rpc StreamPromptActions(StreamPromptActionsRequest) returns (stream PromptActionEvent);
+  rpc StreamPromptOutcomes(StreamPromptOutcomesRequest) returns (stream PromptOutcomeEvent);
 
   // Stop hook management
 
@@ -328,7 +328,7 @@ message RespondResponse {
 message StreamAgentRequest {}
 
 // Agent state transition event.
-message AgentStateEvent {
+message TransitionEvent {
   // Previous agent state.
   string prev = 1;
   // New agent state.
@@ -347,9 +347,9 @@ message AgentStateEvent {
   optional string last_message = 8;
 }
 
-message StreamPromptActionsRequest {}
+message StreamPromptOutcomesRequest {}
 // Prompt action event (e.g. user responded to a prompt via API).
-message PromptActionEvent {
+message PromptOutcomeEvent {
   string source = 1;
   string type = 2;
   optional string subtype = 3;

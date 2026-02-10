@@ -544,11 +544,11 @@ function logEvent(msg) {
   const ts = now.toTimeString().slice(0, 8);
 
   // Collapse consecutive output+screen bursts in-place
-  if (type === 'output' || type === 'screen' || type === 'replay_result') {
+  if (type === 'output' || type === 'screen' || type === 'replay') {
     pongEl = null; pongCount = 0;
     if (streamEl && streamAcc) {
       // Update existing collapsed row
-      if (type === 'output' || type === 'replay_result') {
+      if (type === 'output' || type === 'replay') {
         const len = msg.data ? atob(msg.data).length : 0;
         streamAcc.count++;
         streamAcc.totalBytes += len;
@@ -563,7 +563,7 @@ function logEvent(msg) {
       return;
     }
     // Start a new collapsed row
-    if (type === 'output' || type === 'replay_result') {
+    if (type === 'output' || type === 'replay') {
       const len = msg.data ? atob(msg.data).length : 0;
       streamAcc = { count: 1, totalBytes: len, lastOffset: msg.offset + len,
                     lastSeq: 0, cols: 0, rows: 0 };
@@ -624,15 +624,15 @@ function logEvent(msg) {
     case 'resize':
       detail = `${msg.cols}x${msg.rows}`;
       break;
-    case 'stop':
+    case 'stop:outcome':
       detail = msg.type || '';
       break;
-    case 'start':
+    case 'start:outcome':
       detail = msg.source || '';
       if (msg.session_id) detail += ` session=${msg.session_id}`;
       if (msg.injected) detail += ' (injected)';
       break;
-    case 'prompt':
+    case 'prompt:outcome':
       detail = `${msg.source}: ${msg.type || '?'}`;
       if (msg.subtype) detail += `(${msg.subtype})`;
       if (msg.option != null) detail += ` opt=${msg.option}`;
@@ -666,8 +666,9 @@ function renderPongHtml(ts, count) {
 }
 
 function renderEvHtml(ts, type, detail) {
+  const cssType = type.split(':')[0];
   return `<span class="ev-time">${ts}</span> ` +
-    `<span class="ev-type ev-type-${type}">${type}</span>` +
+    `<span class="ev-type ev-type-${cssType}">${type}</span>` +
     (detail ? `<span class="ev-detail">${esc(detail)}</span>` : '');
 }
 
@@ -747,7 +748,7 @@ function showResult(elId, res) {
 document.getElementById('act-input-send').addEventListener('click', async () => {
   const text = document.getElementById('act-input').value;
   const enter = document.getElementById('act-input-enter').checked;
-  const payload = enter ? { text: text + '\n' } : { text };
+  const payload = { text, enter };
   const res = await apiPost('/api/v1/input', payload);
   showResult('act-input-result', res);
   document.getElementById('act-input').value = '';
@@ -771,7 +772,7 @@ for (const key of KEY_DEFS) {
   btn.className = 'key-btn';
   btn.textContent = key;
   btn.addEventListener('click', () => {
-    send(ws, { event: 'keys', keys: [key] });
+    send(ws, { event: 'keys:send', keys: [key] });
   });
   keyGrid.appendChild(btn);
 }
@@ -1030,7 +1031,7 @@ function connect() {
     setStatus('connected', `Connected — localhost:${PORT}`);
 
     // Replay full history
-    send(ws, { event: 'replay', offset: 0 });
+    send(ws, { event: 'replay:get', offset: 0 });
 
     // Send initial resize
     send(ws, { event: 'resize', cols: term.cols, rows: term.rows });
@@ -1051,7 +1052,7 @@ function connect() {
     // Log all events to sidebar
     logEvent(msg);
 
-    if (msg.event === 'output' || msg.event === 'replay_result') {
+    if (msg.event === 'output' || msg.event === 'replay') {
       const bytes = b64decode(msg.data);
       term.write(bytes);
       info.textContent = `offset: ${msg.offset + bytes.length}`;
@@ -1087,13 +1088,13 @@ const encoder = new TextEncoder();
 
 term.onData((str) => {
   const bytes = encoder.encode(str);
-  send(ws, { event: 'input:raw', data: b64encode(bytes) });
+  send(ws, { event: 'input:send:raw', data: b64encode(bytes) });
 });
 
 term.onBinary((data) => {
   const bytes = new Uint8Array(data.length);
   for (let i = 0; i < data.length; i++) bytes[i] = data.charCodeAt(i);
-  send(ws, { event: 'input:raw', data: b64encode(bytes) });
+  send(ws, { event: 'input:send:raw', data: b64encode(bytes) });
 });
 
 window.addEventListener('resize', () => fitAddon.fit());
