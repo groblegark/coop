@@ -55,9 +55,14 @@ skip = [
     { crate = "getrandom@0.2" },
     # getrandom 0.3 pulled by rand/uuid, while 0.4 is used by tempfile
     { crate = "getrandom@0.3" },
-    # thiserror 1.x pulled by async-nats, while 2.x is used by the rest of the codebase
+    # async-nats pins older versions of these crates
     { crate = "thiserror@1" },
     { crate = "thiserror-impl@1" },
+    { crate = "rand@0.8" },
+    { crate = "rand_chacha@0.3" },
+    { crate = "rand_core@0.6" },
+    # rustls-webpki 0.102 pulled by older rustls in async-nats dependency chain
+    { crate = "rustls-webpki@0.102" },
 ]
 
 [sources]
