@@ -21,13 +21,15 @@ use crate::driver::{AgentState, PromptContext};
 use crate::error::ErrorCode;
 use crate::event::{OutputEvent, StateChangeEvent};
 use crate::screen::{CursorPosition, ScreenSnapshot};
+use crate::start::StartConfig;
 use crate::start::StartEvent;
 use crate::stop::StopEvent;
+use crate::stop::StopConfig;
 use crate::transport::auth;
 use crate::transport::handler::{
-    compute_status, error_message, extract_error_fields, handle_input, handle_input_raw,
-    handle_keys, handle_nudge, handle_resize, handle_respond, handle_signal, NudgeOutcome,
-    RespondOutcome, SessionStatus, TransportQuestionAnswer,
+    compute_health, compute_status, error_message, extract_error_fields, handle_input,
+    handle_input_raw, handle_keys, handle_nudge, handle_resize, handle_respond, handle_signal,
+    NudgeOutcome, RespondOutcome, SessionStatus, TransportQuestionAnswer,
 };
 use crate::transport::read_ring_combined;
 use crate::transport::state::AppState;
@@ -144,6 +146,31 @@ pub enum ServerMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         last_message: Option<String>,
     },
+    Health {
+        status: String,
+        pid: Option<i32>,
+        uptime_secs: i64,
+        agent: String,
+        terminal_cols: u16,
+        terminal_rows: u16,
+        ws_clients: i32,
+        ready: bool,
+    },
+    Ready {
+        ready: bool,
+    },
+    StopConfig {
+        config: serde_json::Value,
+    },
+    StartConfig {
+        config: serde_json::Value,
+    },
+    ConfigUpdated {
+        updated: bool,
+    },
+    ResolveStopResult {
+        accepted: bool,
+    },
     Pong {},
 }
 
@@ -191,6 +218,19 @@ pub enum ClientMessage {
         signal: String,
     },
     Shutdown {},
+    HealthRequest {},
+    ReadyRequest {},
+    GetStopConfig {},
+    PutStopConfig {
+        config: serde_json::Value,
+    },
+    GetStartConfig {},
+    PutStartConfig {
+        config: serde_json::Value,
+    },
+    ResolveStop {
+        body: serde_json::Value,
+    },
     Ping {},
 }
 
@@ -477,13 +517,8 @@ async fn handle_client_message(
             let screen = state.terminal.screen.read().await;
             let detection = state.driver.detection.read().await;
             let error_detail = state.driver.error.read().await.as_ref().map(|e| e.detail.clone());
-            let error_category = state
-                .driver
-                .error
-                .read()
-                .await
-                .as_ref()
-                .map(|e| e.category.as_str().to_owned());
+            let error_category =
+                state.driver.error.read().await.as_ref().map(|e| e.category.as_str().to_owned());
             let last_message = state.driver.last_message.read().await.clone();
             Some(ServerMessage::AgentState {
                 agent: state.config.agent.to_string(),
@@ -573,6 +608,75 @@ async fn handle_client_message(
             require_auth!(authed);
             state.lifecycle.shutdown.cancel();
             Some(ServerMessage::ShutdownResult { accepted: true })
+        }
+
+        // Health and ready are auth-exempt (matching HTTP).
+        ClientMessage::HealthRequest {} => {
+            let h = compute_health(state).await;
+            Some(ServerMessage::Health {
+                status: h.status,
+                pid: h.pid,
+                uptime_secs: h.uptime_secs,
+                agent: h.agent,
+                terminal_cols: h.terminal_cols,
+                terminal_rows: h.terminal_rows,
+                ws_clients: h.ws_clients,
+                ready: h.ready,
+            })
+        }
+
+        ClientMessage::ReadyRequest {} => {
+            let ready = state.ready.load(Ordering::Acquire);
+            Some(ServerMessage::Ready { ready })
+        }
+
+        // Config operations require auth (matching HTTP).
+        ClientMessage::GetStopConfig {} => {
+            require_auth!(authed);
+            let config = state.stop.config.read().await;
+            let json = serde_json::to_value(&*config).unwrap_or_default();
+            Some(ServerMessage::StopConfig { config: json })
+        }
+
+        ClientMessage::PutStopConfig { config } => {
+            require_auth!(authed);
+            match serde_json::from_value::<StopConfig>(config) {
+                Ok(new_config) => {
+                    *state.stop.config.write().await = new_config;
+                    Some(ServerMessage::ConfigUpdated { updated: true })
+                }
+                Err(e) => {
+                    Some(ws_error(ErrorCode::BadRequest, &format!("invalid stop config: {e}")))
+                }
+            }
+        }
+
+        ClientMessage::GetStartConfig {} => {
+            require_auth!(authed);
+            let config = state.start.config.read().await;
+            let json = serde_json::to_value(&*config).unwrap_or_default();
+            Some(ServerMessage::StartConfig { config: json })
+        }
+
+        ClientMessage::PutStartConfig { config } => {
+            require_auth!(authed);
+            match serde_json::from_value::<StartConfig>(config) {
+                Ok(new_config) => {
+                    *state.start.config.write().await = new_config;
+                    Some(ServerMessage::ConfigUpdated { updated: true })
+                }
+                Err(e) => {
+                    Some(ws_error(ErrorCode::BadRequest, &format!("invalid start config: {e}")))
+                }
+            }
+        }
+
+        ClientMessage::ResolveStop { body } => {
+            require_auth!(authed);
+            let stop = &state.stop;
+            *stop.signal_body.write().await = Some(body);
+            stop.signaled.store(true, std::sync::atomic::Ordering::Release);
+            Some(ServerMessage::ResolveStopResult { accepted: true })
         }
     }
 }

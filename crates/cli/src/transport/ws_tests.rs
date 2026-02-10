@@ -159,6 +159,13 @@ fn client_message_roundtrip() -> anyhow::Result<()> {
         r#"{"type":"auth","token":"tok"}"#,
         r#"{"type":"signal","signal":"SIGINT"}"#,
         r#"{"type":"shutdown"}"#,
+        r#"{"type":"health_request"}"#,
+        r#"{"type":"ready_request"}"#,
+        r#"{"type":"get_stop_config"}"#,
+        r#"{"type":"put_stop_config","config":{"mode":"allow"}}"#,
+        r#"{"type":"get_start_config"}"#,
+        r#"{"type":"put_start_config","config":{}}"#,
+        r#"{"type":"resolve_stop","body":{"ok":true}}"#,
         r#"{"type":"ping"}"#,
     ];
 
@@ -550,6 +557,121 @@ async fn input_raw_rejects_bad_base64() -> anyhow::Result<()> {
             assert!(message.contains("base64"), "message: {message}");
         }
         other => anyhow::bail!("expected Error, got {other:?}"),
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn health_request_returns_health() -> anyhow::Result<()> {
+    let (state, _rx) = ws_test_state(AgentState::Working);
+    let msg = ClientMessage::HealthRequest {};
+    let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
+    match reply {
+        Some(ServerMessage::Health { status, .. }) => {
+            assert_eq!(status, "running");
+        }
+        other => anyhow::bail!("expected Health, got {other:?}"),
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn ready_request_returns_ready() -> anyhow::Result<()> {
+    let (state, _rx) = ws_test_state(AgentState::Working);
+    let msg = ClientMessage::ReadyRequest {};
+    let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
+    match reply {
+        Some(ServerMessage::Ready { ready }) => {
+            assert!(!ready, "default ready is false");
+        }
+        other => anyhow::bail!("expected Ready, got {other:?}"),
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_stop_config_requires_auth() -> anyhow::Result<()> {
+    let (state, _rx) = ws_test_state(AgentState::Working);
+    let msg = ClientMessage::GetStopConfig {};
+    let reply = handle_client_message(&state, msg, "test-ws", &mut false).await;
+    match reply {
+        Some(ServerMessage::Error { code, .. }) => assert_eq!(code, "UNAUTHORIZED"),
+        other => anyhow::bail!("expected Unauthorized, got {other:?}"),
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn stop_config_roundtrip() -> anyhow::Result<()> {
+    let (state, _rx) = ws_test_state(AgentState::Working);
+
+    // Read default config.
+    let msg = ClientMessage::GetStopConfig {};
+    let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
+    match reply {
+        Some(ServerMessage::StopConfig { config }) => {
+            assert_eq!(config["mode"], "allow");
+        }
+        other => anyhow::bail!("expected StopConfig, got {other:?}"),
+    }
+
+    // Update config.
+    let msg = ClientMessage::PutStopConfig {
+        config: serde_json::json!({"mode": "signal", "prompt": "wait"}),
+    };
+    let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
+    match reply {
+        Some(ServerMessage::ConfigUpdated { updated }) => assert!(updated),
+        other => anyhow::bail!("expected ConfigUpdated, got {other:?}"),
+    }
+
+    // Verify update.
+    let msg = ClientMessage::GetStopConfig {};
+    let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
+    match reply {
+        Some(ServerMessage::StopConfig { config }) => {
+            assert_eq!(config["mode"], "signal");
+        }
+        other => anyhow::bail!("expected StopConfig, got {other:?}"),
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn resolve_stop_stores_signal() -> anyhow::Result<()> {
+    let (state, _rx) = ws_test_state(AgentState::Working);
+    let msg = ClientMessage::ResolveStop { body: serde_json::json!({"done": true}) };
+    let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
+    match reply {
+        Some(ServerMessage::ResolveStopResult { accepted }) => assert!(accepted),
+        other => anyhow::bail!("expected ResolveStopResult, got {other:?}"),
+    }
+    assert!(state.stop.signaled.load(std::sync::atomic::Ordering::Acquire));
+    Ok(())
+}
+
+#[tokio::test]
+async fn start_config_roundtrip() -> anyhow::Result<()> {
+    let (state, _rx) = ws_test_state(AgentState::Working);
+
+    // Update start config.
+    let msg = ClientMessage::PutStartConfig {
+        config: serde_json::json!({"text": "hello", "shell": ["echo hi"]}),
+    };
+    let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
+    match reply {
+        Some(ServerMessage::ConfigUpdated { updated }) => assert!(updated),
+        other => anyhow::bail!("expected ConfigUpdated, got {other:?}"),
+    }
+
+    // Verify.
+    let msg = ClientMessage::GetStartConfig {};
+    let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
+    match reply {
+        Some(ServerMessage::StartConfig { config }) => {
+            assert_eq!(config["text"], "hello");
+        }
+        other => anyhow::bail!("expected StartConfig, got {other:?}"),
     }
     Ok(())
 }
