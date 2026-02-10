@@ -79,18 +79,9 @@ fn screen_snapshot_to_response_includes_cursor() {
 
 #[test]
 fn prompt_to_proto_converts_all_fields() {
-    let prompt = crate::driver::PromptContext {
-        kind: crate::driver::PromptKind::Permission,
-        subtype: None,
-        tool: Some("bash".to_owned()),
-        input: Some("rm -rf /".to_owned()),
-        auth_url: None,
-        options: vec![],
-        options_fallback: false,
-        questions: vec![],
-        question_current: 0,
-        ready: false,
-    };
+    let prompt = crate::driver::PromptContext::new(crate::driver::PromptKind::Permission)
+        .with_tool("bash")
+        .with_input("rm -rf /");
     let p = prompt_to_proto(&prompt);
     assert_eq!(p.r#type, "permission");
     assert_eq!(p.tool.as_deref(), Some("bash"));
@@ -100,18 +91,10 @@ fn prompt_to_proto_converts_all_fields() {
 
 #[test]
 fn prompt_to_proto_maps_subtype() {
-    let prompt = crate::driver::PromptContext {
-        kind: crate::driver::PromptKind::Setup,
-        subtype: Some("theme_picker".to_owned()),
-        tool: None,
-        input: None,
-        auth_url: None,
-        options: vec!["Dark mode".to_owned(), "Light mode".to_owned()],
-        options_fallback: false,
-        questions: vec![],
-        question_current: 0,
-        ready: true,
-    };
+    let prompt = crate::driver::PromptContext::new(crate::driver::PromptKind::Setup)
+        .with_subtype("theme_picker")
+        .with_options(vec!["Dark mode".to_owned(), "Light mode".to_owned()])
+        .with_ready();
     let p = prompt_to_proto(&prompt);
     assert_eq!(p.r#type, "setup");
     assert_eq!(p.subtype.as_deref(), Some("theme_picker"));
@@ -121,18 +104,8 @@ fn prompt_to_proto_maps_subtype() {
 
 #[test]
 fn prompt_to_proto_handles_none_fields() {
-    let prompt = crate::driver::PromptContext {
-        kind: crate::driver::PromptKind::Question,
-        subtype: None,
-        tool: None,
-        input: None,
-        auth_url: None,
-        options: vec![],
-        options_fallback: false,
-        questions: vec![],
-        question_current: 0,
-        ready: true,
-    };
+    let prompt =
+        crate::driver::PromptContext::new(crate::driver::PromptKind::Question).with_ready();
     let p = prompt_to_proto(&prompt);
     assert_eq!(p.r#type, "question");
     assert!(p.tool.is_none());
@@ -158,18 +131,8 @@ fn state_change_to_proto_converts_simple_transition() {
 
 #[test]
 fn state_change_to_proto_includes_prompt() {
-    let prompt = crate::driver::PromptContext {
-        kind: crate::driver::PromptKind::Permission,
-        subtype: None,
-        tool: Some("write".to_owned()),
-        input: None,
-        auth_url: None,
-        options: vec![],
-        options_fallback: false,
-        questions: vec![],
-        question_current: 0,
-        ready: false,
-    };
+    let prompt =
+        crate::driver::PromptContext::new(crate::driver::PromptKind::Permission).with_tool("write");
     let event = crate::event::StateChangeEvent {
         prev: AgentState::Working,
         next: AgentState::Prompt { prompt: prompt.clone() },

@@ -146,18 +146,7 @@ async fn dedup_suppresses_identical() -> anyhow::Result<()> {
 }
 
 fn empty_prompt(kind: PromptKind) -> PromptContext {
-    PromptContext {
-        kind,
-        subtype: None,
-        tool: None,
-        input: None,
-        auth_url: None,
-        options: vec![],
-        options_fallback: false,
-        questions: vec![],
-        question_current: 0,
-        ready: false,
-    }
+    PromptContext::new(kind)
 }
 
 #[tokio::test]

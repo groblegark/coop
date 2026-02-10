@@ -57,18 +57,7 @@ impl Detector for HookDetector {
                                 match notification_type.as_str() {
                                     "idle_prompt" => (AgentState::Idle, "hook:idle".to_owned()),
                                     "permission_prompt" => (AgentState::Prompt {
-                                        prompt: PromptContext {
-                                            kind: PromptKind::Permission,
-                                            subtype: None,
-                                            tool: None,
-                                            input: None,
-                                            auth_url: None,
-                                            options: vec![],
-                                            options_fallback: false,
-                                            questions: vec![],
-                                            question_current: 0,
-                                            ready: false,
-                                        },
+                                        prompt: PromptContext::new(PromptKind::Permission),
                                     }, "hook:prompt(permission)".to_owned()),
                                     _ => continue,
                                 }
@@ -79,18 +68,7 @@ impl Detector for HookDetector {
                                         prompt: extract_ask_user_from_tool_input(tool_input.as_ref()),
                                     }, "hook:prompt(question)".to_owned()),
                                     "ExitPlanMode" => (AgentState::Prompt {
-                                        prompt: PromptContext {
-                                            kind: PromptKind::Plan,
-                                            subtype: None,
-                                            tool: None,
-                                            input: None,
-                                            auth_url: None,
-                                            options: vec![],
-                                            options_fallback: false,
-                                            questions: vec![],
-                                            question_current: 0,
-                                            ready: false,
-                                        },
+                                        prompt: PromptContext::new(PromptKind::Plan),
                                     }, "hook:prompt(plan)".to_owned()),
                                     "EnterPlanMode" => (AgentState::Working, "hook:working".to_owned()),
                                     _ => continue,

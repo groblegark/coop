@@ -20,18 +20,10 @@ pub fn extract_permission_context(json: &Value) -> PromptContext {
         None => (None, None),
     };
 
-    PromptContext {
-        kind: PromptKind::Permission,
-        subtype: None,
-        tool,
-        input,
-        auth_url: None,
-        options: vec![],
-        options_fallback: false,
-        questions: vec![],
-        question_current: 0,
-        ready: false,
-    }
+    let mut ctx = PromptContext::new(PromptKind::Permission);
+    ctx.tool = tool;
+    ctx.input = input;
+    ctx
 }
 
 /// Extract question context from an `AskUserQuestion` tool_use block.
@@ -78,18 +70,10 @@ pub fn extract_ask_user_from_tool_input(input: Option<&Value>) -> PromptContext 
         })
         .unwrap_or_default();
 
-    PromptContext {
-        kind: PromptKind::Question,
-        subtype: None,
-        tool: Some("AskUserQuestion".to_string()),
-        input: None,
-        auth_url: None,
-        options: vec![],
-        options_fallback: false,
-        questions,
-        question_current: 0,
-        ready: true,
-    }
+    PromptContext::new(PromptKind::Question)
+        .with_tool("AskUserQuestion")
+        .with_questions(questions)
+        .with_ready()
 }
 
 /// Truncate tool input JSON to a ~200 character preview string.

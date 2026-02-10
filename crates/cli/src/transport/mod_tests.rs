@@ -51,18 +51,10 @@ fn plan_both_none_defaults_to_4() {
 }
 
 fn fallback_prompt(kind: PromptKind) -> PromptContext {
-    PromptContext {
-        kind,
-        subtype: None,
-        tool: None,
-        input: None,
-        auth_url: None,
-        options: vec!["Accept".to_string(), "Cancel".to_string()],
-        options_fallback: true,
-        questions: vec![],
-        question_current: 0,
-        ready: true,
-    }
+    PromptContext::new(kind)
+        .with_options(vec!["Accept".to_string(), "Cancel".to_string()])
+        .with_options_fallback()
+        .with_ready()
 }
 
 #[yare::parameterized(
@@ -87,18 +79,9 @@ fn fallback_encoding(kind: PromptKind, accept: Option<bool>, option: Option<u32>
 #[test]
 fn non_fallback_permission_uses_encoder() {
     let encoder = ClaudeRespondEncoder::default();
-    let prompt = PromptContext {
-        kind: PromptKind::Permission,
-        subtype: None,
-        tool: None,
-        input: None,
-        auth_url: None,
-        options: vec!["Yes".to_string(), "No".to_string()],
-        options_fallback: false,
-        questions: vec![],
-        question_current: 0,
-        ready: true,
-    };
+    let prompt = PromptContext::new(PromptKind::Permission)
+        .with_options(vec!["Yes".to_string(), "No".to_string()])
+        .with_ready();
     let state = AgentState::Prompt { prompt };
     let (steps, _) = encode_response(&state, &encoder, Some(true), None, None, &[]).unwrap();
     // Non-fallback should use the encoder's digit format (e.g. "1\r")
@@ -109,18 +92,10 @@ fn non_fallback_permission_uses_encoder() {
 #[test]
 fn setup_prompt_defaults_to_option_1() {
     let encoder = ClaudeRespondEncoder::default();
-    let prompt = PromptContext {
-        kind: PromptKind::Setup,
-        subtype: Some("theme_picker".to_owned()),
-        tool: None,
-        input: None,
-        auth_url: None,
-        options: vec!["Dark mode".to_string(), "Light mode".to_string()],
-        options_fallback: false,
-        questions: vec![],
-        question_current: 0,
-        ready: true,
-    };
+    let prompt = PromptContext::new(PromptKind::Setup)
+        .with_subtype("theme_picker")
+        .with_options(vec!["Dark mode".to_string(), "Light mode".to_string()])
+        .with_ready();
     let state = AgentState::Prompt { prompt };
     let (steps, count) = encode_response(&state, &encoder, None, None, None, &[]).unwrap();
     assert_eq!(steps.len(), 2);
@@ -132,18 +107,10 @@ fn setup_prompt_defaults_to_option_1() {
 #[test]
 fn setup_prompt_respects_explicit_option() {
     let encoder = ClaudeRespondEncoder::default();
-    let prompt = PromptContext {
-        kind: PromptKind::Setup,
-        subtype: Some("theme_picker".to_owned()),
-        tool: None,
-        input: None,
-        auth_url: None,
-        options: vec!["Dark mode".to_string(), "Light mode".to_string()],
-        options_fallback: false,
-        questions: vec![],
-        question_current: 0,
-        ready: true,
-    };
+    let prompt = PromptContext::new(PromptKind::Setup)
+        .with_subtype("theme_picker")
+        .with_options(vec!["Dark mode".to_string(), "Light mode".to_string()])
+        .with_ready();
     let state = AgentState::Prompt { prompt };
     let (steps, _) = encode_response(&state, &encoder, None, Some(2), None, &[]).unwrap();
     assert_eq!(steps.len(), 2);

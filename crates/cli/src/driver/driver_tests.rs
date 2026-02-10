@@ -4,17 +4,10 @@
 use super::{disruption_option, PromptContext, PromptKind};
 
 fn prompt(kind: PromptKind, subtype: Option<&str>) -> PromptContext {
-    PromptContext {
-        kind,
-        subtype: subtype.map(String::from),
-        tool: None,
-        input: None,
-        auth_url: None,
-        options: vec![],
-        options_fallback: false,
-        questions: vec![],
-        question_current: 0,
-        ready: true,
+    let ctx = PromptContext::new(kind).with_ready();
+    match subtype {
+        Some(s) => ctx.with_subtype(s),
+        None => ctx,
     }
 }
 

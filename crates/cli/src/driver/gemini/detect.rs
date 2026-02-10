@@ -50,18 +50,8 @@ impl Detector for HookDetector {
                             Some(HookEvent::Notification { notification_type }) => {
                                 match notification_type.as_str() {
                                     "ToolPermission" => (AgentState::Prompt {
-                                        prompt: PromptContext {
-                                            kind: PromptKind::Permission,
-                                            subtype: Some("tool".to_owned()),
-                                            tool: None,
-                                            input: None,
-                                            auth_url: None,
-                                            options: vec![],
-                                            options_fallback: false,
-                                            questions: vec![],
-                                            question_current: 0,
-                                            ready: false,
-                                        },
+                                        prompt: PromptContext::new(PromptKind::Permission)
+                                            .with_subtype("tool"),
                                     }, "hook:prompt(permission)".to_owned()),
                                     _ => continue,
                                 }

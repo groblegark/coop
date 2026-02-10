@@ -203,18 +203,10 @@ async fn graceful_drain_disabled_when_zero() -> anyhow::Result<()> {
 
 fn disruption_prompt() -> AgentState {
     AgentState::Prompt {
-        prompt: PromptContext {
-            kind: PromptKind::Setup,
-            subtype: Some("theme_picker".to_owned()),
-            tool: None,
-            input: None,
-            auth_url: None,
-            options: vec!["Dark mode".to_owned(), "Light mode".to_owned()],
-            options_fallback: false,
-            questions: vec![],
-            question_current: 0,
-            ready: true,
-        },
+        prompt: PromptContext::new(PromptKind::Setup)
+            .with_subtype("theme_picker")
+            .with_options(vec!["Dark mode".to_owned(), "Light mode".to_owned()])
+            .with_ready(),
     }
 }
 

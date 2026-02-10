@@ -169,18 +169,10 @@ async fn respond_not_ready_returns_error() -> anyhow::Result<()> {
 #[tokio::test]
 async fn respond_setup_prompt_delivers_option_to_pty() -> anyhow::Result<()> {
     let setup_state = AgentState::Prompt {
-        prompt: crate::driver::PromptContext {
-            kind: crate::driver::PromptKind::Setup,
-            subtype: Some("theme_picker".to_owned()),
-            tool: None,
-            input: None,
-            auth_url: None,
-            options: vec!["Dark mode".to_owned(), "Light mode".to_owned()],
-            options_fallback: false,
-            questions: vec![],
-            question_current: 0,
-            ready: true,
-        },
+        prompt: crate::driver::PromptContext::new(crate::driver::PromptKind::Setup)
+            .with_subtype("theme_picker")
+            .with_options(vec!["Dark mode".to_owned(), "Light mode".to_owned()])
+            .with_ready(),
     };
     let (state, mut rx) = AppStateBuilder::new()
         .agent_state(setup_state)

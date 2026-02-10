@@ -92,18 +92,10 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<(AgentState, Stri
             let options = parse_options_from_screen(&snapshot.lines);
             return Some((
                 AgentState::Prompt {
-                    prompt: PromptContext {
-                        kind: PromptKind::Permission,
-                        subtype: Some("trust".to_owned()),
-                        tool: None,
-                        input: None,
-                        auth_url: None,
-                        options,
-                        options_fallback: false,
-                        questions: vec![],
-                        question_current: 0,
-                        ready: true,
-                    },
+                    prompt: PromptContext::new(PromptKind::Permission)
+                        .with_subtype("trust")
+                        .with_options(options)
+                        .with_ready(),
                 },
                 "screen:permission".to_owned(),
             ));
@@ -112,23 +104,12 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<(AgentState, Stri
             let options = parse_options_from_screen(&snapshot.lines);
             let auth_url =
                 if subtype == "oauth_login" { extract_auth_url(&snapshot.lines) } else { None };
-            return Some((
-                AgentState::Prompt {
-                    prompt: PromptContext {
-                        kind: PromptKind::Setup,
-                        subtype: Some(subtype.to_owned()),
-                        tool: None,
-                        input: None,
-                        auth_url,
-                        options,
-                        options_fallback: false,
-                        questions: vec![],
-                        question_current: 0,
-                        ready: true,
-                    },
-                },
-                "screen:setup".to_owned(),
-            ));
+            let mut ctx = PromptContext::new(PromptKind::Setup)
+                .with_subtype(subtype)
+                .with_options(options)
+                .with_ready();
+            ctx.auth_url = auth_url;
+            return Some((AgentState::Prompt { prompt: ctx }, "screen:setup".to_owned()));
         }
         None => {}
     }
@@ -146,18 +127,7 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<(AgentState, Stri
         };
         return Some((
             AgentState::Prompt {
-                prompt: PromptContext {
-                    kind: PromptKind::Setup,
-                    subtype: Some(subtype.to_owned()),
-                    tool: None,
-                    input: None,
-                    auth_url: None,
-                    options: vec![],
-                    options_fallback: false,
-                    questions: vec![],
-                    question_current: 0,
-                    ready: true,
-                },
+                prompt: PromptContext::new(PromptKind::Setup).with_subtype(subtype).with_ready(),
             },
             "screen:setup".to_owned(),
         ));
@@ -435,18 +405,7 @@ pub fn parse_options_from_screen(lines: &[String]) -> Vec<String> {
 /// Plan prompts are detected via the screen rather than the session log,
 /// so context is built from the visible screen lines.
 pub fn extract_plan_context(_screen: &ScreenSnapshot) -> PromptContext {
-    PromptContext {
-        kind: PromptKind::Plan,
-        subtype: None,
-        tool: None,
-        input: None,
-        auth_url: None,
-        options: vec![],
-        options_fallback: false,
-        questions: vec![],
-        question_current: 0,
-        ready: false,
-    }
+    PromptContext::new(PromptKind::Plan)
 }
 
 /// Try to parse a line as a numbered option: `[❯ ] N. label`.

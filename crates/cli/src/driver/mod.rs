@@ -117,6 +117,64 @@ pub struct PromptContext {
     pub ready: bool,
 }
 
+impl PromptContext {
+    /// Create a new `PromptContext` with the given kind and default fields.
+    pub fn new(kind: PromptKind) -> Self {
+        Self {
+            kind,
+            subtype: None,
+            tool: None,
+            input: None,
+            auth_url: None,
+            options: vec![],
+            options_fallback: false,
+            questions: vec![],
+            question_current: 0,
+            ready: false,
+        }
+    }
+
+    pub fn with_subtype(mut self, s: impl Into<String>) -> Self {
+        self.subtype = Some(s.into());
+        self
+    }
+
+    pub fn with_tool(mut self, t: impl Into<String>) -> Self {
+        self.tool = Some(t.into());
+        self
+    }
+
+    pub fn with_input(mut self, i: impl Into<String>) -> Self {
+        self.input = Some(i.into());
+        self
+    }
+
+    pub fn with_auth_url(mut self, u: impl Into<String>) -> Self {
+        self.auth_url = Some(u.into());
+        self
+    }
+
+    pub fn with_options(mut self, o: Vec<String>) -> Self {
+        self.options = o;
+        self
+    }
+
+    pub fn with_options_fallback(mut self) -> Self {
+        self.options_fallback = true;
+        self
+    }
+
+    pub fn with_questions(mut self, q: Vec<QuestionContext>) -> Self {
+        self.questions = q;
+        self
+    }
+
+    pub fn with_ready(mut self) -> Self {
+        self.ready = true;
+        self
+    }
+}
+
 /// A single question within a multi-question dialog.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QuestionContext {
