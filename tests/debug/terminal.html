@@ -604,6 +604,12 @@ function logEvent(msg) {
       detail = `${msg.prev} -> ${msg.next}`;
       if (msg.cause) detail += ` [${msg.cause}]`;
       if (msg.error_detail) detail += ` (${msg.error_category || 'error'})`;
+      if (msg.last_message) {
+        const trunc = msg.last_message.length > 80
+          ? msg.last_message.slice(0, 80) + '...'
+          : msg.last_message;
+        detail += ` msg="${trunc}"`;
+      }
       break;
     case 'exit':
       detail = msg.signal != null ? `signal ${msg.signal}` : `code ${msg.code ?? '?'}`;
