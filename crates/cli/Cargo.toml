@@ -33,6 +33,7 @@ nix.workspace = true
 notify.workspace = true
 prost.workspace = true
 regex.workspace = true
+rustix.workspace = true
 tokio-stream.workspace = true
 tonic.workspace = true
 tonic-prost.workspace = true

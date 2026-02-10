@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use std::io;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
 use tokio::io::unix::AsyncFd;
@@ -14,6 +14,12 @@ pub struct PtyFd(pub OwnedFd);
 impl AsRawFd for PtyFd {
     fn as_raw_fd(&self) -> std::os::fd::RawFd {
         self.0.as_raw_fd()
+    }
+}
+
+impl AsFd for PtyFd {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.as_fd()
     }
 }
 

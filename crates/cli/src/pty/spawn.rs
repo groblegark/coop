@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use std::ffi::CString;
-use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -180,21 +179,14 @@ impl Backend for NativePty {
         })
     }
 
-    // TIOCSWINSZ ioctl requires unsafe for the libc::ioctl call
-    #[allow(unsafe_code)]
     fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
         self.cols.store(cols, Ordering::Relaxed);
         self.rows.store(rows, Ordering::Relaxed);
 
-        let ws = Winsize { ws_col: cols, ws_row: rows, ws_xpixel: 0, ws_ypixel: 0 };
-
-        // SAFETY: TIOCSWINSZ is a well-defined ioctl that sets the window
-        // size on the PTY master fd. The Winsize struct is properly
-        // initialized.
-        let ret = unsafe { libc::ioctl(self.master.as_raw_fd(), libc::TIOCSWINSZ, &ws) };
-        if ret < 0 {
-            bail!("TIOCSWINSZ ioctl failed: {}", std::io::Error::last_os_error());
-        }
+        let ws =
+            rustix::termios::Winsize { ws_col: cols, ws_row: rows, ws_xpixel: 0, ws_ypixel: 0 };
+        rustix::termios::tcsetwinsize(self.master.get_ref(), ws)
+            .context("TIOCSWINSZ ioctl failed")?;
 
         Ok(())
     }

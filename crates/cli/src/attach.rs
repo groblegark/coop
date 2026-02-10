@@ -12,7 +12,6 @@
 //! using DECSTBM scroll region margins.
 
 use std::io::Write;
-use std::os::fd::{AsRawFd, BorrowedFd};
 use std::sync::{Mutex, Once};
 use std::time::{Duration, Instant};
 
@@ -68,7 +67,7 @@ static PANIC_HOOK_INSTALLED: Once = Once::new();
 
 /// Saved terminal state for panic-time restoration.
 /// Populated when entering raw mode, cleared on drop.
-static PANIC_TERMIOS: Mutex<Option<(i32, nix::libc::termios)>> = Mutex::new(None);
+static PANIC_TERMIOS: Mutex<Option<nix::libc::termios>> = Mutex::new(None);
 
 /// Default statusline refresh interval in seconds.
 const DEFAULT_STATUSLINE_INTERVAL: u64 = 5;
@@ -132,23 +131,18 @@ impl AttachState {
 }
 
 /// RAII guard that restores the original terminal attributes on drop.
-///
-/// Stores a raw fd (stdin) and the original termios state. The fd is valid
-/// for the lifetime of the process (stdin never closes), so this is safe.
 struct RawModeGuard {
-    fd: i32,
     original: termios::Termios,
 }
 
 impl RawModeGuard {
     fn enter() -> anyhow::Result<Self> {
-        let fd = std::io::stdin().as_raw_fd();
-        let borrowed = borrow_fd(fd);
-        let original = termios::tcgetattr(borrowed)?;
+        let stdin = std::io::stdin();
+        let original = termios::tcgetattr(&stdin)?;
         let mut raw = original.clone();
         termios::cfmakeraw(&mut raw);
-        termios::tcsetattr(borrowed, termios::SetArg::TCSAFLUSH, &raw)?;
-        Ok(Self { fd, original })
+        termios::tcsetattr(&stdin, termios::SetArg::TCSAFLUSH, &raw)?;
+        Ok(Self { original })
     }
 }
 
@@ -158,29 +152,13 @@ impl Drop for RawModeGuard {
         if let Ok(mut guard) = PANIC_TERMIOS.lock() {
             *guard = None;
         }
-        let borrowed = borrow_fd(self.fd);
-        let _ = termios::tcsetattr(borrowed, termios::SetArg::TCSAFLUSH, &self.original);
-    }
-}
-
-/// Create a `BorrowedFd` from a raw fd that we know is valid.
-fn borrow_fd(fd: i32) -> BorrowedFd<'static> {
-    // SAFETY: stdin fd 0 is valid for the lifetime of the process.
-    #[allow(unsafe_code)]
-    unsafe {
-        BorrowedFd::borrow_raw(fd)
+        let _ = termios::tcsetattr(std::io::stdin(), termios::SetArg::TCSAFLUSH, &self.original);
     }
 }
 
 fn terminal_size() -> Option<(u16, u16)> {
-    let fd = std::io::stdout().as_raw_fd();
-    let mut ws = nix::libc::winsize { ws_row: 0, ws_col: 0, ws_xpixel: 0, ws_ypixel: 0 };
-    // SAFETY: TIOCGWINSZ ioctl reads terminal size into a winsize struct.
-    // The fd is stdout which is valid, and ws is a properly-initialized stack
-    // variable with the correct layout for this ioctl.
-    #[allow(unsafe_code)]
-    let ret = unsafe { nix::libc::ioctl(fd, nix::libc::TIOCGWINSZ, &mut ws) };
-    if ret == 0 && ws.ws_col > 0 && ws.ws_row > 0 {
+    let ws = rustix::termios::tcgetwinsize(std::io::stdout()).ok()?;
+    if ws.ws_col > 0 && ws.ws_row > 0 {
         Some((ws.ws_col, ws.ws_row))
     } else {
         None
@@ -342,19 +320,19 @@ async fn attach(
     {
         let raw_termios: nix::libc::termios = raw_guard.original.clone().into();
         if let Ok(mut guard) = PANIC_TERMIOS.lock() {
-            *guard = Some((raw_guard.fd, raw_termios));
+            *guard = Some(raw_termios);
         }
     }
     PANIC_HOOK_INSTALLED.call_once(|| {
         let prev_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             if let Ok(mut guard) = PANIC_TERMIOS.lock() {
-                if let Some((fd, ref termios)) = *guard {
-                    // SAFETY: Restoring terminal attributes in panic hook; fd is
-                    // stdin which remains valid for the lifetime of the process.
+                if let Some(ref termios) = *guard {
+                    // SAFETY: Restoring terminal attributes in panic hook; stdin
+                    // fd 0 remains valid for the lifetime of the process.
                     #[allow(unsafe_code)]
                     unsafe {
-                        nix::libc::tcsetattr(fd, nix::libc::TCSAFLUSH, termios);
+                        nix::libc::tcsetattr(0, nix::libc::TCSAFLUSH, termios);
                     }
                     *guard = None;
                 }
