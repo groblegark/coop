@@ -241,5 +241,5 @@ impl Backend for TmuxBackend {
 }
 
 #[cfg(test)]
-#[path = "attach_tests.rs"]
+#[path = "adapter_tests.rs"]
 mod tests;

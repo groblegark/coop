@@ -41,6 +41,7 @@ parking_lot = "0.12.5"
 tempfile.workspace = true
 uuid.workspace = true
 reqwest.workspace = true
+tokio-tungstenite.workspace = true
 
 [build-dependencies]
 tonic-build.workspace = true
@@ -49,7 +50,6 @@ tonic-prost-build.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 reqwest.workspace = true
-tokio-tungstenite.workspace = true
 yare.workspace = true
 axum-test.workspace = true
 

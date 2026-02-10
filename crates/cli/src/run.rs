@@ -23,7 +23,7 @@ use crate::driver::gemini::GeminiDriver;
 use crate::driver::process::ProcessMonitor;
 use crate::driver::AgentType;
 use crate::driver::{AgentState, Detector, NudgeEncoder, OptionParser, RespondEncoder};
-use crate::pty::attach::{AttachSpec, TmuxBackend};
+use crate::pty::adapter::{AttachSpec, TmuxBackend};
 use crate::pty::spawn::NativePty;
 use crate::pty::Backend;
 use crate::ring::RingBuffer;

@@ -9,7 +9,7 @@
 
 use bytes::Bytes;
 use coop::driver::ExitStatus;
-use coop::pty::attach::TmuxBackend;
+use coop::pty::adapter::TmuxBackend;
 use coop::pty::{Backend, BackendInput};
 use std::path::PathBuf;
 use std::process::Command;

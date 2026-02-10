@@ -14,6 +14,10 @@ async fn main() {
         let body_arg = args.get(2).map(|s| s.as_str());
         std::process::exit(coop::send::run(body_arg));
     }
+    if args.get(1).map(|s| s.as_str()) == Some("attach") {
+        let rest: Vec<String> = args[2..].to_vec();
+        std::process::exit(coop::attach::run(&rest).await);
+    }
 
     let config = Config::parse();
 
