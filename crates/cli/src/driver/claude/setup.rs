@@ -30,19 +30,19 @@ pub struct ClaudeSessionSetup {
 ///
 /// Generates a UUID for `--session-id`, computes the expected log path,
 /// writes a settings file with hook config, and creates the pipe path.
-/// If `extra_settings` is provided, orchestrator hooks are layered
+/// If `base_settings` is provided, orchestrator hooks are layered
 /// beneath coop's detection hooks in the merged settings file.
 pub fn prepare_claude_session(
     working_dir: &Path,
     coop_url: &str,
-    extra_settings: Option<&serde_json::Value>,
+    base_settings: Option<&serde_json::Value>,
 ) -> anyhow::Result<ClaudeSessionSetup> {
     let session_id = uuid::Uuid::new_v4().to_string();
     let log_path = session_log_path(working_dir, &session_id);
 
     let session_dir = coop_session_dir(&session_id)?;
     let hook_pipe_path = session_dir.join("hook.pipe");
-    let settings_path = write_settings_file(&session_dir, &hook_pipe_path, extra_settings)?;
+    let settings_path = write_settings_file(&session_dir, &hook_pipe_path, base_settings)?;
 
     let env_vars = super::hooks::hook_env_vars(&hook_pipe_path, coop_url);
     let extra_args = vec![
@@ -69,12 +69,12 @@ pub fn prepare_claude_resume(
     resume_state: &ResumeState,
     existing_log_path: &Path,
     coop_url: &str,
-    extra_settings: Option<&serde_json::Value>,
+    base_settings: Option<&serde_json::Value>,
 ) -> anyhow::Result<ClaudeSessionSetup> {
     let resume_id = resume_state.conversation_id.as_deref().unwrap_or("unknown");
     let session_dir = coop_session_dir(resume_id)?;
     let hook_pipe_path = session_dir.join("hook.pipe");
-    let settings_path = write_settings_file(&session_dir, &hook_pipe_path, extra_settings)?;
+    let settings_path = write_settings_file(&session_dir, &hook_pipe_path, base_settings)?;
 
     let env_vars = super::hooks::hook_env_vars(&hook_pipe_path, coop_url);
 
@@ -93,15 +93,15 @@ pub fn prepare_claude_resume(
 
 /// Write a Claude settings JSON file containing the hook configuration.
 ///
-/// If `extra_settings` is provided, merges orchestrator hooks (base)
+/// If `base_settings` is provided, merges orchestrator hooks (base)
 /// with coop's hooks (appended). Returns the path to the written file.
 fn write_settings_file(
     dir: &Path,
     pipe_path: &Path,
-    extra_settings: Option<&serde_json::Value>,
+    base_settings: Option<&serde_json::Value>,
 ) -> anyhow::Result<PathBuf> {
     let coop_config = generate_hook_config(pipe_path);
-    let merged = match extra_settings {
+    let merged = match base_settings {
         Some(orch) => crate::config::merge_settings(orch, coop_config),
         None => coop_config,
     };

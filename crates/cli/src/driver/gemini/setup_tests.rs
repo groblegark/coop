@@ -58,7 +58,7 @@ fn prepare_session_has_no_extra_args() -> anyhow::Result<()> {
 }
 
 #[test]
-fn prepare_session_with_extra_settings_merges_hooks() -> anyhow::Result<()> {
+fn prepare_session_with_base_settings_merges_hooks() -> anyhow::Result<()> {
     let work_dir = tempfile::tempdir()?;
     let orchestrator = json!({
         "hooks": {

@@ -117,7 +117,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     };
     let stop_config = agent_file_config.as_ref().and_then(|c| c.stop.clone()).unwrap_or_default();
     let start_config = agent_file_config.as_ref().and_then(|c| c.start.clone()).unwrap_or_default();
-    let extra_settings = agent_file_config.as_ref().and_then(|c| c.settings.clone());
+    let base_settings = agent_file_config.as_ref().and_then(|c| c.settings.clone());
     let mcp_config = agent_file_config.as_ref().and_then(|c| c.mcp.clone());
 
     // 1. Handle --resume: discover session log and build resume state.
@@ -146,13 +146,13 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
                 state,
                 log_path,
                 &coop_url_for_setup,
-                extra_settings.as_ref(),
+                base_settings.as_ref(),
             )?
         } else {
             claude_setup::prepare_claude_session(
                 &working_dir,
                 &coop_url_for_setup,
-                extra_settings.as_ref(),
+                base_settings.as_ref(),
             )?
         };
         Some(setup)
@@ -165,7 +165,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         Some(gemini_setup::prepare_gemini_session(
             &working_dir,
             &coop_url_for_setup,
-            extra_settings.as_ref(),
+            base_settings.as_ref(),
             mcp_config.as_ref(),
         )?)
     } else {

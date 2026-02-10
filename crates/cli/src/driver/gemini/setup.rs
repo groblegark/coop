@@ -28,20 +28,20 @@ pub struct GeminiSessionSetup {
 /// Writes a settings file with hook config and creates the pipe path.
 /// The settings file is injected via `GEMINI_CLI_SYSTEM_SETTINGS_PATH`
 /// so hooks are active without modifying user or project settings.
-/// If `extra_settings` is provided, orchestrator hooks are layered
+/// If `base_settings` is provided, orchestrator hooks are layered
 /// beneath coop's detection hooks in the merged settings file.
 /// If `mcp_config` is provided, its `mcpServers` are included in the
 /// settings file (Gemini reads MCP servers from settings, not a separate file).
 pub fn prepare_gemini_session(
     _working_dir: &Path,
     coop_url: &str,
-    extra_settings: Option<&serde_json::Value>,
+    base_settings: Option<&serde_json::Value>,
     mcp_config: Option<&serde_json::Value>,
 ) -> anyhow::Result<GeminiSessionSetup> {
     let temp_dir = tempfile::tempdir()?;
     let hook_pipe_path = temp_dir.path().join("hook.pipe");
     let settings_path =
-        write_settings_file(temp_dir.path(), &hook_pipe_path, extra_settings, mcp_config)?;
+        write_settings_file(temp_dir.path(), &hook_pipe_path, base_settings, mcp_config)?;
 
     let mut env_vars = super::hooks::hook_env_vars(&hook_pipe_path, coop_url);
     // Inject settings file via system settings path so Gemini loads our hooks
@@ -53,18 +53,18 @@ pub fn prepare_gemini_session(
 
 /// Write a Gemini settings JSON file containing the hook configuration.
 ///
-/// If `extra_settings` is provided, merges orchestrator hooks (base)
+/// If `base_settings` is provided, merges orchestrator hooks (base)
 /// with coop's hooks (appended). If `mcp_config` is provided, its
 /// `mcpServers` key is included in the settings file. Returns the path
 /// to the written file.
 fn write_settings_file(
     dir: &Path,
     pipe_path: &Path,
-    extra_settings: Option<&serde_json::Value>,
+    base_settings: Option<&serde_json::Value>,
     mcp_config: Option<&serde_json::Value>,
 ) -> anyhow::Result<PathBuf> {
     let coop_config = generate_hook_config(pipe_path);
-    let mut merged = match extra_settings {
+    let mut merged = match base_settings {
         Some(orch) => crate::config::merge_settings(orch, coop_config),
         None => coop_config,
     };
