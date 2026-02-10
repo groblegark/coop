@@ -50,15 +50,36 @@ impl Detector for ClaudeScreenDetector {
                 }
 
                 let snapshot = (self.snapshot_fn)();
+                let non_empty: Vec<_> = snapshot
+                    .lines
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, l)| !l.trim().is_empty())
+                    .collect();
+                trace!(
+                    alt_screen = snapshot.alt_screen,
+                    seq = snapshot.sequence,
+                    non_empty_lines = non_empty.len(),
+                    "screen poll"
+                );
                 let classified = classify_claude_screen(&snapshot);
 
                 if let Some((ref state, ref cause)) = classified {
                     if last_state.as_ref() != Some(state) {
+                        debug!(cause, state = state.as_str(), "screen detected");
                         let _ = state_tx.send((state.clone(), cause.clone())).await;
                         last_state = Some(state.clone());
                     }
                 } else if last_state.is_some() {
                     last_state = None;
+                } else if !non_empty.is_empty() {
+                    // Unclassified non-empty screen — log first few lines for diagnosis.
+                    let preview: Vec<_> = non_empty
+                        .iter()
+                        .take(5)
+                        .map(|(i, l)| format!("{i}:{}", l.trim()))
+                        .collect();
+                    debug!(lines = ?preview, "screen: unclassified");
                 }
             }
         })

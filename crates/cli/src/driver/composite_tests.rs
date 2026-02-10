@@ -207,6 +207,43 @@ async fn tier5_can_escalate_to_prompt() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Regression: screen detector transitions from Setup(security_notes) to
+/// Permission(trust) when the user dismisses one dialog and the next appears.
+/// This must NOT be blocked by prompt_supersedes — Setup and Permission are
+/// sequential dialogs, not concurrent events.
+#[tokio::test]
+async fn setup_to_permission_transition_accepted() -> anyhow::Result<()> {
+    let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![Box::new(MockDetector::new(
+        5,
+        vec![
+            (
+                Duration::from_millis(50),
+                AgentState::Prompt {
+                    prompt: PromptContext::new(PromptKind::Setup).with_subtype("security_notes"),
+                },
+            ),
+            (
+                Duration::from_millis(100),
+                AgentState::Prompt {
+                    prompt: PromptContext::new(PromptKind::Permission).with_subtype("trust"),
+                },
+            ),
+        ],
+    ))];
+
+    let results = run_composite(detectors, Duration::from_millis(500)).await?;
+
+    assert!(results.len() >= 2, "expected both Setup and Permission: {results:?}");
+    let has_permission = results.iter().any(|s| {
+        matches!(
+            s.state,
+            AgentState::Prompt { prompt: PromptContext { kind: PromptKind::Permission, .. } }
+        )
+    });
+    assert!(has_permission, "Permission prompt must not be blocked by preceding Setup prompt");
+    Ok(())
+}
+
 /// Regression: Claude fires both `ToolBefore(ExitPlanMode)` → Prompt(Plan) and
 /// `Notification(permission_prompt)` → Prompt(Permission) for the same user-facing
 /// plan approval moment. When the permission notification arrives after the

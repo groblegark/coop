@@ -556,13 +556,11 @@ impl Session {
     }
 }
 
-/// Wait for the screen to render prompt options, parse them, and re-broadcast
-/// the enriched prompt context.
+/// Wait for the screen to render prompt options, parse them, and re-broadcast the enriched prompt context.
 ///
 /// This runs as a detached task because hook events fire before the PTY output
-/// containing numbered options reaches the screen buffer. Retries up to
-/// `MAX_ATTEMPTS` times, then falls back to universal Accept/Cancel options
-/// that encode to Enter/Esc.
+/// containing numbered options reaches the screen buffer.
+/// Retries up to `MAX_ATTEMPTS` times, then falls back to universal Accept/Cancel options that encode to Enter/Esc.
 async fn enrich_prompt_options(app: Arc<Store>, expected_seq: u64, parser: OptionParser) {
     const MAX_ATTEMPTS: u32 = 10;
     const POLL_INTERVAL: Duration = Duration::from_millis(200);
@@ -606,7 +604,7 @@ async fn enrich_prompt_options(app: Arc<Store>, expected_seq: u64, parser: Optio
                         prev: next.clone(),
                         next,
                         seq: expected_seq,
-                        cause: "enriched".to_owned(),
+                        cause: "ready".to_owned(),
                         last_message,
                     });
                 }
@@ -639,7 +637,7 @@ async fn enrich_prompt_options(app: Arc<Store>, expected_seq: u64, parser: Optio
                 prev: next.clone(),
                 next,
                 seq: expected_seq,
-                cause: "enriched".to_owned(),
+                cause: "ready".to_owned(),
                 last_message,
             });
         }

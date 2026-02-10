@@ -129,11 +129,15 @@ impl CompositeDetector {
 /// When the agent fires both a specific pre-tool-use event and a generic
 /// permission notification for the same user-facing moment, the specific
 /// state should stick.
+///
+/// Setup prompts are intentionally excluded — they come from the screen
+/// detector and represent sequential dialogs (e.g. security_notes →
+/// workspace trust), not concurrent events for the same moment.
 fn prompt_supersedes(current: &AgentState, incoming: &AgentState) -> bool {
     match (current, incoming) {
         (AgentState::Prompt { prompt: cur }, AgentState::Prompt { prompt: inc }) => {
             inc.kind == PromptKind::Permission
-                && matches!(cur.kind, PromptKind::Plan | PromptKind::Question | PromptKind::Setup)
+                && matches!(cur.kind, PromptKind::Plan | PromptKind::Question)
         }
         _ => false,
     }
