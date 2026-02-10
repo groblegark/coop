@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use coop::ring::RingBuffer;
-use coop::test_support::StoreBuilder;
+use coop::test_support::{StoreBuilder, StoreCtx};
 use coop::transport::build_router;
 use coop::transport::http::OutputResponse;
 
@@ -65,7 +65,7 @@ async fn ring_buffer_wrap_preserves_recent() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn http_output_endpoint_large_response() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(1_048_576).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(1_048_576).build();
 
     // Write 128KB of known data directly to the ring buffer
     let pattern: Vec<u8> = (0..128 * 1024).map(|i| (i % 256) as u8).collect();
@@ -98,7 +98,7 @@ async fn ws_replay_large_offset() -> anyhow::Result<()> {
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-    let (store, _rx) = StoreBuilder::new().ring_size(1_048_576).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(1_048_576).build();
 
     // Write 256KB
     let data: Vec<u8> = (0..256 * 1024).map(|i| (i % 256) as u8).collect();
@@ -153,7 +153,7 @@ async fn ws_replay_large_offset() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn concurrent_readers_during_write() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(1_048_576).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(1_048_576).build();
     let state = Arc::clone(&store);
 
     // Writer task: pump data into ring buffer

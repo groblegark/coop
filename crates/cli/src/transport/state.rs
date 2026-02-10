@@ -291,3 +291,7 @@ impl std::fmt::Debug for Store {
             .finish()
     }
 }
+
+#[cfg(test)]
+#[path = "state_tests.rs"]
+mod tests;

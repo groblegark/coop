@@ -4,18 +4,16 @@
 use axum::http::StatusCode;
 
 use crate::event::InputEvent;
-use crate::test_support::{AnyhowExt, StoreBuilder};
+use crate::test_support::{AnyhowExt, StoreBuilder, StoreCtx};
 use crate::transport::build_router;
-use crate::transport::state::Store;
-use std::sync::Arc;
 
-fn test_state() -> (Arc<Store>, tokio::sync::mpsc::Receiver<InputEvent>) {
+fn test_state() -> StoreCtx {
     StoreBuilder::new().child_pid(1234).build()
 }
 
 #[tokio::test]
 async fn health_200() -> anyhow::Result<()> {
-    let (state, _rx) = test_state();
+    let StoreCtx { store: state, .. } = test_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -34,7 +32,7 @@ async fn health_200() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn screen_snapshot() -> anyhow::Result<()> {
-    let (state, _rx) = test_state();
+    let StoreCtx { store: state, .. } = test_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -48,7 +46,7 @@ async fn screen_snapshot() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn screen_include_cursor() -> anyhow::Result<()> {
-    let (state, _rx) = test_state();
+    let StoreCtx { store: state, .. } = test_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -71,7 +69,7 @@ async fn screen_include_cursor() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn screen_text_plain() -> anyhow::Result<()> {
-    let (state, _rx) = test_state();
+    let StoreCtx { store: state, .. } = test_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -85,7 +83,7 @@ async fn screen_text_plain() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn output_with_offset() -> anyhow::Result<()> {
-    let (state, _rx) = test_state();
+    let StoreCtx { store: state, .. } = test_state();
     {
         let mut ring = state.terminal.ring.write().await;
         ring.write(b"hello world");
@@ -102,7 +100,7 @@ async fn output_with_offset() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn status_running() -> anyhow::Result<()> {
-    let (state, _rx) = test_state();
+    let StoreCtx { store: state, .. } = test_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -116,7 +114,7 @@ async fn status_running() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn input_sends_event() -> anyhow::Result<()> {
-    let (state, mut rx) = test_state();
+    let StoreCtx { store: state, mut input_rx, .. } = test_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -128,14 +126,14 @@ async fn input_sends_event() -> anyhow::Result<()> {
     let body = resp.text();
     assert!(body.contains("\"bytes_written\":6"));
 
-    let event = rx.recv().await;
+    let event = input_rx.recv().await;
     assert!(matches!(event, Some(InputEvent::Write(_))));
     Ok(())
 }
 
 #[tokio::test]
 async fn input_raw_sends_event() -> anyhow::Result<()> {
-    let (state, mut rx) = test_state();
+    let StoreCtx { store: state, mut input_rx, .. } = test_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -146,14 +144,14 @@ async fn input_raw_sends_event() -> anyhow::Result<()> {
     let body = resp.text();
     assert!(body.contains("\"bytes_written\":5"), "body: {body}");
 
-    let event = rx.recv().await;
+    let event = input_rx.recv().await;
     assert!(matches!(event, Some(InputEvent::Write(_))));
     Ok(())
 }
 
 #[tokio::test]
 async fn input_raw_rejects_bad_base64() -> anyhow::Result<()> {
-    let (state, _rx) = test_state();
+    let StoreCtx { store: state, .. } = test_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -167,7 +165,7 @@ async fn input_raw_rejects_bad_base64() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn keys_sends_event() -> anyhow::Result<()> {
-    let (state, mut rx) = test_state();
+    let StoreCtx { store: state, mut input_rx, .. } = test_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -179,14 +177,14 @@ async fn keys_sends_event() -> anyhow::Result<()> {
     let body = resp.text();
     assert!(body.contains("\"bytes_written\":3"));
 
-    let event = rx.recv().await;
+    let event = input_rx.recv().await;
     assert!(matches!(event, Some(InputEvent::Write(_))));
     Ok(())
 }
 
 #[tokio::test]
 async fn resize_sends_event() -> anyhow::Result<()> {
-    let (state, mut rx) = test_state();
+    let StoreCtx { store: state, mut input_rx, .. } = test_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -194,14 +192,14 @@ async fn resize_sends_event() -> anyhow::Result<()> {
         server.post("/api/v1/resize").json(&serde_json::json!({"cols": 120, "rows": 40})).await;
     resp.assert_status(StatusCode::OK);
 
-    let event = rx.recv().await;
+    let event = input_rx.recv().await;
     assert!(matches!(event, Some(InputEvent::Resize { cols: 120, rows: 40 })));
     Ok(())
 }
 
 #[tokio::test]
 async fn signal_delivers() -> anyhow::Result<()> {
-    let (state, mut rx) = test_state();
+    let StoreCtx { store: state, mut input_rx, .. } = test_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -210,14 +208,14 @@ async fn signal_delivers() -> anyhow::Result<()> {
     let body = resp.text();
     assert!(body.contains("\"delivered\":true"));
 
-    let event = rx.recv().await;
+    let event = input_rx.recv().await;
     assert!(matches!(event, Some(InputEvent::Signal(crate::event::PtySignal::Int))));
     Ok(())
 }
 
 #[tokio::test]
 async fn resize_rejects_zero_cols() -> anyhow::Result<()> {
-    let (state, _rx) = test_state();
+    let StoreCtx { store: state, .. } = test_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).map_err(|e| anyhow::anyhow!("{e}"))?;
 
@@ -229,7 +227,7 @@ async fn resize_rejects_zero_cols() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn resize_rejects_zero_rows() -> anyhow::Result<()> {
-    let (state, _rx) = test_state();
+    let StoreCtx { store: state, .. } = test_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).map_err(|e| anyhow::anyhow!("{e}"))?;
 

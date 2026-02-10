@@ -6,18 +6,16 @@ use std::sync::Arc;
 use axum::http::StatusCode;
 
 use crate::driver::AgentState;
-use crate::event::InputEvent;
-use crate::test_support::{AnyhowExt, StoreBuilder, StubNudgeEncoder};
+use crate::test_support::{AnyhowExt, StoreBuilder, StoreCtx, StubNudgeEncoder};
 use crate::transport::build_router;
-use crate::transport::state::Store;
 
-fn test_state() -> (Arc<Store>, tokio::sync::mpsc::Receiver<InputEvent>) {
+fn test_state() -> StoreCtx {
     StoreBuilder::new().child_pid(1234).build()
 }
 
 #[tokio::test]
 async fn agent_state_without_driver_returns_state() -> anyhow::Result<()> {
-    let (state, _rx) = test_state();
+    let StoreCtx { store: state, .. } = test_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -30,7 +28,7 @@ async fn agent_state_without_driver_returns_state() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn agent_nudge_not_ready_503() -> anyhow::Result<()> {
-    let (state, _rx) = test_state();
+    let StoreCtx { store: state, .. } = test_state();
     // ready defaults to false — nudge should be gated
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
@@ -43,7 +41,7 @@ async fn agent_nudge_not_ready_503() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn agent_nudge_no_driver_404() -> anyhow::Result<()> {
-    let (state, _rx) = test_state();
+    let StoreCtx { store: state, .. } = test_state();
     state.ready.store(true, std::sync::atomic::Ordering::Release);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
@@ -56,7 +54,7 @@ async fn agent_nudge_no_driver_404() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn agent_respond_no_driver_404() -> anyhow::Result<()> {
-    let (state, _rx) = test_state();
+    let StoreCtx { store: state, .. } = test_state();
     state.ready.store(true, std::sync::atomic::Ordering::Release);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
@@ -69,7 +67,7 @@ async fn agent_respond_no_driver_404() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn agent_state_includes_error_fields() -> anyhow::Result<()> {
-    let (state, _rx) = StoreBuilder::new()
+    let StoreCtx { store: state, .. } = StoreBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Error { detail: "rate_limit_error".to_owned() })
         .build();
@@ -92,7 +90,8 @@ async fn agent_state_includes_error_fields() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn agent_state_omits_error_fields_when_not_error() -> anyhow::Result<()> {
-    let (state, _rx) = StoreBuilder::new().child_pid(1234).agent_state(AgentState::Working).build();
+    let StoreCtx { store: state, .. } =
+        StoreBuilder::new().child_pid(1234).agent_state(AgentState::Working).build();
 
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
@@ -107,7 +106,7 @@ async fn agent_state_omits_error_fields_when_not_error() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn agent_nudge_rejected_when_working() -> anyhow::Result<()> {
-    let (state, _rx) = StoreBuilder::new()
+    let StoreCtx { store: state, .. } = StoreBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Working)
         .nudge_encoder(Arc::new(StubNudgeEncoder))
@@ -127,7 +126,7 @@ async fn agent_nudge_rejected_when_working() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn agent_nudge_delivered_when_waiting() -> anyhow::Result<()> {
-    let (state, _rx) = StoreBuilder::new()
+    let StoreCtx { store: state, .. } = StoreBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Idle)
         .nudge_encoder(Arc::new(StubNudgeEncoder))
@@ -146,7 +145,8 @@ async fn agent_nudge_delivered_when_waiting() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn auth_rejects_without_token() -> anyhow::Result<()> {
-    let (state, _rx) = StoreBuilder::new().child_pid(1234).auth_token("secret").build();
+    let StoreCtx { store: state, .. } =
+        StoreBuilder::new().child_pid(1234).auth_token("secret").build();
 
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
@@ -174,7 +174,7 @@ async fn auth_rejects_without_token() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn shutdown_cancels_token() -> anyhow::Result<()> {
-    let (state, _rx) = test_state();
+    let StoreCtx { store: state, .. } = test_state();
     assert!(!state.lifecycle.shutdown.is_cancelled());
     let app = build_router(state.clone());
     let server = axum_test::TestServer::new(app).anyhow()?;
@@ -189,7 +189,8 @@ async fn shutdown_cancels_token() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn shutdown_requires_auth() -> anyhow::Result<()> {
-    let (state, _rx) = StoreBuilder::new().child_pid(1234).auth_token("secret").build();
+    let StoreCtx { store: state, .. } =
+        StoreBuilder::new().child_pid(1234).auth_token("secret").build();
     let app = build_router(state.clone());
     let server = axum_test::TestServer::new(app).anyhow()?;
 

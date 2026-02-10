@@ -641,3 +641,6 @@ mod hooks_tests;
 
 #[cfg(test)]
 mod transcript_tests;
+
+#[cfg(test)]
+mod switch_tests;

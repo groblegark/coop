@@ -26,6 +26,7 @@ use crate::switch::SwitchRequest;
 use crate::transport::Store;
 
 /// What happened when the session loop exited.
+#[derive(Debug)]
 pub enum SessionOutcome {
     /// The backend exited (process terminated).
     Exit(ExitStatus),

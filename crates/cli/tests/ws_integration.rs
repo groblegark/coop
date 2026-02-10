@@ -12,7 +12,7 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use coop::driver::AgentState;
 use coop::event::{OutputEvent, TransitionEvent};
-use coop::test_support::{spawn_http_server, StoreBuilder};
+use coop::test_support::{spawn_http_server, StoreBuilder, StoreCtx};
 
 type WsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
@@ -60,7 +60,7 @@ const RECV_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[tokio::test]
 async fn ws_connect_and_receive_pong() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().build();
+    let StoreCtx { store, .. } = StoreBuilder::new().build();
     let (addr, _handle) = spawn_http_server(store).await?;
 
     let (mut tx, mut rx) = ws_connect(&addr, "").await?;
@@ -77,7 +77,7 @@ async fn ws_connect_and_receive_pong() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_auth_query_param() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().auth_token("test-secret").build();
+    let StoreCtx { store, .. } = StoreBuilder::new().auth_token("test-secret").build();
     let (addr, _handle) = spawn_http_server(store).await?;
 
     // Connect with correct token
@@ -96,7 +96,7 @@ async fn ws_auth_query_param() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_auth_message() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().auth_token("auth-secret").build();
+    let StoreCtx { store, .. } = StoreBuilder::new().auth_token("auth-secret").build();
     let (addr, _handle) = spawn_http_server(store).await?;
 
     // Connect without token (WS upgrade succeeds; needs auth via message)
@@ -120,7 +120,7 @@ async fn ws_auth_message() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_subscription_mode_raw() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(65536).build();
     let (addr, _handle) = spawn_http_server(Arc::clone(&store)).await?;
 
     let (mut _tx, mut rx) = ws_connect(&addr, "subscribe=output").await?;
@@ -154,7 +154,7 @@ async fn ws_subscription_mode_raw() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_subscription_mode_state() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(65536).build();
     let (addr, _handle) = spawn_http_server(Arc::clone(&store)).await?;
 
     let (mut _tx, mut rx) = ws_connect(&addr, "subscribe=state").await?;
@@ -189,7 +189,7 @@ async fn ws_subscription_mode_state() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_subscription_mode_screen() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(65536).build();
     let (addr, _handle) = spawn_http_server(Arc::clone(&store)).await?;
 
     let (mut _tx, mut rx) = ws_connect(&addr, "subscribe=screen").await?;
@@ -210,7 +210,7 @@ async fn ws_subscription_mode_screen() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_replay_from_offset() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(65536).build();
 
     // Write known data to ring buffer
     {
@@ -239,7 +239,7 @@ async fn ws_replay_from_offset() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_concurrent_readers() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(65536).build();
     let (addr, _handle) = spawn_http_server(Arc::clone(&store)).await?;
 
     // Connect 5 clients with state mode
@@ -273,7 +273,7 @@ async fn ws_concurrent_readers() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn ws_resize_sends_event() -> anyhow::Result<()> {
-    let (store, mut rx) = StoreBuilder::new().build();
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().build();
     let (addr, _handle) = spawn_http_server(store).await?;
 
     let (mut tx, _ws_rx) = ws_connect(&addr, "").await?;
@@ -281,7 +281,7 @@ async fn ws_resize_sends_event() -> anyhow::Result<()> {
     ws_send(&mut tx, &serde_json::json!({"event": "resize", "cols": 120, "rows": 40})).await?;
 
     // Verify resize event received
-    let event = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await?;
+    let event = tokio::time::timeout(Duration::from_secs(2), input_rx.recv()).await?;
     match event {
         Some(coop::event::InputEvent::Resize { cols, rows }) => {
             assert_eq!(cols, 120);
@@ -306,7 +306,7 @@ fn transcript_store() -> (std::sync::Arc<coop::transport::state::Store>, tempfil
     let ts = std::sync::Arc::new(
         TranscriptState::new(ts_dir, Some(log)).expect("create transcript state"),
     );
-    let (store, _rx) = StoreBuilder::new().transcript(ts).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().transcript(ts).build();
     (store, tmp)
 }
 

@@ -4,20 +4,19 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::{Config, GroomLevel};
 use crate::driver::{AgentState, PromptContext, PromptKind};
 use crate::pty::spawn::NativePty;
-use crate::session::{Session, SessionConfig};
-use crate::test_support::{MockDetector, MockPty, StoreBuilder, StubRespondEncoder};
+use crate::session::{Session, SessionConfig, SessionOutcome};
+use crate::switch::SwitchRequest;
+use crate::test_support::{MockDetector, MockPty, StoreBuilder, StoreCtx, StubRespondEncoder};
 
 #[tokio::test]
 async fn echo_exits_with_zero() -> anyhow::Result<()> {
     let config = Config::test();
-    let (input_tx, mut input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().ring_size(65536).build();
 
     let backend = NativePty::spawn(&["echo".into(), "hello".into()], 80, 24, &[])?;
     let session = Session::new(&config, SessionConfig::new(store, backend));
@@ -30,8 +29,7 @@ async fn echo_exits_with_zero() -> anyhow::Result<()> {
 #[tokio::test]
 async fn output_captured_in_ring_and_screen() -> anyhow::Result<()> {
     let config = Config::test();
-    let (input_tx, mut input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().ring_size(65536).build();
 
     let backend = NativePty::spawn(&["echo".into(), "hello-ring".into()], 80, 24, &[])?;
     let session = Session::new(&config, SessionConfig::new(Arc::clone(&store), backend));
@@ -60,8 +58,7 @@ async fn output_captured_in_ring_and_screen() -> anyhow::Result<()> {
 async fn shutdown_cancels_session() -> anyhow::Result<()> {
     let mut config = Config::test();
     config.drain_timeout_ms = Some(0);
-    let (input_tx, mut input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().ring_size(65536).build();
     let shutdown = CancellationToken::new();
 
     // Long-running command
@@ -87,8 +84,7 @@ async fn shutdown_cancels_session() -> anyhow::Result<()> {
 async fn graceful_drain_kills_when_already_idle() -> anyhow::Result<()> {
     let mut config = Config::test();
     config.drain_timeout_ms = Some(2000);
-    let (input_tx, mut input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().ring_size(65536).build();
     let shutdown = CancellationToken::new();
 
     let backend = MockPty::new().drain_input();
@@ -123,8 +119,7 @@ async fn graceful_drain_kills_when_already_idle() -> anyhow::Result<()> {
 async fn graceful_drain_timeout_force_kills() -> anyhow::Result<()> {
     let mut config = Config::test();
     config.drain_timeout_ms = Some(500);
-    let (input_tx, mut input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().ring_size(65536).build();
     let shutdown = CancellationToken::new();
 
     let backend = MockPty::new().drain_input();
@@ -161,8 +156,7 @@ async fn graceful_drain_timeout_force_kills() -> anyhow::Result<()> {
 async fn graceful_drain_disabled_when_zero() -> anyhow::Result<()> {
     let mut config = Config::test();
     config.drain_timeout_ms = Some(0);
-    let (input_tx, mut input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().ring_size(65536).build();
     let shutdown = CancellationToken::new();
 
     let backend = MockPty::new().drain_input();
@@ -206,12 +200,11 @@ fn disruption_prompt() -> AgentState {
 async fn groom_auto_dismisses_disruption() -> anyhow::Result<()> {
     let mut config = Config::test();
     config.drain_timeout_ms = Some(0);
-    let (input_tx, mut input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new()
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new()
         .ring_size(65536)
         .groom(GroomLevel::Auto)
         .respond_encoder(Arc::new(StubRespondEncoder))
-        .build_with_sender(input_tx);
+        .build();
 
     let backend = MockPty::new().drain_input();
     let captured = backend.captured_input();
@@ -251,12 +244,11 @@ async fn groom_auto_dismisses_disruption() -> anyhow::Result<()> {
 async fn groom_manual_does_not_dismiss() -> anyhow::Result<()> {
     let mut config = Config::test();
     config.drain_timeout_ms = Some(0);
-    let (input_tx, mut input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new()
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new()
         .ring_size(65536)
         .groom(GroomLevel::Manual)
         .respond_encoder(Arc::new(StubRespondEncoder))
-        .build_with_sender(input_tx);
+        .build();
 
     let backend = MockPty::new().drain_input();
     let captured = backend.captured_input();
@@ -284,5 +276,123 @@ async fn groom_manual_does_not_dismiss() -> anyhow::Result<()> {
     let has_setup_response = input.iter().any(|b| b.as_ref() == b"1\r");
     assert!(!has_setup_response, "unexpected auto-dismiss in manual mode: {input:?}");
 
+    Ok(())
+}
+
+/// Switch request while agent is idle produces SessionOutcome::Switch.
+///
+/// MockPty doesn't respond to SIGHUP (PID 0), so we use a shutdown token
+/// with drain_timeout_ms=0 to break the loop after the switch is staged.
+#[tokio::test]
+async fn switch_when_idle_returns_switch_outcome() -> anyhow::Result<()> {
+    let mut config = Config::test();
+    config.drain_timeout_ms = Some(0);
+    let StoreCtx { store, mut input_rx, mut switch_rx } =
+        StoreBuilder::new().ring_size(65536).build();
+    let shutdown = CancellationToken::new();
+
+    let backend = MockPty::new().drain_input();
+    // Detector emits Idle quickly.
+    let detector = MockDetector::new(1, vec![(Duration::from_millis(10), AgentState::Idle)]);
+
+    let switch_tx = store.switch.switch_tx.clone();
+    let session = Session::new(
+        &config,
+        SessionConfig::new(Arc::clone(&store), backend)
+            .with_shutdown(shutdown.clone())
+            .with_detectors(vec![Box::new(detector)]),
+    );
+
+    // Send a switch request after the detector fires, then shutdown to break the loop.
+    let sd = shutdown.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let _ = switch_tx.send(SwitchRequest { credentials: None, force: false }).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        sd.cancel();
+    });
+
+    let outcome = session.run(&config, &mut input_rx, &mut switch_rx).await?;
+    assert!(matches!(outcome, SessionOutcome::Switch(_)), "expected Switch, got {outcome:?}");
+    Ok(())
+}
+
+/// Force switch while agent is working produces SessionOutcome::Switch.
+#[tokio::test]
+async fn force_switch_while_working() -> anyhow::Result<()> {
+    let mut config = Config::test();
+    config.drain_timeout_ms = Some(0);
+    let StoreCtx { store, mut input_rx, mut switch_rx } =
+        StoreBuilder::new().ring_size(65536).build();
+    let shutdown = CancellationToken::new();
+
+    let backend = MockPty::new().drain_input();
+    // Detector emits Working and stays there.
+    let detector = MockDetector::new(1, vec![(Duration::from_millis(10), AgentState::Working)]);
+
+    let switch_tx = store.switch.switch_tx.clone();
+    let session = Session::new(
+        &config,
+        SessionConfig::new(Arc::clone(&store), backend)
+            .with_shutdown(shutdown.clone())
+            .with_detectors(vec![Box::new(detector)]),
+    );
+
+    let sd = shutdown.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let _ = switch_tx.send(SwitchRequest { credentials: None, force: true }).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        sd.cancel();
+    });
+
+    let outcome = session.run(&config, &mut input_rx, &mut switch_rx).await?;
+    assert!(matches!(outcome, SessionOutcome::Switch(_)), "expected Switch, got {outcome:?}");
+    Ok(())
+}
+
+/// Graceful switch waits for idle — agent transitions Working → Idle → switch.
+#[tokio::test]
+async fn graceful_switch_waits_for_idle() -> anyhow::Result<()> {
+    let mut config = Config::test();
+    config.drain_timeout_ms = Some(0);
+    let StoreCtx { store, mut input_rx, mut switch_rx } =
+        StoreBuilder::new().ring_size(65536).build();
+    let shutdown = CancellationToken::new();
+
+    let backend = MockPty::new().drain_input();
+    // Detector: Working at 10ms, then Idle at 200ms.
+    let detector = MockDetector::new(
+        1,
+        vec![
+            (Duration::from_millis(10), AgentState::Working),
+            (Duration::from_millis(200), AgentState::Idle),
+        ],
+    );
+
+    let switch_tx = store.switch.switch_tx.clone();
+    let session = Session::new(
+        &config,
+        SessionConfig::new(Arc::clone(&store), backend)
+            .with_shutdown(shutdown.clone())
+            .with_detectors(vec![Box::new(detector)]),
+    );
+
+    // Send non-force switch while Working (at 50ms), shutdown after idle (at 400ms).
+    let sd = shutdown.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let _ = switch_tx.send(SwitchRequest { credentials: None, force: false }).await;
+        tokio::time::sleep(Duration::from_millis(350)).await;
+        sd.cancel();
+    });
+
+    let start = std::time::Instant::now();
+    let outcome = session.run(&config, &mut input_rx, &mut switch_rx).await?;
+    let elapsed = start.elapsed();
+
+    assert!(matches!(outcome, SessionOutcome::Switch(_)), "expected Switch, got {outcome:?}");
+    // Should have waited for the Idle transition (~200ms), not returned immediately.
+    assert!(elapsed >= Duration::from_millis(150), "returned too fast: {elapsed:?}");
     Ok(())
 }

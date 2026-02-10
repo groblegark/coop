@@ -1,20 +1,26 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use tokio::sync::mpsc;
-
 use super::*;
 
-#[tokio::test]
-async fn switch_channel_rejects_when_full() -> anyhow::Result<()> {
-    let (tx, _rx) = mpsc::channel::<SwitchRequest>(1);
+#[test]
+fn switch_request_defaults() {
+    let req: SwitchRequest = serde_json::from_str("{}").unwrap_or_else(|e| panic!("{e}"));
+    assert!(req.credentials.is_none());
+    assert!(!req.force);
+}
 
-    // Fill the channel
-    tx.try_send(SwitchRequest { credentials: None, force: false }).ok();
-
-    // Second send should fail (channel full)
-    let result = tx.try_send(SwitchRequest { credentials: None, force: false });
-
-    assert!(result.is_err());
-    Ok(())
+#[test]
+fn switch_request_round_trips() {
+    let req = SwitchRequest {
+        credentials: Some([("ANTHROPIC_API_KEY".to_owned(), "sk-test".to_owned())].into()),
+        force: true,
+    };
+    let json = serde_json::to_string(&req).unwrap_or_else(|e| panic!("{e}"));
+    let decoded: SwitchRequest = serde_json::from_str(&json).unwrap_or_else(|e| panic!("{e}"));
+    assert!(decoded.force);
+    assert_eq!(
+        decoded.credentials.as_ref().and_then(|c| c.get("ANTHROPIC_API_KEY")).map(|s| s.as_str()),
+        Some("sk-test"),
+    );
 }

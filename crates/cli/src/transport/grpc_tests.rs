@@ -5,7 +5,7 @@ use super::*;
 use crate::driver::AgentState;
 use crate::event::PtySignal;
 use crate::screen::{CursorPosition, ScreenSnapshot};
-use crate::test_support::StoreBuilder;
+use crate::test_support::{StoreBuilder, StoreCtx};
 use crate::transport::encode_key;
 
 #[test]
@@ -254,7 +254,7 @@ fn pty_signal_from_name_case_insensitive() {
 
 #[test]
 fn service_instantiation_compiles() {
-    let state = StoreBuilder::new().build().0;
+    let StoreCtx { store: state, .. } = StoreBuilder::new().build();
     let service = CoopGrpc::new(state);
     // Verify we can construct a tonic server from the service
     let _router = service.into_router();
@@ -262,7 +262,8 @@ fn service_instantiation_compiles() {
 
 #[test]
 fn service_with_auth_compiles() {
-    let (state, _rx) = StoreBuilder::new().child_pid(1234).auth_token("secret").build();
+    let StoreCtx { store: state, .. } =
+        StoreBuilder::new().child_pid(1234).auth_token("secret").build();
     let service = CoopGrpc::new(state);
     // Verify we can build the router with auth interceptor
     let _router = service.into_router();
@@ -271,21 +272,21 @@ fn service_with_auth_compiles() {
 #[tokio::test]
 async fn send_input_raw_writes_bytes() -> anyhow::Result<()> {
     use crate::event::InputEvent;
-    let (state, mut rx) = StoreBuilder::new().child_pid(1234).build();
+    let StoreCtx { store: state, mut input_rx, .. } = StoreBuilder::new().child_pid(1234).build();
     let svc = CoopGrpc::new(state);
 
     let req = tonic::Request::new(proto::SendInputRawRequest { data: b"hello".to_vec() });
     let resp = proto::coop_server::Coop::send_input_raw(&svc, req).await?;
     assert_eq!(resp.into_inner().bytes_written, 5);
 
-    let event = rx.recv().await;
+    let event = input_rx.recv().await;
     assert!(matches!(event, Some(InputEvent::Write(_))));
     Ok(())
 }
 
 #[tokio::test]
 async fn get_ready_returns_readiness() -> anyhow::Result<()> {
-    let (state, _rx) = StoreBuilder::new().child_pid(1234).build();
+    let StoreCtx { store: state, .. } = StoreBuilder::new().child_pid(1234).build();
     let svc = CoopGrpc::new(state.clone());
 
     let req = tonic::Request::new(proto::GetReadyRequest {});
@@ -311,7 +312,7 @@ async fn list_transcripts_empty() -> anyhow::Result<()> {
     std::fs::write(&log, "")?;
     let ts = std::sync::Arc::new(TranscriptState::new(ts_dir, Some(log))?);
 
-    let (state, _rx) = StoreBuilder::new().child_pid(1234).transcript(ts).build();
+    let StoreCtx { store: state, .. } = StoreBuilder::new().child_pid(1234).transcript(ts).build();
     let svc = CoopGrpc::new(state);
 
     let req = tonic::Request::new(proto::ListTranscriptsRequest {});
@@ -330,7 +331,7 @@ async fn list_transcripts_after_save() -> anyhow::Result<()> {
 
     ts.save_snapshot().await?;
 
-    let (state, _rx) = StoreBuilder::new().child_pid(1234).transcript(ts).build();
+    let StoreCtx { store: state, .. } = StoreBuilder::new().child_pid(1234).transcript(ts).build();
     let svc = CoopGrpc::new(state);
 
     let req = tonic::Request::new(proto::ListTranscriptsRequest {});
@@ -350,7 +351,7 @@ async fn get_transcript_not_found() -> anyhow::Result<()> {
     std::fs::write(&log, "")?;
     let ts = std::sync::Arc::new(TranscriptState::new(ts_dir, Some(log))?);
 
-    let (state, _rx) = StoreBuilder::new().child_pid(1234).transcript(ts).build();
+    let StoreCtx { store: state, .. } = StoreBuilder::new().child_pid(1234).transcript(ts).build();
     let svc = CoopGrpc::new(state);
 
     let req = tonic::Request::new(proto::GetTranscriptRequest { number: 99 });
@@ -374,7 +375,7 @@ async fn catchup_transcripts_returns_data() -> anyhow::Result<()> {
     // Add more lines to the session log.
     std::fs::write(&log, "{\"turn\":1}\n{\"turn\":2}\n")?;
 
-    let (state, _rx) = StoreBuilder::new().child_pid(1234).transcript(ts).build();
+    let StoreCtx { store: state, .. } = StoreBuilder::new().child_pid(1234).transcript(ts).build();
     let svc = CoopGrpc::new(state);
 
     let req = tonic::Request::new(proto::CatchupTranscriptsRequest {

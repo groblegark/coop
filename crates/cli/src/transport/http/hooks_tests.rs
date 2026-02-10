@@ -1,24 +1,20 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use std::sync::Arc;
-
 use axum::http::StatusCode;
 use base64::Engine;
 
 use crate::driver::AgentState;
-use crate::event::InputEvent;
 use crate::start::{StartConfig, StartEventConfig};
 use crate::stop::{StopConfig, StopMode};
-use crate::test_support::{AnyhowExt, StoreBuilder};
+use crate::test_support::{AnyhowExt, StoreBuilder, StoreCtx};
 use crate::transport::build_router;
-use crate::transport::state::Store;
 
-fn stop_state(config: StopConfig) -> (Arc<Store>, tokio::sync::mpsc::Receiver<InputEvent>) {
+fn stop_state(config: StopConfig) -> StoreCtx {
     StoreBuilder::new().child_pid(1234).agent_state(AgentState::Working).stop_config(config).build()
 }
 
-fn start_state(config: StartConfig) -> (Arc<Store>, tokio::sync::mpsc::Receiver<InputEvent>) {
+fn start_state(config: StartConfig) -> StoreCtx {
     StoreBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Working)
@@ -30,7 +26,7 @@ fn start_state(config: StartConfig) -> (Arc<Store>, tokio::sync::mpsc::Receiver<
 
 #[tokio::test]
 async fn hooks_stop_allow_mode_returns_empty() -> anyhow::Result<()> {
-    let (state, _rx) = stop_state(StopConfig::default());
+    let StoreCtx { store: state, .. } = stop_state(StopConfig::default());
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -52,7 +48,7 @@ async fn hooks_stop_signal_mode_blocks_without_signal() -> anyhow::Result<()> {
         prompt: Some("Finish work first.".to_owned()),
         schema: None,
     };
-    let (state, _rx) = stop_state(config);
+    let StoreCtx { store: state, .. } = stop_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -70,7 +66,7 @@ async fn hooks_stop_signal_mode_blocks_without_signal() -> anyhow::Result<()> {
 #[tokio::test]
 async fn hooks_stop_signal_mode_allows_after_signal() -> anyhow::Result<()> {
     let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
-    let (state, _rx) = stop_state(config);
+    let StoreCtx { store: state, .. } = stop_state(config);
     let app = build_router(state.clone());
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -95,7 +91,7 @@ async fn hooks_stop_signal_mode_allows_after_signal() -> anyhow::Result<()> {
 #[tokio::test]
 async fn hooks_stop_safety_valve_always_allows() -> anyhow::Result<()> {
     let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
-    let (state, _rx) = stop_state(config);
+    let StoreCtx { store: state, .. } = stop_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -113,7 +109,7 @@ async fn hooks_stop_safety_valve_always_allows() -> anyhow::Result<()> {
 #[tokio::test]
 async fn hooks_stop_unrecoverable_error_allows() -> anyhow::Result<()> {
     let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
-    let (state, _rx) = stop_state(config);
+    let StoreCtx { store: state, .. } = stop_state(config);
     // Set unrecoverable error state.
     *state.driver.error.write().await = Some(crate::transport::state::ErrorInfo {
         detail: "invalid api key".to_owned(),
@@ -135,7 +131,7 @@ async fn hooks_stop_unrecoverable_error_allows() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn resolve_stop_stores_body() -> anyhow::Result<()> {
-    let (state, _rx) = stop_state(StopConfig::default());
+    let StoreCtx { store: state, .. } = stop_state(StopConfig::default());
     let app = build_router(state.clone());
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -160,7 +156,7 @@ async fn resolve_stop_stores_body() -> anyhow::Result<()> {
 async fn get_stop_config_returns_current() -> anyhow::Result<()> {
     let config =
         StopConfig { mode: StopMode::Signal, prompt: Some("test prompt".to_owned()), schema: None };
-    let (state, _rx) = stop_state(config);
+    let StoreCtx { store: state, .. } = stop_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -174,7 +170,7 @@ async fn get_stop_config_returns_current() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn put_stop_config_updates() -> anyhow::Result<()> {
-    let (state, _rx) = stop_state(StopConfig::default());
+    let StoreCtx { store: state, .. } = stop_state(StopConfig::default());
     let app = build_router(state.clone());
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -203,7 +199,7 @@ async fn put_stop_config_updates() -> anyhow::Result<()> {
 #[tokio::test]
 async fn hooks_stop_emits_stop_events() -> anyhow::Result<()> {
     let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
-    let (state, _rx) = stop_state(config);
+    let StoreCtx { store: state, .. } = stop_state(config);
     let mut stop_rx = state.stop.stop_tx.subscribe();
 
     let app = build_router(state);
@@ -224,7 +220,7 @@ async fn hooks_stop_emits_stop_events() -> anyhow::Result<()> {
 #[tokio::test]
 async fn signal_consumed_after_stop_check() -> anyhow::Result<()> {
     let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
-    let (state, _rx) = stop_state(config);
+    let StoreCtx { store: state, .. } = stop_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -249,7 +245,8 @@ async fn signal_consumed_after_stop_check() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
-    let (state, _rx) = StoreBuilder::new().child_pid(1234).auth_token("secret-token").build();
+    let StoreCtx { store: state, .. } =
+        StoreBuilder::new().child_pid(1234).auth_token("secret-token").build();
 
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
@@ -284,7 +281,7 @@ async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn hooks_start_empty_config_returns_empty() -> anyhow::Result<()> {
-    let (state, _rx) = start_state(StartConfig::default());
+    let StoreCtx { store: state, .. } = start_state(StartConfig::default());
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -301,7 +298,7 @@ async fn hooks_start_empty_config_returns_empty() -> anyhow::Result<()> {
 #[tokio::test]
 async fn hooks_start_text_returns_base64_script() -> anyhow::Result<()> {
     let config = StartConfig { text: Some("hello context".to_owned()), ..Default::default() };
-    let (state, _rx) = start_state(config);
+    let StoreCtx { store: state, .. } = start_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -322,7 +319,7 @@ async fn hooks_start_shell_returns_commands() -> anyhow::Result<()> {
         shell: vec!["echo one".to_owned(), "echo two".to_owned()],
         ..Default::default()
     };
-    let (state, _rx) = start_state(config);
+    let StoreCtx { store: state, .. } = start_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -343,7 +340,7 @@ async fn hooks_start_text_and_shell_combined() -> anyhow::Result<()> {
         shell: vec!["echo done".to_owned()],
         ..Default::default()
     };
-    let (state, _rx) = start_state(config);
+    let StoreCtx { store: state, .. } = start_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -368,7 +365,7 @@ async fn hooks_start_event_override() -> anyhow::Result<()> {
         StartEventConfig { text: Some("override".to_owned()), shell: vec![] },
     );
     let config = StartConfig { text: Some("default".to_owned()), shell: vec![], event: events };
-    let (state, _rx) = start_state(config);
+    let StoreCtx { store: state, .. } = start_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -389,7 +386,7 @@ async fn hooks_start_event_fallback() -> anyhow::Result<()> {
     let mut events = std::collections::BTreeMap::new();
     events.insert("clear".to_owned(), StartEventConfig::default());
     let config = StartConfig { text: Some("fallback".to_owned()), shell: vec![], event: events };
-    let (state, _rx) = start_state(config);
+    let StoreCtx { store: state, .. } = start_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -408,7 +405,7 @@ async fn hooks_start_event_fallback() -> anyhow::Result<()> {
 #[tokio::test]
 async fn hooks_start_emits_event() -> anyhow::Result<()> {
     let config = StartConfig { text: Some("ctx".to_owned()), ..Default::default() };
-    let (state, _rx) = start_state(config);
+    let StoreCtx { store: state, .. } = start_state(config);
     let mut start_rx = state.start.start_tx.subscribe();
 
     let app = build_router(state);
@@ -432,7 +429,7 @@ async fn hooks_start_emits_event() -> anyhow::Result<()> {
 #[tokio::test]
 async fn get_start_config_returns_current() -> anyhow::Result<()> {
     let config = StartConfig { text: Some("test text".to_owned()), ..Default::default() };
-    let (state, _rx) = start_state(config);
+    let StoreCtx { store: state, .. } = start_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -445,7 +442,7 @@ async fn get_start_config_returns_current() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn put_start_config_updates() -> anyhow::Result<()> {
-    let (state, _rx) = start_state(StartConfig::default());
+    let StoreCtx { store: state, .. } = start_state(StartConfig::default());
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -474,7 +471,7 @@ async fn put_start_config_updates() -> anyhow::Result<()> {
 #[tokio::test]
 async fn hooks_start_extracts_session_type_as_source() -> anyhow::Result<()> {
     let config = StartConfig::default();
-    let (state, _rx) = start_state(config);
+    let StoreCtx { store: state, .. } = start_state(config);
     let mut start_rx = state.start.start_tx.subscribe();
 
     let app = build_router(state);

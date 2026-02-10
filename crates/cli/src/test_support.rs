@@ -25,12 +25,21 @@ use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::start::{StartConfig, StartState};
 use crate::stop::{StopConfig, StopState};
-use crate::switch::SwitchState;
+use crate::switch::{SwitchRequest, SwitchState};
 use crate::transcript::TranscriptState;
 use crate::transport::state::{
     DetectionInfo, DriverState, LifecycleState, SessionSettings, Store, TerminalState,
     TransportChannels,
 };
+
+/// Test-only handle returned by [`StoreBuilder::build`], bundling the shared
+/// store with all receiver ends that would normally be consumed by the session
+/// loop.
+pub struct StoreCtx {
+    pub store: Arc<Store>,
+    pub input_rx: mpsc::Receiver<InputEvent>,
+    pub switch_rx: mpsc::Receiver<SwitchRequest>,
+}
 
 /// Builder for constructing `AppState` in tests with sensible defaults.
 pub struct StoreBuilder {
@@ -118,22 +127,17 @@ impl StoreBuilder {
         self
     }
 
-    /// Build state and return the `input_rx` receiver alongside it.
-    pub fn build(self) -> (Arc<Store>, mpsc::Receiver<InputEvent>) {
-        let (input_tx, input_rx) = mpsc::channel(16);
-        let state = self.build_with_sender(input_tx);
-        (state, input_rx)
-    }
-
-    /// Build state using an externally-created `input_tx`.
-    pub fn build_with_sender(self, input_tx: mpsc::Sender<InputEvent>) -> Arc<Store> {
+    /// Build state and return a `StoreCtx` with all receiver handles.
+    pub fn build(self) -> StoreCtx {
+        let (input_tx, input_rx) = mpsc::channel(64);
+        let (switch_tx, switch_rx) = mpsc::channel::<SwitchRequest>(1);
         let (output_tx, _) = broadcast::channel::<OutputEvent>(256);
         let (state_tx, _) = broadcast::channel::<TransitionEvent>(64);
         let (prompt_tx, _) = broadcast::channel::<PromptOutcome>(64);
         let (hook_tx, _) = broadcast::channel::<RawHookEvent>(64);
         let (message_tx, _) = broadcast::channel::<RawMessageEvent>(64);
 
-        Arc::new(Store {
+        let store = Arc::new(Store {
             terminal: Arc::new(TerminalState {
                 screen: RwLock::new(Screen::new(80, 24)),
                 ring: RwLock::new(RingBuffer::new(self.ring_size)),
@@ -178,7 +182,7 @@ impl StoreBuilder {
             )),
             start: Arc::new(StartState::new(self.start_config.unwrap_or_default())),
             switch: Arc::new(SwitchState {
-                switch_tx: tokio::sync::mpsc::channel(1).0,
+                switch_tx,
                 session_log_path: RwLock::new(None),
                 base_settings: None,
                 mcp_config: None,
@@ -192,7 +196,9 @@ impl StoreBuilder {
                 })
             }),
             input_activity: Arc::new(tokio::sync::Notify::new()),
-        })
+        });
+
+        StoreCtx { store, input_rx, switch_rx }
     }
 }
 

@@ -5,15 +5,13 @@ use std::sync::Arc;
 
 use axum::http::StatusCode;
 
-use crate::event::InputEvent;
-use crate::test_support::{AnyhowExt, StoreBuilder};
+use crate::test_support::{AnyhowExt, StoreBuilder, StoreCtx};
 use crate::transcript::TranscriptState;
 use crate::transport::build_router;
-use crate::transport::state::Store;
 
 /// Create a `Store` with a real `TranscriptState` backed by a temp dir and session log.
-/// Returns `(Arc<Store>, Receiver, TempDir)` — the `TempDir` guard must be held for the test lifetime.
-fn transcript_state() -> (Arc<Store>, tokio::sync::mpsc::Receiver<InputEvent>, tempfile::TempDir) {
+/// Returns `(StoreCtx, TempDir)` — the `TempDir` guard must be held for the test lifetime.
+fn transcript_state() -> (StoreCtx, tempfile::TempDir) {
     let tmp = tempfile::tempdir().expect("create tempdir");
     let transcripts_dir = tmp.path().join("transcripts");
     let session_log = tmp.path().join("session.jsonl");
@@ -22,13 +20,13 @@ fn transcript_state() -> (Arc<Store>, tokio::sync::mpsc::Receiver<InputEvent>, t
     let ts = Arc::new(
         TranscriptState::new(transcripts_dir, Some(session_log)).expect("create transcript state"),
     );
-    let (state, rx) = StoreBuilder::new().child_pid(1234).transcript(ts).build();
-    (state, rx, tmp)
+    let ts = StoreBuilder::new().child_pid(1234).transcript(ts).build();
+    (ts, tmp)
 }
 
 #[tokio::test]
 async fn list_transcripts_empty() -> anyhow::Result<()> {
-    let (state, _rx, _tmp) = transcript_state();
+    let (StoreCtx { store: state, .. }, _tmp) = transcript_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -41,7 +39,7 @@ async fn list_transcripts_empty() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn list_transcripts_after_save() -> anyhow::Result<()> {
-    let (state, _rx, _tmp) = transcript_state();
+    let (StoreCtx { store: state, .. }, _tmp) = transcript_state();
 
     // Write some content to the session log so the snapshot has data.
     let log_path = _tmp.path().join("session.jsonl");
@@ -65,7 +63,7 @@ async fn list_transcripts_after_save() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn get_transcript_returns_content() -> anyhow::Result<()> {
-    let (state, _rx, _tmp) = transcript_state();
+    let (StoreCtx { store: state, .. }, _tmp) = transcript_state();
 
     let log_path = _tmp.path().join("session.jsonl");
     let log_content = "{\"type\":\"message\",\"text\":\"hello\"}\n";
@@ -86,7 +84,7 @@ async fn get_transcript_returns_content() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn get_transcript_not_found() -> anyhow::Result<()> {
-    let (state, _rx, _tmp) = transcript_state();
+    let (StoreCtx { store: state, .. }, _tmp) = transcript_state();
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -99,7 +97,7 @@ async fn get_transcript_not_found() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn catchup_returns_transcripts_and_live_lines() -> anyhow::Result<()> {
-    let (state, _rx, _tmp) = transcript_state();
+    let (StoreCtx { store: state, .. }, _tmp) = transcript_state();
 
     let log_path = _tmp.path().join("session.jsonl");
     std::fs::write(&log_path, "{\"turn\":1}\n")?;
@@ -126,7 +124,7 @@ async fn catchup_returns_transcripts_and_live_lines() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn catchup_with_cursor_skips_old() -> anyhow::Result<()> {
-    let (state, _rx, _tmp) = transcript_state();
+    let (StoreCtx { store: state, .. }, _tmp) = transcript_state();
 
     let log_path = _tmp.path().join("session.jsonl");
     std::fs::write(&log_path, "{\"turn\":1}\n")?;
@@ -155,7 +153,7 @@ async fn catchup_with_cursor_skips_old() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn hooks_start_compact_triggers_snapshot() -> anyhow::Result<()> {
-    let (state, _rx, _tmp) = transcript_state();
+    let (StoreCtx { store: state, .. }, _tmp) = transcript_state();
 
     let log_path = _tmp.path().join("session.jsonl");
     std::fs::write(&log_path, "{\"msg\":\"before compact\"}\n")?;
@@ -178,7 +176,7 @@ async fn hooks_start_compact_triggers_snapshot() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn hooks_start_non_compact_does_not_trigger_snapshot() -> anyhow::Result<()> {
-    let (state, _rx, _tmp) = transcript_state();
+    let (StoreCtx { store: state, .. }, _tmp) = transcript_state();
 
     let log_path = _tmp.path().join("session.jsonl");
     std::fs::write(&log_path, "{\"msg\":\"session start\"}\n")?;

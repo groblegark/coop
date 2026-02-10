@@ -13,7 +13,7 @@ use coop::config::Config;
 use coop::pty::spawn::NativePty;
 use coop::pty::{Backend, BackendInput};
 use coop::session::{Session, SessionConfig};
-use coop::test_support::StoreBuilder;
+use coop::test_support::{StoreBuilder, StoreCtx};
 
 #[tokio::test]
 async fn child_exit_produces_eof() -> anyhow::Result<()> {
@@ -144,10 +144,9 @@ async fn resize_reflected_in_stty() -> anyhow::Result<()> {
 #[tokio::test]
 async fn large_output_through_session() -> anyhow::Result<()> {
     let config = Config::test();
-    let (input_tx, mut input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new()
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new()
         .ring_size(1_048_576) // 1MB
-        .build_with_sender(input_tx);
+        .build();
 
     let backend =
         NativePty::spawn(&["/bin/sh".into(), "-c".into(), "seq 1 10000".into()], 80, 24, &[])?;
@@ -238,8 +237,8 @@ async fn rapid_input_output() -> anyhow::Result<()> {
 #[tokio::test]
 async fn signal_delivery_sigint() -> anyhow::Result<()> {
     let config = Config::test();
-    let (input_tx, mut input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx.clone());
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().ring_size(65536).build();
+    let input_tx = store.channels.input_tx.clone();
 
     let backend = NativePty::spawn(&["/bin/cat".into()], 80, 24, &[])?;
     let session = Session::new(&config, SessionConfig::new(Arc::clone(&store), backend));

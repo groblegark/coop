@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use axum::http::StatusCode;
 use bytes::Bytes;
-use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use coop::config::Config;
@@ -16,7 +15,7 @@ use coop::driver::AgentState;
 use coop::event::InputEvent;
 use coop::pty::spawn::NativePty;
 use coop::session::{Session, SessionConfig};
-use coop::test_support::StoreBuilder;
+use coop::test_support::{StoreBuilder, StoreCtx};
 use coop::transport::build_router;
 use coop::transport::handler::SessionStatus;
 use coop::transport::http::{HealthResponse, InputRequest, ScreenResponse};
@@ -24,8 +23,7 @@ use coop::transport::http::{HealthResponse, InputRequest, ScreenResponse};
 #[tokio::test]
 async fn session_echo_captures_output_and_exits_zero() -> anyhow::Result<()> {
     let config = Config::test();
-    let (input_tx, mut input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().ring_size(65536).build();
 
     let backend = NativePty::spawn(&["echo".into(), "integration".into()], 80, 24, &[])?;
     let session = Session::new(&config, SessionConfig::new(Arc::clone(&store), backend));
@@ -54,8 +52,8 @@ async fn session_echo_captures_output_and_exits_zero() -> anyhow::Result<()> {
 #[tokio::test]
 async fn session_input_roundtrip() -> anyhow::Result<()> {
     let config = Config::test();
-    let (input_tx, mut input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx.clone());
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().ring_size(65536).build();
+    let input_tx = store.channels.input_tx.clone();
 
     let backend = NativePty::spawn(&["/bin/cat".into()], 80, 24, &[])?;
     let session = Session::new(&config, SessionConfig::new(Arc::clone(&store), backend));
@@ -91,8 +89,7 @@ async fn session_input_roundtrip() -> anyhow::Result<()> {
 #[tokio::test]
 async fn session_shutdown_terminates_child() -> anyhow::Result<()> {
     let config = Config::test();
-    let (input_tx, mut input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().ring_size(65536).build();
     let shutdown = CancellationToken::new();
 
     let backend =
@@ -114,8 +111,7 @@ async fn session_shutdown_terminates_child() -> anyhow::Result<()> {
 #[tokio::test]
 async fn session_exited_state_broadcast() -> anyhow::Result<()> {
     let config = Config::test();
-    let (input_tx, mut input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().ring_size(65536).build();
 
     let backend = NativePty::spawn(&["true".into()], 80, 24, &[])?;
     let session = Session::new(&config, SessionConfig::new(Arc::clone(&store), backend));
@@ -137,7 +133,7 @@ async fn session_exited_state_broadcast() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn http_health_endpoint() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(65536).build();
     let router = build_router(store);
     let server = axum_test::TestServer::new(router)?;
 
@@ -153,7 +149,7 @@ async fn http_health_endpoint() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn http_status_endpoint() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(65536).build();
     let router = build_router(store);
     let server = axum_test::TestServer::new(router)?;
 
@@ -167,7 +163,7 @@ async fn http_status_endpoint() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn http_screen_endpoint() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(65536).build();
     let router = build_router(store);
     let server = axum_test::TestServer::new(router)?;
 
@@ -182,7 +178,7 @@ async fn http_screen_endpoint() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn http_screen_text_endpoint() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(65536).build();
     let router = build_router(store);
     let server = axum_test::TestServer::new(router)?;
 
@@ -196,8 +192,8 @@ async fn http_screen_text_endpoint() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn http_input_endpoint() -> anyhow::Result<()> {
-    let (input_tx, mut consumer_input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let StoreCtx { store, input_rx: mut consumer_input_rx, .. } =
+        StoreBuilder::new().ring_size(65536).build();
     let router = build_router(store);
     let server = axum_test::TestServer::new(router)?;
 
@@ -223,7 +219,7 @@ async fn http_input_endpoint() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn http_nudge_returns_not_ready_before_startup() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(65536).build();
     let router = build_router(store);
     let server = axum_test::TestServer::new(router)?;
 
@@ -239,7 +235,7 @@ async fn http_nudge_returns_not_ready_before_startup() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn http_nudge_returns_no_driver_for_unknown() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(65536).build();
     // Mark ready so the not-ready gate is passed
     store.ready.store(true, std::sync::atomic::Ordering::Release);
     let router = build_router(store);
@@ -257,7 +253,8 @@ async fn http_nudge_returns_no_driver_for_unknown() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn http_auth_rejects_bad_token() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(65536).auth_token("secret-token").build();
+    let StoreCtx { store, .. } =
+        StoreBuilder::new().ring_size(65536).auth_token("secret-token").build();
 
     let router = build_router(store);
     let server = axum_test::TestServer::new(router)?;
@@ -295,7 +292,7 @@ async fn http_auth_rejects_bad_token() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn http_agent_state_endpoint() -> anyhow::Result<()> {
-    let (store, _rx) = StoreBuilder::new().ring_size(65536).build();
+    let StoreCtx { store, .. } = StoreBuilder::new().ring_size(65536).build();
     let router = build_router(store);
     let server = axum_test::TestServer::new(router)?;
 
@@ -310,8 +307,7 @@ async fn http_agent_state_endpoint() -> anyhow::Result<()> {
 #[tokio::test]
 async fn full_stack_echo_screen_via_http() -> anyhow::Result<()> {
     let config = Config::test();
-    let (input_tx, mut input_rx) = mpsc::channel(64);
-    let store = StoreBuilder::new().ring_size(65536).build_with_sender(input_tx);
+    let StoreCtx { store, mut input_rx, .. } = StoreBuilder::new().ring_size(65536).build();
 
     let backend = NativePty::spawn(&["echo".into(), "fullstack".into()], 80, 24, &[])?;
     let session = Session::new(&config, SessionConfig::new(Arc::clone(&store), backend));
