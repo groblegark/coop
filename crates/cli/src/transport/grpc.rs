@@ -218,11 +218,14 @@ impl proto::coop_server::Coop for CoopGrpc {
         request: Request<proto::ResizeRequest>,
     ) -> Result<Response<proto::ResizeResponse>, Status> {
         let req = request.into_inner();
-        if req.cols <= 0 || req.rows <= 0 {
-            return Err(ErrorCode::BadRequest.to_grpc_status("cols and rows must be positive"));
-        }
-        let cols = req.cols as u16;
-        let rows = req.rows as u16;
+        let cols: u16 = req
+            .cols
+            .try_into()
+            .map_err(|_| ErrorCode::BadRequest.to_grpc_status("cols must be a positive u16"))?;
+        let rows: u16 = req
+            .rows
+            .try_into()
+            .map_err(|_| ErrorCode::BadRequest.to_grpc_status("rows must be a positive u16"))?;
         handle_resize(&self.state, cols, rows)
             .await
             .map_err(|code| code.to_grpc_status("cols and rows must be positive"))?;
