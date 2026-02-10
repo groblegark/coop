@@ -126,6 +126,23 @@ pub struct Config {
     #[arg(long, env = "COOP_GROOM", default_value = "auto")]
     pub groom: String,
 
+    /// NATS server URL for event bus integration (e.g. "nats://127.0.0.1:4222").
+    /// Enables NATS-based Tier 1 detection and event publishing.
+    #[arg(long, env = "COOP_NATS_URL")]
+    pub nats_url: Option<String>,
+
+    /// Auth token for NATS connection. Falls back to BD_DAEMON_TOKEN env.
+    #[arg(long, env = "COOP_NATS_TOKEN")]
+    pub nats_token: Option<String>,
+
+    /// Subject prefix for published events (default: "coop.events").
+    #[arg(long, env = "COOP_NATS_PREFIX", default_value = "coop.events")]
+    pub nats_prefix: String,
+
+    /// Disable NATS event publishing (receive-only mode).
+    #[arg(long, env = "COOP_NATS_PUBLISH_DISABLE")]
+    pub nats_publish_disable: bool,
+
     // -- Duration overrides (skip from CLI; set in Config::test()) --------
     /// Drain timeout in ms (0 = disabled, immediate kill on shutdown).
     #[clap(skip)]
@@ -278,6 +295,10 @@ impl Config {
             log_level: "debug".into(),
             resume: None,
             groom: "manual".into(),
+            nats_url: None,
+            nats_token: None,
+            nats_prefix: "coop.events".into(),
+            nats_publish_disable: false,
             command: vec!["echo".into()],
             drain_timeout_ms: Some(100),
             shutdown_timeout_ms: Some(100),

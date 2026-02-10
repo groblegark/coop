@@ -598,6 +598,43 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         });
     }
 
+    // Spawn NATS publisher
+    {
+        use crate::driver::nats_recv::NatsConfig;
+        use crate::transport::nats_pub::{NatsPubConfig, NatsPublisher};
+
+        // Use explicit config or auto-discover from env.
+        let nats_config = if let Some(ref url) = config.nats_url {
+            Some(NatsPubConfig {
+                url: url.clone(),
+                token: config.nats_token.clone(),
+                prefix: config.nats_prefix.clone(),
+            })
+        } else {
+            NatsConfig::from_env().map(|c| NatsPubConfig {
+                url: c.url,
+                token: c.token,
+                prefix: config.nats_prefix.clone(),
+            })
+        };
+
+        if let Some(pub_config) = nats_config {
+            if !config.nats_publish_disable {
+                let state_rx = store.channels.state_tx.subscribe();
+                let stop_rx = store.stop.stop_tx.subscribe();
+                let sd = shutdown.clone();
+                tokio::spawn(async move {
+                    match NatsPublisher::connect(&pub_config).await {
+                        Ok(publisher) => publisher.run(state_rx, stop_rx, sd).await,
+                        Err(e) => {
+                            tracing::warn!("NATS publisher failed to connect: {e}");
+                        }
+                    }
+                });
+            }
+        }
+    }
+
     // Spawn health probe
     if let Some(health_port) = config.port_health {
         let health_router = build_health_router(Arc::clone(&store));
