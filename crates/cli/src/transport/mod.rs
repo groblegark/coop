@@ -7,6 +7,7 @@ pub mod auth;
 pub mod grpc;
 pub mod handler;
 pub mod http;
+pub mod nats_pub;
 pub mod state;
 pub mod ws;
 

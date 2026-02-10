@@ -8,6 +8,8 @@ pub mod gemini;
 pub mod hook_detect;
 pub mod hook_recv;
 pub mod jsonl_stdout;
+pub mod nats_detect;
+pub mod nats_recv;
 pub mod log_watch;
 pub mod nudge;
 pub mod process;
