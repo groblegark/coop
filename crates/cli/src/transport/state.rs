@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -71,13 +71,32 @@ pub struct ErrorInfo {
     pub category: ErrorCategory,
 }
 
+/// Detection tier and cause, stored atomically under a single lock.
+#[derive(Debug, Clone)]
+pub struct DetectionInfo {
+    pub tier: u8,
+    pub cause: String,
+}
+
+impl DetectionInfo {
+    /// Format the detection tier as a display string.
+    pub fn tier_str(&self) -> String {
+        if self.tier == u8::MAX {
+            "none".to_owned()
+        } else {
+            self.tier.to_string()
+        }
+    }
+}
+
 /// Driver detection state.
 pub struct DriverState {
     pub agent_state: RwLock<AgentState>,
     pub state_seq: AtomicU64,
-    pub detection_tier: AtomicU8,
-    /// Freeform cause string from the detector that produced the current state.
-    pub detection_cause: RwLock<String>,
+    /// Detection tier and freeform cause string from the detector that produced
+    /// the current state. Combined into a single lock to prevent readers from
+    /// seeing a stale cause with a new tier (or vice versa).
+    pub detection: RwLock<DetectionInfo>,
     /// Error detail + category when agent is in `Error` state, `None` otherwise.
     /// Combined into a single lock to prevent readers from seeing a torn state
     /// (e.g. detail=Some with category=None).
@@ -85,18 +104,6 @@ pub struct DriverState {
     /// Last assistant message text (concatenated text blocks from the most recent
     /// assistant JSONL entry). Written directly by log/stdout detectors.
     pub last_message: Arc<RwLock<Option<String>>>,
-}
-
-impl DriverState {
-    /// Format the current detection tier as a display string.
-    pub fn detection_tier_str(&self) -> String {
-        let tier = self.detection_tier.load(std::sync::atomic::Ordering::Acquire);
-        if tier == u8::MAX {
-            "none".to_owned()
-        } else {
-            tier.to_string()
-        }
-    }
 }
 
 /// Channel endpoints for consumer ↔ session communication.

@@ -437,7 +437,7 @@ async fn handle_client_message(
         ClientMessage::StateRequest {} => {
             let agent = state.driver.agent_state.read().await;
             let screen = state.terminal.screen.read().await;
-            let cause = state.driver.detection_cause.read().await.clone();
+            let cause = state.driver.detection.read().await.cause.clone();
             let (error_detail, error_category) = extract_error_fields(&agent);
             let last_message = state.driver.last_message.read().await.clone();
             Some(ServerMessage::StateChange {

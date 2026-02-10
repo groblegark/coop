@@ -269,6 +269,8 @@ message GetAgentStateResponse {
   optional string error_category = 8;
   // Last message extracted from agent output.
   optional string last_message = 9;
+  // Freeform cause string from the detector that produced the current state.
+  string detection_cause = 10;
 }
 
 message NudgeRequest {

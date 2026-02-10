@@ -3,7 +3,7 @@
 
 //! Top-level session runner — shared by `main` and integration tests.
 
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -33,7 +33,7 @@ use crate::start::StartState;
 use crate::stop::StopState;
 use crate::transport::grpc::CoopGrpc;
 use crate::transport::state::{
-    DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels,
+    DetectionInfo, DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels,
 };
 use crate::transport::{build_health_router, build_router, AppState};
 
@@ -315,8 +315,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         driver: Arc::new(DriverState {
             agent_state: RwLock::new(AgentState::Starting),
             state_seq: AtomicU64::new(0),
-            detection_tier: AtomicU8::new(u8::MAX),
-            detection_cause: RwLock::new(String::new()),
+            detection: RwLock::new(DetectionInfo { tier: u8::MAX, cause: String::new() }),
             error: RwLock::new(None),
             last_message,
         }),

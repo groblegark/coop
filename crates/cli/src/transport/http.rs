@@ -133,6 +133,7 @@ pub struct AgentStateResponse {
     pub since_seq: u64,
     pub screen_seq: u64,
     pub detection_tier: String,
+    pub detection_cause: String,
     pub prompt: Option<PromptContext>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_detail: Option<String>,
@@ -309,12 +310,15 @@ pub async fn agent_state(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let state = s.driver.agent_state.read().await;
     let screen = s.terminal.screen.read().await;
 
+    let detection = s.driver.detection.read().await;
+
     Json(AgentStateResponse {
         agent: s.config.agent.to_string(),
         state: state.as_str().to_owned(),
         since_seq: s.driver.state_seq.load(Ordering::Acquire),
         screen_seq: screen.seq(),
-        detection_tier: s.driver.detection_tier_str(),
+        detection_tier: detection.tier_str(),
+        detection_cause: detection.cause.clone(),
         prompt: state.prompt().cloned(),
         error_detail: s.driver.error.read().await.as_ref().map(|e| e.detail.clone()),
         error_category: s

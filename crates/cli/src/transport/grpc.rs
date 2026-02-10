@@ -250,12 +250,15 @@ impl proto::coop_server::Coop for CoopGrpc {
         let agent = self.state.driver.agent_state.read().await;
         let screen = self.state.terminal.screen.read().await;
 
+        let detection = self.state.driver.detection.read().await;
+
         Ok(Response::new(proto::GetAgentStateResponse {
             agent: self.state.config.agent.to_string(),
             state: agent.as_str().to_owned(),
             since_seq: self.state.driver.state_seq.load(Ordering::Acquire),
             screen_seq: screen.seq(),
-            detection_tier: self.state.driver.detection_tier_str(),
+            detection_tier: detection.tier_str(),
+            detection_cause: detection.cause.clone(),
             prompt: agent.prompt().map(prompt_to_proto),
             error_detail: self.state.driver.error.read().await.as_ref().map(|e| e.detail.clone()),
             error_category: self
