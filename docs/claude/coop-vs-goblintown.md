@@ -108,7 +108,7 @@ sending health check pings.
 | Permission respond | ✗  | ✓    |                                                               |
 | AskUser respond    | ✗  | ✓    |                                                               |
 | Plan respond       | ✗  | ✓    |                                                               |
-| Input debouncing   | ✓  | ✗    | GT: 200ms+ between sends. Consumer's responsibility with coop |
+| Input debouncing   | ✓  | ✓    |                                                               |
 
 
 ## Session Resume

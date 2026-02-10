@@ -23,10 +23,6 @@ use crate::transport::handler::{
 use crate::transport::read_ring_combined;
 use crate::transport::state::AppState;
 
-// ---------------------------------------------------------------------------
-// Request / Response types
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
     pub status: String,
@@ -158,10 +154,6 @@ pub struct RespondRequest {
     pub answers: Vec<TransportQuestionAnswer>,
     pub option: Option<i32>,
 }
-
-// ---------------------------------------------------------------------------
-// Handlers
-// ---------------------------------------------------------------------------
 
 /// `GET /api/v1/health`
 pub async fn health(State(s): State<Arc<AppState>>) -> impl IntoResponse {
@@ -352,16 +344,13 @@ pub async fn agent_respond(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Stop hook gating
-// ---------------------------------------------------------------------------
-
 /// Event-wrapped input from the stop hook (piped from stdin via curl).
 ///
 /// Matches the same `{"event":"stop","data":{...}}` envelope that hooks
 /// write to the FIFO pipe, so the endpoint receives the same format.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StopHookInput {
+    // NOTE(compat): Maintain consistent structure for all hook payloads
     #[allow(dead_code)]
     pub event: String,
     #[serde(default)]

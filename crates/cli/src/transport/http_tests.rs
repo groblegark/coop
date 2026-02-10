@@ -457,7 +457,9 @@ fn test_state_with_stop(
             bytes_written: std::sync::atomic::AtomicU64::new(0),
         },
         ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        nudge_mutex: Arc::new(tokio::sync::Mutex::new(())),
+        delivery_gate: Arc::new(crate::transport::state::DeliveryGate::new(
+            std::time::Duration::ZERO,
+        )),
         stop: Arc::new(StopState::new(
             config,
             "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
@@ -646,7 +648,10 @@ async fn hooks_stop_emits_stop_events() -> anyhow::Result<()> {
     let server = axum_test::TestServer::new(app).anyhow()?;
 
     // First call should block.
-    server.post("/api/v1/hooks/stop").json(&serde_json::json!({"event": "stop", "data": {"stop_hook_active": false}})).await;
+    server
+        .post("/api/v1/hooks/stop")
+        .json(&serde_json::json!({"event": "stop", "data": {"stop_hook_active": false}}))
+        .await;
 
     let event = stop_rx.try_recv()?;
     assert_eq!(event.stop_type.as_str(), "blocked");
@@ -718,7 +723,9 @@ async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
             bytes_written: std::sync::atomic::AtomicU64::new(0),
         },
         ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        nudge_mutex: Arc::new(tokio::sync::Mutex::new(())),
+        delivery_gate: Arc::new(crate::transport::state::DeliveryGate::new(
+            std::time::Duration::ZERO,
+        )),
         stop: Arc::new(StopState::new(
             config,
             "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),

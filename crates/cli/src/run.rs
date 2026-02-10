@@ -279,7 +279,9 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             bytes_written: AtomicU64::new(0),
         },
         ready: Arc::new(AtomicBool::new(false)),
-        nudge_mutex: Arc::new(tokio::sync::Mutex::new(())),
+        delivery_gate: Arc::new(crate::transport::state::DeliveryGate::new(
+            config.keyboard_delay(),
+        )),
         stop: stop_state,
     });
 

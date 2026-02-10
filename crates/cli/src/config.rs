@@ -175,9 +175,10 @@ impl Config {
         env_duration_ms("COOP_FEEDBACK_DELAY_MS", 100)
     }
 
-    /// Delay between keystrokes in multi-question sequences.
+    /// Universal keyboard debounce: minimum gap between structured input
+    /// deliveries and between keystrokes in multi-step sequences.
     pub fn keyboard_delay(&self) -> Duration {
-        env_duration_ms("COOP_KEYBOARD_DELAY_MS", 100)
+        env_duration_ms("COOP_KEYBOARD_DELAY_MS", 200)
     }
 
     /// Idle timeout (0 = disabled).

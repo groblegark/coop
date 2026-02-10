@@ -3,7 +3,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -33,9 +33,9 @@ pub struct AppState {
 
     /// Whether the agent has transitioned out of `Starting` and is ready.
     pub ready: Arc<AtomicBool>,
-    /// Serializes multi-step nudge/respond delivery sequences.
-    /// The mutex covers state check + delivery to prevent double-nudge races.
-    pub nudge_mutex: Arc<tokio::sync::Mutex<()>>,
+    /// Serializes structured input delivery (nudge, respond) and enforces
+    /// a minimum inter-delivery gap to prevent garbled terminal input.
+    pub delivery_gate: Arc<DeliveryGate>,
     /// Stop hook gating state. Always present (defaults to mode=allow).
     pub stop: Arc<StopState>,
 }
@@ -105,6 +105,52 @@ pub struct LifecycleState {
     pub shutdown: CancellationToken,
     pub ws_client_count: AtomicI32,
     pub bytes_written: AtomicU64,
+}
+
+/// Serializes structured input delivery sequences (nudge, respond) and
+/// enforces a minimum inter-delivery gap (debounce) to prevent garbled
+/// terminal input when deliveries arrive in rapid succession.
+///
+/// Terminal-based agents can drop or mis-interpret keystrokes when input
+/// arrives faster than the TUI can process.  The gate ensures at least
+/// `debounce` time elapses between the end of one delivery and the start
+/// of the next.
+pub struct DeliveryGate {
+    lock: tokio::sync::Mutex<Option<Instant>>,
+    debounce: Duration,
+}
+
+impl DeliveryGate {
+    pub fn new(debounce: Duration) -> Self {
+        Self { lock: tokio::sync::Mutex::new(None), debounce }
+    }
+
+    /// Acquire exclusive delivery access, sleeping if the minimum
+    /// inter-delivery gap has not yet elapsed.
+    pub async fn acquire(&self) -> DeliveryGuard<'_> {
+        let guard = self.lock.lock().await;
+        if let Some(last) = *guard {
+            let elapsed = last.elapsed();
+            if elapsed < self.debounce {
+                tokio::time::sleep(self.debounce - elapsed).await;
+            }
+        }
+        DeliveryGuard { inner: guard }
+    }
+}
+
+/// RAII guard returned by [`DeliveryGate::acquire`].
+///
+/// Records the delivery completion timestamp on drop so that subsequent
+/// acquisitions can enforce the debounce interval.
+pub struct DeliveryGuard<'a> {
+    inner: tokio::sync::MutexGuard<'a, Option<Instant>>,
+}
+
+impl Drop for DeliveryGuard<'_> {
+    fn drop(&mut self) {
+        *self.inner = Some(Instant::now());
+    }
 }
 
 impl std::fmt::Debug for AppState {

@@ -84,10 +84,11 @@ timer to distinguish "idle between tools" from "actually idle."
 
 ## Input Encoding
 
-| Action         | OJ | Coop | Notes                                             |
-| -------------- | -- | ---- | ------------------------------------------------- |
-| Nudge          | ✓  | ✓    | OJ clears partial input (Esc+pause+Esc) first     |
-| Input clearing | ✓  | ✗    | Coop relies on consumer sending at the right time |
+| Action           | OJ | Coop | Notes                                             |
+| ---------------- | -- | ---- | ------------------------------------------------- |
+| Nudge            | ✓  | ✓    | OJ clears partial input (Esc+pause+Esc) first     |
+| Input clearing   | ✓  | ✗    | Coop relies on consumer sending at the right time |
+| Input debouncing | ✗  | ✓    | `DeliveryGate`: 200ms min gap between deliveries  |
 
 
 ## Session Resume

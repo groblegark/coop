@@ -181,7 +181,7 @@ pub async fn handle_nudge(state: &AppState, message: &str) -> Result<NudgeOutcom
         None => return Err(ErrorCode::NoDriver),
     };
 
-    let _delivery = state.nudge_mutex.lock().await;
+    let _delivery = state.delivery_gate.acquire().await;
 
     let agent = state.driver.agent_state.read().await;
     let state_before = agent.as_str().to_owned();
@@ -227,7 +227,7 @@ pub async fn handle_respond(
     let domain_answers = to_domain_answers(answers);
     let resolved_option = option.map(|o| o as u32);
 
-    let _delivery = state.nudge_mutex.lock().await;
+    let _delivery = state.delivery_gate.acquire().await;
 
     let agent = state.driver.agent_state.read().await;
     let prompt_type = agent.prompt().map(|p| p.kind.as_str().to_owned());

@@ -126,7 +126,7 @@ impl AppStateBuilder {
                 bytes_written: AtomicU64::new(0),
             },
             ready: Arc::new(AtomicBool::new(false)),
-            nudge_mutex: Arc::new(tokio::sync::Mutex::new(())),
+            delivery_gate: Arc::new(crate::transport::state::DeliveryGate::new(Duration::ZERO)),
             stop: Arc::new(StopState::new(
                 StopConfig::default(),
                 "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
