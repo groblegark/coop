@@ -439,10 +439,6 @@ pub async fn hooks_stop(
         .into_response()
 }
 
-// ---------------------------------------------------------------------------
-// Resolve endpoint
-// ---------------------------------------------------------------------------
-
 /// `POST /api/v1/hooks/stop/resolve` — store signal body, set flag.
 pub async fn resolve_stop(
     State(s): State<Arc<AppState>>,
@@ -453,10 +449,6 @@ pub async fn resolve_stop(
     stop.signaled.store(true, std::sync::atomic::Ordering::Release);
     Json(serde_json::json!({ "accepted": true }))
 }
-
-// ---------------------------------------------------------------------------
-// Stop config endpoints
-// ---------------------------------------------------------------------------
 
 /// `GET /api/v1/config/stop` — read current stop config.
 pub async fn get_stop_config(State(s): State<Arc<AppState>>) -> impl IntoResponse {

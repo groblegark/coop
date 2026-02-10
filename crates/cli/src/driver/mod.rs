@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 pub mod claude;
+pub mod composite;
 pub mod error_category;
 pub mod gemini;
 pub mod hook_recv;
@@ -11,16 +12,17 @@ pub mod process;
 pub mod screen_parse;
 pub mod unknown;
 
+pub use composite::{CompositeDetector, DetectedState};
 pub use error_category::{classify_error_detail, ErrorCategory};
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::debug;
 
 /// Known agent types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,27 +173,20 @@ pub trait RespondEncoder: Send + Sync {
     fn encode_setup(&self, option: u32) -> Vec<NudgeStep>;
 }
 
-/// A state emission from the composite detector, including the tier that
-/// produced it.
-#[derive(Debug, Clone)]
-pub struct DetectedState {
-    pub state: AgentState,
-    pub tier: u8,
-    pub cause: String,
+/// Lifecycle events for hook integrations.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum HookEvent {
+    AgentStart,
+    ToolComplete { tool: String },
+    AgentStop,
+    SessionEnd,
+    Notification { notification_type: String },
+    PreToolUse { tool: String, tool_input: Option<serde_json::Value> },
 }
 
-/// Combines multiple [`Detector`] tiers to produce a unified agent state
-/// stream.
-///
-/// Tier resolution rules:
-/// - Lower tier number = higher confidence.
-/// - States from equal-or-higher confidence tiers are accepted immediately.
-/// - Lower confidence tiers may only *escalate* state priority; downgrades
-///   are silently rejected.
-/// - Duplicate states (prev == next) are suppressed.
-pub struct CompositeDetector {
-    pub tiers: Vec<Box<dyn Detector>>,
-}
+/// Driver-provided function that parses numbered option labels from rendered
+/// screen lines. Used by the session's prompt enrichment loop.
+pub type OptionParser = Arc<dyn Fn(&[String]) -> Vec<String> + Send + Sync>;
 
 impl AgentState {
     /// Return the wire-format string for this state (e.g. `"working"`,
@@ -245,123 +240,3 @@ impl std::fmt::Display for AgentState {
         f.write_str(self.as_str())
     }
 }
-
-impl CompositeDetector {
-    /// Run the composite detector, spawning all tier detectors and
-    /// multiplexing their outputs with tier priority + dedup.
-    ///
-    /// - `output_tx`: deduplicated state emissions sent to the session loop.
-    pub async fn run(
-        mut self,
-        output_tx: mpsc::Sender<DetectedState>,
-        shutdown: CancellationToken,
-    ) {
-        // Internal channel where each detector sends (tier, state, cause).
-        let (tag_tx, mut tag_rx) = mpsc::channel::<(u8, AgentState, String)>(64);
-
-        // Spawn each detector with a forwarding task that tags with tier.
-        for detector in self.tiers.drain(..) {
-            let tier = detector.tier();
-            let inner_tx = tag_tx.clone();
-            let sd = shutdown.clone();
-            let (det_tx, mut det_rx) = mpsc::channel::<(AgentState, String)>(16);
-
-            tokio::spawn(detector.run(det_tx, sd));
-            tokio::spawn(async move {
-                while let Some((state, cause)) = det_rx.recv().await {
-                    if inner_tx.send((tier, state, cause)).await.is_err() {
-                        break;
-                    }
-                }
-            });
-        }
-        drop(tag_tx); // only forwarding tasks hold senders
-
-        let mut current_state = AgentState::Starting;
-        let mut current_tier: u8 = u8::MAX;
-
-        loop {
-            tokio::select! {
-                biased;
-                _ = shutdown.cancelled() => break,
-                tagged = tag_rx.recv() => {
-                    let Some((tier, new_state, cause)) = tagged else { break };
-
-                    // Terminal states always accepted immediately.
-                    if matches!(new_state, AgentState::Exited { .. }) {
-                        current_state = new_state.clone();
-                        current_tier = tier;
-                        let _ = output_tx.send(DetectedState { state: new_state, tier, cause }).await;
-                        continue;
-                    }
-
-                    // Dedup: same state from any tier → update tier tracking only.
-                    if new_state == current_state {
-                        if tier < current_tier {
-                            current_tier = tier;
-                        }
-                        continue;
-                    }
-
-                    // State changed.
-                    if tier <= current_tier {
-                        // Same or higher confidence → accept immediately,
-                        // UNLESS a generic Permission prompt would overwrite
-                        // a more specific Plan or Question prompt from the
-                        // same tier (Claude fires both notification and
-                        // pre_tool_use hooks for the same prompt moment).
-                        if tier == current_tier
-                            && prompt_supersedes(&current_state, &new_state)
-                        {
-                            continue;
-                        }
-                        current_state = new_state.clone();
-                        current_tier = tier;
-                        let _ = output_tx.send(DetectedState { state: new_state, tier, cause }).await;
-                    } else if new_state.state_priority() > current_state.state_priority() {
-                        // Lower confidence tier escalating state → accept.
-                        current_state = new_state.clone();
-                        current_tier = tier;
-                        let _ = output_tx.send(DetectedState { state: new_state, tier, cause }).await;
-                    } else {
-                        // Lower confidence tier attempting to downgrade or
-                        // maintain state priority → reject silently.
-                        debug!(
-                            tier,
-                            new = new_state.as_str(),
-                            current = current_state.as_str(),
-                            "rejected state downgrade from lower confidence tier"
-                        );
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Returns `true` when `current` is a specific prompt state that should not
-/// be overwritten by the more generic `incoming` prompt from the same tier.
-///
-/// Plan and Question prompts carry richer context than Permission prompts.
-/// When the agent fires both a specific pre-tool-use event and a generic
-/// permission notification for the same user-facing moment, the specific
-/// state should stick.
-fn prompt_supersedes(current: &AgentState, incoming: &AgentState) -> bool {
-    match (current, incoming) {
-        (AgentState::Prompt { prompt: cur }, AgentState::Prompt { prompt: inc }) => {
-            inc.kind == PromptKind::Permission
-                && matches!(cur.kind, PromptKind::Plan | PromptKind::Question | PromptKind::Setup)
-        }
-        _ => false,
-    }
-}
-
-impl std::fmt::Debug for CompositeDetector {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CompositeDetector").field("tiers", &self.tiers.len()).finish()
-    }
-}
-
-#[cfg(test)]
-#[path = "composite_tests.rs"]
-mod composite_tests;

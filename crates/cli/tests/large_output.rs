@@ -12,10 +12,6 @@ use coop::transport::http::OutputResponse;
 
 use axum::http::StatusCode;
 
-// ---------------------------------------------------------------------------
-// large_output_ring_buffer_integrity
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn large_output_ring_buffer_integrity() -> anyhow::Result<()> {
     let capacity = 1_048_576; // 1MB
@@ -37,10 +33,6 @@ async fn large_output_ring_buffer_integrity() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// ring_buffer_wrap_preserves_recent
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn ring_buffer_wrap_preserves_recent() -> anyhow::Result<()> {
@@ -71,10 +63,6 @@ async fn ring_buffer_wrap_preserves_recent() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// http_output_endpoint_large_response
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn http_output_endpoint_large_response() -> anyhow::Result<()> {
     let (app_state, _rx) = AppStateBuilder::new().ring_size(1_048_576).build();
@@ -103,10 +91,6 @@ async fn http_output_endpoint_large_response() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// ws_replay_large_offset
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn ws_replay_large_offset() -> anyhow::Result<()> {
@@ -166,10 +150,6 @@ async fn ws_replay_large_offset() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// concurrent_readers_during_write
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn concurrent_readers_during_write() -> anyhow::Result<()> {

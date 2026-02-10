@@ -25,14 +25,13 @@ impl NudgeEncoder for ClaudeNudgeEncoder {
 
 /// Encodes prompt responses for Claude Code's terminal input.
 pub struct ClaudeRespondEncoder {
-    pub feedback_delay: Duration,
-    /// Delay between keystrokes in multi-question sequences.
+    /// Delay between keystrokes in multi-step sequences.
     pub input_delay: Duration,
 }
 
 impl Default for ClaudeRespondEncoder {
     fn default() -> Self {
-        Self { feedback_delay: Duration::from_millis(100), input_delay: Duration::from_millis(100) }
+        Self { input_delay: Duration::from_millis(200) }
     }
 }
 
@@ -53,7 +52,7 @@ impl RespondEncoder for ClaudeRespondEncoder {
         // Option 4: type feedback text (the TUI opens a text input).
         let mut steps = vec![NudgeStep {
             bytes: format!("{option}\r").into_bytes(),
-            delay_after: feedback.map(|_| self.feedback_delay),
+            delay_after: feedback.map(|_| self.input_delay),
         }];
 
         if let Some(text) = feedback {
@@ -97,7 +96,13 @@ impl RespondEncoder for ClaudeRespondEncoder {
     }
 
     fn encode_setup(&self, option: u32) -> Vec<NudgeStep> {
-        vec![NudgeStep { bytes: format!("{option}\r").into_bytes(), delay_after: None }]
+        vec![
+            NudgeStep {
+                bytes: format!("{option}").into_bytes(),
+                delay_after: Some(self.input_delay),
+            },
+            NudgeStep { bytes: b"\r".to_vec(), delay_after: None },
+        ]
     }
 }
 

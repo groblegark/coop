@@ -12,10 +12,6 @@ use crate::transport::handler::{
     TransportQuestionAnswer,
 };
 
-// ---------------------------------------------------------------------------
-// session_state_str
-// ---------------------------------------------------------------------------
-
 #[test]
 fn session_state_exited() {
     let state = AgentState::Exited { status: ExitStatus { code: Some(0), signal: None } };
@@ -34,10 +30,6 @@ fn session_state_running_when_pid_nonzero() {
     assert_eq!(session_state_str(&AgentState::Working, 42), "running");
     assert_eq!(session_state_str(&AgentState::WaitingForInput, 100), "running");
 }
-
-// ---------------------------------------------------------------------------
-// to_domain_answers
-// ---------------------------------------------------------------------------
 
 #[test]
 fn to_domain_answers_empty() {
@@ -61,10 +53,6 @@ fn to_domain_answers_converts_fields() {
     assert_eq!(result[2].option, Some(3));
     assert_eq!(result[2].text.as_deref(), Some("both"));
 }
-
-// ---------------------------------------------------------------------------
-// compute_health
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn compute_health_fields() -> anyhow::Result<()> {
@@ -91,10 +79,6 @@ async fn compute_health_pid_zero_is_none() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// compute_status
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn compute_status_running() -> anyhow::Result<()> {
     let (state, _rx) =
@@ -119,10 +103,6 @@ async fn compute_status_exited() -> anyhow::Result<()> {
     assert_eq!(st.exit_code, Some(1));
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// handle_nudge
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn nudge_not_ready_returns_error() -> anyhow::Result<()> {
@@ -176,10 +156,6 @@ async fn nudge_waiting_delivers() -> anyhow::Result<()> {
     assert!(matches!(event, Some(InputEvent::Write(_))));
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// handle_respond
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn respond_not_ready_returns_error() -> anyhow::Result<()> {
@@ -241,10 +217,6 @@ async fn respond_no_prompt_returns_soft_failure() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// handle_input / handle_input_raw
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn input_writes_text() -> anyhow::Result<()> {
     let (state, mut rx) = AppStateBuilder::new().build();
@@ -275,10 +247,6 @@ async fn input_raw_writes_bytes() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// handle_keys
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn keys_valid() -> anyhow::Result<()> {
     let (state, mut rx) = AppStateBuilder::new().build();
@@ -298,10 +266,6 @@ async fn keys_invalid_returns_error() -> anyhow::Result<()> {
     assert_eq!(result.unwrap_err(), "SuperKey");
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// handle_resize
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn resize_valid() -> anyhow::Result<()> {
@@ -327,10 +291,6 @@ async fn resize_zero_rows_rejected() -> anyhow::Result<()> {
     assert!(result.is_err());
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// handle_signal
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn signal_valid() -> anyhow::Result<()> {

@@ -19,10 +19,6 @@ use crate::event::PtySignal;
 use crate::transport::state::AppState;
 use crate::transport::{deliver_steps, encode_response, keys_to_bytes, update_question_current};
 
-// ---------------------------------------------------------------------------
-// Shared result types
-// ---------------------------------------------------------------------------
-
 /// Health check result.
 pub struct HealthInfo {
     pub status: String,
@@ -75,10 +71,6 @@ pub struct TransportQuestionAnswer {
     pub text: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Conversions
-// ---------------------------------------------------------------------------
-
 /// Convert transport question answers to domain [`QuestionAnswer`] values.
 pub fn to_domain_answers(answers: &[TransportQuestionAnswer]) -> Vec<QuestionAnswer> {
     answers
@@ -86,10 +78,6 @@ pub fn to_domain_answers(answers: &[TransportQuestionAnswer]) -> Vec<QuestionAns
         .map(|a| QuestionAnswer { option: a.option.map(|o| o as u32), text: a.text.clone() })
         .collect()
 }
-
-// ---------------------------------------------------------------------------
-// Handler functions
-// ---------------------------------------------------------------------------
 
 /// Determine session state string from agent state and child PID.
 pub fn session_state_str(agent: &AgentState, child_pid: u32) -> &'static str {

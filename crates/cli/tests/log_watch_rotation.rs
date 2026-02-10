@@ -11,10 +11,6 @@ use tokio_util::sync::CancellationToken;
 
 use coop::driver::log_watch::LogWatcher;
 
-// ---------------------------------------------------------------------------
-// log_watcher_reads_appended_lines
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn log_watcher_reads_appended_lines() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
@@ -44,10 +40,6 @@ async fn log_watcher_reads_appended_lines() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// log_watcher_run_receives_batches
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn log_watcher_run_receives_batches() -> anyhow::Result<()> {
@@ -86,10 +78,6 @@ async fn log_watcher_run_receives_batches() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// log_watcher_handles_file_created_late
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn log_watcher_handles_file_created_late() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
@@ -111,10 +99,6 @@ async fn log_watcher_handles_file_created_late() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// log_watcher_offset_survives_reopen
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn log_watcher_offset_survives_reopen() -> anyhow::Result<()> {
@@ -149,10 +133,6 @@ async fn log_watcher_offset_survives_reopen() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// hook_receiver_reads_events
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn hook_receiver_reads_events() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
@@ -174,7 +154,7 @@ async fn hook_receiver_reads_events() -> anyhow::Result<()> {
     // Read events
     let event1 = tokio::time::timeout(Duration::from_secs(5), receiver.next_event()).await?;
     match event1 {
-        Some(coop::event::HookEvent::ToolComplete { tool }) => {
+        Some(coop::driver::HookEvent::ToolComplete { tool }) => {
             assert_eq!(tool, "bash");
         }
         other => anyhow::bail!("expected ToolComplete, got {other:?}"),
@@ -182,16 +162,12 @@ async fn hook_receiver_reads_events() -> anyhow::Result<()> {
 
     let event2 = tokio::time::timeout(Duration::from_secs(5), receiver.next_event()).await?;
     match event2 {
-        Some(coop::event::HookEvent::AgentStop) => {}
+        Some(coop::driver::HookEvent::AgentStop) => {}
         other => anyhow::bail!("expected AgentStop, got {other:?}"),
     }
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// hook_receiver_skips_malformed
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn hook_receiver_skips_malformed() -> anyhow::Result<()> {
@@ -213,16 +189,12 @@ async fn hook_receiver_skips_malformed() -> anyhow::Result<()> {
     // Should skip malformed lines and return the valid event
     let event = tokio::time::timeout(Duration::from_secs(5), receiver.next_event()).await?;
     match event {
-        Some(coop::event::HookEvent::AgentStop) => {}
+        Some(coop::driver::HookEvent::AgentStop) => {}
         other => anyhow::bail!("expected AgentStop after skipping malformed, got {other:?}"),
     }
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// hook_receiver_cleanup_removes_pipe
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn hook_receiver_cleanup_removes_pipe() -> anyhow::Result<()> {

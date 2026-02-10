@@ -31,10 +31,6 @@ use crate::transport::handler::{
 use crate::transport::read_ring_combined;
 use crate::transport::state::AppState;
 
-// ---------------------------------------------------------------------------
-// Server -> Client
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
@@ -107,10 +103,6 @@ pub enum ServerMessage {
     Pong {},
 }
 
-// ---------------------------------------------------------------------------
-// Client -> Server
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
@@ -174,10 +166,6 @@ pub struct WsQuery {
     pub token: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Handler-type → ServerMessage conversions
-// ---------------------------------------------------------------------------
-
 impl From<SessionStatus> for ServerMessage {
     fn from(st: SessionStatus) -> Self {
         ServerMessage::Status {
@@ -213,10 +201,6 @@ impl From<RespondOutcome> for ServerMessage {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /// Build a `ServerMessage::Screen` from a screen snapshot.
 fn snapshot_to_msg(snap: ScreenSnapshot, seq: u64) -> ServerMessage {
     ServerMessage::Screen {
@@ -237,10 +221,6 @@ macro_rules! require_auth {
         }
     };
 }
-
-// ---------------------------------------------------------------------------
-// WebSocket handler
-// ---------------------------------------------------------------------------
 
 /// WebSocket upgrade handler. Validates auth from query params if configured.
 pub async fn ws_handler(

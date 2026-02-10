@@ -36,5 +36,5 @@ pub fn parse_gemini_state(json: &Value) -> Option<AgentState> {
 }
 
 #[cfg(test)]
-#[path = "state_tests.rs"]
+#[path = "parse_tests.rs"]
 mod tests;

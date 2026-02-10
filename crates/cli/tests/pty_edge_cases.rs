@@ -15,10 +15,6 @@ use coop::pty::Backend;
 use coop::session::{Session, SessionConfig};
 use coop::test_support::AppStateBuilder;
 
-// ---------------------------------------------------------------------------
-// child_exit_produces_eof
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn child_exit_produces_eof() -> anyhow::Result<()> {
     let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -37,10 +33,6 @@ async fn child_exit_produces_eof() -> anyhow::Result<()> {
     }
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// child_killed_produces_signal
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn child_killed_produces_signal() -> anyhow::Result<()> {
@@ -67,10 +59,6 @@ async fn child_killed_produces_signal() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// eio_on_child_death
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn eio_on_child_death() -> anyhow::Result<()> {
     let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -92,10 +80,6 @@ async fn eio_on_child_death() -> anyhow::Result<()> {
     assert!(text.contains("hi"), "expected 'hi' in output: {text:?}");
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// resize_reflected_in_stty (extends existing with multiple sizes)
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn resize_reflected_in_stty() -> anyhow::Result<()> {
@@ -157,10 +141,6 @@ async fn resize_reflected_in_stty() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// large_output_through_session
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn large_output_through_session() -> anyhow::Result<()> {
     let config = Config::test();
@@ -196,10 +176,6 @@ async fn large_output_through_session() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// binary_output_no_panic
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn binary_output_no_panic() -> anyhow::Result<()> {
     let (output_tx, mut output_rx) = mpsc::channel(256);
@@ -224,10 +200,6 @@ async fn binary_output_no_panic() -> anyhow::Result<()> {
     assert!(total > 0, "expected some binary output");
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// rapid_input_output
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn rapid_input_output() -> anyhow::Result<()> {
@@ -265,10 +237,6 @@ async fn rapid_input_output() -> anyhow::Result<()> {
     assert!(text.contains("line99"), "expected 'line99' in output");
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// signal_delivery_sigint
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn signal_delivery_sigint() -> anyhow::Result<()> {

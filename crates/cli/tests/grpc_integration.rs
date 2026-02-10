@@ -14,10 +14,6 @@ use coop::event::{OutputEvent, StateChangeEvent};
 use coop::test_support::{spawn_grpc_server, AppStateBuilder, StubNudgeEncoder};
 use coop::transport::grpc::proto;
 
-// ---------------------------------------------------------------------------
-// Helper: create a gRPC client connected to the test server
-// ---------------------------------------------------------------------------
-
 async fn grpc_client(
     app_state: Arc<coop::transport::AppState>,
 ) -> anyhow::Result<(
@@ -35,10 +31,6 @@ async fn grpc_client(
     Ok((proto::coop_client::CoopClient::new(channel), app_state))
 }
 
-// ---------------------------------------------------------------------------
-// grpc_get_health
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn grpc_get_health() -> anyhow::Result<()> {
     let (app_state, _rx) = AppStateBuilder::new().child_pid(42).build();
@@ -52,10 +44,6 @@ async fn grpc_get_health() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// grpc_get_screen
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn grpc_get_screen() -> anyhow::Result<()> {
@@ -85,10 +73,6 @@ async fn grpc_get_screen() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// grpc_get_status
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn grpc_get_status() -> anyhow::Result<()> {
     let (app_state, _rx) = AppStateBuilder::new().build();
@@ -101,10 +85,6 @@ async fn grpc_get_status() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// grpc_send_input
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn grpc_send_input() -> anyhow::Result<()> {
@@ -129,10 +109,6 @@ async fn grpc_send_input() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// grpc_send_keys
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn grpc_send_keys() -> anyhow::Result<()> {
     let (app_state, mut input_rx) = AppStateBuilder::new().build();
@@ -155,10 +131,6 @@ async fn grpc_send_keys() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// grpc_resize
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn grpc_resize() -> anyhow::Result<()> {
     let (app_state, mut input_rx) = AppStateBuilder::new().build();
@@ -180,10 +152,6 @@ async fn grpc_resize() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// grpc_send_signal
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn grpc_send_signal() -> anyhow::Result<()> {
     let (app_state, mut input_rx) = AppStateBuilder::new().build();
@@ -203,10 +171,6 @@ async fn grpc_send_signal() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// grpc_stream_output
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn grpc_stream_output() -> anyhow::Result<()> {
@@ -234,10 +198,6 @@ async fn grpc_stream_output() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// grpc_stream_state
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn grpc_stream_state() -> anyhow::Result<()> {
@@ -267,10 +227,6 @@ async fn grpc_stream_state() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// grpc_stream_screen
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn grpc_stream_screen() -> anyhow::Result<()> {
     let (app_state, _rx) = AppStateBuilder::new().build();
@@ -291,10 +247,6 @@ async fn grpc_stream_screen() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// grpc_error_codes
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn grpc_nudge_not_ready() -> anyhow::Result<()> {

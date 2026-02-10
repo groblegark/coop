@@ -170,13 +170,7 @@ impl Config {
         env_duration_ms("COOP_PTY_REAP_MS", 50)
     }
 
-    /// Delay between plan rejection keystroke and feedback text.
-    pub fn feedback_delay(&self) -> Duration {
-        env_duration_ms("COOP_FEEDBACK_DELAY_MS", 100)
-    }
-
-    /// Universal keyboard debounce: minimum gap between structured input
-    /// deliveries and between keystrokes in multi-step sequences.
+    /// Minimum gap between keystrokes in multi-step input sequences.
     pub fn keyboard_delay(&self) -> Duration {
         env_duration_ms("COOP_KEYBOARD_DELAY_MS", 200)
     }
@@ -221,10 +215,6 @@ impl Config {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Agent config file
-// ---------------------------------------------------------------------------
 
 /// Contents of the `--agent-config` JSON file.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

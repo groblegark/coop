@@ -25,12 +25,13 @@ impl NudgeEncoder for GeminiNudgeEncoder {
 
 /// Encodes prompt responses for Gemini CLI's terminal input.
 pub struct GeminiRespondEncoder {
-    pub feedback_delay: Duration,
+    /// Delay between keystrokes in multi-step sequences.
+    pub input_delay: Duration,
 }
 
 impl Default for GeminiRespondEncoder {
     fn default() -> Self {
-        Self { feedback_delay: Duration::from_millis(100) }
+        Self { input_delay: Duration::from_millis(200) }
     }
 }
 
@@ -49,7 +50,7 @@ impl RespondEncoder for GeminiRespondEncoder {
 
         let mut steps = vec![NudgeStep {
             bytes: b"n\r".to_vec(),
-            delay_after: feedback.map(|_| self.feedback_delay),
+            delay_after: feedback.map(|_| self.input_delay),
         }];
 
         if let Some(text) = feedback {
@@ -82,7 +83,13 @@ impl RespondEncoder for GeminiRespondEncoder {
     }
 
     fn encode_setup(&self, option: u32) -> Vec<NudgeStep> {
-        vec![NudgeStep { bytes: format!("{option}\r").into_bytes(), delay_after: None }]
+        vec![
+            NudgeStep {
+                bytes: format!("{option}").into_bytes(),
+                delay_after: Some(self.input_delay),
+            },
+            NudgeStep { bytes: b"\r".to_vec(), delay_after: None },
+        ]
     }
 }
 

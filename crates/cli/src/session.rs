@@ -18,7 +18,7 @@ use tracing::{debug, warn};
 use crate::config::Config;
 use crate::driver::{
     classify_error_detail, AgentState, CompositeDetector, DetectedState, Detector, ExitStatus,
-    PromptKind,
+    OptionParser, PromptKind,
 };
 use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
 use crate::pty::{Backend, Boxed};
@@ -31,6 +31,9 @@ pub struct SessionConfig {
     pub app_state: Arc<AppState>,
     pub consumer_input_rx: mpsc::Receiver<InputEvent>,
     pub shutdown: CancellationToken,
+    /// Driver-provided parser for extracting numbered option labels from
+    /// rendered screen lines during prompt enrichment.
+    pub option_parser: Option<OptionParser>,
 }
 
 impl SessionConfig {
@@ -45,6 +48,7 @@ impl SessionConfig {
             detectors: Vec::new(),
             consumer_input_rx,
             shutdown: CancellationToken::new(),
+            option_parser: None,
         }
     }
 
@@ -55,6 +59,11 @@ impl SessionConfig {
 
     pub fn with_shutdown(mut self, shutdown: CancellationToken) -> Self {
         self.shutdown = shutdown;
+        self
+    }
+
+    pub fn with_option_parser(mut self, parser: OptionParser) -> Self {
+        self.option_parser = Some(parser);
         self
     }
 }
@@ -69,6 +78,7 @@ pub struct Session {
     detector_rx: mpsc::Receiver<DetectedState>,
     shutdown: CancellationToken,
     backend_handle: JoinHandle<anyhow::Result<ExitStatus>>,
+    option_parser: Option<OptionParser>,
 }
 
 impl Session {
@@ -80,8 +90,14 @@ impl Session {
     /// 3. Spawns backend.run() on a separate task
     /// 4. Spawns all detectors
     pub fn new(config: &Config, session: SessionConfig) -> Self {
-        let SessionConfig { mut backend, detectors, app_state, consumer_input_rx, shutdown } =
-            session;
+        let SessionConfig {
+            mut backend,
+            detectors,
+            app_state,
+            consumer_input_rx,
+            shutdown,
+            option_parser,
+        } = session;
 
         // Set initial PID (Release so signal-delivery loads with Acquire see it)
         if let Some(pid) = backend.child_pid() {
@@ -116,6 +132,7 @@ impl Session {
             detector_rx,
             shutdown,
             backend_handle,
+            option_parser,
         }
     }
 
@@ -241,9 +258,12 @@ impl Session {
                         // options from the screen and re-broadcast the enriched state.
                         if let AgentState::Prompt { ref prompt } = detected.state {
                             if matches!(prompt.kind, PromptKind::Permission | PromptKind::Plan) {
-                                let app = Arc::clone(&self.app_state);
-                                let seq = state_seq;
-                                tokio::spawn(enrich_prompt_options(app, seq));
+                                if let Some(ref parser) = self.option_parser {
+                                    let app = Arc::clone(&self.app_state);
+                                    let seq = state_seq;
+                                    let parser = Arc::clone(parser);
+                                    tokio::spawn(enrich_prompt_options(app, seq, parser));
+                                }
                             }
                         }
 
@@ -385,7 +405,7 @@ impl Session {
 /// containing numbered options reaches the screen buffer. Retries up to
 /// `MAX_ATTEMPTS` times, then falls back to universal Accept/Cancel options
 /// that encode to Enter/Esc.
-async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64) {
+async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64, parser: OptionParser) {
     const MAX_ATTEMPTS: u32 = 10;
     const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
@@ -405,7 +425,7 @@ async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64) {
         drop(screen);
         last_snap_lines = snap.lines.len();
 
-        let options = crate::driver::claude::prompt::parse_options_from_screen(&snap.lines);
+        let options = parser(&snap.lines);
         if !options.is_empty() {
             let mut agent = app.driver.agent_state.write().await;
 

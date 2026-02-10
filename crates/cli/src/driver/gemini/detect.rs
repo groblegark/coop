@@ -10,10 +10,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::hook_recv::HookReceiver;
 use crate::driver::jsonl_stdout::JsonlParser;
+use crate::driver::HookEvent;
 use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
-use crate::event::HookEvent;
 
-use super::state::{format_gemini_cause, parse_gemini_state};
+use super::parse::{format_gemini_cause, parse_gemini_state};
 
 /// Tier 1 detector: receives push events from Gemini's hook system.
 ///

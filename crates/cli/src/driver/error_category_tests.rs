@@ -3,10 +3,6 @@
 
 use super::{classify_error_detail, ErrorCategory};
 
-// ---------------------------------------------------------------------------
-// Classification tests
-// ---------------------------------------------------------------------------
-
 #[yare::parameterized(
     auth_error = { "authentication_error", ErrorCategory::Unauthorized },
     invalid_key = { "invalid api key", ErrorCategory::Unauthorized },
@@ -47,19 +43,11 @@ fn classify(detail: &str, expected: ErrorCategory) {
     assert_eq!(classify_error_detail(detail), expected);
 }
 
-// ---------------------------------------------------------------------------
-// Case-insensitivity
-// ---------------------------------------------------------------------------
-
 #[test]
 fn classify_is_case_insensitive() {
     assert_eq!(classify_error_detail("AUTHENTICATION_ERROR"), ErrorCategory::Unauthorized);
     assert_eq!(classify_error_detail("Rate_Limit_Error"), ErrorCategory::RateLimited);
 }
-
-// ---------------------------------------------------------------------------
-// Serde round-trip
-// ---------------------------------------------------------------------------
 
 #[test]
 fn serde_roundtrip() -> anyhow::Result<()> {
@@ -80,10 +68,6 @@ fn serde_roundtrip() -> anyhow::Result<()> {
     }
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// as_str / Display
-// ---------------------------------------------------------------------------
 
 #[test]
 fn as_str_matches_serde() -> anyhow::Result<()> {

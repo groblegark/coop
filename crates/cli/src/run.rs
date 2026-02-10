@@ -22,7 +22,7 @@ use crate::driver::gemini::setup::{self as gemini_setup, GeminiSessionSetup};
 use crate::driver::gemini::GeminiDriver;
 use crate::driver::process::ProcessMonitor;
 use crate::driver::AgentType;
-use crate::driver::{AgentState, Detector, NudgeEncoder, RespondEncoder};
+use crate::driver::{AgentState, Detector, NudgeEncoder, OptionParser, RespondEncoder};
 use crate::pty::attach::{AttachSpec, TmuxBackend};
 use crate::pty::spawn::NativePty;
 use crate::pty::Backend;
@@ -178,7 +178,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let pid_terminal = Arc::clone(&terminal);
     let rtw_for_driver = Arc::clone(&terminal.ring_total_written);
     let last_message: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
-    let (nudge_encoder, respond_encoder, mut detectors) = build_driver(
+    let (nudge_encoder, respond_encoder, mut detectors, option_parser) = build_driver(
         &config,
         agent_enum,
         claude_setup.as_ref(),
@@ -212,7 +212,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
                     }
                 })
             });
-        detectors.push(Box::new(crate::driver::claude::screen_detect::ClaudeScreenDetector::new(
+        detectors.push(Box::new(crate::driver::claude::screen::ClaudeScreenDetector::new(
             &config,
             snapshot_fn,
         )));
@@ -399,18 +399,24 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     }
 
     // Build session (but don't run yet — caller may need app_state first)
-    let session = Session::new(
-        &config,
+    let mut session_config =
         crate::session::SessionConfig::new(Arc::clone(&app_state), backend, consumer_input_rx)
             .with_detectors(detectors)
-            .with_shutdown(shutdown),
-    );
+            .with_shutdown(shutdown);
+    if let Some(parser) = option_parser {
+        session_config = session_config.with_option_parser(parser);
+    }
+    let session = Session::new(&config, session_config);
 
     Ok(PreparedSession { app_state, session, config })
 }
 
-type DriverComponents =
-    (Option<Arc<dyn NudgeEncoder>>, Option<Arc<dyn RespondEncoder>>, Vec<Box<dyn Detector>>);
+type DriverComponents = (
+    Option<Arc<dyn NudgeEncoder>>,
+    Option<Arc<dyn RespondEncoder>>,
+    Vec<Box<dyn Detector>>,
+    Option<OptionParser>,
+);
 
 // TODO(refactor): group build_driver params into a struct when adding more
 #[allow(clippy::too_many_arguments)]
@@ -437,7 +443,9 @@ fn build_driver(
             let nudge: Arc<dyn NudgeEncoder> = Arc::new(driver.nudge);
             let respond: Arc<dyn RespondEncoder> = Arc::new(driver.respond);
             let detectors = driver.detectors;
-            Ok((Some(nudge), Some(respond), detectors))
+            let option_parser: OptionParser =
+                Arc::new(crate::driver::claude::screen::parse_options_from_screen);
+            Ok((Some(nudge), Some(respond), detectors, Some(option_parser)))
         }
         AgentType::Gemini => {
             let driver =
@@ -451,7 +459,7 @@ fn build_driver(
                     .with_poll_interval(config.process_poll()),
             ));
             detectors.sort_by_key(|d| d.tier());
-            Ok((Some(nudge), Some(respond), detectors))
+            Ok((Some(nudge), Some(respond), detectors, None))
         }
         AgentType::Unknown => {
             let detectors = crate::driver::unknown::build_detectors(
@@ -460,7 +468,7 @@ fn build_driver(
                 ring_total_written_fn,
                 None,
             )?;
-            Ok((None, None, detectors))
+            Ok((None, None, detectors, None))
         }
         AgentType::Codex => {
             anyhow::bail!("{agent:?} driver is not yet implemented");

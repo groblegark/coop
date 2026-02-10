@@ -118,7 +118,7 @@ pub fn parse_resume_state(log_path: &Path) -> anyhow::Result<ResumeState> {
             }
 
             // Use the existing state parser to track the last state.
-            if let Some(state) = super::state::parse_claude_state(&json) {
+            if let Some(state) = super::parse::parse_claude_state(&json) {
                 last_state = state;
             }
         }

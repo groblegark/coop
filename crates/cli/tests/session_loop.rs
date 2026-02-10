@@ -21,10 +21,6 @@ use coop::transport::build_router;
 use coop::transport::handler::SessionStatus;
 use coop::transport::http::{HealthResponse, InputRequest, ScreenResponse};
 
-// ---------------------------------------------------------------------------
-// Session loop tests
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn session_echo_captures_output_and_exits_zero() -> anyhow::Result<()> {
     let config = Config::test();
@@ -149,10 +145,6 @@ async fn session_exited_state_broadcast() -> anyhow::Result<()> {
     }
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// HTTP transport tests (via axum_test::TestServer)
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn http_health_endpoint() -> anyhow::Result<()> {
@@ -326,10 +318,6 @@ async fn http_agent_state_endpoint() -> anyhow::Result<()> {
     assert!(body.contains("\"state\":"), "body: {body}");
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Full stack: session + HTTP transport
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn full_stack_echo_screen_via_http() -> anyhow::Result<()> {

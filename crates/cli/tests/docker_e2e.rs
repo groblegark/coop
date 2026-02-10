@@ -25,10 +25,6 @@ macro_rules! skip_unless_docker {
     };
 }
 
-// ---------------------------------------------------------------------------
-// Infrastructure
-// ---------------------------------------------------------------------------
-
 static BUILD_ONCE: Once = Once::new();
 
 /// Build the `coop:test` Docker image exactly once per test run.
@@ -135,10 +131,6 @@ impl Drop for DockerContainer {
         let _ = Command::new("docker").args(["rm", "-f", &self.id]).output();
     }
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn docker_health_endpoint() -> anyhow::Result<()> {

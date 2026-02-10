@@ -8,7 +8,7 @@ use nix::sys::stat::Mode;
 use serde::Deserialize;
 use tokio::io::unix::AsyncFd;
 
-use crate::event::HookEvent;
+use super::HookEvent;
 
 /// Newtype for a FIFO file descriptor, for use with [`AsyncFd`].
 struct FifoFd(OwnedFd);

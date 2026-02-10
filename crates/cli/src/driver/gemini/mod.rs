@@ -4,8 +4,8 @@
 pub mod detect;
 pub mod encoding;
 pub mod hooks;
+pub mod parse;
 pub mod setup;
-pub mod state;
 
 use std::path::Path;
 
@@ -58,7 +58,7 @@ impl GeminiDriver {
 
         Ok(Self {
             nudge: GeminiNudgeEncoder { keyboard_delay: config.keyboard_delay() },
-            respond: GeminiRespondEncoder { feedback_delay: config.feedback_delay() },
+            respond: GeminiRespondEncoder { input_delay: config.keyboard_delay() },
             detectors,
         })
     }

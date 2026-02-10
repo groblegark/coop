@@ -14,10 +14,6 @@ use coop::driver::AgentState;
 use coop::event::{OutputEvent, StateChangeEvent};
 use coop::test_support::{spawn_http_server, AppStateBuilder};
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 type WsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 type WsTx = futures_util::stream::SplitSink<WsStream, WsMessage>;
@@ -62,10 +58,6 @@ async fn ws_connect(addr: &std::net::SocketAddr, query: &str) -> anyhow::Result<
 
 const RECV_TIMEOUT: Duration = Duration::from_secs(5);
 
-// ---------------------------------------------------------------------------
-// ws_connect_and_receive_pong
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn ws_connect_and_receive_pong() -> anyhow::Result<()> {
     let (app_state, _rx) = AppStateBuilder::new().build();
@@ -82,10 +74,6 @@ async fn ws_connect_and_receive_pong() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// ws_auth_query_param
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn ws_auth_query_param() -> anyhow::Result<()> {
@@ -105,10 +93,6 @@ async fn ws_auth_query_param() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// ws_auth_message
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn ws_auth_message() -> anyhow::Result<()> {
@@ -133,10 +117,6 @@ async fn ws_auth_message() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// ws_subscription_mode_raw
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn ws_subscription_mode_raw() -> anyhow::Result<()> {
@@ -171,10 +151,6 @@ async fn ws_subscription_mode_raw() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// ws_subscription_mode_state
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn ws_subscription_mode_state() -> anyhow::Result<()> {
@@ -211,10 +187,6 @@ async fn ws_subscription_mode_state() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// ws_subscription_mode_screen
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn ws_subscription_mode_screen() -> anyhow::Result<()> {
     let (app_state, _rx) = AppStateBuilder::new().ring_size(65536).build();
@@ -235,10 +207,6 @@ async fn ws_subscription_mode_screen() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// ws_replay_from_offset
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn ws_replay_from_offset() -> anyhow::Result<()> {
@@ -268,10 +236,6 @@ async fn ws_replay_from_offset() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// ws_concurrent_readers
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn ws_concurrent_readers() -> anyhow::Result<()> {
@@ -306,10 +270,6 @@ async fn ws_concurrent_readers() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// ws_resize_sends_event
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn ws_resize_sends_event() -> anyhow::Result<()> {

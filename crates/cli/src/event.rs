@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
+use crate::driver::AgentState;
 use bytes::Bytes;
 use nix::sys::signal::Signal;
-use serde::{Deserialize, Serialize};
-
-use crate::driver::AgentState;
 
 /// Raw or rendered output from the terminal backend.
 #[derive(Debug, Clone)]
@@ -90,15 +88,4 @@ impl PtySignal {
             Self::Winch => Signal::SIGWINCH,
         }
     }
-}
-
-/// Lifecycle events for hook integrations.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum HookEvent {
-    AgentStart,
-    ToolComplete { tool: String },
-    AgentStop,
-    SessionEnd,
-    Notification { notification_type: String },
-    PreToolUse { tool: String, tool_input: Option<serde_json::Value> },
 }

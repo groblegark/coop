@@ -5,10 +5,6 @@ use super::{encode_response, resolve_permission_option, resolve_plan_option};
 use crate::driver::claude::encoding::ClaudeRespondEncoder;
 use crate::driver::{AgentState, PromptContext, PromptKind};
 
-// ---------------------------------------------------------------------------
-// resolve_permission_option
-// ---------------------------------------------------------------------------
-
 #[test]
 fn permission_option_takes_precedence_over_accept() {
     assert_eq!(resolve_permission_option(Some(true), Some(2)), 2);
@@ -30,10 +26,6 @@ fn permission_both_none_defaults_to_3() {
     assert_eq!(resolve_permission_option(None, None), 3);
 }
 
-// ---------------------------------------------------------------------------
-// resolve_plan_option
-// ---------------------------------------------------------------------------
-
 #[test]
 fn plan_option_takes_precedence_over_accept() {
     assert_eq!(resolve_plan_option(Some(true), Some(3)), 3);
@@ -54,10 +46,6 @@ fn plan_accept_false_maps_to_4() {
 fn plan_both_none_defaults_to_4() {
     assert_eq!(resolve_plan_option(None, None), 4);
 }
-
-// ---------------------------------------------------------------------------
-// encode_response: options_fallback
-// ---------------------------------------------------------------------------
 
 fn fallback_prompt(kind: PromptKind) -> PromptContext {
     PromptContext {
@@ -115,10 +103,6 @@ fn non_fallback_permission_uses_encoder() {
     assert_eq!(steps[0].bytes, b"1\r");
 }
 
-// ---------------------------------------------------------------------------
-// encode_response: Setup prompt
-// ---------------------------------------------------------------------------
-
 #[test]
 fn setup_prompt_defaults_to_option_1() {
     let encoder = ClaudeRespondEncoder::default();
@@ -136,8 +120,9 @@ fn setup_prompt_defaults_to_option_1() {
     };
     let state = AgentState::Prompt { prompt };
     let (steps, count) = encode_response(&state, &encoder, None, None, None, &[]).unwrap();
-    assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"1\r");
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0].bytes, b"1");
+    assert_eq!(steps[1].bytes, b"\r");
     assert_eq!(count, 0);
 }
 
@@ -158,6 +143,7 @@ fn setup_prompt_respects_explicit_option() {
     };
     let state = AgentState::Prompt { prompt };
     let (steps, _) = encode_response(&state, &encoder, None, Some(2), None, &[]).unwrap();
-    assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"2\r");
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0].bytes, b"2");
+    assert_eq!(steps[1].bytes, b"\r");
 }

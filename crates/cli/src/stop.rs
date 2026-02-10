@@ -14,10 +14,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{broadcast, RwLock};
 
-// ---------------------------------------------------------------------------
-// Stop configuration
-// ---------------------------------------------------------------------------
-
 /// Top-level stop hook configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StopConfig {
@@ -73,10 +69,6 @@ pub struct StopSchemaField {
     pub description: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Stop events
-// ---------------------------------------------------------------------------
-
 /// A stop verdict event emitted to WebSocket/gRPC consumers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StopEvent {
@@ -126,10 +118,6 @@ impl std::fmt::Display for StopType {
         f.write_str(self.as_str())
     }
 }
-
-// ---------------------------------------------------------------------------
-// Stop state (runtime)
-// ---------------------------------------------------------------------------
 
 /// Runtime state for the stop hook gating system.
 pub struct StopState {
@@ -184,10 +172,6 @@ impl std::fmt::Debug for StopState {
             .finish()
     }
 }
-
-// ---------------------------------------------------------------------------
-// Block reason generation
-// ---------------------------------------------------------------------------
 
 /// Assemble the block reason text from the stop config.
 ///

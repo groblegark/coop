@@ -13,9 +13,6 @@ use crate::config::Config;
 use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
 use crate::screen::ScreenSnapshot;
 
-use super::prompt::parse_options_from_screen;
-use super::startup::detect_startup_prompt;
-
 /// Tier 5 detector: classifies Claude's rendered terminal screen.
 ///
 /// Detects the idle prompt (`❯`) on the last non-empty line, anti-matching
@@ -304,6 +301,213 @@ fn extract_auth_url(lines: &[String]) -> Option<String> {
     Some(url)
 }
 
+/// Known startup prompts that Claude Code may present.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartupPrompt {
+    /// "Do you trust the files in this folder?"
+    WorkspaceTrust,
+    /// "Allow tool use without prompting?" / --dangerously-skip-permissions
+    BypassPermissions,
+    /// "Please sign in" / login / onboarding flow
+    LoginRequired,
+}
+
+/// Classify a screen snapshot as a startup prompt.
+///
+/// Scans the last non-empty lines of the screen for known prompt patterns.
+pub fn detect_startup_prompt(screen_lines: &[String]) -> Option<StartupPrompt> {
+    // Work backwards through lines to find the last non-empty content.
+    let trimmed: Vec<&str> =
+        screen_lines.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // Check the last few lines for known patterns.
+    let tail = if trimmed.len() >= 5 { &trimmed[trimmed.len() - 5..] } else { &trimmed };
+    let combined = tail.join(" ");
+    let lower = combined.to_lowercase();
+
+    // Workspace trust prompt
+    if lower.contains("trust the files")
+        || lower.contains("do you trust")
+        || lower.contains("trust this folder")
+        || lower.contains("trust this workspace")
+    {
+        return Some(StartupPrompt::WorkspaceTrust);
+    }
+
+    // Permission bypass prompt
+    if lower.contains("skip permissions")
+        || lower.contains("dangerously-skip-permissions")
+        || lower.contains("allow tool use without prompting")
+        || lower.contains("bypass permissions")
+    {
+        return Some(StartupPrompt::BypassPermissions);
+    }
+
+    // Login / onboarding prompt
+    if lower.contains("please sign in")
+        || lower.contains("please log in")
+        || lower.contains("login required")
+        || lower.contains("sign in to continue")
+        || lower.contains("authenticate")
+    {
+        return Some(StartupPrompt::LoginRequired);
+    }
+
+    None
+}
+
+/// Parse numbered option labels from terminal screen lines.
+///
+/// Scans lines bottom-up looking for patterns like `❯ 1. Yes` or `  2. Don't ask again`.
+/// Handles Claude's real TUI format:
+/// - Selected option: `❯ 1. Label`
+/// - Unselected: `  2. Label`
+/// - Description lines indented under options (skipped)
+/// - Separator lines `────...` and footer hints (skipped)
+///
+/// Collects matches and stops at the first non-option, non-skippable line above
+/// the block. Returns options in ascending order (option 1 first).
+pub fn parse_options_from_screen(lines: &[String]) -> Vec<String> {
+    let mut options: Vec<(u32, String)> = Vec::new();
+    let mut found_any = false;
+
+    for line in lines.iter().rev() {
+        let trimmed = line.trim();
+
+        // Skip blank lines
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // Skip hint/footer lines (e.g. "Esc to cancel · Tab to amend")
+        if is_hint_line(trimmed) {
+            continue;
+        }
+
+        // Skip separator lines (e.g. "────────────")
+        if is_separator_line(trimmed) {
+            if found_any {
+                // Separator above the options block can appear between groups
+                // (e.g. question dialog splits options 1-3 from option 4)
+                continue;
+            }
+            continue;
+        }
+
+        // Try to parse as a numbered option
+        if let Some((num, label)) = parse_numbered_option(trimmed) {
+            options.push((num, label));
+            found_any = true;
+        } else if found_any {
+            // Non-option, non-skippable line. Could be a description line
+            // indented under a previous option, or the end of the block.
+            // Description lines are deeply indented (5+ spaces) with no
+            // leading digit — skip those.
+            if is_description_line(line) {
+                continue;
+            }
+            // Otherwise we've hit content above the options block — stop.
+            break;
+        }
+    }
+
+    // Sort by option number ascending and return just the labels
+    options.sort_by_key(|(num, _)| *num);
+    options.into_iter().map(|(_, label)| label).collect()
+}
+
+/// Extract plan prompt context from the terminal screen.
+///
+/// Plan prompts are detected via the screen rather than the session log,
+/// so context is built from the visible screen lines.
+pub fn extract_plan_context(_screen: &ScreenSnapshot) -> PromptContext {
+    PromptContext {
+        kind: PromptKind::Plan,
+        subtype: None,
+        tool: None,
+        input: None,
+        auth_url: None,
+        options: vec![],
+        options_fallback: false,
+        questions: vec![],
+        question_current: 0,
+        ready: false,
+    }
+}
+
+/// Try to parse a line as a numbered option: `[❯ ] N. label`.
+///
+/// Strips leading selection indicator (`❯`) and whitespace before matching.
+/// The `❯` may be followed by a regular space or a non-breaking space (U+00A0).
+/// Returns `(number, label)` if the line matches.
+fn parse_numbered_option(trimmed: &str) -> Option<(u32, String)> {
+    // Strip the selection indicator (❯) if present, then any mix of
+    // regular spaces and non-breaking spaces (U+00A0).
+    let s = trimmed.strip_prefix('❯').unwrap_or(trimmed);
+    let s = s.trim_start_matches([' ', '\u{00A0}']);
+
+    // Must start with one or more digits
+    let digit_end = s.find(|c: char| !c.is_ascii_digit())?;
+    if digit_end == 0 {
+        return None;
+    }
+
+    let num: u32 = s[..digit_end].parse().ok()?;
+
+    // Must be followed by ". "
+    let rest = s[digit_end..].strip_prefix(". ")?;
+
+    // Label must be non-empty
+    if rest.is_empty() {
+        return None;
+    }
+
+    // Strip trailing selection indicators (e.g. " ✔" or " ✓") that Claude
+    // renders after the currently-active option in picker dialogs.
+    let label = rest.trim_end().trim_end_matches(['✔', '✓']).trim_end().to_string();
+
+    if label.is_empty() {
+        return None;
+    }
+
+    Some((num, label))
+}
+
+/// Separator lines are composed entirely of box-drawing characters.
+fn is_separator_line(trimmed: &str) -> bool {
+    !trimmed.is_empty() && trimmed.chars().all(|c| matches!(c, '─' | '╌' | '━' | '═' | '│' | '┃'))
+}
+
+/// Hint/footer lines contain navigation instructions.
+fn is_hint_line(trimmed: &str) -> bool {
+    // Common Claude TUI footer patterns
+    trimmed.contains("Esc to cancel")
+        || trimmed.contains("Enter to select")
+        || trimmed.contains("Enter to confirm")
+        || trimmed.contains("Tab to amend")
+        || trimmed.contains("Arrow keys to navigate")
+}
+
+/// Description lines are indented continuation text under a numbered option.
+/// They start with 5+ spaces (deeper than option indentation) and don't begin
+/// with a digit (ruling out numbered options themselves).
+fn is_description_line(raw_line: &str) -> bool {
+    let leading = raw_line.len() - raw_line.trim_start().len();
+    if leading < 5 {
+        return false;
+    }
+    let first_non_space = raw_line.trim_start().chars().next();
+    !matches!(first_non_space, Some('0'..='9') | Some('❯') | None)
+}
+
 #[cfg(test)]
-#[path = "screen_detect_tests.rs"]
+#[path = "screen_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "startup_tests.rs"]
+mod startup_tests;

@@ -9,18 +9,18 @@ use super::{GeminiNudgeEncoder, GeminiRespondEncoder};
 
 #[test]
 fn nudge_encodes_message_then_enter() {
-    let encoder = GeminiNudgeEncoder { keyboard_delay: Duration::from_millis(100) };
+    let encoder = GeminiNudgeEncoder { keyboard_delay: Duration::from_millis(200) };
     let steps = encoder.encode("Fix the bug");
     assert_eq!(steps.len(), 2);
     assert_eq!(steps[0].bytes, b"Fix the bug");
-    assert_eq!(steps[0].delay_after, Some(Duration::from_millis(100)));
+    assert_eq!(steps[0].delay_after, Some(Duration::from_millis(200)));
     assert_eq!(steps[1].bytes, b"\r");
     assert!(steps[1].delay_after.is_none());
 }
 
 #[test]
 fn nudge_with_multiline_message() {
-    let encoder = GeminiNudgeEncoder { keyboard_delay: Duration::from_millis(100) };
+    let encoder = GeminiNudgeEncoder { keyboard_delay: Duration::from_millis(200) };
     let steps = encoder.encode("line1\nline2");
     assert_eq!(steps.len(), 2);
     assert_eq!(steps[0].bytes, b"line1\nline2");
@@ -58,7 +58,7 @@ fn plan_option_4_with_feedback() {
     let steps = encoder.encode_plan(4, Some("Don't modify the schema"));
     assert_eq!(steps.len(), 2);
     assert_eq!(steps[0].bytes, b"n\r");
-    assert_eq!(steps[0].delay_after, Some(Duration::from_millis(100)));
+    assert_eq!(steps[0].delay_after, Some(Duration::from_millis(200)));
     assert_eq!(steps[1].bytes, b"Don't modify the schema\r");
     assert!(steps[1].delay_after.is_none());
 }

@@ -369,10 +369,6 @@ async fn resize_rejects_zero_rows() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Shutdown endpoint tests
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn shutdown_cancels_token() -> anyhow::Result<()> {
     let (state, _rx) = test_state();
@@ -412,10 +408,6 @@ async fn shutdown_requires_auth() -> anyhow::Result<()> {
     assert!(state.lifecycle.shutdown.is_cancelled());
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Stop hook endpoint tests
-// ---------------------------------------------------------------------------
 
 use crate::stop::{StopConfig, StopMode, StopState};
 

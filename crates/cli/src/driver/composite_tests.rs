@@ -6,12 +6,13 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::{AgentState, CompositeDetector, DetectedState, ExitStatus, PromptContext, PromptKind};
+use super::{CompositeDetector, DetectedState};
+use crate::driver::{AgentState, ExitStatus, PromptContext, PromptKind};
 use crate::test_support::MockDetector;
 
 /// Helper: run a CompositeDetector with given detectors and collect emitted states.
 async fn run_composite(
-    detectors: Vec<Box<dyn super::Detector>>,
+    detectors: Vec<Box<dyn crate::driver::Detector>>,
     collect_timeout: Duration,
 ) -> anyhow::Result<Vec<DetectedState>> {
     let (output_tx, mut output_rx) = mpsc::channel(64);
@@ -45,7 +46,7 @@ async fn run_composite(
 
 #[tokio::test]
 async fn higher_confidence_wins() -> anyhow::Result<()> {
-    let detectors: Vec<Box<dyn super::Detector>> = vec![
+    let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![
         Box::new(MockDetector::new(1, vec![(Duration::from_millis(50), AgentState::Working)])),
         Box::new(MockDetector::new(
             3,
@@ -66,7 +67,7 @@ async fn higher_confidence_wins() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn lower_confidence_escalation_accepted() -> anyhow::Result<()> {
-    let detectors: Vec<Box<dyn super::Detector>> = vec![
+    let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![
         Box::new(MockDetector::new(1, vec![])),
         Box::new(MockDetector::new(3, vec![(Duration::from_millis(50), AgentState::Working)])),
     ];
@@ -81,7 +82,7 @@ async fn lower_confidence_escalation_accepted() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn lower_confidence_downgrade_rejected() -> anyhow::Result<()> {
-    let detectors: Vec<Box<dyn super::Detector>> = vec![
+    let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![
         Box::new(MockDetector::new(1, vec![(Duration::from_millis(50), AgentState::Working)])),
         Box::new(MockDetector::new(
             3,
@@ -101,7 +102,7 @@ async fn lower_confidence_downgrade_rejected() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn equal_tier_replaces_state() -> anyhow::Result<()> {
-    let detectors: Vec<Box<dyn super::Detector>> = vec![Box::new(MockDetector::new(
+    let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![Box::new(MockDetector::new(
         2,
         vec![
             (Duration::from_millis(50), AgentState::Working),
@@ -121,7 +122,7 @@ async fn equal_tier_replaces_state() -> anyhow::Result<()> {
 async fn terminal_state_always_accepted() -> anyhow::Result<()> {
     let exit = AgentState::Exited { status: ExitStatus { code: Some(0), signal: None } };
 
-    let detectors: Vec<Box<dyn super::Detector>> = vec![
+    let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![
         Box::new(MockDetector::new(1, vec![(Duration::from_millis(50), AgentState::Working)])),
         Box::new(MockDetector::new(3, vec![(Duration::from_millis(100), exit.clone())])),
     ];
@@ -135,7 +136,7 @@ async fn terminal_state_always_accepted() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn dedup_suppresses_identical() -> anyhow::Result<()> {
-    let detectors: Vec<Box<dyn super::Detector>> = vec![Box::new(MockDetector::new(
+    let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![Box::new(MockDetector::new(
         1,
         vec![
             (Duration::from_millis(50), AgentState::Working),
@@ -167,7 +168,7 @@ fn empty_prompt(kind: PromptKind) -> PromptContext {
 
 #[tokio::test]
 async fn tier1_supersedes_tier5_screen_idle() -> anyhow::Result<()> {
-    let detectors: Vec<Box<dyn super::Detector>> = vec![
+    let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![
         Box::new(MockDetector::new(1, vec![(Duration::from_millis(50), AgentState::Working)])),
         Box::new(MockDetector::new(
             5,
@@ -188,7 +189,7 @@ async fn tier1_supersedes_tier5_screen_idle() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn tier2_supersedes_tier5_screen_idle() -> anyhow::Result<()> {
-    let detectors: Vec<Box<dyn super::Detector>> = vec![
+    let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![
         Box::new(MockDetector::new(2, vec![(Duration::from_millis(50), AgentState::Working)])),
         Box::new(MockDetector::new(
             5,
@@ -211,7 +212,7 @@ async fn tier2_supersedes_tier5_screen_idle() -> anyhow::Result<()> {
 /// setup dialog on screen while tier 1 only saw idle).
 #[tokio::test]
 async fn tier5_can_escalate_to_prompt() -> anyhow::Result<()> {
-    let detectors: Vec<Box<dyn super::Detector>> = vec![
+    let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![
         Box::new(MockDetector::new(
             1,
             vec![(Duration::from_millis(50), AgentState::WaitingForInput)],
@@ -240,7 +241,7 @@ async fn tier5_can_escalate_to_prompt() -> anyhow::Result<()> {
 #[tokio::test]
 async fn plan_prompt_not_overwritten_by_permission_prompt() -> anyhow::Result<()> {
     // Simulate tier 1 emitting Plan prompt then Permission prompt in quick succession.
-    let detectors: Vec<Box<dyn super::Detector>> = vec![Box::new(MockDetector::new(
+    let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![Box::new(MockDetector::new(
         1,
         vec![
             (

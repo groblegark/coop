@@ -72,10 +72,6 @@ async fn wait_for(
     .map_err(|_| anyhow::anyhow!("timed out waiting for expected state"))?
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn claude_basic_session_lifecycle() -> anyhow::Result<()> {
     expect_claudeless();

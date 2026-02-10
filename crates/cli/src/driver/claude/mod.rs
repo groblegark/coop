@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-pub mod detect;
 pub mod encoding;
 pub mod hooks;
+pub mod parse;
 pub mod prompt;
 pub mod resume;
-pub mod screen_detect;
+pub mod screen;
 pub mod setup;
-pub mod startup;
-pub mod state;
+pub mod stream;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -21,8 +20,8 @@ use crate::config::Config;
 
 use super::hook_recv::HookReceiver;
 use super::Detector;
-use detect::{HookDetector, LogDetector, StdoutDetector};
 use encoding::{ClaudeNudgeEncoder, ClaudeRespondEncoder};
+use stream::{HookDetector, LogDetector, StdoutDetector};
 
 /// Claude Code agent driver.
 ///
@@ -77,10 +76,7 @@ impl ClaudeDriver {
 
         Ok(Self {
             nudge: ClaudeNudgeEncoder { keyboard_delay: config.keyboard_delay() },
-            respond: ClaudeRespondEncoder {
-                feedback_delay: config.feedback_delay(),
-                input_delay: config.keyboard_delay(),
-            },
+            respond: ClaudeRespondEncoder { input_delay: config.keyboard_delay() },
             detectors,
         })
     }

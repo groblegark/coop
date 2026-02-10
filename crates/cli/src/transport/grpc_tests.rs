@@ -8,10 +8,6 @@ use crate::screen::{CursorPosition, ScreenSnapshot};
 use crate::test_support::AppStateBuilder;
 use crate::transport::encode_key;
 
-// ---------------------------------------------------------------------------
-// Type conversion tests
-// ---------------------------------------------------------------------------
-
 #[test]
 fn cursor_to_proto_converts_u16_to_i32() {
     let cursor = CursorPosition { row: 5, col: 42 };
@@ -188,10 +184,6 @@ fn state_change_to_proto_includes_prompt() {
     assert!(pp.is_some());
 }
 
-// ---------------------------------------------------------------------------
-// Error field tests
-// ---------------------------------------------------------------------------
-
 #[test]
 fn state_change_to_proto_includes_error_fields() {
     let event = crate::event::StateChangeEvent {
@@ -220,10 +212,6 @@ fn state_change_to_proto_omits_error_fields_for_non_error() {
     assert!(p.error_detail.is_none());
     assert!(p.error_category.is_none());
 }
-
-// ---------------------------------------------------------------------------
-// Key encoding tests
-// ---------------------------------------------------------------------------
 
 #[yare::parameterized(
     enter = { "Enter", b"\r" as &[u8] },
@@ -267,10 +255,6 @@ fn encode_key_case_insensitive() {
     assert_eq!(encode_key("ctrl-c"), encode_key("Ctrl-C"));
 }
 
-// ---------------------------------------------------------------------------
-// Signal parsing tests
-// ---------------------------------------------------------------------------
-
 #[yare::parameterized(
     sigint = { "SIGINT", PtySignal::Int },
     int = { "INT", PtySignal::Int },
@@ -304,10 +288,6 @@ fn pty_signal_from_name_case_insensitive() {
     assert_eq!(PtySignal::from_name("sigint"), Some(PtySignal::Int));
     assert_eq!(PtySignal::from_name("int"), Some(PtySignal::Int));
 }
-
-// ---------------------------------------------------------------------------
-// Service instantiation (compile-time type chain test)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn service_instantiation_compiles() {

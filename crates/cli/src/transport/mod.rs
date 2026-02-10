@@ -25,10 +25,6 @@ use crate::driver::{AgentState, NudgeStep, PromptKind, QuestionAnswer, RespondEn
 use crate::error::ErrorCode;
 use crate::event::InputEvent;
 
-// ---------------------------------------------------------------------------
-// Helpers (shared between HTTP and gRPC)
-// ---------------------------------------------------------------------------
-
 /// Translate a named key to its terminal escape sequence (case-insensitive).
 pub fn encode_key(name: &str) -> Option<Vec<u8>> {
     let lower = name.to_lowercase();
@@ -208,10 +204,6 @@ pub fn read_ring_combined(ring: &crate::ring::RingBuffer, offset: u64) -> Vec<u8
     [a, b].concat()
 }
 
-// ---------------------------------------------------------------------------
-// Error response types
-// ---------------------------------------------------------------------------
-
 /// Top-level error response envelope shared across HTTP and WebSocket.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorResponse {
@@ -243,10 +235,6 @@ impl ErrorCode {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers (shared between HTTP, WebSocket, and gRPC)
-// ---------------------------------------------------------------------------
-
 /// Convert named key sequences to raw bytes for PTY input.
 ///
 /// Delegates to [`encode_key`] for each key; returns an error with the
@@ -261,10 +249,6 @@ pub fn keys_to_bytes(keys: &[String]) -> Result<Vec<u8>, String> {
     }
     Ok(out)
 }
-
-// ---------------------------------------------------------------------------
-// Router
-// ---------------------------------------------------------------------------
 
 /// Build the axum `Router` with all HTTP and WebSocket routes.
 pub fn build_router(state: Arc<AppState>) -> Router {

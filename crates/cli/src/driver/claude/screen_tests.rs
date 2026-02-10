@@ -222,3 +222,114 @@ fn detects_prompt_with_status_text_below() {
     ]);
     assert_eq!(state(&snap), Some(AgentState::WaitingForInput));
 }
+
+#[test]
+fn plan_context_returns_plan_kind() {
+    use super::extract_plan_context;
+
+    let screen = ScreenSnapshot {
+        lines: vec![
+            "Plan: Implement auth system".to_string(),
+            "Step 1: Add middleware".to_string(),
+            "[y] Accept  [n] Reject".to_string(),
+        ],
+        cols: 80,
+        rows: 24,
+        alt_screen: false,
+        cursor: CursorPosition { row: 2, col: 0 },
+        sequence: 42,
+    };
+    let ctx = extract_plan_context(&screen);
+    assert_eq!(ctx.kind, crate::driver::PromptKind::Plan);
+    assert!(ctx.auth_url.is_none());
+}
+
+use super::parse_options_from_screen;
+
+/// Helper: load a fixture file and split into screen lines.
+fn fixture_lines(text: &str) -> Vec<String> {
+    text.lines().map(String::from).collect()
+}
+
+/// Bash permission dialog (from bash_permission_dialog.tui.txt)
+#[test]
+fn parse_options_bash_permission() {
+    let lines = fixture_lines(include_str!("fixtures/bash_permission.screen.txt"));
+    let opts = parse_options_from_screen(&lines);
+    assert_eq!(opts, vec!["Yes", "Yes, and always allow access to tmp/ from this project", "No"]);
+}
+
+/// Edit permission dialog (from edit_permission_dialog.tui.txt)
+#[test]
+fn parse_options_edit_permission() {
+    let lines = fixture_lines(include_str!("fixtures/edit_permission.screen.txt"));
+    let opts = parse_options_from_screen(&lines);
+    assert_eq!(opts, vec!["Yes", "Yes, allow all edits during this session (shift+tab)", "No"]);
+}
+
+/// Trust folder / Bash permission dialog (from trust_folder_dialog.tui.txt)
+#[test]
+fn parse_options_trust_folder() {
+    let lines = fixture_lines(include_str!("fixtures/trust_folder.screen.txt"));
+    let opts = parse_options_from_screen(&lines);
+    assert_eq!(opts, vec!["Yes", "Yes, allow reading from Downloads/ from this project", "No"]);
+}
+
+/// Thinking dialog (from thinking_dialog_disabled_selected.tui.txt)
+#[test]
+fn parse_options_thinking_dialog() {
+    let lines = fixture_lines(include_str!("fixtures/thinking_dialog.screen.txt"));
+    let opts = parse_options_from_screen(&lines);
+    assert_eq!(
+        opts,
+        vec![
+            "Enabled ✔  Claude will think before responding",
+            "Disabled   Claude will respond without extended thinking",
+        ]
+    );
+}
+
+/// Multi-question dialog Q1 (from multi_question_dialog_q1.tui.txt)
+/// Options are split across a separator line, with description lines under each.
+#[test]
+fn parse_options_multi_question_dialog() {
+    let lines = fixture_lines(include_str!("fixtures/multi_question_q1.screen.txt"));
+    let opts = parse_options_from_screen(&lines);
+    assert_eq!(opts, vec!["Rust", "Python", "Type something.", "Chat about this"]);
+}
+
+/// Non-breaking space after ❯ (Claude uses U+00A0 in practice)
+#[test]
+fn parse_options_nbsp_after_selector() {
+    let lines =
+        vec![" Do you want to proceed?".into(), " ❯\u{00A0}1. Yes".into(), "   2. No".into()];
+    let opts = parse_options_from_screen(&lines);
+    assert_eq!(opts, vec!["Yes", "No"]);
+}
+
+#[test]
+fn parse_options_empty_screen() {
+    let opts = parse_options_from_screen(&[]);
+    assert!(opts.is_empty());
+}
+
+/// Theme picker with trailing checkmark on selected option
+#[test]
+fn parse_options_strips_trailing_checkmark() {
+    let lines = vec![
+        " Choose the text style".into(),
+        " ❯ 1. Dark mode ✔".into(),
+        "   2. Light mode".into(),
+        "   3. Light mode (high contrast)".into(),
+        " Enter to confirm · Esc to exit".into(),
+    ];
+    let opts = parse_options_from_screen(&lines);
+    assert_eq!(opts, vec!["Dark mode", "Light mode", "Light mode (high contrast)"]);
+}
+
+#[test]
+fn parse_options_no_match() {
+    let lines = vec!["Working on your task...".into(), "Reading files".into()];
+    let opts = parse_options_from_screen(&lines);
+    assert!(opts.is_empty());
+}

@@ -14,11 +14,11 @@ use tokio_util::sync::CancellationToken;
 use crate::driver::hook_recv::HookReceiver;
 use crate::driver::jsonl_stdout::JsonlParser;
 use crate::driver::log_watch::LogWatcher;
+use crate::driver::HookEvent;
 use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
-use crate::event::HookEvent;
 
+use super::parse::{extract_assistant_text, format_claude_cause, parse_claude_state};
 use super::prompt::extract_ask_user_from_tool_input;
-use super::state::{extract_assistant_text, format_claude_cause, parse_claude_state};
 
 /// Tier 1 detector: receives push events from Claude's hook system.
 ///
@@ -233,5 +233,5 @@ impl Detector for StdoutDetector {
 }
 
 #[cfg(test)]
-#[path = "detect_tests.rs"]
+#[path = "stream_tests.rs"]
 mod tests;

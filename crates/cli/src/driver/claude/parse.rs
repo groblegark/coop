@@ -99,5 +99,5 @@ pub fn parse_claude_state(json: &Value) -> Option<AgentState> {
 }
 
 #[cfg(test)]
-#[path = "state_tests.rs"]
+#[path = "parse_tests.rs"]
 mod tests;

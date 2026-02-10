@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use crate::event::HookEvent;
+use crate::driver::HookEvent;
 
 use super::{parse_hook_line, HookReceiver};
 

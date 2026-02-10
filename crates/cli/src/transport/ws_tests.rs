@@ -181,10 +181,6 @@ fn shutdown_message_serialization() -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Integration tests using handle_client_message
-// ---------------------------------------------------------------------------
-
 fn ws_test_state(
     agent: AgentState,
 ) -> (Arc<crate::transport::state::AppState>, tokio::sync::mpsc::Receiver<crate::event::InputEvent>)

@@ -27,10 +27,6 @@ pub mod proto {
     tonic::include_proto!("coop.v1");
 }
 
-// ---------------------------------------------------------------------------
-// Type conversions: domain → proto
-// ---------------------------------------------------------------------------
-
 /// Convert a domain [`crate::screen::CursorPosition`] to proto.
 pub fn cursor_to_proto(c: &crate::screen::CursorPosition) -> proto::CursorPosition {
     proto::CursorPosition { row: c.row as i32, col: c.col as i32 }
@@ -103,10 +99,6 @@ pub fn state_change_to_proto(e: &StateChangeEvent) -> proto::AgentStateEvent {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Broadcast → gRPC stream helper
-// ---------------------------------------------------------------------------
-
 /// Spawn a task that reads from a broadcast receiver, maps each event through
 /// `map_fn`, and forwards the result into a gRPC response stream.
 fn spawn_broadcast_stream<E, T, F>(rx: broadcast::Receiver<E>, map_fn: F) -> GrpcStream<T>
@@ -134,10 +126,6 @@ where
     });
     Box::pin(ReceiverStream::new(receiver))
 }
-
-// ---------------------------------------------------------------------------
-// gRPC service
-// ---------------------------------------------------------------------------
 
 /// gRPC implementation of the `coop.v1.Coop` service.
 pub struct CoopGrpc {
