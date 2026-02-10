@@ -132,6 +132,29 @@ fn env_duration_defaults() {
     assert_eq!(config.idle_timeout(), Duration::ZERO);
 }
 
+// -- Config::test() fast timings --
+
+#[test]
+fn test_config_uses_fast_timings() {
+    let config = Config::test();
+    assert_eq!(config.shutdown_timeout(), Duration::from_millis(100));
+    assert_eq!(config.screen_debounce(), Duration::from_millis(10));
+    assert_eq!(config.process_poll(), Duration::from_millis(50));
+    assert_eq!(config.screen_poll(), Duration::from_millis(50));
+    assert_eq!(config.screen_startup_poll(), Duration::from_millis(50));
+    assert_eq!(config.screen_steady_poll(), Duration::from_millis(50));
+    assert_eq!(config.screen_startup_window(), Duration::from_millis(100));
+    assert_eq!(config.log_poll(), Duration::from_millis(50));
+    assert_eq!(config.tmux_poll(), Duration::from_millis(50));
+    assert_eq!(config.pty_reap(), Duration::from_millis(10));
+    assert_eq!(config.keyboard_delay(), Duration::from_millis(10));
+    assert_eq!(config.keyboard_delay_per_byte(), Duration::ZERO);
+    assert_eq!(config.keyboard_delay_max(), Duration::from_millis(50));
+    assert_eq!(config.nudge_timeout(), Duration::from_millis(100));
+    assert_eq!(config.idle_timeout(), Duration::ZERO);
+    assert_eq!(config.graceful_shutdown_timeout(), Duration::from_millis(100));
+}
+
 // -- AgentFileConfig deserialization --
 
 #[test]

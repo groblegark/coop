@@ -126,9 +126,56 @@ pub struct Config {
     #[arg(long, env = "COOP_GROOM", default_value = "auto")]
     pub groom: String,
 
+    // -- Duration overrides (skip from CLI; set in Config::test()) --------
     /// Graceful shutdown timeout in ms (0 = disabled, immediate kill).
     #[clap(skip)]
     pub graceful_shutdown_ms: Option<u64>,
+    #[clap(skip)]
+    pub shutdown_timeout_ms: Option<u64>,
+    #[clap(skip)]
+    pub screen_debounce_ms: Option<u64>,
+    #[clap(skip)]
+    pub process_poll_ms: Option<u64>,
+    #[clap(skip)]
+    pub screen_poll_ms: Option<u64>,
+    #[clap(skip)]
+    pub screen_startup_poll_ms: Option<u64>,
+    #[clap(skip)]
+    pub screen_steady_poll_ms: Option<u64>,
+    #[clap(skip)]
+    pub screen_startup_window_ms: Option<u64>,
+    #[clap(skip)]
+    pub log_poll_ms: Option<u64>,
+    #[clap(skip)]
+    pub tmux_poll_ms: Option<u64>,
+    #[clap(skip)]
+    pub pty_reap_ms: Option<u64>,
+    #[clap(skip)]
+    pub keyboard_delay_ms: Option<u64>,
+    #[clap(skip)]
+    pub keyboard_delay_per_byte_ms: Option<u64>,
+    #[clap(skip)]
+    pub keyboard_delay_max_ms: Option<u64>,
+    #[clap(skip)]
+    pub nudge_timeout_ms: Option<u64>,
+    #[clap(skip)]
+    pub idle_timeout_ms: Option<u64>,
+}
+
+fn env_duration_ms(var: &str, default: u64) -> Duration {
+    let ms = std::env::var(var).ok().and_then(|v| v.parse().ok()).unwrap_or(default);
+    Duration::from_millis(ms)
+}
+
+macro_rules! duration_field {
+    ($method:ident, $field:ident, $env:literal, $default:expr) => {
+        pub fn $method(&self) -> Duration {
+            match self.$field {
+                Some(ms) => Duration::from_millis(ms),
+                None => env_duration_ms($env, $default),
+            }
+        }
+    };
 }
 
 impl Config {
@@ -172,93 +219,49 @@ impl Config {
         Ok(())
     }
 
-    // -- Env-only tuning knobs (COOP_*_MS) --------------------------------
+    // -- Tuning knobs (field override → env var → compiled default) --------
 
-    /// Time to wait for backend exit before SIGKILL.
-    pub fn shutdown_timeout(&self) -> Duration {
-        env_duration_ms("COOP_SHUTDOWN_TIMEOUT_MS", 10_000)
-    }
-
-    /// Screen debounce interval for broadcasting ScreenUpdate events.
-    pub fn screen_debounce(&self) -> Duration {
-        env_duration_ms("COOP_SCREEN_DEBOUNCE_MS", 50)
-    }
-
-    /// Process monitor poll interval (Tier 4).
-    pub fn process_poll(&self) -> Duration {
-        env_duration_ms("COOP_PROCESS_POLL_MS", 5_000)
-    }
-
-    /// Screen parser poll interval (Tier 5, unknown driver).
-    pub fn screen_poll(&self) -> Duration {
-        env_duration_ms("COOP_SCREEN_POLL_MS", 2_000)
-    }
-
-    /// Claude screen detector: fast poll interval during startup window.
-    pub fn screen_startup_poll(&self) -> Duration {
-        env_duration_ms("COOP_SCREEN_STARTUP_POLL_MS", 3_000)
-    }
-
-    /// Claude screen detector: slow poll interval after startup window.
-    pub fn screen_steady_poll(&self) -> Duration {
-        env_duration_ms("COOP_SCREEN_STEADY_POLL_MS", 15_000)
-    }
-
-    /// Claude screen detector: how long to use the fast startup poll.
-    pub fn screen_startup_window(&self) -> Duration {
-        env_duration_ms("COOP_SCREEN_STARTUP_WINDOW_MS", 15_000)
-    }
-
-    /// Log watcher fallback poll interval (Tier 2).
-    pub fn log_poll(&self) -> Duration {
-        env_duration_ms("COOP_LOG_POLL_MS", 5_000)
-    }
-
-    /// Tmux capture-pane poll interval.
-    pub fn tmux_poll(&self) -> Duration {
-        env_duration_ms("COOP_TMUX_POLL_MS", 1_000)
-    }
-
-    /// PTY reap check interval in the NativePty drop handler.
-    pub fn pty_reap(&self) -> Duration {
-        env_duration_ms("COOP_PTY_REAP_MS", 50)
-    }
-
-    /// Minimum gap between keystrokes in multi-step input sequences.
-    pub fn keyboard_delay(&self) -> Duration {
-        env_duration_ms("COOP_KEYBOARD_DELAY_MS", 200)
-    }
-
-    /// Per-byte delay added to the base keyboard delay for long nudge messages.
-    pub fn keyboard_delay_per_byte(&self) -> Duration {
-        env_duration_ms("COOP_KEYBOARD_DELAY_PER_BYTE_MS", 1)
-    }
-
-    /// Maximum nudge delay (caps the base + per-byte scaling).
-    pub fn keyboard_delay_max(&self) -> Duration {
-        env_duration_ms("COOP_KEYBOARD_DELAY_MAX_MS", 5000)
-    }
-
-    /// Timeout before retrying Enter after a nudge delivery.
-    /// If the agent doesn't transition to Working within this window,
-    /// a single `\r` is re-sent. Set to 0 to disable.
-    pub fn nudge_timeout(&self) -> Duration {
-        env_duration_ms("COOP_NUDGE_TIMEOUT_MS", 4000)
-    }
-
-    /// Idle timeout (0 = disabled).
-    pub fn idle_timeout(&self) -> Duration {
-        env_duration_ms("COOP_IDLE_TIMEOUT_MS", 0)
-    }
-
-    /// Graceful shutdown timeout: how long to wait for the agent to reach idle
-    /// after receiving SIGTERM before force-killing (0 = disabled, immediate kill).
-    pub fn graceful_shutdown_timeout(&self) -> Duration {
-        match self.graceful_shutdown_ms {
-            Some(ms) => Duration::from_millis(ms),
-            None => env_duration_ms("COOP_GRACEFUL_SHUTDOWN_MS", 20_000),
-        }
-    }
+    duration_field!(shutdown_timeout, shutdown_timeout_ms, "COOP_SHUTDOWN_TIMEOUT_MS", 10_000);
+    duration_field!(screen_debounce, screen_debounce_ms, "COOP_SCREEN_DEBOUNCE_MS", 50);
+    duration_field!(process_poll, process_poll_ms, "COOP_PROCESS_POLL_MS", 5_000);
+    duration_field!(screen_poll, screen_poll_ms, "COOP_SCREEN_POLL_MS", 2_000);
+    duration_field!(
+        screen_startup_poll,
+        screen_startup_poll_ms,
+        "COOP_SCREEN_STARTUP_POLL_MS",
+        3_000
+    );
+    duration_field!(
+        screen_steady_poll,
+        screen_steady_poll_ms,
+        "COOP_SCREEN_STEADY_POLL_MS",
+        15_000
+    );
+    duration_field!(
+        screen_startup_window,
+        screen_startup_window_ms,
+        "COOP_SCREEN_STARTUP_WINDOW_MS",
+        15_000
+    );
+    duration_field!(log_poll, log_poll_ms, "COOP_LOG_POLL_MS", 5_000);
+    duration_field!(tmux_poll, tmux_poll_ms, "COOP_TMUX_POLL_MS", 1_000);
+    duration_field!(pty_reap, pty_reap_ms, "COOP_PTY_REAP_MS", 50);
+    duration_field!(keyboard_delay, keyboard_delay_ms, "COOP_KEYBOARD_DELAY_MS", 200);
+    duration_field!(
+        keyboard_delay_per_byte,
+        keyboard_delay_per_byte_ms,
+        "COOP_KEYBOARD_DELAY_PER_BYTE_MS",
+        1
+    );
+    duration_field!(keyboard_delay_max, keyboard_delay_max_ms, "COOP_KEYBOARD_DELAY_MAX_MS", 5_000);
+    duration_field!(nudge_timeout, nudge_timeout_ms, "COOP_NUDGE_TIMEOUT_MS", 4_000);
+    duration_field!(idle_timeout, idle_timeout_ms, "COOP_IDLE_TIMEOUT_MS", 0);
+    duration_field!(
+        graceful_shutdown_timeout,
+        graceful_shutdown_ms,
+        "COOP_GRACEFUL_SHUTDOWN_MS",
+        20_000
+    );
 
     /// Build a minimal `Config` for tests (port 0, `echo` command).
     #[doc(hidden)]
@@ -283,6 +286,21 @@ impl Config {
             groom: "manual".into(),
             command: vec!["echo".into()],
             graceful_shutdown_ms: Some(100),
+            shutdown_timeout_ms: Some(100),
+            screen_debounce_ms: Some(10),
+            process_poll_ms: Some(50),
+            screen_poll_ms: Some(50),
+            screen_startup_poll_ms: Some(50),
+            screen_steady_poll_ms: Some(50),
+            screen_startup_window_ms: Some(100),
+            log_poll_ms: Some(50),
+            tmux_poll_ms: Some(50),
+            pty_reap_ms: Some(10),
+            keyboard_delay_ms: Some(10),
+            keyboard_delay_per_byte_ms: Some(0),
+            keyboard_delay_max_ms: Some(50),
+            nudge_timeout_ms: Some(100),
+            idle_timeout_ms: Some(0),
         }
     }
 
@@ -379,11 +397,6 @@ pub fn merge_settings(
     }
 
     merged
-}
-
-fn env_duration_ms(var: &str, default: u64) -> Duration {
-    let ms = std::env::var(var).ok().and_then(|v| v.parse().ok()).unwrap_or(default);
-    Duration::from_millis(ms)
 }
 
 #[cfg(test)]
