@@ -259,3 +259,34 @@ fn service_instantiation_compiles() {
     // Verify we can construct a tonic server from the service
     let _router = service.into_router();
 }
+
+#[tokio::test]
+async fn send_input_raw_writes_bytes() -> anyhow::Result<()> {
+    use crate::event::InputEvent;
+    let (state, mut rx) = AppStateBuilder::new().child_pid(1234).build();
+    let svc = CoopGrpc::new(state);
+
+    let req = tonic::Request::new(proto::SendInputRawRequest { data: b"hello".to_vec() });
+    let resp = proto::coop_server::Coop::send_input_raw(&svc, req).await?;
+    assert_eq!(resp.into_inner().bytes_written, 5);
+
+    let event = rx.recv().await;
+    assert!(matches!(event, Some(InputEvent::Write(_))));
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_ready_returns_readiness() -> anyhow::Result<()> {
+    let (state, _rx) = AppStateBuilder::new().child_pid(1234).build();
+    let svc = CoopGrpc::new(state.clone());
+
+    let req = tonic::Request::new(proto::GetReadyRequest {});
+    let resp = proto::coop_server::Coop::get_ready(&svc, req).await?;
+    assert!(!resp.into_inner().ready, "default ready is false");
+
+    state.ready.store(true, std::sync::atomic::Ordering::Release);
+    let req = tonic::Request::new(proto::GetReadyRequest {});
+    let resp = proto::coop_server::Coop::get_ready(&svc, req).await?;
+    assert!(resp.into_inner().ready);
+    Ok(())
+}

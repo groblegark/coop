@@ -18,8 +18,9 @@ use crate::event::{OutputEvent, StateChangeEvent};
 use crate::start::StartConfig;
 use crate::stop::StopConfig;
 use crate::transport::handler::{
-    compute_health, compute_status, error_message, extract_error_fields, handle_input, handle_keys,
-    handle_nudge, handle_resize, handle_respond, handle_signal, TransportQuestionAnswer,
+    compute_health, compute_status, error_message, extract_error_fields, handle_input,
+    handle_input_raw, handle_keys, handle_nudge, handle_resize, handle_respond, handle_signal,
+    TransportQuestionAnswer,
 };
 use crate::transport::state::AppState;
 
@@ -243,6 +244,23 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(proto::SendSignalResponse { delivered: true }))
     }
 
+    async fn send_input_raw(
+        &self,
+        request: Request<proto::SendInputRawRequest>,
+    ) -> Result<Response<proto::SendInputRawResponse>, Status> {
+        let req = request.into_inner();
+        let len = handle_input_raw(&self.state, req.data).await;
+        Ok(Response::new(proto::SendInputRawResponse { bytes_written: len }))
+    }
+
+    async fn get_ready(
+        &self,
+        _request: Request<proto::GetReadyRequest>,
+    ) -> Result<Response<proto::GetReadyResponse>, Status> {
+        let ready = self.state.ready.load(Ordering::Acquire);
+        Ok(Response::new(proto::GetReadyResponse { ready }))
+    }
+
     async fn get_agent_state(
         &self,
         _request: Request<proto::GetAgentStateRequest>,
@@ -398,6 +416,24 @@ impl proto::coop_server::Coop for CoopGrpc {
     ) -> Result<Response<Self::StreamStateStream>, Status> {
         let state_rx = self.state.channels.state_tx.subscribe();
         let stream = spawn_broadcast_stream(state_rx, |event| Some(state_change_to_proto(&event)));
+        Ok(Response::new(stream))
+    }
+
+    type StreamPromptEventsStream = GrpcStream<proto::PromptActionEvent>;
+
+    async fn stream_prompt_events(
+        &self,
+        _request: Request<proto::StreamPromptEventsRequest>,
+    ) -> Result<Response<Self::StreamPromptEventsStream>, Status> {
+        let prompt_rx = self.state.channels.prompt_tx.subscribe();
+        let stream = spawn_broadcast_stream(prompt_rx, |event| {
+            Some(proto::PromptActionEvent {
+                source: event.source,
+                prompt_type: event.r#type,
+                subtype: event.subtype,
+                option: event.option,
+            })
+        });
         Ok(Response::new(stream))
     }
 

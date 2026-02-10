@@ -22,6 +22,10 @@ service Coop {
   rpc Resize(ResizeRequest) returns (ResizeResponse);
   // Send a signal to the child process.
   rpc SendSignal(SendSignalRequest) returns (SendSignalResponse);
+  // Write raw bytes to the PTY.
+  rpc SendInputRaw(SendInputRawRequest) returns (SendInputRawResponse);
+  // Readiness probe.
+  rpc GetReady(GetReadyRequest) returns (GetReadyResponse);
   // Stream raw PTY output bytes starting from a byte offset.
   rpc StreamOutput(StreamOutputRequest) returns (stream OutputChunk);
   // Stream rendered terminal screen snapshots on each update.
@@ -37,6 +41,8 @@ service Coop {
   rpc Respond(RespondRequest) returns (RespondResponse);
   // Stream agent state transitions in real time.
   rpc StreamState(StreamStateRequest) returns (stream AgentStateEvent);
+  // Stream prompt action events in real time.
+  rpc StreamPromptEvents(StreamPromptEventsRequest) returns (stream PromptActionEvent);
 
   // Stop hook management
 
@@ -380,6 +386,28 @@ message StartEvent {
 message ShutdownRequest {}
 message ShutdownResponse {
   bool accepted = 1;
+}
+
+message SendInputRawRequest {
+  // Raw bytes to write to the PTY.
+  bytes data = 1;
+}
+message SendInputRawResponse {
+  int32 bytes_written = 1;
+}
+
+message GetReadyRequest {}
+message GetReadyResponse {
+  bool ready = 1;
+}
+
+message StreamPromptEventsRequest {}
+// Prompt action event (e.g. user responded to a prompt via API).
+message PromptActionEvent {
+  string source = 1;
+  string prompt_type = 2;
+  optional string subtype = 3;
+  optional uint32 option = 4;
 }
 
 // Agent state transition event.
