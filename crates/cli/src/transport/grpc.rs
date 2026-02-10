@@ -250,7 +250,7 @@ impl proto::coop_server::Coop for CoopGrpc {
         Ok(Response::new(proto::GetAgentStateResponse {
             agent: self.state.config.agent.to_string(),
             state: agent.as_str().to_owned(),
-            since_seq: self.state.driver.state_seq.load(Ordering::Relaxed),
+            since_seq: self.state.driver.state_seq.load(Ordering::Acquire),
             screen_seq: screen.seq(),
             detection_tier: self.state.driver.detection_tier_str(),
             prompt: agent.prompt().map(prompt_to_proto),

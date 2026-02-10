@@ -233,7 +233,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         claude_setup.as_ref(),
         gemini_setup.as_ref(),
         Arc::new(move || {
-            let v = pid_terminal.child_pid.load(std::sync::atomic::Ordering::Relaxed);
+            let v = pid_terminal.child_pid.load(std::sync::atomic::Ordering::Acquire);
             if v == 0 {
                 None
             } else {

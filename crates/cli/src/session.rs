@@ -256,8 +256,8 @@ impl Session {
                         }
 
                         // Store metadata for the HTTP/gRPC API.
-                        self.app_state.driver.state_seq.store(state_seq, std::sync::atomic::Ordering::Relaxed);
-                        self.app_state.driver.detection_tier.store(detected.tier, std::sync::atomic::Ordering::Relaxed);
+                        self.app_state.driver.state_seq.store(state_seq, std::sync::atomic::Ordering::Release);
+                        self.app_state.driver.detection_tier.store(detected.tier, std::sync::atomic::Ordering::Release);
                         *self.app_state.driver.detection_cause.write().await = detected.cause.clone();
 
                         let last_message = self.app_state.driver.last_message.read().await.clone();
@@ -314,13 +314,13 @@ impl Session {
                                         tokio::spawn(async move {
                                             tokio::time::sleep(Duration::from_millis(500)).await;
                                             // Guard: skip if state changed (someone already responded).
-                                            let current = driver.state_seq.load(std::sync::atomic::Ordering::Relaxed);
+                                            let current = driver.state_seq.load(std::sync::atomic::Ordering::Acquire);
                                             if current != expected_seq {
                                                 return;
                                             }
                                             let _delivery = gate.acquire().await;
                                             // Re-check after gate acquisition.
-                                            let current = driver.state_seq.load(std::sync::atomic::Ordering::Relaxed);
+                                            let current = driver.state_seq.load(std::sync::atomic::Ordering::Acquire);
                                             if current != expected_seq {
                                                 return;
                                             }
@@ -532,7 +532,7 @@ async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64, parser: Op
         tokio::time::sleep(POLL_INTERVAL).await;
 
         // Bail if the state has changed since we spawned.
-        let current_seq = app.driver.state_seq.load(std::sync::atomic::Ordering::Relaxed);
+        let current_seq = app.driver.state_seq.load(std::sync::atomic::Ordering::Acquire);
         if current_seq != expected_seq {
             return;
         }
@@ -547,7 +547,7 @@ async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64, parser: Op
             let mut agent = app.driver.agent_state.write().await;
 
             // Re-check seq under the write lock.
-            let current_seq = app.driver.state_seq.load(std::sync::atomic::Ordering::Relaxed);
+            let current_seq = app.driver.state_seq.load(std::sync::atomic::Ordering::Acquire);
             if current_seq != expected_seq {
                 return;
             }
@@ -579,7 +579,7 @@ async fn enrich_prompt_options(app: Arc<AppState>, expected_seq: u64, parser: Op
     debug!(last_snap_lines, "prompt option enrichment: setting fallback options");
 
     let mut agent = app.driver.agent_state.write().await;
-    let current_seq = app.driver.state_seq.load(std::sync::atomic::Ordering::Relaxed);
+    let current_seq = app.driver.state_seq.load(std::sync::atomic::Ordering::Acquire);
     if current_seq != expected_seq {
         return;
     }

@@ -312,7 +312,7 @@ pub async fn agent_state(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     Json(AgentStateResponse {
         agent: s.config.agent.to_string(),
         state: state.as_str().to_owned(),
-        since_seq: s.driver.state_seq.load(Ordering::Relaxed),
+        since_seq: s.driver.state_seq.load(Ordering::Acquire),
         screen_seq: screen.seq(),
         detection_tier: s.driver.detection_tier_str(),
         prompt: state.prompt().cloned(),
