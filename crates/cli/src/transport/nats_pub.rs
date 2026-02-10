@@ -8,7 +8,7 @@
 //! The receiver consumes hook events from bd daemon; the publisher emits coop's
 //! own derived events (state transitions, stop verdicts) back to NATS.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -40,25 +40,30 @@ pub struct NatsPublisher {
 }
 
 /// JSON payload for state transition events published to NATS.
-#[derive(Debug, Serialize)]
-struct StateEventPayload {
-    prev: String,
-    next: String,
-    seq: u64,
-    cause: Option<String>,
-    last_message: Option<String>,
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct StateEventPayload {
+    pub prev: String,
+    pub next: String,
+    pub seq: u64,
+    pub cause: Option<String>,
+    pub last_message: Option<String>,
 }
 
 /// JSON payload for stop events published to NATS.
-#[derive(Debug, Serialize)]
-struct StopEventPayload {
-    stop_type: String,
-    signal_json: Option<String>,
-    error_detail: Option<String>,
-    seq: u64,
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct StopEventPayload {
+    pub stop_type: String,
+    pub signal_json: Option<String>,
+    pub error_detail: Option<String>,
+    pub seq: u64,
 }
 
 impl NatsPublisher {
+    /// Create a publisher from an already-connected NATS client.
+    pub fn new(client: async_nats::Client, prefix: String) -> Self {
+        Self { client, prefix }
+    }
+
     /// Connect to the NATS server and return a publisher.
     pub async fn connect(config: &NatsPubConfig) -> anyhow::Result<Self> {
         let mut opts = async_nats::ConnectOptions::new();
