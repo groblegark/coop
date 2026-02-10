@@ -27,6 +27,11 @@ async fn health_200() -> anyhow::Result<()> {
     let body = resp.text();
     assert!(body.contains("\"status\":\"running\""));
     assert!(body.contains("\"pid\":1234"));
+    // Flat terminal dimensions (matching gRPC)
+    assert!(body.contains("\"terminal_cols\":"), "body: {body}");
+    assert!(body.contains("\"terminal_rows\":"), "body: {body}");
+    // Nested terminal (backward compat)
+    assert!(body.contains("\"terminal\":{"), "body: {body}");
     Ok(())
 }
 

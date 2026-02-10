@@ -30,7 +30,12 @@ pub struct HealthResponse {
     pub pid: Option<i32>,
     pub uptime_secs: i64,
     pub agent: String,
+    /// Nested terminal dimensions (deprecated — use `terminal_cols`/`terminal_rows`).
     pub terminal: TerminalSize,
+    /// Terminal width (matches gRPC flat layout).
+    pub terminal_cols: u16,
+    /// Terminal height (matches gRPC flat layout).
+    pub terminal_rows: u16,
     pub ws_clients: i32,
     pub ready: bool,
 }
@@ -166,6 +171,8 @@ pub async fn health(State(s): State<Arc<AppState>>) -> impl IntoResponse {
         uptime_secs: h.uptime_secs,
         agent: h.agent,
         terminal: TerminalSize { cols: h.terminal_cols, rows: h.terminal_rows },
+        terminal_cols: h.terminal_cols,
+        terminal_rows: h.terminal_rows,
         ws_clients: h.ws_clients,
         ready: h.ready,
     })
