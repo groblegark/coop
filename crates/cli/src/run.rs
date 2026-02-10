@@ -610,3 +610,7 @@ fn prepare_pristine_extras(
 
     Ok((extra_args, extra_env, session_log_path))
 }
+
+#[cfg(test)]
+#[path = "run_tests.rs"]
+mod tests;
