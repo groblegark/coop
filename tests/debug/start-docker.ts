@@ -39,7 +39,6 @@ const { values } = parseArgs({
 
 const port = Number(values.port);
 
-// --- Resolve image and command per mode ---
 interface ModeConfig {
 	imageTarget: string;
 	imageTag: string;
@@ -119,12 +118,10 @@ function resolveMode(): ModeConfig {
 
 const { imageTarget, imageTag, dockerRunArgs, label } = resolveMode();
 
-// --- Build Docker image ---
 if (!values["no-build"]) {
 	await buildDocker(imageTarget, imageTag);
 }
 
-// --- Run container ---
 console.log(`Starting coop in Docker on port ${port} with ${label}`);
 const containerId = (await $`docker run -d ${dockerRunArgs}`.text()).trim();
 onExit(() => {
@@ -132,14 +129,11 @@ onExit(() => {
 	Bun.spawnSync(["docker", "rm", "-f", containerId]);
 });
 
-// --- Wait for health ---
 await waitForHealth(port, { containerId });
 
-// --- Open browser ---
 if (!values["no-open"]) {
 	await openBrowser(port);
 }
 
-// --- Tail container logs ---
 console.log("Tailing container logs (Ctrl+C to stop)…");
 await $`docker logs -f ${containerId}`;

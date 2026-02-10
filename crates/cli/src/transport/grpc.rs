@@ -15,6 +15,7 @@ use super::read_ring_combined;
 use crate::driver::PromptContext;
 use crate::error::ErrorCode;
 use crate::event::{OutputEvent, StateChangeEvent};
+use crate::start::StartConfig;
 use crate::stop::StopConfig;
 use crate::transport::handler::{
     compute_health, compute_status, error_message, extract_error_fields, handle_input, handle_keys,
@@ -447,6 +448,45 @@ impl proto::coop_server::Coop for CoopGrpc {
                 stop_type: event.stop_type.as_str().to_owned(),
                 signal_json: event.signal.map(|v| v.to_string()),
                 error_detail: event.error_detail,
+                seq: event.seq,
+            })
+        });
+        Ok(Response::new(stream))
+    }
+
+    async fn put_start_config(
+        &self,
+        request: Request<proto::PutStartConfigRequest>,
+    ) -> Result<Response<proto::PutStartConfigResponse>, Status> {
+        let req = request.into_inner();
+        let new_config: StartConfig = serde_json::from_str(&req.config_json)
+            .map_err(|e| Status::invalid_argument(format!("invalid config JSON: {e}")))?;
+        *self.state.start.config.write().await = new_config;
+        Ok(Response::new(proto::PutStartConfigResponse { updated: true }))
+    }
+
+    async fn get_start_config(
+        &self,
+        _request: Request<proto::GetStartConfigRequest>,
+    ) -> Result<Response<proto::GetStartConfigResponse>, Status> {
+        let config = self.state.start.config.read().await;
+        let json = serde_json::to_string(&*config)
+            .map_err(|e| Status::internal(format!("serialize error: {e}")))?;
+        Ok(Response::new(proto::GetStartConfigResponse { config_json: json }))
+    }
+
+    type StreamStartEventsStream = GrpcStream<proto::StartEvent>;
+
+    async fn stream_start_events(
+        &self,
+        _request: Request<proto::StreamStartEventsRequest>,
+    ) -> Result<Response<Self::StreamStartEventsStream>, Status> {
+        let start_rx = self.state.start.start_tx.subscribe();
+        let stream = spawn_broadcast_stream(start_rx, |event| {
+            Some(proto::StartEvent {
+                source: event.source,
+                session_id: event.session_id,
+                injected: event.injected,
                 seq: event.seq,
             })
         });

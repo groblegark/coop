@@ -10,6 +10,7 @@ fn generated_config_has_required_hooks() {
     let config = generate_hook_config(Path::new("/tmp/coop.pipe"));
     let hooks = &config["hooks"];
 
+    assert!(hooks.get("SessionStart").is_some());
     assert!(hooks.get("PostToolUse").is_some());
     assert!(hooks.get("Stop").is_some());
     assert!(hooks.get("Notification").is_some());

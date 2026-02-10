@@ -11,6 +11,7 @@ pub mod run;
 pub mod screen;
 pub mod send;
 pub mod session;
+pub mod start;
 pub mod stop;
 pub mod test_support;
 pub mod transport;

@@ -51,13 +51,21 @@ service Coop {
   // Stream stop hook verdict events in real time.
   rpc StreamStopEvents(StreamStopEventsRequest) returns (stream StopEvent);
 
+  // Start hook management
+
+  // Update the start hook configuration at runtime.
+  rpc PutStartConfig(PutStartConfigRequest) returns (PutStartConfigResponse);
+  // Read the current start hook configuration.
+  rpc GetStartConfig(GetStartConfigRequest) returns (GetStartConfigResponse);
+  // Stream start hook events in real time.
+  rpc StreamStartEvents(StreamStartEventsRequest) returns (stream StartEvent);
+
   // Lifecycle
 
   // Initiate graceful coop shutdown.
   rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
 }
 
-// --- Terminal messages ---
 
 message GetHealthRequest {}
 message GetHealthResponse {
@@ -193,7 +201,6 @@ message ScreenSnapshot {
   uint64 seq = 6;
 }
 
-// --- Agent messages ---
 
 // A single question within a multi-question dialog.
 message QuestionContext {
@@ -301,7 +308,6 @@ message RespondResponse {
 
 message StreamStateRequest {}
 
-// --- Stop hook messages ---
 
 message ResolveStopRequest {
   // JSON body of the signal (freeform).
@@ -338,7 +344,34 @@ message StopEvent {
   uint64 seq = 4;
 }
 
-// --- Lifecycle messages ---
+
+message PutStartConfigRequest {
+  // StartConfig as JSON.
+  string config_json = 1;
+}
+message PutStartConfigResponse {
+  bool updated = 1;
+}
+
+message GetStartConfigRequest {}
+message GetStartConfigResponse {
+  // Current StartConfig as JSON.
+  string config_json = 1;
+}
+
+message StreamStartEventsRequest {}
+// Start hook event.
+message StartEvent {
+  // Source of the lifecycle event (e.g. "start", "resume", "clear").
+  string source = 1;
+  // Session ID if available from the hook data.
+  optional string session_id = 2;
+  // Whether a non-empty script was injected.
+  bool injected = 3;
+  // Monotonic sequence number.
+  uint64 seq = 4;
+}
+
 
 message ShutdownRequest {}
 message ShutdownResponse {

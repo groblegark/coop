@@ -32,7 +32,6 @@ const { values, positionals } = parseArgs({
 const port = Number(values.port);
 const cmd = positionals.length ? positionals : ["/bin/bash"];
 
-// --- Build ---
 if (!values["no-build"]) {
 	await buildCoop();
 }
@@ -43,7 +42,6 @@ if (!(await Bun.file(bin).exists())) {
 	process.exit(1);
 }
 
-// --- Spawn coop ---
 console.log(`Starting coop on port ${port}: ${cmd.join(" ")}`);
 const proc = Bun.spawn(
 	[bin, "--port", String(port), "--log-format", "text", "--", ...cmd],
@@ -55,14 +53,11 @@ const proc = Bun.spawn(
 );
 onExit(() => proc.kill());
 
-// --- Wait for health ---
 await waitForHealth(port, { proc });
 
-// --- Open browser ---
 if (!values["no-open"]) {
 	await openBrowser(port);
 }
 
-// --- Wait for coop to exit ---
 const exitCode = await proc.exited;
 process.exit(exitCode ?? 1);

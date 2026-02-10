@@ -180,6 +180,7 @@ pub enum HookEvent {
     ToolComplete { tool: String },
     AgentStop,
     SessionEnd,
+    SessionStart,
     Notification { notification_type: String },
     PreToolUse { tool: String, tool_input: Option<serde_json::Value> },
     UserPromptSubmit,

@@ -138,6 +138,20 @@ fn parses_user_prompt_submit_without_data() {
 }
 
 #[test]
+fn parses_start_event() {
+    let event = parse_hook_line(
+        r#"{"event":"start","data":{"session_type":"init","session_id":"abc-123"}}"#,
+    );
+    assert_eq!(event, Some(HookEvent::SessionStart));
+}
+
+#[test]
+fn parses_start_event_without_data() {
+    let event = parse_hook_line(r#"{"event":"start"}"#);
+    assert_eq!(event, Some(HookEvent::SessionStart));
+}
+
+#[test]
 fn ignores_malformed_lines() {
     assert_eq!(parse_hook_line("not json"), None);
     assert_eq!(parse_hook_line("{}"), None);

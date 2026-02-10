@@ -10,6 +10,7 @@ fn generated_config_has_required_hooks() {
     let config = generate_hook_config(Path::new("/tmp/coop.pipe"));
     let hooks = &config["hooks"];
 
+    assert!(hooks.get("SessionStart").is_some());
     assert!(hooks.get("BeforeAgent").is_some());
     assert!(hooks.get("BeforeTool").is_some());
     assert!(hooks.get("AfterTool").is_some());
@@ -18,9 +19,15 @@ fn generated_config_has_required_hooks() {
     assert!(hooks.get("Notification").is_some());
 
     // Verify nested matcher + hooks structure
-    for hook_name in
-        ["BeforeAgent", "BeforeTool", "AfterTool", "AfterAgent", "SessionEnd", "Notification"]
-    {
+    for hook_name in [
+        "SessionStart",
+        "BeforeAgent",
+        "BeforeTool",
+        "AfterTool",
+        "AfterAgent",
+        "SessionEnd",
+        "Notification",
+    ] {
         let hook = &hooks[hook_name];
         assert!(hook.is_array(), "{hook_name} should be an array");
         assert_eq!(hook[0]["matcher"], "*", "{hook_name} matcher should be wildcard");

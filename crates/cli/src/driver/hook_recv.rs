@@ -158,6 +158,7 @@ fn parse_hook_line(line: &str) -> Option<HookEvent> {
             Some(HookEvent::PreToolUse { tool, tool_input })
         }
         "user_prompt_submit" => Some(HookEvent::UserPromptSubmit),
+        "start" => Some(HookEvent::SessionStart),
         _ => None,
     }
 }

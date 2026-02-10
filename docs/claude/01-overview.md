@@ -32,8 +32,9 @@ since Tier 1 hooks handle them with higher confidence.
 Coop creates a named FIFO pipe before spawning Claude and writes a settings
 file containing the hook configuration. Claude loads this via `--settings`.
 
-Five hooks are registered:
+Six hooks are registered:
 
+- **SessionStart** (matcher: `""`) -- fires on session lifecycle events (startup, resume, clear, compact); curls `$COOP_URL/api/v1/hooks/start` for context injection
 - **PostToolUse** (matcher: `""`) -- fires after each tool call, writes the tool name and payload
 - **Stop** (matcher: `""`) -- fires when the agent stops; writes to FIFO then curls `$COOP_URL/api/v1/hooks/stop` for stop gating
 - **Notification** (matcher: `"idle_prompt|permission_prompt"`) -- fires on idle and permission notifications
@@ -45,6 +46,13 @@ The hooks execute shell commands that write JSON to `$COOP_HOOK_PIPE`:
 ```json
 {
   "hooks": {
+    "SessionStart": [{
+      "matcher": "",
+      "hooks": [{
+        "type": "command",
+        "command": "input=$(cat); printf ... > \"$COOP_HOOK_PIPE\"; response=$(curl -sf $COOP_URL/api/v1/hooks/start ...); [ -n \"$response\" ] && eval \"$response\""
+      }]
+    }],
     "PostToolUse": [{
       "matcher": "",
       "hooks": [{
@@ -87,6 +95,7 @@ State mapping:
 
 | Hook event | Agent state |
 |------------|-------------|
+| `SessionStart` | (no state change — context injection only) |
 | `AgentStop` / `SessionEnd` | `WaitingForInput` |
 | `ToolComplete` | `Working` |
 | `Notification("idle_prompt")` | `WaitingForInput` |
@@ -341,6 +350,27 @@ Both `/api/v1/hooks/stop` and `/api/v1/hooks/stop/resolve` are auth-exempt
 since they are called from inside the PTY.
 
 
+## Start Hook (Context Injection)
+
+The SessionStart hook fires on session lifecycle events (startup, resume,
+clear, compact). The hook script writes to the FIFO pipe for detection, then
+curls `$COOP_URL/api/v1/hooks/start` for context injection.
+
+The start endpoint composes a shell script from the `StartConfig`:
+- **`text`**: static context delivered as `printf '%s' '<base64>' | base64 -d`
+- **`shell`**: commands appended line-by-line
+- **`event`**: per-source overrides (e.g. different injection for "clear" vs "resume")
+
+Lookup: match `event[source]` first → fall back to top-level `text`/`shell` →
+empty means no injection. The response is plain text (shell script), not JSON.
+The hook `eval`s the response.
+
+Start config is set via `--agent-config` JSON file (key: `start`) or at
+runtime via `PUT /api/v1/config/start`.
+
+`/api/v1/hooks/start` is auth-exempt since it is called from inside the PTY.
+
+
 ## Environment Variables
 
 Coop sets the following environment variables on the Claude child process:
@@ -369,13 +399,12 @@ Flags relevant to Claude sessions:
 ```
 crates/cli/src/driver/claude/
 ├── mod.rs           # ClaudeDriver: wires up detectors and encoders
-├── detect.rs        # HookDetector (T1), LogDetector (T2), StdoutDetector (T3)
-├── screen_detect.rs # ClaudeScreenDetector (T5): dialog classification, idle prompt
-├── state.rs         # parse_claude_state() — JSONL → AgentState
+├── stream.rs        # HookDetector (T1), LogDetector (T2), StdoutDetector (T3)
+├── screen.rs        # ClaudeScreenDetector (T5): dialog classification, idle prompt
+├── parse.rs         # parse_claude_state() — JSONL → AgentState
 ├── hooks.rs         # Hook config generation, environment setup
 ├── setup.rs         # Pre-spawn session preparation (FIFO, settings, args)
 ├── prompt.rs        # PromptContext extraction, option parsing from screen
 ├── encoding.rs      # ClaudeNudgeEncoder, ClaudeRespondEncoder
-├── startup.rs       # Startup prompt detection
 └── resume.rs        # Session log discovery, state recovery, --resume args
 ```

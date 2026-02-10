@@ -390,7 +390,6 @@ function setStatus(state, text) {
   label.textContent = text;
 }
 
-// --- Terminal setup ---
 const term = new Terminal({
   cursorBlink: true,
   scrollback: 10000,
@@ -414,7 +413,6 @@ try {
 fitAddon.fit();
 term.focus();
 
-// --- Tab switching ---
 let activeTab = 'state';
 const tabs = document.querySelectorAll('#tab-bar .tab');
 const panels = {
@@ -434,7 +432,6 @@ tabs.forEach(t => t.addEventListener('click', () => {
   term.focus();
 }));
 
-// --- Sidebar toggle ---
 const sidebar = document.getElementById('sidebar');
 const toggleBtn = document.getElementById('toggle-btn');
 let sidebarVisible = true;
@@ -453,7 +450,6 @@ toggleBtn.addEventListener('click', () => {
   term.focus();
 });
 
-// --- API polling ---
 const tHealth = document.getElementById('t-health');
 const tStatus = document.getElementById('t-status');
 const tAgent  = document.getElementById('t-agent');
@@ -514,7 +510,6 @@ async function pollApi() {
 const pollTimer = setInterval(pollApi, 2000);
 pollApi();
 
-// --- Event log ---
 const eventLog = document.getElementById('event-log');
 const MAX_EVENTS = 200;
 let eventCount = 0;
@@ -666,7 +661,6 @@ function autoScroll() {
   }
 }
 
-// --- WebSocket helpers ---
 function send(ws, msg) {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(msg));
@@ -686,7 +680,6 @@ function b64encode(bytes) {
   return btoa(bin);
 }
 
-// --- Actions: HTTP helpers ---
 async function apiPost(path, body) {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
@@ -726,7 +719,6 @@ function showResult(elId, res) {
   el.textContent = `${res.status}: ${display}`;
 }
 
-// --- Actions: Input ---
 document.getElementById('act-input-send').addEventListener('click', async () => {
   const text = document.getElementById('act-input').value;
   const enter = document.getElementById('act-input-enter').checked;
@@ -743,7 +735,6 @@ document.getElementById('act-input').addEventListener('keydown', (e) => {
   }
 });
 
-// --- Actions: Keys ---
 const KEY_DEFS = [
   'enter', 'escape', 'tab', 'backspace', 'delete',
   'up', 'down', 'left', 'right',
@@ -760,7 +751,6 @@ for (const key of KEY_DEFS) {
   keyGrid.appendChild(btn);
 }
 
-// --- Actions: Signal ---
 document.querySelectorAll('[data-signal]').forEach(btn => {
   btn.addEventListener('click', async () => {
     const res = await apiPost('/api/v1/signal', { signal: btn.dataset.signal });
@@ -768,7 +758,6 @@ document.querySelectorAll('[data-signal]').forEach(btn => {
   });
 });
 
-// --- Actions: Nudge ---
 document.getElementById('act-nudge-send').addEventListener('click', async () => {
   const message = document.getElementById('act-nudge').value;
   const res = await apiPost('/api/v1/agent/nudge', { message });
@@ -783,7 +772,6 @@ document.getElementById('act-nudge').addEventListener('keydown', (e) => {
   }
 });
 
-// --- Actions: Respond (prompt-aware) ---
 let currentPrompt = null;  // PromptContext from last state_change
 
 const respondPanels = {
@@ -953,7 +941,6 @@ document.getElementById('act-question-freeform').addEventListener('keydown', (e)
   }
 });
 
-// --- Actions: Stop Config ---
 document.getElementById('act-stop-get').addEventListener('click', async () => {
   const res = await apiGet('/api/v1/config/stop');
   showResult('act-stop-result', res);
@@ -970,13 +957,11 @@ document.getElementById('act-stop-put').addEventListener('click', async () => {
   showResult('act-stop-result', res);
 });
 
-// --- Actions: Shutdown ---
 document.getElementById('act-shutdown').addEventListener('click', async () => {
   const res = await apiPost('/api/v1/shutdown', {});
   showResult('act-shutdown-result', res);
 });
 
-// --- Actions: Resize ---
 document.getElementById('act-resize-send').addEventListener('click', async () => {
   const cols = parseInt(document.getElementById('act-resize-cols').value, 10);
   const rows = parseInt(document.getElementById('act-resize-rows').value, 10);
@@ -989,7 +974,6 @@ document.getElementById('act-resize-send').addEventListener('click', async () =>
   showResult('act-resize-result', res);
 });
 
-// --- Connection lifecycle ---
 let ws = null;
 let pingTimer = null;
 
@@ -1054,7 +1038,6 @@ function cleanup() {
   pingTimer = null;
 }
 
-// --- Input forwarding ---
 const encoder = new TextEncoder();
 
 term.onData((str) => {
@@ -1068,14 +1051,12 @@ term.onBinary((data) => {
   send(ws, { type: 'input_raw', data: b64encode(bytes) });
 });
 
-// --- Resize handling ---
 window.addEventListener('resize', () => fitAddon.fit());
 
 term.onResize(({ cols, rows }) => {
   send(ws, { type: 'resize', cols, rows });
 });
 
-// --- Sidebar resize ---
 const resizeHandle = document.getElementById('resize-handle');
 const MIN_SIDEBAR = 300;
 const MAX_SIDEBAR = 600;
@@ -1107,7 +1088,6 @@ resizeHandle.addEventListener('mousedown', (e) => {
   window.addEventListener('mouseup', onUp);
 });
 
-// --- Go ---
 connect();
 </script>
 </body>

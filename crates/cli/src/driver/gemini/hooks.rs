@@ -20,6 +20,18 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
     // The actual path is passed via environment variable.
     let _ = pipe_path; // validated by caller; config uses env var
 
+    // SessionStart hook: write start event to pipe, then curl start endpoint.
+    // The response is a shell script that gets eval'd.
+    let session_start_command = concat!(
+        "input=$(cat); ",
+        "event=$(printf '{\"event\":\"start\",\"data\":%s}' \"$input\"); ",
+        "printf '%s\\n' \"$event\" > \"$COOP_HOOK_PIPE\"; ",
+        "response=$(printf '%s' \"$event\" | curl -sf -X POST ",
+        "-H 'Content-Type: application/json' ",
+        "-d @- \"$COOP_URL/api/v1/hooks/start\" 2>/dev/null); ",
+        "[ -n \"$response\" ] && eval \"$response\""
+    );
+
     // AfterAgent hook: write stop event to pipe, then curl gating endpoint.
     // Gemini uses {"continue":true} to prevent stopping (vs Claude's {"decision":"block"}).
     // If curl fails (coop not ready), the hook outputs nothing → agent proceeds.
@@ -36,6 +48,13 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
 
     json!({
         "hooks": {
+            "SessionStart": [{
+                "matcher": "*",
+                "hooks": [{
+                    "type": "command",
+                    "command": session_start_command
+                }]
+            }],
             "BeforeAgent": [{
                 "matcher": "*",
                 "hooks": [{

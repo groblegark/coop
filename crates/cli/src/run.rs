@@ -29,6 +29,7 @@ use crate::pty::Backend;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::session::Session;
+use crate::start::StartState;
 use crate::stop::StopState;
 use crate::transport::grpc::CoopGrpc;
 use crate::transport::state::{
@@ -115,6 +116,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         None => None,
     };
     let stop_config = agent_file_config.as_ref().and_then(|c| c.stop.clone()).unwrap_or_default();
+    let start_config = agent_file_config.as_ref().and_then(|c| c.start.clone()).unwrap_or_default();
 
     // 1. Handle --resume: discover session log and build resume state.
     let (resume_state, resume_log_path) = if let Some(ref resume_hint) = config.resume {
@@ -253,6 +255,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     let resolve_url = format!("{coop_url_for_setup}/api/v1/hooks/stop/resolve");
     let stop_state = Arc::new(StopState::new(stop_config, resolve_url));
+    let start_state = Arc::new(StartState::new(start_config));
 
     let app_state = Arc::new(AppState {
         terminal,
@@ -284,6 +287,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             config.keyboard_delay(),
         )),
         stop: stop_state,
+        start: start_state,
         input_activity: Arc::new(tokio::sync::Notify::new()),
     });
 

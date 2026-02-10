@@ -322,7 +322,6 @@ console.log(`  Workspace: ${workspace}`);
 console.log(`  Output:    ${captureDir}`);
 console.log("");
 
-// --- Initial snapshot ---
 console.log("━━━ [000] initial ━━━");
 await snapshot("initial");
 console.log("");
@@ -443,18 +442,15 @@ if (useDocker) {
 	);
 }
 
-// --- Wait for health ---
 await waitForHealth(port, {
 	proc: coopProc ?? undefined,
 	containerId: containerId || undefined,
 });
 
-// --- Open browser ---
 if (!values["no-open"]) {
 	await openBrowser(port);
 }
 
-// --- Auto-snapshot loop ---
 console.log("");
 console.log("Watching for config changes (Ctrl-C to stop)…");
 console.log("");

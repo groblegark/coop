@@ -17,6 +17,18 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
     // The actual path is passed via environment variable.
     let _ = pipe_path; // validated by caller; config uses env var
 
+    // Start hook uses curl to call coop's start endpoint. The response is
+    // a shell script that gets eval'd. If curl fails or returns empty, nothing happens.
+    let start_command = concat!(
+        "input=$(cat); ",
+        "event=$(printf '{\"event\":\"start\",\"data\":%s}' \"$input\"); ",
+        "printf '%s\\n' \"$event\" > \"$COOP_HOOK_PIPE\"; ",
+        "response=$(printf '%s' \"$event\" | curl -sf -X POST ",
+        "-H 'Content-Type: application/json' ",
+        "-d @- \"$COOP_URL/api/v1/hooks/start\" 2>/dev/null); ",
+        "[ -n \"$response\" ] && eval \"$response\""
+    );
+
     // Stop hook uses curl to call coop's gating endpoint. If curl fails
     // (coop not ready), the hook outputs nothing and exits 0 → agent proceeds.
     // The -f flag makes curl return non-zero on HTTP errors.
@@ -33,6 +45,13 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
 
     json!({
         "hooks": {
+            "SessionStart": [{
+                "matcher": "",
+                "hooks": [{
+                    "type": "command",
+                    "command": start_command
+                }]
+            }],
             "PostToolUse": [{
                 "matcher": "",
                 "hooks": [{

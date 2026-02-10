@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use axum::http::StatusCode;
+use base64::Engine;
 
 use crate::driver::AgentState;
 use crate::event::InputEvent;
@@ -409,62 +410,22 @@ async fn shutdown_requires_auth() -> anyhow::Result<()> {
     Ok(())
 }
 
-use crate::stop::{StopConfig, StopMode, StopState};
+use crate::start::{StartConfig, StartEventConfig};
+use crate::stop::{StopConfig, StopMode};
 
-fn test_state_with_stop(
+fn stop_state(
     config: StopConfig,
 ) -> (Arc<crate::transport::state::AppState>, tokio::sync::mpsc::Receiver<InputEvent>) {
-    let (input_tx, input_rx) = tokio::sync::mpsc::channel(16);
-    let (output_tx, _) = tokio::sync::broadcast::channel::<crate::event::OutputEvent>(256);
-    let (state_tx, _) = tokio::sync::broadcast::channel::<crate::event::StateChangeEvent>(64);
-
-    let state = Arc::new(crate::transport::state::AppState {
-        terminal: Arc::new(crate::transport::state::TerminalState {
-            screen: tokio::sync::RwLock::new(crate::screen::Screen::new(80, 24)),
-            ring: tokio::sync::RwLock::new(crate::ring::RingBuffer::new(4096)),
-            ring_total_written: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            child_pid: std::sync::atomic::AtomicU32::new(1234),
-            exit_status: tokio::sync::RwLock::new(None),
-        }),
-        driver: Arc::new(crate::transport::state::DriverState {
-            agent_state: tokio::sync::RwLock::new(AgentState::Working),
-            state_seq: std::sync::atomic::AtomicU64::new(0),
-            detection_tier: std::sync::atomic::AtomicU8::new(u8::MAX),
-            detection_cause: tokio::sync::RwLock::new(String::new()),
-            error_detail: tokio::sync::RwLock::new(None),
-            error_category: tokio::sync::RwLock::new(None),
-            last_message: Arc::new(tokio::sync::RwLock::new(None)),
-        }),
-        channels: crate::transport::state::TransportChannels { input_tx, output_tx, state_tx },
-        config: crate::transport::state::SessionSettings {
-            started_at: std::time::Instant::now(),
-            agent: crate::driver::AgentType::Unknown,
-            auth_token: None,
-            nudge_encoder: None,
-            respond_encoder: None,
-            nudge_timeout: std::time::Duration::ZERO,
-        },
-        lifecycle: crate::transport::state::LifecycleState {
-            shutdown: tokio_util::sync::CancellationToken::new(),
-            ws_client_count: std::sync::atomic::AtomicI32::new(0),
-            bytes_written: std::sync::atomic::AtomicU64::new(0),
-        },
-        ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        delivery_gate: Arc::new(crate::transport::state::DeliveryGate::new(
-            std::time::Duration::ZERO,
-        )),
-        stop: Arc::new(StopState::new(
-            config,
-            "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
-        )),
-        input_activity: Arc::new(tokio::sync::Notify::new()),
-    });
-    (state, input_rx)
+    AppStateBuilder::new()
+        .child_pid(1234)
+        .agent_state(AgentState::Working)
+        .stop_config(config)
+        .build()
 }
 
 #[tokio::test]
 async fn hooks_stop_allow_mode_returns_empty() -> anyhow::Result<()> {
-    let (state, _rx) = test_state_with_stop(StopConfig::default());
+    let (state, _rx) = stop_state(StopConfig::default());
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -486,7 +447,7 @@ async fn hooks_stop_signal_mode_blocks_without_signal() -> anyhow::Result<()> {
         prompt: Some("Finish work first.".to_owned()),
         schema: None,
     };
-    let (state, _rx) = test_state_with_stop(config);
+    let (state, _rx) = stop_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -504,7 +465,7 @@ async fn hooks_stop_signal_mode_blocks_without_signal() -> anyhow::Result<()> {
 #[tokio::test]
 async fn hooks_stop_signal_mode_allows_after_signal() -> anyhow::Result<()> {
     let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
-    let (state, _rx) = test_state_with_stop(config);
+    let (state, _rx) = stop_state(config);
     let app = build_router(state.clone());
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -529,7 +490,7 @@ async fn hooks_stop_signal_mode_allows_after_signal() -> anyhow::Result<()> {
 #[tokio::test]
 async fn hooks_stop_safety_valve_always_allows() -> anyhow::Result<()> {
     let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
-    let (state, _rx) = test_state_with_stop(config);
+    let (state, _rx) = stop_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -547,7 +508,7 @@ async fn hooks_stop_safety_valve_always_allows() -> anyhow::Result<()> {
 #[tokio::test]
 async fn hooks_stop_unrecoverable_error_allows() -> anyhow::Result<()> {
     let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
-    let (state, _rx) = test_state_with_stop(config);
+    let (state, _rx) = stop_state(config);
     // Set unrecoverable error state.
     *state.driver.error_category.write().await = Some(crate::driver::ErrorCategory::Unauthorized);
     *state.driver.error_detail.write().await = Some("invalid api key".to_owned());
@@ -567,7 +528,7 @@ async fn hooks_stop_unrecoverable_error_allows() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn resolve_stop_stores_body() -> anyhow::Result<()> {
-    let (state, _rx) = test_state_with_stop(StopConfig::default());
+    let (state, _rx) = stop_state(StopConfig::default());
     let app = build_router(state.clone());
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -592,7 +553,7 @@ async fn resolve_stop_stores_body() -> anyhow::Result<()> {
 async fn get_stop_config_returns_current() -> anyhow::Result<()> {
     let config =
         StopConfig { mode: StopMode::Signal, prompt: Some("test prompt".to_owned()), schema: None };
-    let (state, _rx) = test_state_with_stop(config);
+    let (state, _rx) = stop_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -606,7 +567,7 @@ async fn get_stop_config_returns_current() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn put_stop_config_updates() -> anyhow::Result<()> {
-    let (state, _rx) = test_state_with_stop(StopConfig::default());
+    let (state, _rx) = stop_state(StopConfig::default());
     let app = build_router(state.clone());
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -635,7 +596,7 @@ async fn put_stop_config_updates() -> anyhow::Result<()> {
 #[tokio::test]
 async fn hooks_stop_emits_stop_events() -> anyhow::Result<()> {
     let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
-    let (state, _rx) = test_state_with_stop(config);
+    let (state, _rx) = stop_state(config);
     let mut stop_rx = state.stop.stop_tx.subscribe();
 
     let app = build_router(state);
@@ -656,7 +617,7 @@ async fn hooks_stop_emits_stop_events() -> anyhow::Result<()> {
 #[tokio::test]
 async fn signal_consumed_after_stop_check() -> anyhow::Result<()> {
     let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
-    let (state, _rx) = test_state_with_stop(config);
+    let (state, _rx) = stop_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
@@ -681,53 +642,7 @@ async fn signal_consumed_after_stop_check() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
-    let config = StopConfig::default();
-    // Build state with auth token.
-    let (input_tx, input_rx) = tokio::sync::mpsc::channel(16);
-    let (output_tx, _) = tokio::sync::broadcast::channel::<crate::event::OutputEvent>(256);
-    let (state_tx, _) = tokio::sync::broadcast::channel::<crate::event::StateChangeEvent>(64);
-    let state = Arc::new(crate::transport::state::AppState {
-        terminal: Arc::new(crate::transport::state::TerminalState {
-            screen: tokio::sync::RwLock::new(crate::screen::Screen::new(80, 24)),
-            ring: tokio::sync::RwLock::new(crate::ring::RingBuffer::new(4096)),
-            ring_total_written: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            child_pid: std::sync::atomic::AtomicU32::new(1234),
-            exit_status: tokio::sync::RwLock::new(None),
-        }),
-        driver: Arc::new(crate::transport::state::DriverState {
-            agent_state: tokio::sync::RwLock::new(AgentState::Working),
-            state_seq: std::sync::atomic::AtomicU64::new(0),
-            detection_tier: std::sync::atomic::AtomicU8::new(u8::MAX),
-            detection_cause: tokio::sync::RwLock::new(String::new()),
-            error_detail: tokio::sync::RwLock::new(None),
-            error_category: tokio::sync::RwLock::new(None),
-            last_message: Arc::new(tokio::sync::RwLock::new(None)),
-        }),
-        channels: crate::transport::state::TransportChannels { input_tx, output_tx, state_tx },
-        config: crate::transport::state::SessionSettings {
-            started_at: std::time::Instant::now(),
-            agent: crate::driver::AgentType::Unknown,
-            auth_token: Some("secret-token".to_owned()),
-            nudge_encoder: None,
-            respond_encoder: None,
-            nudge_timeout: std::time::Duration::ZERO,
-        },
-        lifecycle: crate::transport::state::LifecycleState {
-            shutdown: tokio_util::sync::CancellationToken::new(),
-            ws_client_count: std::sync::atomic::AtomicI32::new(0),
-            bytes_written: std::sync::atomic::AtomicU64::new(0),
-        },
-        ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        delivery_gate: Arc::new(crate::transport::state::DeliveryGate::new(
-            std::time::Duration::ZERO,
-        )),
-        stop: Arc::new(StopState::new(
-            config,
-            "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
-        )),
-        input_activity: Arc::new(tokio::sync::Notify::new()),
-    });
-    let _input_rx = input_rx;
+    let (state, _rx) = AppStateBuilder::new().child_pid(1234).auth_token("secret-token").build();
 
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
@@ -744,9 +659,235 @@ async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
         server.post("/api/v1/hooks/stop/resolve").json(&serde_json::json!({"ok": true})).await;
     resp.assert_status(StatusCode::OK);
 
+    // Start hook should work without auth.
+    let resp = server
+        .post("/api/v1/hooks/start")
+        .json(&serde_json::json!({"event": "start", "data": {}}))
+        .await;
+    resp.assert_status(StatusCode::OK);
+
     // But other endpoints should still require auth.
     let resp = server.get("/api/v1/screen").await;
     resp.assert_status(StatusCode::UNAUTHORIZED);
 
+    Ok(())
+}
+
+fn start_state(
+    config: StartConfig,
+) -> (Arc<crate::transport::state::AppState>, tokio::sync::mpsc::Receiver<InputEvent>) {
+    AppStateBuilder::new()
+        .child_pid(1234)
+        .agent_state(AgentState::Working)
+        .start_config(config)
+        .build()
+}
+
+#[tokio::test]
+async fn hooks_start_empty_config_returns_empty() -> anyhow::Result<()> {
+    let (state, _rx) = start_state(StartConfig::default());
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    let resp = server
+        .post("/api/v1/hooks/start")
+        .json(&serde_json::json!({"event": "start", "data": {}}))
+        .await;
+    resp.assert_status(StatusCode::OK);
+    let body = resp.text();
+    assert!(body.is_empty(), "empty config should return empty body: {body}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn hooks_start_text_returns_base64_script() -> anyhow::Result<()> {
+    let config = StartConfig { text: Some("hello context".to_owned()), ..Default::default() };
+    let (state, _rx) = start_state(config);
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    let resp = server
+        .post("/api/v1/hooks/start")
+        .json(&serde_json::json!({"event": "start", "data": {}}))
+        .await;
+    resp.assert_status(StatusCode::OK);
+    let body = resp.text();
+    assert!(body.contains("base64 -d"), "should contain base64 decode: {body}");
+    assert!(body.contains("printf"), "should contain printf: {body}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn hooks_start_shell_returns_commands() -> anyhow::Result<()> {
+    let config = StartConfig {
+        shell: vec!["echo one".to_owned(), "echo two".to_owned()],
+        ..Default::default()
+    };
+    let (state, _rx) = start_state(config);
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    let resp = server
+        .post("/api/v1/hooks/start")
+        .json(&serde_json::json!({"event": "start", "data": {}}))
+        .await;
+    resp.assert_status(StatusCode::OK);
+    let body = resp.text();
+    assert_eq!(body, "echo one\necho two");
+    Ok(())
+}
+
+#[tokio::test]
+async fn hooks_start_text_and_shell_combined() -> anyhow::Result<()> {
+    let config = StartConfig {
+        text: Some("ctx".to_owned()),
+        shell: vec!["echo done".to_owned()],
+        ..Default::default()
+    };
+    let (state, _rx) = start_state(config);
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    let resp = server
+        .post("/api/v1/hooks/start")
+        .json(&serde_json::json!({"event": "start", "data": {}}))
+        .await;
+    resp.assert_status(StatusCode::OK);
+    let body = resp.text();
+    let lines: Vec<&str> = body.lines().collect();
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0].contains("base64 -d"));
+    assert_eq!(lines[1], "echo done");
+    Ok(())
+}
+
+#[tokio::test]
+async fn hooks_start_event_override() -> anyhow::Result<()> {
+    let mut events = std::collections::BTreeMap::new();
+    events.insert(
+        "clear".to_owned(),
+        StartEventConfig { text: Some("override".to_owned()), shell: vec![] },
+    );
+    let config = StartConfig { text: Some("default".to_owned()), shell: vec![], event: events };
+    let (state, _rx) = start_state(config);
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    let resp = server
+        .post("/api/v1/hooks/start")
+        .json(&serde_json::json!({"event": "start", "data": {"source": "clear"}}))
+        .await;
+    resp.assert_status(StatusCode::OK);
+    let body = resp.text();
+    // Verify override text is used (base64 of "override" not "default")
+    let override_b64 = base64::engine::general_purpose::STANDARD.encode(b"override");
+    assert!(body.contains(&override_b64), "should use override config: {body}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn hooks_start_event_fallback() -> anyhow::Result<()> {
+    let mut events = std::collections::BTreeMap::new();
+    events.insert("clear".to_owned(), StartEventConfig::default());
+    let config = StartConfig { text: Some("fallback".to_owned()), shell: vec![], event: events };
+    let (state, _rx) = start_state(config);
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    // Unknown source → falls back to top-level
+    let resp = server
+        .post("/api/v1/hooks/start")
+        .json(&serde_json::json!({"event": "start", "data": {"source": "resume"}}))
+        .await;
+    resp.assert_status(StatusCode::OK);
+    let body = resp.text();
+    let fallback_b64 = base64::engine::general_purpose::STANDARD.encode(b"fallback");
+    assert!(body.contains(&fallback_b64), "should fall back to top-level: {body}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn hooks_start_emits_event() -> anyhow::Result<()> {
+    let config = StartConfig { text: Some("ctx".to_owned()), ..Default::default() };
+    let (state, _rx) = start_state(config);
+    let mut start_rx = state.start.start_tx.subscribe();
+
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    server
+        .post("/api/v1/hooks/start")
+        .json(
+            &serde_json::json!({"event": "start", "data": {"source": "init", "session_id": "s1"}}),
+        )
+        .await;
+
+    let event = start_rx.try_recv()?;
+    assert_eq!(event.source, "init");
+    assert_eq!(event.session_id.as_deref(), Some("s1"));
+    assert!(event.injected);
+    assert_eq!(event.seq, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_start_config_returns_current() -> anyhow::Result<()> {
+    let config = StartConfig { text: Some("test text".to_owned()), ..Default::default() };
+    let (state, _rx) = start_state(config);
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    let resp = server.get("/api/v1/config/start").await;
+    resp.assert_status(StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_str(&resp.text())?;
+    assert_eq!(body["text"], "test text");
+    Ok(())
+}
+
+#[tokio::test]
+async fn put_start_config_updates() -> anyhow::Result<()> {
+    let (state, _rx) = start_state(StartConfig::default());
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    // Default has no text.
+    let resp = server.get("/api/v1/config/start").await;
+    let body: serde_json::Value = serde_json::from_str(&resp.text())?;
+    assert!(body.get("text").is_none());
+
+    // Update.
+    let resp = server
+        .put("/api/v1/config/start")
+        .json(&serde_json::json!({"text": "new context", "shell": ["echo hi"]}))
+        .await;
+    resp.assert_status(StatusCode::OK);
+    let body = resp.text();
+    assert!(body.contains("\"updated\":true"));
+
+    // Verify.
+    let resp = server.get("/api/v1/config/start").await;
+    let body: serde_json::Value = serde_json::from_str(&resp.text())?;
+    assert_eq!(body["text"], "new context");
+    assert_eq!(body["shell"][0], "echo hi");
+    Ok(())
+}
+
+#[tokio::test]
+async fn hooks_start_extracts_session_type_as_source() -> anyhow::Result<()> {
+    let config = StartConfig::default();
+    let (state, _rx) = start_state(config);
+    let mut start_rx = state.start.start_tx.subscribe();
+
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    // session_type should be used as source when source is absent
+    server
+        .post("/api/v1/hooks/start")
+        .json(&serde_json::json!({"event": "start", "data": {"session_type": "init"}}))
+        .await;
+
+    let event = start_rx.try_recv()?;
+    assert_eq!(event.source, "init");
     Ok(())
 }

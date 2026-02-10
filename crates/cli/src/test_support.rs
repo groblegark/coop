@@ -20,6 +20,7 @@ use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
 use crate::pty::Backend;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
+use crate::start::{StartConfig, StartState};
 use crate::stop::{StopConfig, StopState};
 use crate::transport::state::{
     AppState, DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels,
@@ -33,6 +34,8 @@ pub struct AppStateBuilder {
     agent_state: AgentState,
     nudge_encoder: Option<Arc<dyn NudgeEncoder>>,
     respond_encoder: Option<Arc<dyn RespondEncoder>>,
+    stop_config: Option<StopConfig>,
+    start_config: Option<StartConfig>,
 }
 
 impl Default for AppStateBuilder {
@@ -50,6 +53,8 @@ impl AppStateBuilder {
             agent_state: AgentState::Starting,
             nudge_encoder: None,
             respond_encoder: None,
+            stop_config: None,
+            start_config: None,
         }
     }
 
@@ -80,6 +85,16 @@ impl AppStateBuilder {
 
     pub fn respond_encoder(mut self, e: Arc<dyn RespondEncoder>) -> Self {
         self.respond_encoder = Some(e);
+        self
+    }
+
+    pub fn stop_config(mut self, c: StopConfig) -> Self {
+        self.stop_config = Some(c);
+        self
+    }
+
+    pub fn start_config(mut self, c: StartConfig) -> Self {
+        self.start_config = Some(c);
         self
     }
 
@@ -129,9 +144,10 @@ impl AppStateBuilder {
             ready: Arc::new(AtomicBool::new(false)),
             delivery_gate: Arc::new(crate::transport::state::DeliveryGate::new(Duration::ZERO)),
             stop: Arc::new(StopState::new(
-                StopConfig::default(),
+                self.stop_config.unwrap_or_default(),
                 "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
             )),
+            start: Arc::new(StartState::new(self.start_config.unwrap_or_default())),
             input_activity: Arc::new(tokio::sync::Notify::new()),
         })
     }

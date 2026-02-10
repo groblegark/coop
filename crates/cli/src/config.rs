@@ -8,6 +8,7 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 
 use crate::driver::AgentType;
+use crate::start::StartConfig;
 use crate::stop::StopConfig;
 
 /// Terminal session manager for AI coding agents.
@@ -239,6 +240,9 @@ pub struct AgentFileConfig {
     /// Stop hook configuration. `None` means default allow behavior.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop: Option<StopConfig>,
+    /// Start hook configuration. `None` means no injection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<StartConfig>,
 }
 
 /// Load and parse the agent config file at `path`.

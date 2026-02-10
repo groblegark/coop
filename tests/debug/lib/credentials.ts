@@ -39,8 +39,7 @@ export type Credential =
  * Flow B (API key):     env → ~/.claude/.claude.json primaryApiKey
  */
 export async function resolveCredential(): Promise<Credential> {
-	// --- Flow A: OAuth token ---
-
+	
 	// 1a. Environment variable
 	if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
 		return { type: "oauth_token", token: process.env.CLAUDE_CODE_OAUTH_TOKEN };
@@ -69,8 +68,7 @@ export async function resolveCredential(): Promise<Credential> {
 		// file doesn't exist
 	}
 
-	// --- Flow B: API key ---
-
+	
 	// 1b. Environment variable
 	if (process.env.ANTHROPIC_API_KEY) {
 		return { type: "api_key", key: process.env.ANTHROPIC_API_KEY };

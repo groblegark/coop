@@ -21,6 +21,7 @@ use crate::driver::{AgentState, PromptContext};
 use crate::error::ErrorCode;
 use crate::event::{OutputEvent, StateChangeEvent};
 use crate::screen::{CursorPosition, ScreenSnapshot};
+use crate::start::StartEvent;
 use crate::stop::StopEvent;
 use crate::transport::auth;
 use crate::transport::handler::{
@@ -98,6 +99,13 @@ pub enum ServerMessage {
         signal: Option<serde_json::Value>,
         #[serde(skip_serializing_if = "Option::is_none")]
         error_detail: Option<String>,
+        seq: u64,
+    },
+    Start {
+        source: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        injected: bool,
         seq: u64,
     },
     Pong {},
@@ -267,6 +275,7 @@ async fn handle_connection(
     let mut output_rx = state.channels.output_tx.subscribe();
     let mut state_rx = state.channels.state_tx.subscribe();
     let mut stop_rx = state.stop.stop_tx.subscribe();
+    let mut start_rx = state.start.start_tx.subscribe();
     let mut authed = !needs_auth;
 
     loop {
@@ -278,6 +287,18 @@ async fn handle_connection(
                 };
                 if matches!(mode, SubscriptionMode::State | SubscriptionMode::All) {
                     let msg = stop_event_to_msg(&event);
+                    if send_json(&mut ws_tx, &msg).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            event = start_rx.recv() => {
+                let event = match event {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                if matches!(mode, SubscriptionMode::State | SubscriptionMode::All) {
+                    let msg = start_event_to_msg(&event);
                     if send_json(&mut ws_tx, &msg).await.is_err() {
                         break;
                     }
@@ -498,6 +519,16 @@ fn state_change_to_msg(event: &StateChangeEvent) -> ServerMessage {
         error_category,
         cause: event.cause.clone(),
         last_message: event.last_message.clone(),
+    }
+}
+
+/// Convert a `StartEvent` to a `ServerMessage`.
+fn start_event_to_msg(event: &StartEvent) -> ServerMessage {
+    ServerMessage::Start {
+        source: event.source.clone(),
+        session_id: event.session_id.clone(),
+        injected: event.injected,
+        seq: event.seq,
     }
 }
 

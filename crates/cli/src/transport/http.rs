@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::driver::{ErrorCategory, PromptContext};
 use crate::error::ErrorCode;
 use crate::screen::CursorPosition;
+use crate::start::{compose_start_script, StartConfig};
 use crate::stop::{generate_block_reason, StopConfig, StopMode, StopType};
 use crate::transport::handler::{
     compute_health, compute_status, error_message, handle_input, handle_input_raw, handle_keys,
@@ -468,6 +469,69 @@ pub async fn put_stop_config(
     Json(new_config): Json<StopConfig>,
 ) -> impl IntoResponse {
     *s.stop.config.write().await = new_config;
+    Json(serde_json::json!({ "updated": true }))
+}
+
+/// Event-wrapped input from the start hook (piped from stdin via curl).
+///
+/// Matches the `{"event":"start","data":{...}}` envelope that hooks
+/// write to the FIFO pipe.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartHookInput {
+    // NOTE(compat): Maintain consistent structure for all hook payloads
+    #[allow(dead_code)]
+    pub event: String,
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
+}
+
+/// `POST /api/v1/hooks/start` — called by the hook script, returns shell script.
+pub async fn hooks_start(
+    State(s): State<Arc<AppState>>,
+    Json(input): Json<StartHookInput>,
+) -> impl IntoResponse {
+    let start = &s.start;
+    let config = start.config.read().await;
+
+    // Extract source from data.source or data.session_type, default "unknown".
+    let source = input
+        .data
+        .as_ref()
+        .and_then(|d| {
+            d.get("source")
+                .or_else(|| d.get("session_type"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_owned())
+        })
+        .unwrap_or_else(|| "unknown".to_owned());
+
+    // Extract session_id from data.session_id.
+    let session_id = input
+        .data
+        .as_ref()
+        .and_then(|d| d.get("session_id").and_then(|v| v.as_str()).map(|s| s.to_owned()));
+
+    let script = compose_start_script(&config, &source);
+    drop(config);
+
+    let injected = !script.is_empty();
+    start.emit(source, session_id, injected);
+
+    ([(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")], script)
+}
+
+/// `GET /api/v1/config/start` — read current start config.
+pub async fn get_start_config(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+    let config = s.start.config.read().await;
+    Json(config.clone())
+}
+
+/// `PUT /api/v1/config/start` — update start config.
+pub async fn put_start_config(
+    State(s): State<Arc<AppState>>,
+    Json(new_config): Json<StartConfig>,
+) -> impl IntoResponse {
+    *s.start.config.write().await = new_config;
     Json(serde_json::json!({ "updated": true }))
 }
 

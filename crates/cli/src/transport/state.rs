@@ -14,6 +14,7 @@ use crate::driver::{
 use crate::event::{InputEvent, OutputEvent, StateChangeEvent};
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
+use crate::start::StartState;
 use crate::stop::StopState;
 
 /// Shared application state passed to all handlers via axum `State` extractor.
@@ -38,6 +39,8 @@ pub struct AppState {
     pub delivery_gate: Arc<DeliveryGate>,
     /// Stop hook gating state. Always present (defaults to mode=allow).
     pub stop: Arc<StopState>,
+    /// Start hook state. Always present (defaults to empty config).
+    pub start: Arc<StartState>,
     /// Notified by the session loop whenever any `InputEvent` is processed.
     /// Used by the enter-retry monitor to cancel itself if other input
     /// activity occurs on the PTY (e.g. raw keys, resize, signal, new delivery).
