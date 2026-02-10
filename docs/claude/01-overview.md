@@ -356,6 +356,6 @@ crates/cli/src/driver/claude/
 ├── setup.rs         # Pre-spawn session preparation (FIFO, settings, args)
 ├── prompt.rs        # PromptContext extraction, option parsing from screen
 ├── encoding.rs      # ClaudeNudgeEncoder, ClaudeRespondEncoder
-├── startup.rs       # Startup prompt detection and auto-response
+├── startup.rs       # Startup prompt detection
 └── resume.rs        # Session log discovery, state recovery, --resume args
 ```
