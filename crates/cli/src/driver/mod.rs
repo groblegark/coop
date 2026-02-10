@@ -8,6 +8,7 @@ pub mod gemini;
 pub mod hook_recv;
 pub mod jsonl_stdout;
 pub mod log_watch;
+pub mod nudge;
 pub mod process;
 pub mod screen_parse;
 pub mod unknown;

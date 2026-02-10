@@ -3,32 +3,9 @@
 
 use std::time::Duration;
 
-use crate::driver::{NudgeEncoder, NudgeStep, QuestionAnswer, RespondEncoder};
+use crate::driver::{NudgeStep, QuestionAnswer, RespondEncoder};
 
-/// Encodes nudge messages for Gemini CLI's terminal input.
-pub struct GeminiNudgeEncoder {
-    /// Base delay between typing the message and pressing enter to send.
-    pub input_delay: Duration,
-    /// Per-byte delay added for messages longer than 256 bytes.
-    pub input_delay_per_byte: Duration,
-    /// Maximum nudge delay (caps the base + per-byte scaling).
-    pub input_delay_max: Duration,
-}
-
-impl NudgeEncoder for GeminiNudgeEncoder {
-    fn encode(&self, message: &str) -> Vec<NudgeStep> {
-        let delay = crate::driver::compute_nudge_delay(
-            self.input_delay,
-            self.input_delay_per_byte,
-            self.input_delay_max,
-            message.len(),
-        );
-        vec![
-            NudgeStep { bytes: message.as_bytes().to_vec(), delay_after: Some(delay) },
-            NudgeStep { bytes: b"\r".to_vec(), delay_after: None },
-        ]
-    }
-}
+pub use crate::driver::nudge::StandardNudgeEncoder as GeminiNudgeEncoder;
 
 /// Encodes prompt responses for Gemini CLI's terminal input.
 pub struct GeminiRespondEncoder {

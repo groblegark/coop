@@ -416,10 +416,8 @@ pub async fn hooks_stop(
     {
         let error = s.driver.error.read().await;
         if let Some(ref info) = *error {
-            let is_unrecoverable = matches!(
-                info.category,
-                ErrorCategory::Unauthorized | ErrorCategory::OutOfCredits
-            );
+            let is_unrecoverable =
+                matches!(info.category, ErrorCategory::Unauthorized | ErrorCategory::OutOfCredits);
             if is_unrecoverable {
                 let detail = Some(info.detail.clone());
                 drop(error);
