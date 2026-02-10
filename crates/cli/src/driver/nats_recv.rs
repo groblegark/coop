@@ -85,7 +85,11 @@ fn discover_nats_token() -> Option<String> {
 fn nats_info_path() -> Option<PathBuf> {
     let beads_dir = std::env::var("BEADS_DIR").ok()?;
     let path = Path::new(&beads_dir).join(".runtime").join("nats-info.json");
-    if path.exists() { Some(path) } else { None }
+    if path.exists() {
+        Some(path)
+    } else {
+        None
+    }
 }
 
 /// Receives hook events from a NATS JetStream subscription.
