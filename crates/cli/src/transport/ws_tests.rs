@@ -285,7 +285,10 @@ async fn shutdown_cancels_token() -> anyhow::Result<()> {
 
     let msg = ClientMessage::Shutdown {};
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
-    assert!(reply.is_none(), "expected None (success), got {reply:?}");
+    match reply {
+        Some(ServerMessage::ShutdownResult { accepted }) => assert!(accepted),
+        other => anyhow::bail!("expected ShutdownResult, got {other:?}"),
+    }
     assert!(state.lifecycle.shutdown.is_cancelled());
     Ok(())
 }
@@ -313,7 +316,10 @@ async fn signal_delivers_sigint() -> anyhow::Result<()> {
 
     let msg = ClientMessage::Signal { signal: "SIGINT".to_owned() };
     let reply = handle_client_message(&state, msg, client_id, &mut true).await;
-    assert!(reply.is_none(), "expected None (success), got {reply:?}");
+    match reply {
+        Some(ServerMessage::SignalResult { delivered }) => assert!(delivered),
+        other => anyhow::bail!("expected SignalResult, got {other:?}"),
+    }
 
     let event = rx.recv().await;
     assert!(
@@ -448,6 +454,43 @@ fn input_with_enter_serialization() -> anyhow::Result<()> {
         ClientMessage::Input { enter, .. } => assert!(!enter),
         other => anyhow::bail!("expected Input, got {other:?}"),
     }
+    Ok(())
+}
+
+#[test]
+fn input_result_serialization() -> anyhow::Result<()> {
+    let msg = ServerMessage::InputResult { bytes_written: 5 };
+    let json = serde_json::to_string(&msg).anyhow()?;
+    assert!(json.contains("\"type\":\"input_result\""));
+    assert!(json.contains("\"bytes_written\":5"));
+    Ok(())
+}
+
+#[test]
+fn resize_result_serialization() -> anyhow::Result<()> {
+    let msg = ServerMessage::ResizeResult { cols: 120, rows: 40 };
+    let json = serde_json::to_string(&msg).anyhow()?;
+    assert!(json.contains("\"type\":\"resize_result\""));
+    assert!(json.contains("\"cols\":120"));
+    assert!(json.contains("\"rows\":40"));
+    Ok(())
+}
+
+#[test]
+fn signal_result_serialization() -> anyhow::Result<()> {
+    let msg = ServerMessage::SignalResult { delivered: true };
+    let json = serde_json::to_string(&msg).anyhow()?;
+    assert!(json.contains("\"type\":\"signal_result\""));
+    assert!(json.contains("\"delivered\":true"));
+    Ok(())
+}
+
+#[test]
+fn shutdown_result_serialization() -> anyhow::Result<()> {
+    let msg = ServerMessage::ShutdownResult { accepted: true };
+    let json = serde_json::to_string(&msg).anyhow()?;
+    assert!(json.contains("\"type\":\"shutdown_result\""));
+    assert!(json.contains("\"accepted\":true"));
     Ok(())
 }
 

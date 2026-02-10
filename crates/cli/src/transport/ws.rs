@@ -116,6 +116,19 @@ pub enum ServerMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         option: Option<u32>,
     },
+    InputResult {
+        bytes_written: i32,
+    },
+    ResizeResult {
+        cols: u16,
+        rows: u16,
+    },
+    SignalResult {
+        delivered: bool,
+    },
+    ShutdownResult {
+        accepted: bool,
+    },
     Pong {},
 }
 
@@ -464,8 +477,8 @@ async fn handle_client_message(
         // Write operations require auth
         ClientMessage::Input { text, enter } => {
             require_auth!(authed);
-            let _ = handle_input(state, text, enter).await;
-            None
+            let bytes_written = handle_input(state, text, enter).await;
+            Some(ServerMessage::InputResult { bytes_written })
         }
 
         ClientMessage::InputRaw { data } => {
@@ -474,14 +487,14 @@ async fn handle_client_message(
                 Ok(d) => d,
                 Err(_) => return Some(ws_error(ErrorCode::BadRequest, "invalid base64 data")),
             };
-            let _ = handle_input_raw(state, decoded).await;
-            None
+            let bytes_written = handle_input_raw(state, decoded).await;
+            Some(ServerMessage::InputResult { bytes_written })
         }
 
         ClientMessage::Keys { keys } => {
             require_auth!(authed);
             match handle_keys(state, &keys).await {
-                Ok(_) => None,
+                Ok(bytes_written) => Some(ServerMessage::InputResult { bytes_written }),
                 Err(bad_key) => {
                     Some(ws_error(ErrorCode::BadRequest, &format!("unknown key: {bad_key}")))
                 }
@@ -491,7 +504,7 @@ async fn handle_client_message(
         ClientMessage::Resize { cols, rows } => {
             require_auth!(authed);
             match handle_resize(state, cols, rows).await {
-                Ok(()) => None,
+                Ok(()) => Some(ServerMessage::ResizeResult { cols, rows }),
                 Err(_) => Some(ws_error(ErrorCode::BadRequest, "cols and rows must be positive")),
             }
         }
@@ -515,7 +528,7 @@ async fn handle_client_message(
         ClientMessage::Signal { signal } => {
             require_auth!(authed);
             match handle_signal(state, &signal).await {
-                Ok(()) => None,
+                Ok(()) => Some(ServerMessage::SignalResult { delivered: true }),
                 Err(bad_signal) => {
                     Some(ws_error(ErrorCode::BadRequest, &format!("unknown signal: {bad_signal}")))
                 }
@@ -525,7 +538,7 @@ async fn handle_client_message(
         ClientMessage::Shutdown {} => {
             require_auth!(authed);
             state.lifecycle.shutdown.cancel();
-            None // Connection will close as servers shut down
+            Some(ServerMessage::ShutdownResult { accepted: true })
         }
     }
 }
