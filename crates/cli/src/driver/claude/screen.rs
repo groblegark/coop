@@ -137,6 +137,22 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<(AgentState, Stri
         None => {}
     }
 
+    // Look for Claude's idle prompt indicator anywhere in the visible lines.
+    // Claude Code renders `❯` (U+276F) at the start of its input line.
+    // Status text like "ctrl+t to hide tasks" may appear below the prompt,
+    // so we scan all non-empty lines rather than only the last.
+    //
+    // IMPORTANT: this check runs BEFORE startup prompt detection because the
+    // startup detector uses broad substring matches (e.g. "bypass permissions")
+    // that false-positive on status-bar text like "⏵⏵ bypass permissions on".
+    // Once the idle prompt is visible the agent is past startup.
+    for line in snapshot.lines.iter().rev() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() && trimmed.starts_with('\u{276f}') {
+            return Some((AgentState::Idle, "screen:idle".to_owned()));
+        }
+    }
+
     // Emit text-based startup prompts as Prompt(Setup) for API visibility.
     // These are NOT auto-dismissed (no reliable keystroke encoding for text
     // prompts). Checked after dialog classification because the startup
@@ -154,17 +170,6 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<(AgentState, Stri
             },
             "screen:setup".to_owned(),
         ));
-    }
-
-    // Look for Claude's idle prompt indicator anywhere in the visible lines.
-    // Claude Code renders `❯` (U+276F) at the start of its input line.
-    // Status text like "ctrl+t to hide tasks" may appear below the prompt,
-    // so we scan all non-empty lines rather than only the last.
-    for line in snapshot.lines.iter().rev() {
-        let trimmed = line.trim();
-        if !trimmed.is_empty() && trimmed.starts_with('\u{276f}') {
-            return Some((AgentState::Idle, "screen:idle".to_owned()));
-        }
     }
 
     None
