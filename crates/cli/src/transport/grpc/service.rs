@@ -20,7 +20,8 @@ use crate::start::StartConfig;
 use crate::stop::StopConfig;
 use crate::transport::handler::{
     compute_health, compute_status, error_message, handle_input, handle_input_raw, handle_keys,
-    handle_nudge, handle_resize, handle_respond, handle_signal, TransportQuestionAnswer,
+    handle_nudge, handle_resize, handle_respond, handle_signal, resolve_switch_profile,
+    TransportQuestionAnswer,
 };
 use crate::transport::read_ring_combined;
 
@@ -618,11 +619,14 @@ impl proto::coop_server::Coop for CoopGrpc {
         request: Request<proto::SwitchSessionRequest>,
     ) -> Result<Response<proto::SwitchSessionResponse>, Status> {
         let req = request.into_inner();
-        let switch_req = crate::switch::SwitchRequest {
+        let mut switch_req = crate::switch::SwitchRequest {
             credentials: if req.credentials.is_empty() { None } else { Some(req.credentials) },
             force: req.force,
-            profile: None,
+            profile: req.profile,
         };
+        resolve_switch_profile(&self.state, &mut switch_req)
+            .await
+            .map_err(|code| code.to_grpc_status("unknown profile"))?;
         match self.state.switch.switch_tx.try_send(switch_req) {
             Ok(()) => Ok(Response::new(proto::SwitchSessionResponse { scheduled: true })),
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {

@@ -638,6 +638,8 @@ message SwitchSessionRequest {
   map<string, string> credentials = 1;
   // Skip waiting for idle — SIGHUP immediately.
   bool force = 2;
+  // Named profile to switch to — resolves credentials from registered profiles.
+  optional string profile = 3;
 }
 message SwitchSessionResponse {
   // Whether the switch was scheduled.

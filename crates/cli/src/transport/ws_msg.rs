@@ -131,6 +131,8 @@ pub enum ClientMessage {
         credentials: Option<std::collections::HashMap<String, String>>,
         #[serde(default)]
         force: bool,
+        #[serde(default)]
+        profile: Option<String>,
     },
 
     // Lifecycle

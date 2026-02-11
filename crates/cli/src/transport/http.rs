@@ -5,7 +5,6 @@
 
 mod agent;
 mod hooks;
-mod profile;
 mod screen;
 mod switch;
 mod transcript;
@@ -13,7 +12,6 @@ mod usage;
 
 pub use agent::*;
 pub use hooks::*;
-pub use profile::*;
 pub use screen::*;
 pub use switch::*;
 pub use transcript::*;

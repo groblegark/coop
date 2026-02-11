@@ -27,7 +27,7 @@ use crate::stop::StopConfig;
 use crate::transport::auth;
 use crate::transport::handler::{
     compute_health, compute_status, error_message, handle_input, handle_input_raw, handle_keys,
-    handle_nudge, handle_resize, handle_respond, handle_signal,
+    handle_nudge, handle_resize, handle_respond, handle_signal, resolve_switch_profile,
 };
 use crate::transport::read_ring_combined;
 use crate::transport::state::Store;
@@ -540,9 +540,12 @@ async fn handle_client_message(
         }
 
         // Session switch
-        ClientMessage::SwitchSession { credentials, force } => {
+        ClientMessage::SwitchSession { credentials, force, profile } => {
             require_auth!(authed);
-            let req = crate::switch::SwitchRequest { credentials, force, profile: None };
+            let mut req = crate::switch::SwitchRequest { credentials, force, profile };
+            if let Err(code) = resolve_switch_profile(state, &mut req).await {
+                return Some(ws_error(code, "unknown profile"));
+            }
             match state.switch.switch_tx.try_send(req) {
                 Ok(()) => Some(ServerMessage::SessionSwitched { scheduled: true }),
                 Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {

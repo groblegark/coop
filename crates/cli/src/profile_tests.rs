@@ -15,26 +15,20 @@ fn entry(name: &str) -> ProfileEntry {
 #[tokio::test]
 async fn register_replaces_all() -> anyhow::Result<()> {
     let state = ProfileState::new();
-    state.register(vec![entry("a"), entry("b")], None).await;
-    assert_eq!(state.list().await.len(), 2);
+    state.register(vec![entry("a"), entry("b"), entry("c")], None).await;
+
+    // First entry becomes active, rest are available.
+    let list = state.list().await;
+    assert_eq!(list.len(), 3);
+    assert_eq!(list[0].status, "active");
+    assert_eq!(list[1].status, "available");
+    assert_eq!(list[2].status, "available");
+    assert_eq!(state.active_name().await.as_deref(), Some("a"));
 
     // Re-register replaces everything.
     state.register(vec![entry("x")], None).await;
     assert_eq!(state.list().await.len(), 1);
     assert_eq!(state.list().await[0].name, "x");
-    Ok(())
-}
-
-#[tokio::test]
-async fn first_is_active() -> anyhow::Result<()> {
-    let state = ProfileState::new();
-    state.register(vec![entry("a"), entry("b"), entry("c")], None).await;
-
-    let list = state.list().await;
-    assert_eq!(list[0].status, "active");
-    assert_eq!(list[1].status, "available");
-    assert_eq!(list[2].status, "available");
-    assert_eq!(state.active_name().await.as_deref(), Some("a"));
     Ok(())
 }
 
@@ -122,6 +116,18 @@ async fn try_auto_rotate_disabled_by_config() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn try_auto_rotate_needs_at_least_two_profiles() -> anyhow::Result<()> {
+    let state = ProfileState::new();
+    state.register(vec![entry("a")], None).await;
+    assert!(state.try_auto_rotate().await.is_none());
+
+    // No profiles at all.
+    let empty = ProfileState::new();
+    assert!(empty.try_auto_rotate().await.is_none());
+    Ok(())
+}
+
+#[tokio::test]
 async fn set_active_tracks_profile() -> anyhow::Result<()> {
     let state = ProfileState::new();
     state.register(vec![entry("a"), entry("b")], None).await;
@@ -135,30 +141,11 @@ async fn set_active_tracks_profile() -> anyhow::Result<()> {
     let list = state.list().await;
     assert_eq!(list[0].status, "available");
     assert_eq!(list[1].status, "active");
-    Ok(())
-}
 
-#[tokio::test]
-async fn resolve_credentials_returns_creds() -> anyhow::Result<()> {
-    let state = ProfileState::new();
-    state.register(vec![entry("a"), entry("b")], None).await;
-
+    // Credentials resolve correctly for both profiles.
     let creds = state.resolve_credentials("b").await;
     assert!(creds.is_some());
     assert_eq!(creds.unwrap().get("API_KEY").unwrap(), "key-b");
-
     assert!(state.resolve_credentials("nonexistent").await.is_none());
-    Ok(())
-}
-
-#[tokio::test]
-async fn try_auto_rotate_needs_at_least_two_profiles() -> anyhow::Result<()> {
-    let state = ProfileState::new();
-    state.register(vec![entry("a")], None).await;
-    assert!(state.try_auto_rotate().await.is_none());
-
-    // No profiles at all.
-    let empty = ProfileState::new();
-    assert!(empty.try_auto_rotate().await.is_none());
     Ok(())
 }

@@ -17,6 +17,7 @@ use crate::driver::{classify_error_detail, AgentState, QuestionAnswer};
 use crate::error::ErrorCode;
 use crate::event::InputEvent;
 use crate::event::PtySignal;
+use crate::switch::SwitchRequest;
 use crate::transport::state::Store;
 use crate::transport::{
     deliver_steps, encode_response, keys_to_bytes, spawn_enter_retry, update_question_current,
@@ -118,6 +119,23 @@ pub fn extract_error_fields(agent: &AgentState) -> (Option<String>, Option<Strin
         }
         _ => (None, None),
     }
+}
+
+/// Resolve profile credentials on a [`SwitchRequest`].
+///
+/// If `profile` is set but `credentials` is `None`, look up the named profile.
+pub async fn resolve_switch_profile(
+    store: &Store,
+    req: &mut SwitchRequest,
+) -> Result<(), ErrorCode> {
+    if req.profile.is_some() && req.credentials.is_none() {
+        let name = req.profile.as_deref().unwrap_or_default();
+        match store.profile.resolve_credentials(name).await {
+            Some(creds) => req.credentials = Some(creds),
+            None => return Err(ErrorCode::BadRequest),
+        }
+    }
+    Ok(())
 }
 
 /// Compute health info.

@@ -16,6 +16,7 @@ use tokio::sync::RwLock;
 use crate::switch::SwitchRequest;
 
 /// A registered credential profile.
+#[derive(Debug)]
 pub struct Profile {
     pub name: String,
     pub credentials: HashMap<String, String>,
@@ -23,6 +24,7 @@ pub struct Profile {
 }
 
 /// Current status of a profile.
+#[derive(Debug)]
 pub enum ProfileStatus {
     /// This profile is currently in use.
     Active,
@@ -34,26 +36,14 @@ pub enum ProfileStatus {
 
 /// Rotation policy configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ProfileConfig {
     /// Whether to automatically rotate on rate limit errors.
-    #[serde(default = "default_true")]
     pub rotate_on_rate_limit: bool,
     /// Cooldown duration in seconds before a rate-limited profile becomes available again.
-    #[serde(default = "default_cooldown")]
     pub cooldown_secs: u64,
     /// Maximum number of rotation switches allowed per hour (anti-flap).
-    #[serde(default = "default_max_switches")]
     pub max_switches_per_hour: u32,
-}
-
-fn default_true() -> bool {
-    true
-}
-fn default_cooldown() -> u64 {
-    300
-}
-fn default_max_switches() -> u32 {
-    20
 }
 
 impl Default for ProfileConfig {
@@ -72,16 +62,11 @@ pub struct ProfileInfo {
 }
 
 /// Shared profile state. Lives on `Store`.
+#[derive(Debug)]
 pub struct ProfileState {
     profiles: RwLock<Vec<Profile>>,
     config: RwLock<ProfileConfig>,
     switch_history: RwLock<VecDeque<Instant>>,
-}
-
-impl std::fmt::Debug for ProfileState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ProfileState").finish()
-    }
 }
 
 /// Entry in a registration request.
@@ -153,11 +138,6 @@ impl ProfileState {
     pub async fn active_name(&self) -> Option<String> {
         let profiles = self.profiles.read().await;
         profiles.iter().find(|p| matches!(p.status, ProfileStatus::Active)).map(|p| p.name.clone())
-    }
-
-    /// Whether any profiles are registered.
-    pub async fn has_profiles(&self) -> bool {
-        !self.profiles.read().await.is_empty()
     }
 
     /// Resolve credentials for a named profile.
