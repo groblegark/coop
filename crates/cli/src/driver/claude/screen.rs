@@ -146,10 +146,24 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<(AgentState, Stri
     // startup detector uses broad substring matches (e.g. "bypass permissions")
     // that false-positive on status-bar text like "⏵⏵ bypass permissions on".
     // Once the idle prompt is visible the agent is past startup.
+    //
+    // CAVEAT: Claude's TUI also uses `❯` to mark the *selected* option in
+    // interactive dialogs (e.g. `❯ 1. No, exit`). We distinguish the idle
+    // prompt from dialog option markers by checking for a digit after the
+    // leading `❯ `.  The idle prompt is `❯ ` (space then free text or empty);
+    // a dialog option is `❯ N.` (space, digit, dot).
     for line in snapshot.lines.iter().rev() {
         let trimmed = line.trim();
         if !trimmed.is_empty() && trimmed.starts_with('\u{276f}') {
-            return Some((AgentState::Idle, "screen:idle".to_owned()));
+            // Skip dialog option markers like "❯ 1. No, exit"
+            let after = trimmed['\u{276f}'.len_utf8()..].trim_start();
+            let is_dialog_option = after
+                .as_bytes()
+                .first()
+                .map_or(false, |b| b.is_ascii_digit());
+            if !is_dialog_option {
+                return Some((AgentState::Idle, "screen:idle".to_owned()));
+            }
         }
     }
 
@@ -239,6 +253,15 @@ const DIALOG_SCREENS: &[DialogScreen] = &[
             ("Settings Error", false),
             ("Continue without these settings", false),
             ("Exit and fix manually", false),
+        ],
+    ),
+    // Bypass permissions dialog (--dangerously-skip-permissions)
+    (
+        DialogKind::Setup("bypass_permissions"),
+        &[
+            ("Bypass Permissions mode", false),
+            ("you accept all responsibility", false),
+            ("enter to confirm", true),
         ],
     ),
     // Tool permission
