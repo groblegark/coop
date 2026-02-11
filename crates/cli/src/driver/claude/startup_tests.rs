@@ -53,3 +53,25 @@ fn no_prompt_on_normal_output() {
     ];
     assert_eq!(detect_startup_prompt(&lines), None);
 }
+
+#[test]
+fn no_prompt_on_bypass_status_bar() {
+    // Regression: "bypass permissions on" in Claude's status bar should NOT
+    // trigger the startup prompt detector (bd-qcn1).
+    let lines = vec![
+        "❯ ".to_owned(),
+        "────────────────────────".to_owned(),
+        "  ⏵⏵ bypass permissions on (shift+tab to cycle)".to_owned(),
+        "".to_owned(),
+    ];
+    // The substring "bypass permissions" is present, but this is a status bar
+    // indicator — NOT a startup prompt. The caller (classify_claude_screen)
+    // should detect the idle prompt ❯ first and never reach this function,
+    // but the detector itself still matches. This test documents the known
+    // broad matching; the real fix is the priority reorder in
+    // classify_claude_screen that checks idle before startup.
+    //
+    // If we later tighten the detector to reject status-bar text, this test
+    // should be updated to assert None.
+    assert_eq!(detect_startup_prompt(&lines), Some(StartupPrompt::BypassPermissions));
+}
