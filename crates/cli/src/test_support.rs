@@ -20,6 +20,7 @@ use crate::driver::{
 use crate::event::{
     InputEvent, OutputEvent, PromptOutcome, RawHookEvent, RawMessageEvent, TransitionEvent,
 };
+use crate::event_log::EventLog;
 use crate::profile::ProfileState;
 use crate::pty::Backend;
 use crate::ring::RingBuffer;
@@ -201,6 +202,7 @@ impl StoreBuilder {
                 })
             }),
             input_activity: Arc::new(tokio::sync::Notify::new()),
+            event_log: Arc::new(EventLog::new(None)),
         });
 
         StoreCtx { store, input_rx, switch_rx }

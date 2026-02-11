@@ -4,6 +4,7 @@
 //! HTTP request/response types and axum handler implementations.
 
 mod agent;
+mod events;
 mod hooks;
 mod screen;
 mod switch;
@@ -11,6 +12,7 @@ mod transcript;
 mod usage;
 
 pub use agent::*;
+pub use events::*;
 pub use hooks::*;
 pub use screen::*;
 pub use switch::*;

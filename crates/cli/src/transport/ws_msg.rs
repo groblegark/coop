@@ -444,6 +444,10 @@ pub struct WsQuery {
     /// Comma-separated subscription flags (e.g. `raw,state,hooks`).
     /// Default (absent) = no subscriptions (request-reply only).
     pub subscribe: Option<String>,
+    /// Replay state transitions with seq > this value on connect.
+    pub since_seq: Option<u64>,
+    /// Replay hook events with hook_seq > this value on connect.
+    pub since_hook_seq: Option<u64>,
 }
 
 impl WsQuery {
@@ -553,6 +557,27 @@ pub fn transcript_event_to_msg(event: &crate::transcript::TranscriptEvent) -> Se
 /// Convert a `UsageEvent` to a `ServerMessage`.
 pub fn usage_event_to_msg(event: &UsageEvent) -> ServerMessage {
     ServerMessage::UsageUpdate { cumulative: event.cumulative.clone(), seq: event.seq }
+}
+
+/// Convert a [`TransitionEntry`] (from event log catchup) to a `ServerMessage`.
+pub fn transition_entry_to_msg(entry: &crate::event_log::TransitionEntry) -> ServerMessage {
+    ServerMessage::Transition {
+        prev: entry.prev.clone(),
+        next: entry.next.clone(),
+        seq: entry.seq,
+        prompt: Box::new(None),
+        error_detail: None,
+        error_category: None,
+        parked_reason: None,
+        resume_at_epoch_ms: None,
+        cause: entry.cause.clone(),
+        last_message: entry.last_message.clone(),
+    }
+}
+
+/// Convert a [`HookEntry`] (from event log catchup) to a `ServerMessage`.
+pub fn hook_entry_to_msg(entry: &crate::event_log::HookEntry) -> ServerMessage {
+    ServerMessage::HookRaw { data: entry.json.clone() }
 }
 
 /// Convert a `StartEvent` to a `ServerMessage`.

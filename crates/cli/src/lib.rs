@@ -6,6 +6,7 @@ pub mod config;
 pub mod driver;
 pub mod error;
 pub mod event;
+pub mod event_log;
 pub mod profile;
 pub mod pty;
 pub mod ring;

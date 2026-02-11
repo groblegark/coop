@@ -65,10 +65,12 @@ pub async fn ws_handler(
 
     let flags = query.flags();
     let needs_auth = state.config.auth_token.is_some() && query.token.is_none();
+    let since_seq = query.since_seq;
+    let since_hook_seq = query.since_hook_seq;
 
     ws.on_upgrade(move |socket| {
         let client_id = format!("ws-{}", next_client_id());
-        handle_connection(state, flags, socket, client_id, needs_auth)
+        handle_connection(state, flags, socket, client_id, needs_auth, since_seq, since_hook_seq)
     })
     .into_response()
 }
@@ -80,6 +82,8 @@ async fn handle_connection(
     socket: WebSocket,
     client_id: String,
     needs_auth: bool,
+    since_seq: Option<u64>,
+    since_hook_seq: Option<u64>,
 ) {
     state.lifecycle.ws_client_count.fetch_add(1, Ordering::Relaxed);
 
@@ -95,20 +99,40 @@ async fn handle_connection(
     let mut usage_rx = state.usage.usage_tx.subscribe();
     let mut authed = !needs_auth;
 
-    // Send current state immediately so late-connecting clients don't miss
-    // transitions that already happened (e.g. process already exited).
+    // Send initial state: either replay from event log or current-state snapshot.
     if flags.state && authed {
-        let agent = state.driver.agent_state.read().await;
-        let seq = state.driver.state_seq.load(Ordering::Acquire);
-        let last_message = state.driver.last_message.read().await.clone();
-        let initial = TransitionEvent {
-            prev: agent.clone(),
-            next: agent.clone(),
-            seq,
-            cause: String::new(),
-            last_message,
-        };
-        let _ = send_json(&mut ws_tx, &transition_to_msg(&initial)).await;
+        if let Some(seq) = since_seq {
+            // Replay missed transitions from the event log.
+            let entries = state.event_log.catchup_state(seq);
+            for entry in &entries {
+                let msg = transition_entry_to_msg(entry);
+                let _ = send_json(&mut ws_tx, &msg).await;
+            }
+        } else {
+            // No cursor: send synthetic current-state snapshot.
+            let agent = state.driver.agent_state.read().await;
+            let seq = state.driver.state_seq.load(Ordering::Acquire);
+            let last_message = state.driver.last_message.read().await.clone();
+            let initial = TransitionEvent {
+                prev: agent.clone(),
+                next: agent.clone(),
+                seq,
+                cause: String::new(),
+                last_message,
+            };
+            let _ = send_json(&mut ws_tx, &transition_to_msg(&initial)).await;
+        }
+    }
+
+    // Replay missed hook events from the event log.
+    if flags.hooks && authed {
+        if let Some(hseq) = since_hook_seq {
+            let entries = state.event_log.catchup_hooks(hseq);
+            for entry in &entries {
+                let msg = hook_entry_to_msg(entry);
+                let _ = send_json(&mut ws_tx, &msg).await;
+            }
+        }
     }
 
     loop {

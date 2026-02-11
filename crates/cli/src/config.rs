@@ -182,6 +182,21 @@ impl Config {
             anyhow::bail!("either --port or --socket must be specified");
         }
 
+        // Validate socket path length (sockaddr_un.sun_path limits).
+        if let Some(ref socket) = self.socket {
+            #[cfg(target_os = "macos")]
+            const MAX_SOCKET_PATH: usize = 104;
+            #[cfg(not(target_os = "macos"))]
+            const MAX_SOCKET_PATH: usize = 108;
+            if socket.len() >= MAX_SOCKET_PATH {
+                anyhow::bail!(
+                    "socket path ({} bytes) must be shorter than {} bytes",
+                    socket.len(),
+                    MAX_SOCKET_PATH
+                );
+            }
+        }
+
         // Must have either command or attach (not both, not neither)
         let has_command = !self.command.is_empty();
         let has_attach = self.attach.is_some();

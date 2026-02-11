@@ -54,7 +54,8 @@ Nine states classify the agent process:
 | Unknown | `unknown` | -- | State cannot be determined |
 
 The session is **not ready** until the first transition away from `starting`.
-Until then, the API returns `NOT_READY` (503).
+Until then, action endpoints (`nudge`, `respond`) and `GET /api/v1/ready` return `NOT_READY` (503).
+The state endpoint (`GET /api/v1/agent`) always returns 200 with the current state.
 
 ### State Diagram
 

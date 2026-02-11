@@ -4,6 +4,7 @@
 //! API contract types and server implementation for HTTP and WebSocket transports.
 
 pub mod auth;
+pub mod compat;
 pub mod grpc;
 pub mod handler;
 pub mod http;
@@ -334,9 +335,11 @@ pub fn build_router(state: Arc<Store>) -> Router {
         .route("/api/v1/config/start", get(http::get_start_config).put(http::put_start_config))
         .route("/api/v1/transcripts", get(http::list_transcripts))
         .route("/api/v1/transcripts/catchup", get(http::catchup_transcripts))
+        .route("/api/v1/events/catchup", get(http::catchup_events))
         .route("/api/v1/transcripts/{number}", get(http::get_transcript))
         .route("/ws", get(ws::ws_handler))
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_layer))
+        .layer(middleware::from_fn(compat::http_compat_layer))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }

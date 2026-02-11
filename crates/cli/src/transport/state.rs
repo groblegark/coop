@@ -15,6 +15,7 @@ use crate::driver::{
 use crate::event::{
     InputEvent, OutputEvent, PromptOutcome, RawHookEvent, RawMessageEvent, TransitionEvent,
 };
+use crate::event_log::EventLog;
 use crate::profile::ProfileState;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
@@ -62,6 +63,8 @@ pub struct Store {
     /// Used by the enter-retry monitor to cancel itself if other input
     /// activity occurs on the PTY (e.g. raw keys, resize, signal, new delivery).
     pub input_activity: Arc<tokio::sync::Notify>,
+    /// File-backed event log for state/hook event catchup on WS reconnect.
+    pub event_log: Arc<EventLog>,
 }
 
 /// Terminal I/O: screen, ring buffer, child process.

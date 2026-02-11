@@ -104,6 +104,22 @@ fn agent_explicit_overrides_auto_detect() -> anyhow::Result<()> {
     Ok(())
 }
 
+// -- Socket path validation --
+
+#[test]
+fn socket_path_too_long() {
+    let long_path = format!("/tmp/{}", "a".repeat(200));
+    let config = parse(&["coop", "--socket", &long_path, "--", "echo"]);
+    crate::assert_err_contains!(config.validate(), "socket path");
+}
+
+#[test]
+fn socket_path_within_limit() -> anyhow::Result<()> {
+    let config = parse(&["coop", "--socket", "/tmp/coop.sock", "--", "echo"]);
+    config.validate()?;
+    Ok(())
+}
+
 // -- GroomLevel --
 
 #[test]

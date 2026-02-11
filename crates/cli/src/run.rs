@@ -25,6 +25,7 @@ use crate::driver::{
     SessionSetup,
 };
 use crate::event::InputEvent;
+use crate::event_log::EventLog;
 use crate::profile::ProfileState;
 use crate::pty::adapter::{AttachSpec, TmuxBackend};
 use crate::pty::spawn::NativePty;
@@ -448,6 +449,8 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     let profile_state = Arc::new(ProfileState::new());
 
+    let event_log = Arc::new(EventLog::new(setup.as_ref().map(|s| s.session_dir.as_path())));
+
     let store = Arc::new(Store {
         terminal,
         driver: Arc::new(DriverState {
@@ -489,7 +492,41 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         usage: usage_state,
         profile: profile_state,
         input_activity: Arc::new(tokio::sync::Notify::new()),
+        event_log: Arc::clone(&event_log),
     });
+
+    // Spawn event log subscriber — persists state/hook events to JSONL files.
+    {
+        let log = Arc::clone(&event_log);
+        let mut state_rx = store.channels.state_tx.subscribe();
+        let mut hook_rx = store.channels.hook_tx.subscribe();
+        let sd = shutdown.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = sd.cancelled() => break,
+                    event = state_rx.recv() => {
+                        match event {
+                            Ok(e) => log.push_transition(&e),
+                            Err(broadcast::error::RecvError::Lagged(n)) => {
+                                tracing::warn!("event log: state subscriber lagged by {n}");
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                    event = hook_rx.recv() => {
+                        match event {
+                            Ok(e) => log.push_hook(&e),
+                            Err(broadcast::error::RecvError::Lagged(n)) => {
+                                tracing::warn!("event log: hook subscriber lagged by {n}");
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                }
+            }
+        });
+    }
 
     // Spawn HTTP server
     if let Some(port) = config.port {
