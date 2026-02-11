@@ -39,7 +39,7 @@ fn valid_config_with_attach() -> anyhow::Result<()> {
 
 #[yare::parameterized(
     no_transport        = { &["coop", "--", "echo"], "--port or --socket" },
-    no_command          = { &["coop", "--port", "8080"], "command or --attach" },
+    no_command          = { &["coop", "--port", "8080"], "agent command is required" },
     both_cmd_and_attach = { &["coop", "--port", "8080", "--attach", "tmux:sess", "--", "echo"],
                             "cannot specify both" },
 )]

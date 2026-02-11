@@ -54,21 +54,25 @@ impl std::str::FromStr for GroomLevel {
 #[derive(Debug, Parser)]
 #[command(name = "coop", version, about)]
 pub struct Config {
-    /// HTTP port to listen on.
-    #[arg(long, env = "COOP_PORT")]
-    pub port: Option<u16>,
-
-    /// Unix socket path for HTTP.
-    #[arg(long, env = "COOP_SOCKET")]
-    pub socket: Option<String>,
-
     /// Host address to bind to.
     #[arg(long, env = "COOP_HOST", default_value = "0.0.0.0")]
     pub host: String,
 
+    /// HTTP port to listen on.
+    #[arg(long, env = "COOP_PORT")]
+    pub port: Option<u16>,
+
     /// gRPC port to listen on.
     #[arg(long, env = "COOP_GRPC_PORT")]
     pub port_grpc: Option<u16>,
+
+    /// Health-check-only HTTP port.
+    #[arg(long, env = "COOP_HEALTH_PORT")]
+    pub port_health: Option<u16>,
+
+    /// Unix socket path for HTTP.
+    #[arg(long, env = "COOP_SOCKET")]
+    pub socket: Option<String>,
 
     /// Bearer token for API authentication.
     #[arg(long, env = "COOP_AUTH_TOKEN")]
@@ -102,10 +106,6 @@ pub struct Config {
     #[arg(long, env = "TERM", default_value = "xterm-256color")]
     pub term: String,
 
-    /// Health-check-only HTTP port.
-    #[arg(long, env = "COOP_HEALTH_PORT")]
-    pub port_health: Option<u16>,
-
     /// Log format (json or text).
     #[arg(long, env = "COOP_LOG_FORMAT", default_value = "json")]
     pub log_format: String,
@@ -118,8 +118,8 @@ pub struct Config {
     #[arg(long, env = "COOP_RESUME")]
     pub resume: Option<String>,
 
-    /// Command to run (after --).
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    /// Agent command to run.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_name = "AGENT")]
     pub command: Vec<String>,
 
     /// Groom level: auto, manual, pristine.
@@ -190,7 +190,7 @@ impl Config {
             anyhow::bail!("cannot specify both a command and --attach");
         }
         if !has_command && !has_attach {
-            anyhow::bail!("either a command or --attach must be specified");
+            anyhow::bail!("an agent command is required (e.g. coop --port 3000 claude)");
         }
 
         // Validate agent type

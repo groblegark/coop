@@ -587,20 +587,35 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             let mut sigint =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).ok();
 
+            // First signal: graceful shutdown
             tokio::select! {
                 _ = async {
                     if let Some(ref mut s) = sigterm { s.recv().await } else { std::future::pending().await }
                 } => {
                     info!("received SIGTERM");
-                    sd.cancel();
                 }
                 _ = async {
                     if let Some(ref mut s) = sigint { s.recv().await } else { std::future::pending().await }
                 } => {
                     info!("received SIGINT");
-                    sd.cancel();
                 }
             }
+            sd.cancel();
+
+            // Second signal: force exit
+            tokio::select! {
+                _ = async {
+                    if let Some(ref mut s) = sigterm { s.recv().await } else { std::future::pending().await }
+                } => {
+                    info!("received SIGTERM again, forcing exit");
+                }
+                _ = async {
+                    if let Some(ref mut s) = sigint { s.recv().await } else { std::future::pending().await }
+                } => {
+                    info!("received SIGINT again, forcing exit");
+                }
+            }
+            std::process::exit(130);
         });
     }
 

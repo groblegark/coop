@@ -17,6 +17,51 @@ mod colors {
     pub const CONTEXT: u8 = 245;
 }
 
+fn use_color() -> bool {
+    if std::env::var("NO_COLOR").is_ok_and(|v| v == "1") {
+        return false;
+    }
+    if std::env::var("COLOR").is_ok_and(|v| v == "1") {
+        return true;
+    }
+    std::io::IsTerminal::is_terminal(&std::io::stdout())
+}
+
+/// Returns (header, literal, context, reset) ANSI sequences, or empty strings when color is off.
+fn color_codes() -> (String, String, String, String) {
+    if use_color() {
+        (
+            format!("\x1b[38;5;{}m", colors::HEADER),
+            format!("\x1b[38;5;{}m", colors::LITERAL),
+            format!("\x1b[38;5;{}m", colors::CONTEXT),
+            "\x1b[0m".to_string(),
+        )
+    } else {
+        (String::new(), String::new(), String::new(), String::new())
+    }
+}
+
+fn usage() -> String {
+    let (_, l, c, r) = color_codes();
+    format!(
+        "\
+{l}coop{r} {c}[OPTIONS]{r} {l}<AGENT>{r}
+       {l}coop{r} {l}<SUBCOMMAND>{r}"
+    )
+}
+
+fn after_help() -> String {
+    let (h, l, c, r) = color_codes();
+    format!(
+        "\
+{h}Examples:{r}
+  {l}coop --port {c}3000 {l}claude{r}
+  {l}coop --port {c}3000 {l}--agent {c}claude {l}claude --dangerously-skip-permissions{r}
+  {l}coop --socket {c}/tmp/coop.sock {l}gemini
+  {l}coop attach {c}ws://localhost:3000{r}"
+    )
+}
+
 fn styles() -> Styles {
     use clap::builder::styling::{Ansi256Color, Color, Style};
 
@@ -33,7 +78,15 @@ fn styles() -> Styles {
 }
 
 #[derive(Parser)]
-#[command(name = "coop", version, about = "Terminal session manager for AI coding agents.", styles = styles())]
+#[command(
+    name = "coop",
+    version,
+    about = "Terminal session manager for AI coding agents.",
+    styles = styles(),
+    override_usage = usage(),
+    subcommand_value_name = "SUBCOMMAND",
+    after_help = after_help(),
+)]
 struct Cli {
     #[command(flatten)]
     config: Config,
