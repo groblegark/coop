@@ -1,26 +1,22 @@
-name = "plan-mode"
-
 [[responses]]
-pattern = { type = "any" }
-max_matches = 1
+on = "*"
+say = "Let me plan this out. Here is my plan: step 1, step 2, step 3."
+max = 1
 
-[responses.response]
-text = "Let me plan this out. Here is my plan: step 1, step 2, step 3."
-
-[[responses.response.tool_calls]]
-tool = "EnterPlanMode"
+[[responses.tools]]
+call = "EnterPlanMode"
 input = {}
 
-[[responses.response.tool_calls]]
-tool = "ExitPlanMode"
+[[responses.tools]]
+call = "ExitPlanMode"
 input = {}
 
 [[responses]]
-pattern = { type = "any" }
-response = "Great, executing the plan now."
+on = "*"
+say = "Great, executing the plan now."
 
-[tool_execution]
+[tools]
 mode = "live"
 
-[tool_execution.tools.EnterPlanMode]
-auto_approve = true
+[tools.EnterPlanMode]
+approve = true

@@ -1,23 +1,19 @@
-name = "tool-use"
-
 [[responses]]
-pattern = { type = "any" }
-max_matches = 1
+on = "*"
+say = "Let me read that file."
+max = 1
 
-[responses.response]
-text = "Let me read that file."
-
-[[responses.response.tool_calls]]
-tool = "Read"
+[[responses.tools]]
+call = "Read"
 input = { file_path = "/tmp/nonexistent" }
 
 [[responses]]
-pattern = { type = "any" }
-response = "The file contains mock content."
+on = "*"
+say = "The file contains mock content."
 
-[tool_execution]
+[tools]
 mode = "live"
 
-[tool_execution.tools.Read]
-auto_approve = true
+[tools.Read]
+approve = true
 result = "mock file content"

@@ -1,19 +1,15 @@
-name = "multi-question"
-
 [[responses]]
-pattern = { type = "any" }
-max_matches = 1
+on = "*"
+say = "I have a couple of questions for you."
+max = 1
 
-[responses.response]
-text = "I have a couple of questions for you."
-
-[[responses.response.tool_calls]]
-tool = "AskUserQuestion"
+[[responses.tools]]
+call = "AskUserQuestion"
 input = { questions = [{ question = "Which DB?", header = "DB", options = [{ label = "PostgreSQL", description = "Relational" }, { label = "SQLite", description = "Embedded" }], multiSelect = false }, { question = "Which cloud?", header = "Cloud", options = [{ label = "AWS", description = "Amazon Web Services" }, { label = "GCP", description = "Google Cloud Platform" }], multiSelect = false }] }
 
 [[responses]]
-pattern = { type = "any" }
-response = "Great choices."
+on = "*"
+say = "Great choices."
 
-[tool_execution]
+[tools]
 mode = "live"
