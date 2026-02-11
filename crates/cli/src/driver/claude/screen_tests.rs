@@ -419,6 +419,48 @@ fn security_notes_fixture_emits_setup() {
     assert_eq!(c, "screen:setup");
 }
 
+/// Bypass permissions dialog should be detected as setup (not idle)
+#[test]
+fn bypass_permissions_dialog_emits_setup() {
+    let snap = snapshot(&[
+        "────────────────────────────────",
+        " WARNING: Claude Code running in Bypass Permissions mode",
+        "",
+        " In Bypass Permissions mode, Claude Code will not ask for your approval",
+        " before running potentially dangerous commands.",
+        "",
+        " By proceeding, you accept all responsibility for actions taken while",
+        " running in Bypass Permissions mode.",
+        "",
+        " https://code.claude.com/docs/en/security",
+        "",
+        " \u{276f} 1. No, exit",
+        "   2. Yes, I accept",
+        "",
+        " Enter to confirm \u{00b7} Esc to cancel",
+    ]);
+    let (s, c) = classify_claude_screen(&snap).expect("should emit state");
+    let prompt = s.prompt().expect("should be Prompt");
+    assert_eq!(prompt.kind, PromptKind::Setup);
+    assert_eq!(prompt.subtype.as_deref(), Some("bypass_permissions"));
+    assert!(!prompt.options.is_empty(), "should parse options");
+    assert_eq!(c, "screen:setup");
+}
+
+/// Bypass status bar with idle prompt should be idle (not setup)
+#[test]
+fn bypass_status_bar_with_idle_prompt_is_idle() {
+    let snap = snapshot(&[
+        " \u{25d0} Claude Code v2.1.39",
+        "",
+        "\u{276f} ",
+        "────────────────────────────────",
+        "  \u{23f5}\u{23f5} bypass permissions on (shift+tab to cycle)",
+    ]);
+    assert_eq!(state(&snap), Some(AgentState::Idle));
+    assert_eq!(cause(&snap).as_deref(), Some("screen:idle"));
+}
+
 /// Accessing workspace fixture (real TUI trust dialog with numbered options)
 #[test]
 fn accessing_workspace_fixture_emits_permission() {
