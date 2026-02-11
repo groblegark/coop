@@ -98,6 +98,25 @@ Coop supports that but is also designed to support scenarios where prompts need 
 | Multi-account         | ✓  | ✓    |
 
 
+## Stop Gating
+
+GT uses `bd decision stop-check` as a Claude hook — a per-turn guard that
+creates a beads decision and blocks until resolved. The decision system is
+external to the session manager.
+
+Coop's `gate` mode provides the equivalent integration point:
+
+1. Orchestrator configures `PUT /api/v1/config/stop` with `mode: "gate"` and a
+   `prompt` referencing `bd decision create` (or any external resolution flow).
+2. On each stop hook, coop returns the prompt verbatim as the block reason.
+3. When the external decision resolves, the orchestrator calls
+   `POST /api/v1/stop/resolve` to unblock.
+
+GT can toggle `gate` mode on/off and resolve via HTTP as decisions are created
+and resolved. Coop's `auto` mode is the batteries-included alternative that
+generates `coop send` instructions for agents that self-resolve.
+
+
 ## Hooks & Settings Merging
 
 GT passes hooks, permissions, env, plugins, and MCP servers via `--agent-config`.

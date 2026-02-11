@@ -182,7 +182,7 @@ impl StoreBuilder {
             input_gate: Arc::new(crate::transport::state::InputGate::new(Duration::ZERO)),
             stop: Arc::new(StopState::new(
                 self.stop_config.unwrap_or_default(),
-                "http://127.0.0.1:0/api/v1/hooks/stop/resolve".to_owned(),
+                "http://127.0.0.1:0/api/v1/stop/resolve".to_owned(),
             )),
             start: Arc::new(StartState::new(self.start_config.unwrap_or_default())),
             switch: Arc::new(SwitchState {

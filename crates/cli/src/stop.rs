@@ -41,8 +41,13 @@ pub enum StopMode {
     /// Always allow the agent to stop (default behavior).
     #[default]
     Allow,
-    /// Block stops until a signal is received via the signal endpoint.
-    Signal,
+    /// Block stops until a signal is received. Generates actionable `coop send`
+    /// instructions in the block reason (batteries-included).
+    Auto,
+    /// Block stops until a signal is received. Returns the configured `prompt`
+    /// verbatim as the block reason. The orchestrator controls resolution.
+    /// Requires `prompt` to be set.
+    Gate,
 }
 
 /// Schema describing expected fields in the signal body.
@@ -99,6 +104,8 @@ pub enum StopType {
     Blocked,
     /// Mode is `allow`; agent is always allowed to stop.
     Allowed,
+    /// Signal body failed schema validation.
+    Rejected,
 }
 
 impl StopType {
@@ -110,6 +117,7 @@ impl StopType {
             Self::SafetyValve => "safety_valve",
             Self::Blocked => "blocked",
             Self::Allowed => "allowed",
+            Self::Rejected => "rejected",
         }
     }
 }
@@ -150,6 +158,22 @@ impl StopState {
         }
     }
 
+    /// Resolve a stop signal: validate the body against the schema (if any),
+    /// store it, and set the signaled flag.
+    ///
+    /// On validation failure, emits a `Rejected` event and returns `Err` with
+    /// a descriptive message.
+    pub async fn resolve(&self, body: serde_json::Value) -> Result<(), String> {
+        let config = self.config.read().await;
+        if let Some(ref schema) = config.schema {
+            validate_signal(schema, &body)?;
+        }
+        drop(config);
+        *self.signal_body.write().await = Some(body);
+        self.signaled.store(true, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+
     /// Emit a stop event to all subscribers and return it.
     pub fn emit(
         &self,
@@ -177,11 +201,24 @@ impl std::fmt::Debug for StopState {
 /// Assemble the block reason text from the stop config.
 ///
 /// This is the `reason` field returned in `{"decision":"block","reason":"..."}`.
-/// It tells the agent what to do: run `coop send` with the right body.
 ///
-/// The output is designed to be directly actionable — concrete `coop send`
-/// commands the agent can copy-paste.
+/// - **Auto** mode: generates actionable `coop send` commands the agent can
+///   copy-paste (batteries-included).
+/// - **Gate** mode: returns the configured `prompt` verbatim. The orchestrator
+///   controls resolution.
 pub fn generate_block_reason(config: &StopConfig) -> String {
+    match config.mode {
+        StopMode::Gate => {
+            // Gate mode: prompt is required (enforced at config time).
+            // Return it verbatim.
+            config.prompt.clone().unwrap_or_default()
+        }
+        _ => generate_auto_block_reason(config),
+    }
+}
+
+/// Auto-mode block reason: actionable `coop send` instructions.
+fn generate_auto_block_reason(config: &StopConfig) -> String {
     let mut parts = Vec::new();
 
     // Find enum fields eligible for command expansion.
@@ -249,6 +286,37 @@ pub fn generate_block_reason(config: &StopConfig) -> String {
     }
 
     parts.join("\n")
+}
+
+/// Validate a signal body against a stop schema.
+///
+/// Checks that required fields are present and enum fields have allowed values.
+/// Returns `Err` with a descriptive message on failure.
+pub fn validate_signal(schema: &StopSchema, body: &serde_json::Value) -> Result<(), String> {
+    let obj = body.as_object();
+
+    for (name, field) in &schema.fields {
+        let value = obj.and_then(|o| o.get(name));
+
+        // Required field check.
+        if field.required && (value.is_none() || value == Some(&serde_json::Value::Null)) {
+            return Err(format!("missing required field: {name}"));
+        }
+
+        // Enum validation.
+        if let (Some(ref allowed), Some(val)) = (&field.r#enum, value) {
+            if let Some(s) = val.as_str() {
+                if !allowed.contains(&s.to_owned()) {
+                    return Err(format!(
+                        "field \"{name}\": value \"{s}\" is not one of: {}",
+                        allowed.join(", ")
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Build an example JSON body string from a schema.

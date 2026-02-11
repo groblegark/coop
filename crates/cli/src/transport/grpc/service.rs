@@ -461,9 +461,7 @@ impl proto::coop_server::Coop for CoopGrpc {
         let req = request.into_inner();
         let body: serde_json::Value = serde_json::from_str(&req.body_json)
             .map_err(|e| Status::invalid_argument(format!("invalid JSON: {e}")))?;
-        let stop = &self.state.stop;
-        *stop.signal_body.write().await = Some(body);
-        stop.signaled.store(true, std::sync::atomic::Ordering::Release);
+        self.state.stop.resolve(body).await.map_err(Status::invalid_argument)?;
         Ok(Response::new(proto::ResolveStopResponse { accepted: true }))
     }
 

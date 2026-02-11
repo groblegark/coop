@@ -96,7 +96,7 @@ pub async fn auth_layer(
     if path == "/api/v1/health"
         || path == "/ws"
         || path == "/api/v1/hooks/stop"
-        || path == "/api/v1/hooks/stop/resolve"
+        || path == "/api/v1/stop/resolve"
         || path == "/api/v1/hooks/start"
     {
         return next.run(req).await;

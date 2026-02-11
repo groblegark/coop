@@ -80,7 +80,7 @@ websocat ws://localhost:8080/ws?subscribe=state
 | POST | `/api/v1/agent/nudge` | Deliver message to idle agent |
 | POST | `/api/v1/agent/respond` | Answer agent prompt |
 | POST | `/api/v1/hooks/stop` | Stop hook verdict |
-| POST | `/api/v1/hooks/stop/resolve` | Resolve pending stop |
+| POST | `/api/v1/stop/resolve` | Resolve pending stop |
 | GET/PUT | `/api/v1/config/stop` | Stop configuration |
 | POST | `/api/v1/hooks/start` | Start hook context injection |
 | GET/PUT | `/api/v1/config/start` | Start configuration |

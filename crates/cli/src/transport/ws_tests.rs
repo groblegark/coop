@@ -685,7 +685,7 @@ async fn stop_config_roundtrip() -> anyhow::Result<()> {
 
     // Update config.
     let msg = ClientMessage::PutStopConfig {
-        config: serde_json::json!({"mode": "signal", "prompt": "wait"}),
+        config: serde_json::json!({"mode": "auto", "prompt": "wait"}),
     };
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
@@ -698,7 +698,7 @@ async fn stop_config_roundtrip() -> anyhow::Result<()> {
     let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
     match reply {
         Some(ServerMessage::StopConfig { config }) => {
-            assert_eq!(config["mode"], "signal");
+            assert_eq!(config["mode"], "auto");
         }
         other => anyhow::bail!("expected StopConfig, got {other:?}"),
     }

@@ -218,10 +218,7 @@ pub(crate) fn claude_config_dir() -> PathBuf {
 /// Claude stores logs at `<config-dir>/projects/<project-dir-name>/<uuid>.jsonl`.
 pub(crate) fn session_log_path(working_dir: &Path, session_id: &str) -> PathBuf {
     let dir_name = project_dir_name(working_dir);
-    claude_config_dir()
-        .join("projects")
-        .join(dir_name)
-        .join(format!("{session_id}.jsonl"))
+    claude_config_dir().join("projects").join(dir_name).join(format!("{session_id}.jsonl"))
 }
 
 /// Convert a working directory path into Claude's project directory name.

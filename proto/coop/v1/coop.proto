@@ -434,7 +434,7 @@ message ResolveStopResponse {
 message StreamStopEventsRequest {}
 // Stop hook verdict event.
 message StopEvent {
-  // Verdict type: signaled, error, safety_valve, blocked, allowed.
+  // Verdict type: signaled, error, safety_valve, blocked, allowed, rejected.
   string type = 1;
   // Signal body JSON (when type is "signaled").
   optional string signal_json = 2;

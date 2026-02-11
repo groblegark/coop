@@ -479,10 +479,10 @@ async fn handle_client_message(
 
         ClientMessage::ResolveStop { body } => {
             require_auth!(authed);
-            let stop = &state.stop;
-            *stop.signal_body.write().await = Some(body);
-            stop.signaled.store(true, std::sync::atomic::Ordering::Release);
-            Some(ServerMessage::StopResolved { accepted: true })
+            match state.stop.resolve(body).await {
+                Ok(()) => Some(ServerMessage::StopResolved { accepted: true }),
+                Err(msg) => Some(ws_error(ErrorCode::BadRequest, &msg)),
+            }
         }
 
         // Start hook

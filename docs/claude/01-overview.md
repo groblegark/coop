@@ -353,9 +353,10 @@ Claude stops.
 
 Stop gating is configured via `StopConfig`:
 - **Mode `allow`** (default): always allow the agent to stop
-- **Mode `signal`**: block until the orchestrator sends a signal via the resolve endpoint
+- **Mode `auto`**: block until signaled, with generated `coop send` instructions
+- **Mode `gate`**: block until signaled, with prompt returned verbatim (orchestrator-driven)
 
-Both `/api/v1/hooks/stop` and `/api/v1/hooks/stop/resolve` are auth-exempt
+Both `/api/v1/hooks/stop` and `/api/v1/stop/resolve` are auth-exempt
 since they are called from inside the PTY.
 
 

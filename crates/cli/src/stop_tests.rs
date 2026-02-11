@@ -22,18 +22,18 @@ fn deserialize_allow_mode() -> anyhow::Result<()> {
 }
 
 #[test]
-fn deserialize_signal_mode_with_prompt() -> anyhow::Result<()> {
-    let json = r#"{"mode": "signal", "prompt": "Complete the task before stopping."}"#;
+fn deserialize_auto_mode_with_prompt() -> anyhow::Result<()> {
+    let json = r#"{"mode": "auto", "prompt": "Complete the task before stopping."}"#;
     let config: StopConfig = serde_json::from_str(json)?;
-    assert_eq!(config.mode, StopMode::Signal);
+    assert_eq!(config.mode, StopMode::Auto);
     assert_eq!(config.prompt.as_deref(), Some("Complete the task before stopping."));
     Ok(())
 }
 
 #[test]
-fn deserialize_signal_mode_with_schema() -> anyhow::Result<()> {
+fn deserialize_auto_mode_with_schema() -> anyhow::Result<()> {
     let json = r#"{
-        "mode": "signal",
+        "mode": "auto",
         "prompt": "Signal when done.",
         "schema": {
             "fields": {
@@ -53,7 +53,7 @@ fn deserialize_signal_mode_with_schema() -> anyhow::Result<()> {
         }
     }"#;
     let config: StopConfig = serde_json::from_str(json)?;
-    assert_eq!(config.mode, StopMode::Signal);
+    assert_eq!(config.mode, StopMode::Auto);
     let schema = config.schema.as_ref().expect("schema should be present");
     assert_eq!(schema.fields.len(), 2);
     let status = &schema.fields["status"];
@@ -61,6 +61,15 @@ fn deserialize_signal_mode_with_schema() -> anyhow::Result<()> {
     assert_eq!(status.r#enum.as_ref().map(|v| v.len()), Some(2));
     let notes = &schema.fields["notes"];
     assert!(!notes.required);
+    Ok(())
+}
+
+#[test]
+fn deserialize_gate_mode() -> anyhow::Result<()> {
+    let json = r#"{"mode": "gate", "prompt": "Run bd decision create to resolve."}"#;
+    let config: StopConfig = serde_json::from_str(json)?;
+    assert_eq!(config.mode, StopMode::Gate);
+    assert_eq!(config.prompt.as_deref(), Some("Run bd decision create to resolve."));
     Ok(())
 }
 
@@ -76,7 +85,7 @@ fn deserialize_empty_object_is_defaults() -> anyhow::Result<()> {
 
 #[test]
 fn generate_block_reason_default_no_schema() {
-    let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
+    let config = StopConfig { mode: StopMode::Auto, prompt: None, schema: None };
     assert_eq!(
         generate_block_reason(&config),
         concat!(
@@ -93,7 +102,7 @@ fn generate_block_reason_default_no_schema() {
 #[test]
 fn generate_block_reason_custom_prompt_no_schema() {
     let config = StopConfig {
-        mode: StopMode::Signal,
+        mode: StopMode::Auto,
         prompt: Some("Finish your work first.".to_owned()),
         schema: None,
     };
@@ -114,7 +123,7 @@ fn generate_block_reason_custom_prompt_no_schema() {
 #[test]
 fn generate_block_reason_prompt_with_inline_json() {
     let config = StopConfig {
-        mode: StopMode::Signal,
+        mode: StopMode::Auto,
         prompt: Some(r#"Send {"result":"ok"} when done."#.to_owned()),
         schema: None,
     };
@@ -145,7 +154,7 @@ fn generate_block_reason_with_enum_schema_expands_commands() {
         },
     );
     let config = StopConfig {
-        mode: StopMode::Signal,
+        mode: StopMode::Auto,
         prompt: Some("Signal when ready.".to_owned()),
         schema: Some(StopSchema { fields }),
     };
@@ -190,7 +199,7 @@ fn generate_block_reason_enum_with_extra_fields() {
         },
     );
     let config =
-        StopConfig { mode: StopMode::Signal, prompt: None, schema: Some(StopSchema { fields }) };
+        StopConfig { mode: StopMode::Auto, prompt: None, schema: Some(StopSchema { fields }) };
     assert_eq!(
         generate_block_reason(&config),
         concat!(
@@ -216,12 +225,51 @@ fn generate_block_reason_non_enum_schema() {
         },
     );
     let config =
-        StopConfig { mode: StopMode::Signal, prompt: None, schema: Some(StopSchema { fields }) };
+        StopConfig { mode: StopMode::Auto, prompt: None, schema: Some(StopSchema { fields }) };
     // No enum field → single example from the schema
     assert_eq!(
         generate_block_reason(&config),
         "When ready to stop, run: `coop send '{\"message\":\"<message>\"}'`"
     );
+}
+
+#[test]
+fn generate_block_reason_gate_mode_prompt_verbatim() {
+    let config = StopConfig {
+        mode: StopMode::Gate,
+        prompt: Some("Run `bd decision create` to continue.".to_owned()),
+        schema: None,
+    };
+    assert_eq!(generate_block_reason(&config), "Run `bd decision create` to continue.");
+}
+
+#[test]
+fn generate_block_reason_gate_mode_no_prompt() {
+    // Gate mode with no prompt returns empty string (prompt is required at
+    // config level, but generate_block_reason is defensive).
+    let config = StopConfig { mode: StopMode::Gate, prompt: None, schema: None };
+    assert_eq!(generate_block_reason(&config), "");
+}
+
+#[test]
+fn generate_block_reason_gate_mode_ignores_schema() {
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        "status".to_owned(),
+        StopSchemaField {
+            required: true,
+            r#enum: Some(vec!["done".to_owned()]),
+            descriptions: None,
+            description: None,
+        },
+    );
+    let config = StopConfig {
+        mode: StopMode::Gate,
+        prompt: Some("Custom gate prompt.".to_owned()),
+        schema: Some(StopSchema { fields }),
+    };
+    // Schema is ignored in gate mode — prompt is returned verbatim.
+    assert_eq!(generate_block_reason(&config), "Custom gate prompt.");
 }
 
 #[test]
@@ -231,15 +279,16 @@ fn stop_type_as_str() {
     assert_eq!(StopType::SafetyValve.as_str(), "safety_valve");
     assert_eq!(StopType::Blocked.as_str(), "blocked");
     assert_eq!(StopType::Allowed.as_str(), "allowed");
+    assert_eq!(StopType::Rejected.as_str(), "rejected");
 }
 
 #[test]
 fn stop_config_roundtrip_json() -> anyhow::Result<()> {
     let config =
-        StopConfig { mode: StopMode::Signal, prompt: Some("test prompt".to_owned()), schema: None };
+        StopConfig { mode: StopMode::Auto, prompt: Some("test prompt".to_owned()), schema: None };
     let json = serde_json::to_string(&config)?;
     let parsed: StopConfig = serde_json::from_str(&json)?;
-    assert_eq!(parsed.mode, StopMode::Signal);
+    assert_eq!(parsed.mode, StopMode::Auto);
     assert_eq!(parsed.prompt.as_deref(), Some("test prompt"));
     Ok(())
 }
@@ -257,4 +306,98 @@ fn stop_state_emit_increments_seq() {
     // Events should also be received on the broadcast channel.
     let received = rx.try_recv().expect("should receive event");
     assert_eq!(received.seq, 0);
+}
+
+// -- validate_signal tests ----------------------------------------------------
+
+#[test]
+fn validate_signal_happy_path() {
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        "status".to_owned(),
+        StopSchemaField {
+            required: true,
+            r#enum: Some(vec!["done".to_owned(), "error".to_owned()]),
+            descriptions: None,
+            description: None,
+        },
+    );
+    let schema = StopSchema { fields };
+    let body = serde_json::json!({"status": "done"});
+    assert!(validate_signal(&schema, &body).is_ok());
+}
+
+#[test]
+fn validate_signal_missing_required_field() {
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        "status".to_owned(),
+        StopSchemaField { required: true, r#enum: None, descriptions: None, description: None },
+    );
+    let schema = StopSchema { fields };
+    let body = serde_json::json!({});
+    let err = validate_signal(&schema, &body).unwrap_err();
+    assert!(err.contains("missing required field: status"), "got: {err}");
+}
+
+#[test]
+fn validate_signal_bad_enum_value() {
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        "status".to_owned(),
+        StopSchemaField {
+            required: true,
+            r#enum: Some(vec!["done".to_owned(), "error".to_owned()]),
+            descriptions: None,
+            description: None,
+        },
+    );
+    let schema = StopSchema { fields };
+    let body = serde_json::json!({"status": "bogus"});
+    let err = validate_signal(&schema, &body).unwrap_err();
+    assert!(err.contains("bogus"), "got: {err}");
+    assert!(err.contains("done"), "got: {err}");
+}
+
+#[test]
+fn validate_signal_no_schema_passes_anything() {
+    // Empty schema = no fields to validate.
+    let schema = StopSchema { fields: BTreeMap::new() };
+    let body = serde_json::json!({"anything": "goes"});
+    assert!(validate_signal(&schema, &body).is_ok());
+}
+
+// -- StopState::resolve tests -------------------------------------------------
+
+#[tokio::test]
+async fn stop_state_resolve_accepted() {
+    let state = StopState::new(StopConfig::default(), "http://test".to_owned());
+    let body = serde_json::json!({"ok": true});
+    let result = state.resolve(body).await;
+    assert!(result.is_ok());
+    assert!(state.signaled.load(std::sync::atomic::Ordering::Acquire));
+    let stored = state.signal_body.read().await;
+    assert!(stored.is_some());
+}
+
+#[tokio::test]
+async fn stop_state_resolve_rejected_with_event() {
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        "status".to_owned(),
+        StopSchemaField {
+            required: true,
+            r#enum: Some(vec!["done".to_owned()]),
+            descriptions: None,
+            description: None,
+        },
+    );
+    let config =
+        StopConfig { mode: StopMode::Auto, prompt: None, schema: Some(StopSchema { fields }) };
+    let state = StopState::new(config, "http://test".to_owned());
+    let body = serde_json::json!({"status": "bad"});
+    let result = state.resolve(body).await;
+    assert!(result.is_err());
+    // Signal should NOT be set on rejection.
+    assert!(!state.signaled.load(std::sync::atomic::Ordering::Acquire));
 }

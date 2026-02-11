@@ -425,7 +425,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     // Switch channel: capacity 1 enforces single-switch-at-a-time.
     let (switch_tx, switch_rx) = mpsc::channel::<SwitchRequest>(1);
 
-    let resolve_url = format!("{coop_url_for_setup}/api/v1/hooks/stop/resolve");
+    let resolve_url = format!("{coop_url_for_setup}/api/v1/stop/resolve");
     let stop_state = Arc::new(StopState::new(stop_config, resolve_url));
     let start_state = Arc::new(StartState::new(start_config));
     let switch_state = Arc::new(SwitchState {

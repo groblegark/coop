@@ -37,14 +37,8 @@ impl RespondEncoder for ClaudeRespondEncoder {
         // so the TUI can process the input.
         let text = feedback.unwrap_or_default();
         vec![
-            NudgeStep {
-                bytes: b"\x1b[A".to_vec(),
-                delay_after: Some(self.input_delay),
-            },
-            NudgeStep {
-                bytes: text.as_bytes().to_vec(),
-                delay_after: Some(self.input_delay),
-            },
+            NudgeStep { bytes: b"\x1b[A".to_vec(), delay_after: Some(self.input_delay) },
+            NudgeStep { bytes: text.as_bytes().to_vec(), delay_after: Some(self.input_delay) },
             NudgeStep { bytes: b"\r".to_vec(), delay_after: None },
         ]
     }
@@ -93,14 +87,8 @@ impl ClaudeRespondEncoder {
         if let Some(ref text) = answer.text {
             // Freeform text: Up Arrow to navigate to text field, type text, Enter.
             return vec![
-                NudgeStep {
-                    bytes: b"\x1b[A".to_vec(),
-                    delay_after: Some(self.input_delay),
-                },
-                NudgeStep {
-                    bytes: text.as_bytes().to_vec(),
-                    delay_after: Some(self.input_delay),
-                },
+                NudgeStep { bytes: b"\x1b[A".to_vec(), delay_after: Some(self.input_delay) },
+                NudgeStep { bytes: text.as_bytes().to_vec(), delay_after: Some(self.input_delay) },
                 NudgeStep { bytes: b"\r".to_vec(), delay_after: None },
             ];
         }
