@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 use coop::driver::AgentState;
 use coop::event::TransitionEvent;
 use coop::stop::{StopEvent, StopType};
-use coop::test_support::{NatsServer, StoreBuilder};
+use coop::test_support::{NatsServer, StoreBuilder, StoreCtx};
 use coop::transport::nats_pub::{NatsPublisher, StateEventPayload, StopEventPayload};
 
 const RECV_TIMEOUT: Duration = Duration::from_secs(5);
@@ -41,7 +41,7 @@ async fn nats_client(server: &NatsServer) -> anyhow::Result<async_nats::Client> 
 #[tokio::test]
 async fn nats_publishes_state_transition() -> anyhow::Result<()> {
     let server = require_nats!();
-    let (store, _rx) = StoreBuilder::new().build();
+    let StoreCtx { store, .. } = StoreBuilder::new().build();
 
     // Subscribe before publisher starts so we don't miss the message.
     let sub_client = nats_client(&server).await?;
@@ -87,7 +87,7 @@ async fn nats_publishes_state_transition() -> anyhow::Result<()> {
 #[tokio::test]
 async fn nats_publishes_state_with_cause_and_message() -> anyhow::Result<()> {
     let server = require_nats!();
-    let (store, _rx) = StoreBuilder::new().build();
+    let StoreCtx { store, .. } = StoreBuilder::new().build();
 
     let sub_client = nats_client(&server).await?;
     let mut sub = sub_client.subscribe("ev.state").await?;
@@ -129,7 +129,7 @@ async fn nats_publishes_state_with_cause_and_message() -> anyhow::Result<()> {
 #[tokio::test]
 async fn nats_publishes_stop_event() -> anyhow::Result<()> {
     let server = require_nats!();
-    let (store, _rx) = StoreBuilder::new().build();
+    let StoreCtx { store, .. } = StoreBuilder::new().build();
 
     let sub_client = nats_client(&server).await?;
     let mut sub = sub_client.subscribe("test.stop").await?;
@@ -165,7 +165,7 @@ async fn nats_publishes_stop_event() -> anyhow::Result<()> {
 #[tokio::test]
 async fn nats_publishes_stop_event_with_signal() -> anyhow::Result<()> {
     let server = require_nats!();
-    let (store, _rx) = StoreBuilder::new().build();
+    let StoreCtx { store, .. } = StoreBuilder::new().build();
 
     let sub_client = nats_client(&server).await?;
     let mut sub = sub_client.subscribe("test.stop").await?;
@@ -204,7 +204,7 @@ async fn nats_publishes_stop_event_with_signal() -> anyhow::Result<()> {
 #[tokio::test]
 async fn nats_publishes_stop_event_with_error() -> anyhow::Result<()> {
     let server = require_nats!();
-    let (store, _rx) = StoreBuilder::new().build();
+    let StoreCtx { store, .. } = StoreBuilder::new().build();
 
     let sub_client = nats_client(&server).await?;
     let mut sub = sub_client.subscribe("test.stop").await?;
@@ -237,7 +237,7 @@ async fn nats_publishes_stop_event_with_error() -> anyhow::Result<()> {
 #[tokio::test]
 async fn nats_shutdown_stops_publisher() -> anyhow::Result<()> {
     let server = require_nats!();
-    let (store, _rx) = StoreBuilder::new().build();
+    let StoreCtx { store, .. } = StoreBuilder::new().build();
 
     let pub_client = nats_client(&server).await?;
     let publisher = NatsPublisher::new(pub_client, "test".to_owned());
@@ -286,7 +286,7 @@ async fn nats_connect_via_config() -> anyhow::Result<()> {
 #[tokio::test]
 async fn nats_concurrent_subscribers_receive_events() -> anyhow::Result<()> {
     let server = require_nats!();
-    let (store, _rx) = StoreBuilder::new().build();
+    let StoreCtx { store, .. } = StoreBuilder::new().build();
 
     // Create 3 NATS subscribers.
     let mut subs = Vec::new();
@@ -333,7 +333,7 @@ async fn nats_concurrent_subscribers_receive_events() -> anyhow::Result<()> {
 #[tokio::test]
 async fn nats_subject_prefix_is_respected() -> anyhow::Result<()> {
     let server = require_nats!();
-    let (store, _rx) = StoreBuilder::new().build();
+    let StoreCtx { store, .. } = StoreBuilder::new().build();
 
     let sub_client = nats_client(&server).await?;
     // Subscribe to custom prefix.
