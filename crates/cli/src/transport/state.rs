@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -56,6 +57,9 @@ pub struct Store {
     pub usage: Arc<UsageState>,
     /// Named credential profiles for rotation. Always present (defaults to empty).
     pub profile: Arc<ProfileState>,
+    /// Pending environment variable overrides.  Written by `PUT /api/v1/env/:key`,
+    /// merged into the child's environment on the next session switch.
+    pub pending_env: RwLock<HashMap<String, String>>,
     /// Serializes structured input delivery (nudge, respond) and enforces
     /// a minimum inter-delivery gap to prevent garbled terminal input.
     pub input_gate: Arc<InputGate>,

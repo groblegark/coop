@@ -162,6 +162,18 @@ impl PreparedSession {
             }
         }
 
+        // 5b. Merge pending env vars (set via PUT /api/v1/env/:key).
+        {
+            let mut pending = self.store.pending_env.write().await;
+            for (k, v) in pending.drain() {
+                if let Some(existing) = env_vars.iter_mut().find(|(ek, _)| ek == &k) {
+                    existing.1 = v;
+                } else {
+                    env_vars.push((k, v));
+                }
+            }
+        }
+
         // 6. Build driver (detectors only — encoders already on SessionSettings).
         let sinks = || {
             DetectorSinks::default()
@@ -484,6 +496,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         },
         session_id: RwLock::new(session_id),
         ready: Arc::new(AtomicBool::new(false)),
+        pending_env: tokio::sync::RwLock::new(std::collections::HashMap::new()),
         input_gate: Arc::new(crate::transport::state::InputGate::new(config.input_delay())),
         stop: stop_state,
         switch: switch_state,

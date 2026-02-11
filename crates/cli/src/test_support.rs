@@ -179,6 +179,7 @@ impl StoreBuilder {
             },
             session_id: RwLock::new(uuid::Uuid::new_v4().to_string()),
             ready: Arc::new(AtomicBool::new(false)),
+            pending_env: tokio::sync::RwLock::new(std::collections::HashMap::new()),
             input_gate: Arc::new(crate::transport::state::InputGate::new(Duration::ZERO)),
             stop: Arc::new(StopState::new(
                 self.stop_config.unwrap_or_default(),
