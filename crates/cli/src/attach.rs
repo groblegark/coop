@@ -300,6 +300,16 @@ async fn attach(
     sl_cfg: &StatuslineConfig,
     max_reconnects: u32,
 ) -> i32 {
+    // Try the initial connection BEFORE entering raw mode so a connection
+    // failure doesn't disturb the terminal.
+    let initial_ws = match connect_ws(url, socket).await {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: WebSocket connection failed: {e}");
+            return 1;
+        }
+    };
+
     // Enter raw mode (persists across reconnects).
     let raw_guard = match RawModeGuard::enter() {
         Ok(g) => g,
@@ -366,37 +376,35 @@ async fn attach(
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change()).ok();
 
     let mut attempt: u32 = 0;
+    let mut pending_ws = Some(initial_ws);
     let exit_code;
 
     loop {
-        // Connect WebSocket.
-        let ws_stream = match connect_ws(url, socket).await {
-            Ok(s) => s,
-            Err(e) => {
-                if attempt == 0 {
-                    // First connection failure — no reconnect.
-                    reset_scroll_region_if(&mut stdout, sl_active);
-                    drop(raw_guard);
-                    eprintln!("error: WebSocket connection failed: {e}");
-                    return 1;
+        // Use the pre-connected stream on first iteration, reconnect after.
+        let ws_stream = if let Some(ws) = pending_ws.take() {
+            ws
+        } else {
+            match connect_ws(url, socket).await {
+                Ok(s) => s,
+                Err(e) => {
+                    // Reconnect failure — treat as disconnected.
+                    if max_reconnects > 0 && attempt >= max_reconnects {
+                        reset_scroll_region_if(&mut stdout, sl_active);
+                        drop(raw_guard);
+                        eprintln!("\r\ncoop attach: max reconnects reached, giving up.");
+                        return 1;
+                    }
+                    let backoff = reconnect_backoff(attempt);
+                    let _ = write!(
+                        stdout,
+                        "\r\ncoop attach: connection failed ({e}), retrying in {:.1}s...\r\n",
+                        backoff.as_secs_f64()
+                    );
+                    let _ = stdout.flush();
+                    tokio::time::sleep(backoff).await;
+                    attempt += 1;
+                    continue;
                 }
-                // Reconnect failure — treat as disconnected.
-                if max_reconnects > 0 && attempt >= max_reconnects {
-                    reset_scroll_region_if(&mut stdout, sl_active);
-                    drop(raw_guard);
-                    eprintln!("\r\ncoop attach: max reconnects reached, giving up.");
-                    return 1;
-                }
-                let backoff = reconnect_backoff(attempt);
-                let _ = write!(
-                    stdout,
-                    "\r\ncoop attach: connection failed, retrying in {:.1}s...\r\n",
-                    backoff.as_secs_f64()
-                );
-                let _ = stdout.flush();
-                tokio::time::sleep(backoff).await;
-                attempt += 1;
-                continue;
             }
         };
 
