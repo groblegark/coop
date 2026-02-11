@@ -114,8 +114,9 @@ pub struct Config {
     #[arg(long, env = "COOP_LOG_LEVEL", default_value = "info")]
     pub log_level: String,
 
-    /// Resume a previous session from a log path or workspace ID.
-    #[arg(long, env = "COOP_RESUME")]
+    /// Resume a previous session. Accepts a .jsonl log path, a workspace
+    /// path (e.g. /Users/me/myapp), or a project directory name.
+    #[arg(long, env = "COOP_RESUME", value_name = "HINT")]
     pub resume: Option<String>,
 
     /// Agent command to run.

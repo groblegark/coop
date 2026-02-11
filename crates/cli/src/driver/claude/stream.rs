@@ -61,6 +61,7 @@ pub fn map_claude_hook(event: HookEvent) -> Option<(AgentState, String)> {
                         ctx = ctx.with_input(s);
                     }
                 }
+                ctx = ctx.with_ready();
                 Some((AgentState::Prompt { prompt: ctx }, "hook:prompt(plan)".into()))
             }
             "EnterPlanMode" => Some((AgentState::Working, "hook:working".into())),
