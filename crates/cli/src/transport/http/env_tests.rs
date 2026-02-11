@@ -13,10 +13,8 @@ async fn put_then_get_pending_env() -> anyhow::Result<()> {
     let app = build_router(store);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
-    let resp = server
-        .put("/api/v1/env/MY_VAR")
-        .json(&serde_json::json!({ "value": "hello" }))
-        .await;
+    let resp =
+        server.put("/api/v1/env/MY_VAR").json(&serde_json::json!({ "value": "hello" })).await;
     resp.assert_status_ok();
     let body: serde_json::Value = serde_json::from_str(&resp.text())?;
     assert_eq!(body["key"], "MY_VAR");

@@ -99,19 +99,12 @@ pub async fn list_env(State(s): State<Arc<Store>>) -> impl IntoResponse {
 /// `GET /api/v1/env/:key` — read a single environment variable.
 ///
 /// Checks pending overrides first, then falls back to the child's live environ.
-pub async fn get_env(
-    State(s): State<Arc<Store>>,
-    Path(key): Path<String>,
-) -> impl IntoResponse {
+pub async fn get_env(State(s): State<Arc<Store>>, Path(key): Path<String>) -> impl IntoResponse {
     // Check pending first (these take precedence on next switch).
     let pending = s.pending_env.read().await;
     if let Some(val) = pending.get(&key) {
-        return Json(EnvGetResponse {
-            key,
-            value: Some(val.clone()),
-            source: "pending",
-        })
-        .into_response();
+        return Json(EnvGetResponse { key, value: Some(val.clone()), source: "pending" })
+            .into_response();
     }
     drop(pending);
 
@@ -122,12 +115,7 @@ pub async fn get_env(
     };
     let vars = read_child_environ(pid);
     let value = vars.get(&key).cloned();
-    Json(EnvGetResponse {
-        key,
-        value,
-        source: "child",
-    })
-    .into_response()
+    Json(EnvGetResponse { key, value, source: "child" }).into_response()
 }
 
 /// `PUT /api/v1/env/:key` — store a pending environment variable override.
@@ -143,10 +131,7 @@ pub async fn put_env(
 }
 
 /// `DELETE /api/v1/env/:key` — remove a pending environment variable override.
-pub async fn delete_env(
-    State(s): State<Arc<Store>>,
-    Path(key): Path<String>,
-) -> impl IntoResponse {
+pub async fn delete_env(State(s): State<Arc<Store>>, Path(key): Path<String>) -> impl IntoResponse {
     let removed = s.pending_env.write().await.remove(&key).is_some();
     Json(EnvPutResponse { key, updated: removed })
 }
@@ -162,12 +147,9 @@ pub async fn get_session_cwd(State(s): State<Arc<Store>>) -> impl IntoResponse {
 
     let link = format!("/proc/{pid}/cwd");
     match std::fs::read_link(&link) {
-        Ok(path) => Json(CwdResponse {
-            cwd: path.to_string_lossy().into_owned(),
-        })
-        .into_response(),
-        Err(e) => ErrorCode::Internal
-            .to_http_response(format!("cannot read cwd: {e}"))
-            .into_response(),
+        Ok(path) => Json(CwdResponse { cwd: path.to_string_lossy().into_owned() }).into_response(),
+        Err(e) => {
+            ErrorCode::Internal.to_http_response(format!("cannot read cwd: {e}")).into_response()
+        }
     }
 }
