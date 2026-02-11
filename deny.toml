@@ -63,6 +63,11 @@ skip = [
     { crate = "rand_core@0.6" },
     # rustls-webpki 0.102 pulled by older rustls in async-nats dependency chain
     { crate = "rustls-webpki@0.102" },
+    # Older TLS/platform crates pulled by async-nats via rustls-native-certs 0.7
+    { crate = "core-foundation@0.9" },
+    { crate = "openssl-probe@0.1" },
+    { crate = "rustls-native-certs@0.7" },
+    { crate = "security-framework@2" },
 ]
 
 [sources]
