@@ -254,7 +254,13 @@ pub async fn run(config: Config) -> anyhow::Result<RunResult> {
 pub fn init_tracing(config: &Config) {
     use tracing_subscriber::fmt;
 
-    let filter = EnvFilter::try_new(&config.log_level).unwrap_or_else(|_| EnvFilter::new("info"));
+    // Priority: --log-level / COOP_LOG_LEVEL > RUST_LOG > default ("info").
+    let filter = if std::env::var("COOP_LOG_LEVEL").is_err() && config.log_level == "info" {
+        EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new(&config.log_level))
+    } else {
+        EnvFilter::try_new(&config.log_level).unwrap_or_else(|_| EnvFilter::new("info"))
+    };
 
     let result = match config.log_format.as_str() {
         "json" => fmt::fmt().with_env_filter(filter).json().try_init(),
