@@ -26,8 +26,9 @@ use crate::start::StartConfig;
 use crate::stop::StopConfig;
 use crate::transport::auth;
 use crate::transport::handler::{
-    compute_health, compute_status, error_message, handle_input, handle_input_raw, handle_keys,
-    handle_nudge, handle_resize, handle_respond, handle_signal, resolve_switch_profile,
+    compute_health, compute_status, error_message, extract_parked_fields, handle_input,
+    handle_input_raw, handle_keys, handle_nudge, handle_resize, handle_respond, handle_signal,
+    resolve_switch_profile,
 };
 use crate::transport::read_ring_combined;
 use crate::transport::state::Store;
@@ -395,6 +396,7 @@ async fn handle_client_message(
             let error_detail = state.driver.error.read().await.as_ref().map(|e| e.detail.clone());
             let error_category =
                 state.driver.error.read().await.as_ref().map(|e| e.category.as_str().to_owned());
+            let (parked_reason, resume_at_epoch_ms) = extract_parked_fields(&agent);
             let last_message = state.driver.last_message.read().await.clone();
             let session_id = state.session_id.read().await.clone();
             Some(ServerMessage::Agent {
@@ -408,6 +410,8 @@ async fn handle_client_message(
                 prompt: Box::new(agent.prompt().cloned()),
                 error_detail,
                 error_category,
+                parked_reason,
+                resume_at_epoch_ms,
                 last_message,
             })
         }

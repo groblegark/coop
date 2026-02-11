@@ -21,6 +21,7 @@ use crate::driver::{
     Detector, ErrorCategory, ExitStatus, NudgeStep, OptionParser, PromptKind,
 };
 use crate::event::{InputEvent, OutputEvent, PromptOutcome, TransitionEvent};
+use crate::profile::RotateOutcome;
 use crate::pty::{Backend, BackendInput, Boxed};
 use crate::switch::SwitchRequest;
 use crate::transport::Store;
@@ -278,9 +279,9 @@ impl Session {
 
                             // Auto-rotate on rate limit when profiles are registered.
                             if category == ErrorCategory::RateLimited {
-                                if let Some(req) = self.store.profile.try_auto_rotate().await {
-                                    let _ = self.store.switch.switch_tx.try_send(req);
-                                }
+                                handle_rate_limit(
+                                    Arc::clone(&self.store), &mut state_seq, &mut last_state,
+                                ).await;
                             }
                         } else {
                             *self.store.driver.error.write().await = None;
@@ -621,6 +622,39 @@ fn sighup_child_group(store: &Store) {
     }
 }
 
+/// Handle a rate-limit error by attempting profile rotation or parking.
+async fn handle_rate_limit(store: Arc<Store>, state_seq: &mut u64, last_state: &mut AgentState) {
+    match store.profile.try_auto_rotate().await {
+        RotateOutcome::Switch(req) => {
+            let _ = store.switch.switch_tx.try_send(req);
+        }
+        RotateOutcome::Exhausted { retry_after } => {
+            let resume_at = now_epoch_ms() + retry_after.as_millis() as u64;
+            let parked = AgentState::Parked {
+                reason: "all_profiles_rate_limited".into(),
+                resume_at_epoch_ms: resume_at,
+            };
+            *state_seq += 1;
+            let mut current = store.driver.agent_state.write().await;
+            let prev = current.clone();
+            *current = parked.clone();
+            drop(current);
+            *last_state = parked.clone();
+            store.driver.state_seq.store(*state_seq, std::sync::atomic::Ordering::Release);
+            let last_message = store.driver.last_message.read().await.clone();
+            let _ = store.channels.state_tx.send(TransitionEvent {
+                prev,
+                next: parked,
+                seq: *state_seq,
+                cause: "all_profiles_rate_limited".to_owned(),
+                last_message,
+            });
+            store.profile.schedule_retry(retry_after, store.clone());
+        }
+        RotateOutcome::Skipped => {}
+    }
+}
+
 /// Broadcast an `AgentState::Switching` transition and update tracking state.
 async fn broadcast_switching(store: &Store, state_seq: &mut u64, last_state: &mut AgentState) {
     *state_seq += 1;
@@ -725,6 +759,14 @@ async fn enrich_prompt_options(app: Arc<Store>, expected_seq: u64, parser: Optio
             });
         }
     }
+}
+
+/// Return the current UTC time as milliseconds since the Unix epoch.
+fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 #[cfg(test)]

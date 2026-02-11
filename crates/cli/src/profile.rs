@@ -8,11 +8,15 @@
 //! to pick the next available profile and produce a [`SwitchRequest`].
 
 use std::collections::{HashMap, VecDeque};
-use std::time::Instant;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
+use tracing::debug;
 
+use crate::driver::AgentState;
 use crate::switch::SwitchRequest;
 
 /// A registered credential profile.
@@ -62,11 +66,12 @@ pub struct ProfileInfo {
 }
 
 /// Shared profile state. Lives on `Store`.
-#[derive(Debug)]
 pub struct ProfileState {
     profiles: RwLock<Vec<Profile>>,
     config: RwLock<ProfileConfig>,
     switch_history: RwLock<VecDeque<Instant>>,
+    /// Dedup flag: ensures only one retry timer is pending at a time.
+    retry_pending: AtomicBool,
 }
 
 /// Entry in a registration request.
@@ -74,6 +79,17 @@ pub struct ProfileState {
 pub struct ProfileEntry {
     pub name: String,
     pub credentials: HashMap<String, String>,
+}
+
+/// Result of attempting automatic profile rotation.
+#[derive(Debug)]
+pub enum RotateOutcome {
+    /// Switch to this profile now.
+    Switch(SwitchRequest),
+    /// All profiles on cooldown; retry after this duration.
+    Exhausted { retry_after: Duration },
+    /// Rotation not applicable (disabled, < 2 profiles, anti-flap).
+    Skipped,
 }
 
 impl Default for ProfileState {
@@ -89,6 +105,7 @@ impl ProfileState {
             profiles: RwLock::new(Vec::new()),
             config: RwLock::new(ProfileConfig::default()),
             switch_history: RwLock::new(VecDeque::new()),
+            retry_pending: AtomicBool::new(false),
         }
     }
 
@@ -163,36 +180,36 @@ impl ProfileState {
     }
 
     /// Core rotation method: check config, anti-flap, mark current as rate-limited,
-    /// pick next available, and return a SwitchRequest or None.
-    pub async fn try_auto_rotate(&self) -> Option<SwitchRequest> {
+    /// pick next available, and return a [`RotateOutcome`].
+    pub async fn try_auto_rotate(&self) -> RotateOutcome {
         let config = self.config.read().await.clone();
 
         // Guard: rotation disabled.
         if !config.rotate_on_rate_limit {
-            return None;
+            return RotateOutcome::Skipped;
         }
 
         let mut profiles = self.profiles.write().await;
 
         // Guard: need at least 2 profiles to rotate.
         if profiles.len() < 2 {
-            return None;
+            return RotateOutcome::Skipped;
         }
 
         // Anti-flap: check switch rate.
         {
             let mut history = self.switch_history.write().await;
-            let one_hour_ago = Instant::now() - std::time::Duration::from_secs(3600);
+            let one_hour_ago = Instant::now() - Duration::from_secs(3600);
             while history.front().is_some_and(|t| *t < one_hour_ago) {
                 history.pop_front();
             }
             if history.len() as u32 >= config.max_switches_per_hour {
-                return None;
+                return RotateOutcome::Skipped;
             }
         }
 
         let now = Instant::now();
-        let cooldown = std::time::Duration::from_secs(config.cooldown_secs);
+        let cooldown = Duration::from_secs(config.cooldown_secs);
 
         // Mark current active profile as rate-limited.
         let active_idx = profiles.iter().position(|p| matches!(p.status, ProfileStatus::Active));
@@ -216,14 +233,83 @@ impl ProfileState {
             .map(|offset| (start + offset) % len)
             .find(|&i| matches!(profiles[i].status, ProfileStatus::Available));
 
-        let next_idx = next_idx?;
-        let next_name = profiles[next_idx].name.clone();
-        let next_creds = profiles[next_idx].credentials.clone();
+        match next_idx {
+            Some(idx) => {
+                let next_name = profiles[idx].name.clone();
+                let next_creds = profiles[idx].credentials.clone();
 
-        // Record switch timestamp.
-        self.switch_history.write().await.push_back(Instant::now());
+                // Record switch timestamp.
+                // Drop profiles lock before acquiring switch_history to avoid
+                // lock-order issues (both are RwLocks on the same struct).
+                drop(profiles);
+                self.switch_history.write().await.push_back(Instant::now());
 
-        Some(SwitchRequest { credentials: Some(next_creds), force: true, profile: Some(next_name) })
+                RotateOutcome::Switch(SwitchRequest {
+                    credentials: Some(next_creds),
+                    force: true,
+                    profile: Some(next_name),
+                })
+            }
+            None => {
+                // All profiles on cooldown — compute retry_after from the
+                // shortest remaining cooldown.
+                let retry_after = profiles
+                    .iter()
+                    .filter_map(|p| match &p.status {
+                        ProfileStatus::RateLimited { cooldown_until } => {
+                            Some(cooldown_until.saturating_duration_since(now))
+                        }
+                        _ => None,
+                    })
+                    .min()
+                    .unwrap_or(cooldown);
+                RotateOutcome::Exhausted { retry_after }
+            }
+        }
+    }
+
+    /// Spawn a delayed retry task that calls `try_auto_rotate` once cooldowns expire.
+    ///
+    /// Uses an `AtomicBool` flag to ensure only one retry timer is pending.
+    /// The timer no-ops if the agent is no longer in `Parked` state when it fires.
+    pub fn schedule_retry(
+        self: &Arc<Self>,
+        retry_after: Duration,
+        store: Arc<crate::transport::Store>,
+    ) {
+        // Dedup: only one retry timer at a time.
+        if self.retry_pending.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let profile = Arc::clone(self);
+        tokio::spawn(async move {
+            tokio::time::sleep(retry_after).await;
+
+            // Clear the dedup flag so future retries can schedule.
+            profile.retry_pending.store(false, Ordering::Release);
+
+            // Guard: only retry if the agent is still Parked.
+            let current = store.driver.agent_state.read().await;
+            if !matches!(&*current, AgentState::Parked { .. }) {
+                debug!("retry timer fired but agent is no longer parked, skipping");
+                return;
+            }
+            drop(current);
+
+            match profile.try_auto_rotate().await {
+                RotateOutcome::Switch(req) => {
+                    debug!("retry timer: cooldown expired, switching to profile {:?}", req.profile);
+                    let _ = store.switch.switch_tx.try_send(req);
+                }
+                RotateOutcome::Exhausted { retry_after } => {
+                    debug!("retry timer: still exhausted, re-scheduling in {retry_after:?}");
+                    profile.schedule_retry(retry_after, store);
+                }
+                RotateOutcome::Skipped => {
+                    debug!("retry timer: rotation skipped");
+                }
+            }
+        });
     }
 }
 

@@ -6,7 +6,7 @@
 use super::proto;
 use crate::driver::PromptContext;
 use crate::event::TransitionEvent;
-use crate::transport::handler::extract_error_fields;
+use crate::transport::handler::{extract_error_fields, extract_parked_fields};
 
 /// Convert a domain [`crate::screen::CursorPosition`] to proto.
 pub fn cursor_to_proto(c: &crate::screen::CursorPosition) -> proto::CursorPosition {
@@ -67,6 +67,7 @@ pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
 /// Convert a domain [`TransitionEvent`] to proto [`proto::TransitionEvent`].
 pub fn transition_to_proto(e: &TransitionEvent) -> proto::TransitionEvent {
     let (error_detail, error_category) = extract_error_fields(&e.next);
+    let (parked_reason, resume_at_epoch_ms) = extract_parked_fields(&e.next);
     let cause = if e.cause.is_empty() { None } else { Some(e.cause.clone()) };
     proto::TransitionEvent {
         prev: e.prev.as_str().to_owned(),
@@ -77,5 +78,7 @@ pub fn transition_to_proto(e: &TransitionEvent) -> proto::TransitionEvent {
         error_category,
         cause,
         last_message: e.last_message.clone(),
+        parked_reason,
+        resume_at_epoch_ms,
     }
 }

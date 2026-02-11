@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::driver::PromptContext;
 use crate::transport::handler::{
-    error_message, handle_nudge, handle_respond, TransportQuestionAnswer,
+    error_message, extract_parked_fields, handle_nudge, handle_respond, TransportQuestionAnswer,
 };
 use crate::transport::state::Store;
 
@@ -33,6 +33,10 @@ pub struct AgentResponse {
     pub error_detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parked_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume_at_epoch_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_message: Option<String>,
 }
@@ -60,6 +64,8 @@ pub async fn agent(State(s): State<Arc<Store>>) -> impl IntoResponse {
     let detection = s.driver.detection.read().await;
     let session_id = s.session_id.read().await.clone();
 
+    let (parked_reason, resume_at_epoch_ms) = extract_parked_fields(&state);
+
     Json(AgentResponse {
         agent: s.config.agent.to_string(),
         session_id,
@@ -77,6 +83,8 @@ pub async fn agent(State(s): State<Arc<Store>>) -> impl IntoResponse {
             .await
             .as_ref()
             .map(|e| e.category.as_str().to_owned()),
+        parked_reason,
+        resume_at_epoch_ms,
         last_message: s.driver.last_message.read().await.clone(),
     })
     .into_response()

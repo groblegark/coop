@@ -121,6 +121,18 @@ pub fn extract_error_fields(agent: &AgentState) -> (Option<String>, Option<Strin
     }
 }
 
+/// Extract parked fields from an agent state.
+///
+/// Returns `(parked_reason, resume_at_epoch_ms)` — both `None` for non-parked states.
+pub fn extract_parked_fields(agent: &AgentState) -> (Option<String>, Option<u64>) {
+    match agent {
+        AgentState::Parked { reason, resume_at_epoch_ms } => {
+            (Some(reason.clone()), Some(*resume_at_epoch_ms))
+        }
+        _ => (None, None),
+    }
+}
+
 /// Resolve profile credentials on a [`SwitchRequest`].
 ///
 /// If `profile` is set but `credentials` is `None`, look up the named profile.

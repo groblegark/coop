@@ -13,7 +13,7 @@ use crate::screen::{CursorPosition, ScreenSnapshot};
 use crate::start::StartEvent;
 use crate::stop::StopEvent;
 use crate::transport::handler::{
-    extract_error_fields, NudgeOutcome, RespondOutcome, SessionStatus,
+    extract_error_fields, extract_parked_fields, NudgeOutcome, RespondOutcome, SessionStatus,
 };
 use crate::usage::{SessionUsage, UsageEvent};
 
@@ -222,6 +222,10 @@ pub enum ServerMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         error_category: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        parked_reason: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        resume_at_epoch_ms: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         last_message: Option<String>,
     },
     Nudged {
@@ -247,6 +251,10 @@ pub enum ServerMessage {
         error_detail: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         error_category: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parked_reason: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        resume_at_epoch_ms: Option<u64>,
         #[serde(default, skip_serializing_if = "String::is_empty")]
         cause: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -507,6 +515,7 @@ pub fn transition_to_msg(event: &TransitionEvent) -> ServerMessage {
         return ServerMessage::Exit { code: status.code, signal: status.signal };
     }
     let (error_detail, error_category) = extract_error_fields(&event.next);
+    let (parked_reason, resume_at_epoch_ms) = extract_parked_fields(&event.next);
     ServerMessage::Transition {
         prev: event.prev.as_str().to_owned(),
         next: event.next.as_str().to_owned(),
@@ -514,6 +523,8 @@ pub fn transition_to_msg(event: &TransitionEvent) -> ServerMessage {
         prompt: Box::new(event.next.prompt().cloned()),
         error_detail,
         error_category,
+        parked_reason,
+        resume_at_epoch_ms,
         cause: event.cause.clone(),
         last_message: event.last_message.clone(),
     }

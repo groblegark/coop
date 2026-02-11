@@ -309,7 +309,7 @@ message GetAgentResponse {
   // Agent type.
   string agent = 1;
   // Current agent state: starting, working, idle,
-  // prompt, error, exited, unknown.
+  // prompt, error, parked, exited, unknown.
   string state = 2;
   // Sequence number when this state was entered.
   uint64 since_seq = 3;
@@ -329,6 +329,10 @@ message GetAgentResponse {
   string detection_cause = 10;
   // Agent session ID (UUID).
   string session_id = 11;
+  // Why the agent is parked (when state is "parked").
+  optional string parked_reason = 12;
+  // UTC epoch millis when retry is scheduled (when state is "parked").
+  optional uint64 resume_at_epoch_ms = 13;
 }
 
 message NudgeRequest {
@@ -388,6 +392,10 @@ message TransitionEvent {
   optional string cause = 7;
   // Last message extracted from agent output.
   optional string last_message = 8;
+  // Why the agent is parked (when next is "parked").
+  optional string parked_reason = 9;
+  // UTC epoch millis when retry is scheduled (when next is "parked").
+  optional uint64 resume_at_epoch_ms = 10;
 }
 
 message StreamPromptOutcomesRequest {}

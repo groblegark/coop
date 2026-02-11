@@ -19,9 +19,9 @@ use crate::event::OutputEvent;
 use crate::start::StartConfig;
 use crate::stop::StopConfig;
 use crate::transport::handler::{
-    compute_health, compute_status, error_message, handle_input, handle_input_raw, handle_keys,
-    handle_nudge, handle_resize, handle_respond, handle_signal, resolve_switch_profile,
-    TransportQuestionAnswer,
+    compute_health, compute_status, error_message, extract_parked_fields, handle_input,
+    handle_input_raw, handle_keys, handle_nudge, handle_resize, handle_respond, handle_signal,
+    resolve_switch_profile, TransportQuestionAnswer,
 };
 use crate::transport::read_ring_combined;
 
@@ -233,6 +233,7 @@ impl proto::coop_server::Coop for CoopGrpc {
 
         let detection = self.state.driver.detection.read().await;
 
+        let (parked_reason, resume_at_epoch_ms) = extract_parked_fields(&agent);
         let session_id = self.state.session_id.read().await.clone();
         Ok(Response::new(proto::GetAgentResponse {
             agent: self.state.config.agent.to_string(),
@@ -253,6 +254,8 @@ impl proto::coop_server::Coop for CoopGrpc {
                 .map(|e| e.category.as_str().to_owned()),
             last_message: self.state.driver.last_message.read().await.clone(),
             session_id,
+            parked_reason,
+            resume_at_epoch_ms,
         }))
     }
 
