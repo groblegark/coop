@@ -34,11 +34,14 @@ allow = [
     "CC0-1.0",
     # webpki-roots (Mozilla CA certificates) — permissive data license
     "CDLA-Permissive-2.0",
+    # aws-lc-sys (AWS LibCrypto) — permissive, used by rustls via reqwest
+    "OpenSSL",
 ]
 
-# Our own crate uses BUSL-1.1
+# Our own crates use BUSL-1.1
 exceptions = [
     { allow = ["BUSL-1.1"], crate = "coop" },
+    { allow = ["BUSL-1.1"], crate = "coop-specs" },
 ]
 
 [bans]
@@ -48,8 +51,8 @@ wildcards = "deny"
 skip = [
     # hashbrown 0.15 pulled by petgraph (via prost-build), while 0.16 is used by indexmap
     { crate = "hashbrown@0.15" },
-    # getrandom 0.2 pulled by ring (via rustls), while 0.3 is used by rand/tempfile/uuid
-    { crate = "getrandom@0.2" },
+    # getrandom 0.3 pulled by rand/uuid, while 0.4 is used by tempfile
+    { crate = "getrandom@0.3" },
 ]
 
 [sources]

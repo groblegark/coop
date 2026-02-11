@@ -256,8 +256,7 @@ pub fn init_tracing(config: &Config) {
 
     // Priority: --log-level / COOP_LOG_LEVEL > RUST_LOG > default ("info").
     let filter = if std::env::var("COOP_LOG_LEVEL").is_err() && config.log_level == "info" {
-        EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new(&config.log_level))
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.log_level))
     } else {
         EnvFilter::try_new(&config.log_level).unwrap_or_else(|_| EnvFilter::new("info"))
     };

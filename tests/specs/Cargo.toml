@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
-coop = { path = "../../crates/cli" }
+coop = { path = "../../crates/cli", version = "0.1.0" }
 futures-util.workspace = true
 reqwest.workspace = true
 serde_json.workspace = true

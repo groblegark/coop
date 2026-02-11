@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 use std::path::{Path, PathBuf};
 
 use nix::sys::stat::Mode;
@@ -16,6 +16,12 @@ struct FifoFd(OwnedFd);
 impl AsRawFd for FifoFd {
     fn as_raw_fd(&self) -> std::os::fd::RawFd {
         self.0.as_raw_fd()
+    }
+}
+
+impl AsFd for FifoFd {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.as_fd()
     }
 }
 
@@ -76,7 +82,7 @@ impl HookReceiver {
             };
             let mut buf = [0u8; 4096];
             match guard.try_io(|inner| {
-                nix::unistd::read(inner.as_raw_fd(), &mut buf)
+                nix::unistd::read(inner.get_ref(), &mut buf)
                     .map_err(|e| std::io::Error::from_raw_os_error(e as i32))
             }) {
                 Ok(Ok(0)) => return None, // EOF

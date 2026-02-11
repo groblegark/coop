@@ -24,11 +24,10 @@ impl AsFd for PtyFd {
 }
 
 /// Set the given file descriptor to non-blocking mode.
-pub fn set_nonblocking(fd: &impl AsRawFd) -> io::Result<()> {
-    let raw = fd.as_raw_fd();
-    let flags = fcntl(raw, FcntlArg::F_GETFL).map_err(io_err)?;
+pub fn set_nonblocking(fd: &impl AsFd) -> io::Result<()> {
+    let flags = fcntl(fd, FcntlArg::F_GETFL).map_err(io_err)?;
     let flags = OFlag::from_bits_truncate(flags);
-    fcntl(raw, FcntlArg::F_SETFL(flags | OFlag::O_NONBLOCK)).map_err(io_err)?;
+    fcntl(fd, FcntlArg::F_SETFL(flags | OFlag::O_NONBLOCK)).map_err(io_err)?;
     Ok(())
 }
 
@@ -37,7 +36,7 @@ pub async fn read_chunk(afd: &AsyncFd<PtyFd>, buf: &mut [u8]) -> io::Result<usiz
     loop {
         let mut guard = afd.readable().await?;
         match guard.try_io(|inner| {
-            let n = nix::unistd::read(inner.as_raw_fd(), buf).map_err(io_err)?;
+            let n = nix::unistd::read(inner.get_ref(), buf).map_err(io_err)?;
             Ok(n)
         }) {
             Ok(result) => return result,

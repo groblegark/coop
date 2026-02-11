@@ -21,7 +21,7 @@ tracing = "0.1"
 tokio-util = "0.7"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 avt = "0.17"
-nix = { version = "0.28", features = ["term", "process", "fs", "signal"] }
+nix = { version = "0.31", features = ["term", "process", "fs", "signal"] }
 rustix = { version = "1", features = ["termios"] }
 notify = "8"
 prost = "0.14"
@@ -40,7 +40,7 @@ tonic-prost-build = "0.14"
 # dev dependencies
 axum-test = "18"
 proptest = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "blocking", "rustls"] }
 tokio-tungstenite = "0.28"
 yare = "3"
 

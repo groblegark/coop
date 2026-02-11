@@ -12,7 +12,7 @@ use nix::libc;
 use nix::pty::{forkpty, ForkptyResult, Winsize};
 use nix::sys::signal::{kill, SigHandler, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd::{execvp, ForkResult, Pid};
+use nix::unistd::{execvp, Pid};
 use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc;
 
@@ -47,10 +47,9 @@ impl NativePty {
         // SAFETY: forkpty is unsafe because the child is in a
         // partially-initialized state after fork. We immediately exec.
         let result = unsafe { forkpty(&winsize, None) }.context("forkpty failed")?;
-        let ForkptyResult { master, fork_result } = result;
 
-        match fork_result {
-            ForkResult::Child => {
+        match result {
+            ForkptyResult::Child => {
                 // Child process: restore default signal handlers and exec.
                 // Tokio sets SIGPIPE to SIG_IGN which the child inherits;
                 // restore it so piped programs behave normally.
@@ -75,7 +74,7 @@ impl NativePty {
                 execvp(&c_args[0], &c_args).context("execvp failed")?;
                 unreachable!();
             }
-            ForkResult::Parent { child } => {
+            ForkptyResult::Parent { child, master } => {
                 set_nonblocking(&master)?;
                 let afd = AsyncFd::new(PtyFd(master)).context("AsyncFd::new failed")?;
                 Ok(Self {
