@@ -176,6 +176,7 @@ impl StoreBuilder {
                 bytes_written: AtomicU64::new(0),
             },
             ready: Arc::new(AtomicBool::new(false)),
+            pending_env: tokio::sync::RwLock::new(std::collections::HashMap::new()),
             input_gate: Arc::new(crate::transport::state::InputGate::new(Duration::ZERO)),
             stop: Arc::new(StopState::new(
                 self.stop_config.unwrap_or_default(),
