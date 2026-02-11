@@ -7,11 +7,15 @@
 //! response. This replaces the raw `curl` command that block-reason messages
 //! previously suggested.
 
+/// CLI arguments for `coop send`.
+#[derive(Debug, clap::Args)]
+pub struct SendArgs {
+    /// JSON body to send (default: `{}`).
+    pub body: Option<String>,
+}
+
 /// Run the `coop send` subcommand. Returns a process exit code.
-///
-/// `body_arg` is the optional first positional argument (JSON string).
-/// If omitted, posts `{}`.
-pub fn run(body_arg: Option<&str>) -> i32 {
+pub fn run(args: &SendArgs) -> i32 {
     let coop_url = match std::env::var("COOP_URL") {
         Ok(u) => u,
         Err(_) => {
@@ -20,7 +24,7 @@ pub fn run(body_arg: Option<&str>) -> i32 {
         }
     };
 
-    send(&coop_url, body_arg)
+    send(&coop_url, args.body.as_deref())
 }
 
 /// Inner implementation: resolve the stop hook given a base URL and optional

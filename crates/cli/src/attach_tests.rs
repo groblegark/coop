@@ -10,35 +10,59 @@ static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[tokio::test]
 async fn missing_coop_url_returns_2() {
-    let _lock = ENV_LOCK.lock();
-    std::env::remove_var("COOP_URL");
-    std::env::remove_var("COOP_SOCKET");
-    std::env::remove_var("COOP_AUTH_TOKEN");
-    assert_eq!(run(&[]).await, 2);
+    let args = AttachArgs {
+        url: None,
+        socket: None,
+        auth_token: None,
+        no_statusline: false,
+        statusline_cmd: None,
+        statusline_interval: DEFAULT_STATUSLINE_INTERVAL,
+        max_reconnects: 10,
+    };
+    assert_eq!(run(args).await, 2);
 }
 
-#[tokio::test]
-async fn help_flag_returns_0() {
-    assert_eq!(run(&["--help".to_string()]).await, 0);
+#[test]
+fn help_flag_handled_by_clap() {
+    let err = TestWrapper::try_parse_from(["coop-attach", "--help"]).unwrap_err();
+    assert!(!err.use_stderr());
 }
 
-#[tokio::test]
-async fn help_short_flag_returns_0() {
-    assert_eq!(run(&["-h".to_string()]).await, 0);
+#[test]
+fn help_short_flag_handled_by_clap() {
+    let err = TestWrapper::try_parse_from(["coop-attach", "-h"]).unwrap_err();
+    assert!(!err.use_stderr());
 }
 
 #[tokio::test]
 async fn connection_refused_returns_1() {
-    assert_eq!(run(&["http://127.0.0.1:1".to_string()]).await, 1);
+    let args = AttachArgs {
+        url: Some("http://127.0.0.1:1".to_string()),
+        socket: None,
+        auth_token: None,
+        no_statusline: false,
+        statusline_cmd: None,
+        statusline_interval: DEFAULT_STATUSLINE_INTERVAL,
+        max_reconnects: 10,
+    };
+    assert_eq!(run(args).await, 1);
 }
 
 // ===== AttachArgs / StatuslineConfig tests ==================================
 
 use clap::Parser;
 
+/// Wrapper to test `AttachArgs` parsing (since `Args` doesn't have `try_parse_from`).
+#[derive(Debug, Parser)]
+#[command(name = "coop-attach")]
+struct TestWrapper {
+    #[command(flatten)]
+    args: AttachArgs,
+}
+
 fn parse_args(args: &[&str]) -> AttachArgs {
     let argv: Vec<&str> = std::iter::once("coop-attach").chain(args.iter().copied()).collect();
-    AttachArgs::try_parse_from(argv).unwrap_or_else(|e| panic!("parse failed: {e}"))
+    TestWrapper::try_parse_from(argv).unwrap_or_else(|e| panic!("parse failed: {e}")).args
 }
 
 #[test]
@@ -94,7 +118,7 @@ fn args_statusline_interval_equals_syntax() {
 #[test]
 fn args_invalid_interval_is_parse_error() {
     let argv = ["coop-attach", "--statusline-interval=abc"];
-    assert!(AttachArgs::try_parse_from(argv).is_err());
+    assert!(TestWrapper::try_parse_from(argv).is_err());
 }
 
 #[test]

@@ -16,7 +16,6 @@ use std::sync::{Mutex, Once};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use clap::Parser;
 use futures_util::future::Either;
 use futures_util::{SinkExt, StreamExt};
 use nix::sys::termios;
@@ -25,12 +24,8 @@ use tokio::sync::mpsc;
 use crate::transport::ws::{ClientMessage, ServerMessage};
 
 /// CLI arguments for `coop attach`.
-#[derive(Debug, Parser)]
-#[command(
-    name = "coop-attach",
-    about = "Attach an interactive terminal to a running coop server.\nDetach with Ctrl+]."
-)]
-struct AttachArgs {
+#[derive(Debug, clap::Args)]
+pub struct AttachArgs {
     /// Server URL (e.g. http://127.0.0.1:8080).
     #[arg(env = "COOP_URL")]
     url: Option<String>,
@@ -237,36 +232,22 @@ async fn run_statusline_cmd(cmd: &str, state: &AttachState) -> String {
 
 /// Run the `coop attach` subcommand. Returns a process exit code.
 ///
-/// `args` contains everything after "attach" on the command line.
-///
 /// This is async because the attach loop uses tokio for WebSocket I/O,
 /// signal handling, and timers. It must be called from within a tokio
 /// runtime (e.g. from `#[tokio::main]` in main.rs).
-pub async fn run(args: &[String]) -> i32 {
-    // Build argv as ["coop-attach", ...args] for clap.
-    let argv: Vec<&str> =
-        std::iter::once("coop-attach").chain(args.iter().map(|s| s.as_str())).collect();
-    let parsed = match AttachArgs::try_parse_from(argv) {
-        Ok(a) => a,
-        Err(e) => {
-            // Clap prints help/version to stdout, errors to stderr.
-            let _ = e.print();
-            return if e.use_stderr() { 2 } else { 0 };
-        }
-    };
-
-    if parsed.url.is_none() && parsed.socket.is_none() {
+pub async fn run(args: AttachArgs) -> i32 {
+    if args.url.is_none() && args.socket.is_none() {
         eprintln!("error: COOP_URL is not set and no URL or --socket argument provided");
         return 2;
     }
 
-    let sl_cfg = StatuslineConfig::from(&parsed);
+    let sl_cfg = StatuslineConfig::from(&args);
     attach(
-        parsed.url.as_deref(),
-        parsed.socket.as_deref(),
-        parsed.auth_token.as_deref(),
+        args.url.as_deref(),
+        args.socket.as_deref(),
+        args.auth_token.as_deref(),
         &sl_cfg,
-        parsed.max_reconnects,
+        args.max_reconnects,
     )
     .await
 }
