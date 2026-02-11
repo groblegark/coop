@@ -16,6 +16,7 @@ use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 use crate::config::{self, Config, GroomLevel};
+use crate::credential::CredentialBroker;
 use crate::driver::claude::resume;
 use crate::driver::claude::setup as claude_setup;
 use crate::driver::gemini::setup as gemini_setup;
@@ -300,6 +301,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let start_config = agent_file_config.as_ref().and_then(|c| c.start.clone()).unwrap_or_default();
     let base_settings = agent_file_config.as_ref().and_then(|c| c.settings.clone());
     let mcp_config = agent_file_config.as_ref().and_then(|c| c.mcp.clone());
+    let credential_config = agent_file_config.as_ref().and_then(|c| c.credentials.clone());
 
     // 1. Handle --resume: discover session log and build resume state.
     let (resume_state, resume_log_path) = if let Some(ref resume_hint) = config.resume {
@@ -461,6 +463,12 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     let profile_state = Arc::new(ProfileState::new());
 
+    // Credential broker (Epic 16): create if configured.
+    let credential_broker = credential_config.as_ref().map(|config| {
+        let (broker, _rx) = CredentialBroker::new(config);
+        broker
+    });
+
     let event_log = Arc::new(EventLog::new(setup.as_ref().map(|s| s.session_dir.as_path())));
 
     let store = Arc::new(Store {
@@ -506,6 +514,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         profile: profile_state,
         input_activity: Arc::new(tokio::sync::Notify::new()),
         event_log: Arc::clone(&event_log),
+        credentials: credential_broker,
     });
 
     // Spawn event log subscriber — persists state/hook events to JSONL files.
@@ -538,6 +547,15 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
                     }
                 }
             }
+        });
+    }
+
+    // Spawn credential broker refresh loops (Epic 16).
+    if let Some(ref broker) = store.credentials {
+        let broker = Arc::clone(broker);
+        let sd = shutdown.clone();
+        tokio::spawn(async move {
+            broker.run(sd).await;
         });
     }
 

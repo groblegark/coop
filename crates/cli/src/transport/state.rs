@@ -10,6 +10,7 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::GroomLevel;
+use crate::credential::CredentialBroker;
 use crate::driver::{
     AgentState, AgentType, ErrorCategory, ExitStatus, NudgeEncoder, RespondEncoder,
 };
@@ -69,6 +70,9 @@ pub struct Store {
     pub input_activity: Arc<tokio::sync::Notify>,
     /// File-backed event log for state/hook event catchup on WS reconnect.
     pub event_log: Arc<EventLog>,
+    /// Credential broker for centralized OAuth token management (Epic 16).
+    /// `None` when no `credentials` config is provided.
+    pub credentials: Option<Arc<CredentialBroker>>,
 }
 
 /// Terminal I/O: screen, ring buffer, child process.

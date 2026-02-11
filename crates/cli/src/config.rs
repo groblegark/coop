@@ -7,6 +7,7 @@ use std::time::Duration;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
+use crate::credential::CredentialConfig;
 use crate::driver::AgentType;
 use crate::start::StartConfig;
 use crate::stop::StopConfig;
@@ -371,6 +372,10 @@ pub struct AgentFileConfig {
     /// For Gemini, inserted as `mcpServers` in the settings file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mcp: Option<serde_json::Value>,
+    /// Credential broker configuration (Epic 16).
+    /// When present, coop manages OAuth token refresh for the configured accounts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credentials: Option<CredentialConfig>,
 }
 
 /// Load and parse the agent config file at `path`.

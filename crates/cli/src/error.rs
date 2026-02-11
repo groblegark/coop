@@ -15,6 +15,7 @@ pub enum ErrorCode {
     AgentBusy,
     NoPrompt,
     SwitchInProgress,
+    NotFound,
     Internal,
 }
 
@@ -29,6 +30,7 @@ impl ErrorCode {
             Self::AgentBusy => 409,
             Self::NoPrompt => 409,
             Self::SwitchInProgress => 409,
+            Self::NotFound => 404,
             Self::Internal => 500,
         }
     }
@@ -43,6 +45,7 @@ impl ErrorCode {
             Self::AgentBusy => "AGENT_BUSY",
             Self::NoPrompt => "NO_PROMPT",
             Self::SwitchInProgress => "SWITCH_IN_PROGRESS",
+            Self::NotFound => "NOT_FOUND",
             Self::Internal => "INTERNAL",
         }
     }
@@ -60,6 +63,7 @@ impl ErrorCode {
             Self::AgentBusy => tonic::Code::FailedPrecondition,
             Self::NoPrompt => tonic::Code::FailedPrecondition,
             Self::SwitchInProgress => tonic::Code::FailedPrecondition,
+            Self::NotFound => tonic::Code::NotFound,
             Self::Internal => tonic::Code::Internal,
         };
         tonic::Status::new(code, message)

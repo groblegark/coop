@@ -4,6 +4,7 @@
 //! HTTP request/response types and axum handler implementations.
 
 mod agent;
+mod credential;
 mod env;
 mod events;
 mod hooks;
@@ -13,6 +14,7 @@ mod transcript;
 mod usage;
 
 pub use agent::*;
+pub use credential::*;
 pub use env::*;
 pub use events::*;
 pub use hooks::*;

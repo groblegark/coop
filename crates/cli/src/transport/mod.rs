@@ -346,6 +346,8 @@ pub fn build_router(state: Arc<Store>) -> Router {
         .route("/api/v1/transcripts/catchup", get(http::catchup_transcripts))
         .route("/api/v1/events/catchup", get(http::catchup_events))
         .route("/api/v1/transcripts/{number}", get(http::get_transcript))
+        .route("/api/v1/credentials/status", get(http::credentials_status))
+        .route("/api/v1/credentials/seed", post(http::credentials_seed))
         .route("/ws", get(ws::ws_handler))
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_layer))
         .layer(middleware::from_fn(compat::http_compat_layer))
