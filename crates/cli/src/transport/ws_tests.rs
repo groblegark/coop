@@ -52,6 +52,8 @@ fn state_change_serialization() -> anyhow::Result<()> {
         prompt: Box::new(None),
         error_detail: None,
         error_category: None,
+        parked_reason: None,
+        resume_at_epoch_ms: None,
         cause: String::new(),
         last_message: None,
     };
@@ -78,6 +80,8 @@ fn state_change_with_error_serialization() -> anyhow::Result<()> {
         prompt: Box::new(None),
         error_detail: Some("rate_limit_error".to_owned()),
         error_category: Some("rate_limited".to_owned()),
+        parked_reason: None,
+        resume_at_epoch_ms: None,
         cause: "log:error".to_owned(),
         last_message: None,
     };
