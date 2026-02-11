@@ -223,6 +223,39 @@ pub async fn handle_nudge(state: &Store, message: &str) -> Result<NudgeOutcome, 
         AgentState::Prompt { prompt }
             if prompt.kind == crate::driver::PromptKind::Setup
                 && prompt.subtype.as_deref() == Some("oauth_login") => {}
+        // Delegate to respond for prompts that accept freetext.
+        AgentState::Prompt { prompt }
+            if prompt.kind == crate::driver::PromptKind::Plan
+                || prompt.kind == crate::driver::PromptKind::Question =>
+        {
+            let kind = prompt.kind;
+            drop(agent);
+            // Release the gate before delegating — handle_respond acquires its own.
+            drop(_delivery);
+            let respond = match kind {
+                // Plan: option 4 (feedback) with nudge message as text.
+                crate::driver::PromptKind::Plan => {
+                    handle_respond(state, None, None, Some(message), &[]).await
+                }
+                // Question: single freetext answer for current question.
+                crate::driver::PromptKind::Question => {
+                    let answer =
+                        TransportQuestionAnswer { option: None, text: Some(message.to_owned()) };
+                    handle_respond(state, None, None, None, &[answer]).await
+                }
+                crate::driver::PromptKind::Permission | crate::driver::PromptKind::Setup => {
+                    unreachable!("guard filters to Plan | Question")
+                }
+            };
+            return match respond {
+                Ok(r) => Ok(NudgeOutcome {
+                    delivered: r.delivered,
+                    state_before: Some(state_before),
+                    reason: r.reason,
+                }),
+                Err(code) => Err(code),
+            };
+        }
         _ => {
             return Ok(NudgeOutcome {
                 delivered: false,

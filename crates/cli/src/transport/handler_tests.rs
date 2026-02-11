@@ -159,6 +159,85 @@ async fn nudge_waiting_delivers() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn nudge_plan_delegates_to_respond() -> anyhow::Result<()> {
+    let plan_state = AgentState::Prompt {
+        prompt: crate::driver::PromptContext::new(crate::driver::PromptKind::Plan)
+            .with_options(vec![
+                "Approve".to_owned(),
+                "Auto-approve".to_owned(),
+                "Deny".to_owned(),
+                "Feedback".to_owned(),
+            ])
+            .with_ready(),
+    };
+    let StoreCtx { store: state, mut input_rx, .. } = StoreBuilder::new()
+        .agent_state(plan_state)
+        .nudge_encoder(Arc::new(StubNudgeEncoder))
+        .respond_encoder(Arc::new(StubRespondEncoder))
+        .build();
+    state.ready.store(true, std::sync::atomic::Ordering::Release);
+
+    let result = handle_nudge(&state, "looks good but rename Foo")
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    assert!(result.delivered);
+    assert_eq!(result.state_before.as_deref(), Some("prompt"));
+
+    // StubRespondEncoder::encode_plan returns "{option}\r"; resolve_plan_option(None,None) → 4.
+    let event = input_rx.recv().await;
+    assert!(matches!(event, Some(InputEvent::Write(data)) if data == &b"4\r"[..]));
+    Ok(())
+}
+
+#[tokio::test]
+async fn nudge_question_delegates_to_respond() -> anyhow::Result<()> {
+    let question_state = AgentState::Prompt {
+        prompt: crate::driver::PromptContext::new(crate::driver::PromptKind::Question)
+            .with_questions(vec![crate::driver::QuestionContext {
+                question: "What framework?".to_owned(),
+                options: vec!["React".to_owned(), "Vue".to_owned()],
+            }])
+            .with_ready(),
+    };
+    let StoreCtx { store: state, mut input_rx, .. } = StoreBuilder::new()
+        .agent_state(question_state)
+        .nudge_encoder(Arc::new(StubNudgeEncoder))
+        .respond_encoder(Arc::new(StubRespondEncoder))
+        .build();
+    state.ready.store(true, std::sync::atomic::Ordering::Release);
+
+    let result = handle_nudge(&state, "Svelte").await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    assert!(result.delivered);
+    assert_eq!(result.state_before.as_deref(), Some("prompt"));
+
+    // StubRespondEncoder::encode_question returns "q\r".
+    let event = input_rx.recv().await;
+    assert!(matches!(event, Some(InputEvent::Write(data)) if data == &b"q\r"[..]));
+    Ok(())
+}
+
+#[tokio::test]
+async fn nudge_permission_prompt_rejected() -> anyhow::Result<()> {
+    let perm_state = AgentState::Prompt {
+        prompt: crate::driver::PromptContext::new(crate::driver::PromptKind::Permission)
+            .with_subtype("tool")
+            .with_tool("Bash")
+            .with_ready(),
+    };
+    let StoreCtx { store: state, .. } = StoreBuilder::new()
+        .agent_state(perm_state)
+        .nudge_encoder(Arc::new(StubNudgeEncoder))
+        .build();
+    state.ready.store(true, std::sync::atomic::Ordering::Release);
+
+    let result = handle_nudge(&state, "hello").await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    assert!(!result.delivered);
+    assert_eq!(result.state_before.as_deref(), Some("prompt"));
+    assert!(result.reason.as_deref().unwrap_or("").contains("agent is prompt"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn respond_not_ready_returns_error() -> anyhow::Result<()> {
     let StoreCtx { store: state, .. } =
         StoreBuilder::new().respond_encoder(Arc::new(StubRespondEncoder)).build();
