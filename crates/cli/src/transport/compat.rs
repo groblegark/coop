@@ -1,24 +1,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-//! HTTP compatibility middleware: rejects pre-HTTP/1.1 requests and echoes
-//! `Connection: close` so hyper closes the connection after responding.
+//! HTTP compatibility middleware: echoes `Connection: close` so hyper closes
+//! the connection after responding when the client requests it.
 
 use axum::http::header::{self, HeaderValue};
-use axum::http::{Request, StatusCode, Version};
+use axum::http::Request;
 use axum::middleware::Next;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 
-/// Middleware that:
-/// 1. Returns 505 HTTP Version Not Supported for requests below HTTP/1.1.
-/// 2. Echoes `Connection: close` on the response when the request includes it,
-///    so hyper tears down the connection instead of keeping it alive.
+/// Middleware that echoes `Connection: close` on the response when the request
+/// includes it, so hyper tears down the connection instead of keeping it alive.
 pub async fn http_compat_layer(req: Request<axum::body::Body>, next: Next) -> Response {
-    if req.version() < Version::HTTP_11 {
-        return (StatusCode::HTTP_VERSION_NOT_SUPPORTED, "HTTP/1.1 or higher required")
-            .into_response();
-    }
-
     let conn_close = req
         .headers()
         .get(header::CONNECTION)

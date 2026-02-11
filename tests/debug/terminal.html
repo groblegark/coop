@@ -104,7 +104,10 @@
   .action-column { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; align-items: flex-start; }
   .action-row input[type="text"],
   .action-row textarea,
-  .action-row select {
+  .action-row select,
+  .action-column input[type="text"],
+  .action-column textarea,
+  .action-column select {
     flex: 1; min-width: 0;
     background: #222; border: 1px solid #444; color: #ddd;
     font: 11px Menlo, Monaco, monospace; padding: 3px 6px;
@@ -112,8 +115,12 @@
   }
   .action-row input:focus,
   .action-row textarea:focus,
-  .action-row select:focus { border-color: #7cb7ff; }
-  .action-row textarea { resize: vertical; min-height: 28px; line-height: 1.4; }
+  .action-row select:focus,
+  .action-column input:focus,
+  .action-column textarea:focus,
+  .action-column select:focus { border-color: #7cb7ff; }
+  .action-row textarea,
+  .action-column textarea { resize: vertical; min-height: 28px; line-height: 1.4; }
   .action-btn {
     background: #2a2a2a; border: 1px solid #444; color: #ccc;
     font: 11px Menlo, Monaco, monospace; padding: 3px 10px;
@@ -271,20 +278,22 @@
         <div class="action-section">
           <div class="action-label">Respond to Prompt <span id="act-respond-kind" style="color:#7cb7ff;"></span></div>
           <div id="act-respond-none" style="font-size:10px;color:#555;">No active prompt</div>
+          <div id="act-respond-last-msg" style="display:none;font-size:10px;color:#aaa;margin-bottom:6px;padding:4px 6px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:3px;white-space:pre-wrap;word-break:break-word;max-height:100px;overflow-y:auto;"></div>
 
           <!-- Permission prompt: numbered options -->
           <div id="act-respond-permission" style="display:none;">
-            <div id="act-respond-perm-info" style="font-size:10px;color:#888;margin-bottom:4px;"></div>
+            <div id="act-respond-perm-info" style="font-size:10px;color:#888;margin-bottom:4px;white-space:pre-wrap;word-break:break-word;max-height:80px;overflow-y:auto;"></div>
             <div id="act-respond-perm-fallback" class="fallback-badge" style="display:none;">fallback — parser couldn't find real options</div>
-            <div id="act-respond-perm-options" class="action-row"></div>
+            <div id="act-respond-perm-options" class="action-column"></div>
           </div>
 
           <!-- Plan prompt: numbered options with feedback -->
           <div id="act-respond-plan" style="display:none;">
+            <div id="act-respond-plan-info" style="font-size:10px;color:#aaa;margin-bottom:6px;padding:4px 6px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:3px;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow-y:auto;"></div>
             <div id="act-respond-plan-fallback" class="fallback-badge" style="display:none;">fallback — parser couldn't find real options</div>
-            <div id="act-respond-plan-options" class="action-row"></div>
-            <div class="action-row">
-              <input type="text" id="act-plan-feedback" placeholder="Feedback (last option)..." />
+            <div id="act-respond-plan-options" class="action-column"></div>
+            <div class="action-column" style="margin-top:8px;padding-top:8px;border-top:1px solid #2a2a2a;">
+              <input type="text" id="act-plan-feedback" placeholder="Feedback (last option)..." style="width:100%;" />
               <button class="action-btn btn-warn" id="act-plan-feedback-send">Feedback</button>
             </div>
           </div>
@@ -306,7 +315,7 @@
           <!-- Question prompt: show question + options -->
           <div id="act-respond-question" style="display:none;">
             <div id="act-question-text" style="font-size:10px;color:#aaa;margin-bottom:4px;"></div>
-            <div id="act-question-options" class="key-grid"></div>
+            <div id="act-question-options" class="action-column"></div>
             <div class="action-row" style="margin-top:4px;">
               <input type="text" id="act-question-freeform" placeholder="Other (freeform text)..." />
               <button class="action-btn" id="act-question-freeform-send">Send</button>
@@ -520,7 +529,7 @@ async function pollAgentState() {
     const agent = await fetch(`${BASE}/api/v1/agent`).then(r => r.ok ? r.json() : null);
     if (agent?.state) {
       setAgentState(agent.state);
-      updateRespondUI(agent.prompt ?? null);
+      updateRespondUI(agent.prompt ?? null, agent.last_message ?? null);
     }
   } catch (_) { /* ignore */ }
 }
@@ -816,9 +825,10 @@ const respondPanels = {
   question: document.getElementById('act-respond-question'),
 };
 
-function updateRespondUI(prompt) {
+function updateRespondUI(prompt, lastMessage) {
   currentPrompt = prompt;
   const kindEl = document.getElementById('act-respond-kind');
+  const lastMsgEl = document.getElementById('act-respond-last-msg');
 
   // Hide all panels
   for (const p of Object.values(respondPanels)) p.style.display = 'none';
@@ -826,7 +836,16 @@ function updateRespondUI(prompt) {
   if (!prompt) {
     respondPanels.none.style.display = '';
     kindEl.textContent = '';
+    lastMsgEl.style.display = 'none';
     return;
+  }
+
+  // Show last assistant message if available
+  if (lastMessage) {
+    lastMsgEl.textContent = lastMessage;
+    lastMsgEl.style.display = '';
+  } else {
+    lastMsgEl.style.display = 'none';
   }
 
   kindEl.textContent = `(${prompt.type})`;
@@ -837,7 +856,8 @@ function updateRespondUI(prompt) {
     const parts = [];
     if (prompt.tool) parts.push(`Tool: ${prompt.tool}`);
     if (prompt.input) parts.push(prompt.input);
-    info.textContent = parts.join(' — ') || '';
+    info.textContent = parts.join('\n') || '';
+    info.style.display = parts.length ? '' : 'none';
     const isFallback = !!prompt.options_fallback;
     document.getElementById('act-respond-perm-fallback').style.display = isFallback ? '' : 'none';
     // Dynamic options from screen parsing, with hardcoded fallback
@@ -885,6 +905,20 @@ function updateRespondUI(prompt) {
   } else if (prompt.type === 'plan') {
     respondPanels.plan.style.display = '';
     document.getElementById('act-plan-feedback').value = '';
+    // Show plan input context — extract the plan text from ExitPlanMode tool input
+    const planInfo = document.getElementById('act-respond-plan-info');
+    if (prompt.input) {
+      try {
+        const parsed = JSON.parse(prompt.input);
+        planInfo.textContent = parsed.plan || JSON.stringify(parsed, null, 2);
+      } catch (_) {
+        planInfo.textContent = prompt.input;
+      }
+      planInfo.style.display = '';
+    } else {
+      planInfo.textContent = '';
+      planInfo.style.display = 'none';
+    }
     const isFallback = !!prompt.options_fallback;
     document.getElementById('act-respond-plan-fallback').style.display = isFallback ? '' : 'none';
     // Dynamic options from screen parsing, with hardcoded fallback
@@ -892,7 +926,9 @@ function updateRespondUI(prompt) {
     planOptsEl.innerHTML = '';
     const planOpts = prompt.options?.length ? prompt.options : ['Start with clear context', 'Auto-accept edits', 'Review each edit', 'Provide feedback'];
     const planStyles = isFallback ? ['btn-success btn-fallback', 'btn-danger btn-fallback'] : ['btn-success', 'btn-success', '', 'btn-warn'];
-    planOpts.forEach((label, i) => {
+    // Render all options except the last as buttons; the last becomes the feedback row
+    const buttonOpts = planOpts.slice(0, -1);
+    buttonOpts.forEach((label, i) => {
       const btn = document.createElement('button');
       btn.className = `action-btn ${planStyles[i] || ''}`;
       btn.textContent = `${i + 1}. ${label}`;
@@ -902,10 +938,12 @@ function updateRespondUI(prompt) {
       });
       planOptsEl.appendChild(btn);
     });
-    // Update feedback button to reference the last option
+    // Update feedback row to reference the last option
     const fbBtn = document.getElementById('act-plan-feedback-send');
     const lastIdx = planOpts.length;
-    fbBtn.textContent = `${lastIdx}. Feedback`;
+    const lastLabel = planOpts[planOpts.length - 1];
+    fbBtn.textContent = `${lastIdx}. ${lastLabel}`;
+    document.getElementById('act-plan-feedback').placeholder = `${lastLabel}...`;
   } else if (prompt.type === 'question') {
     respondPanels.question.style.display = '';
     const q = prompt.questions?.[prompt.question_current ?? 0];
@@ -1083,7 +1121,7 @@ function connect() {
       info.textContent = `offset: ${msg.offset + bytes.length}`;
     } else if (msg.event === 'transition') {
       setAgentState(msg.next);
-      updateRespondUI(msg.prompt ?? null);
+      updateRespondUI(msg.prompt ?? null, msg.last_message ?? null);
     } else if (msg.event === 'exit') {
       const desc = msg.signal != null ? `signal ${msg.signal}` : `code ${msg.code ?? '?'}`;
       setStatus('disconnected', `Exited (${desc})`);

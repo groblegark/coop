@@ -222,7 +222,7 @@ pub(crate) fn session_log_path(working_dir: &Path, session_id: &str) -> PathBuf 
 pub fn project_dir_name(path: &Path) -> String {
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let s = canonical.display().to_string();
-    s.replace('/', "-").trim_start_matches('-').to_owned()
+    s.replace('/', "-").replace('.', "-")
 }
 
 #[cfg(test)]

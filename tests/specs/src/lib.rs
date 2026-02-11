@@ -29,7 +29,7 @@ pub async fn unix_http_get(socket_path: &Path, path: &str) -> anyhow::Result<Str
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let mut stream = tokio::net::UnixStream::connect(socket_path).await?;
-    let request = format!("GET {path} HTTP/1.0\r\nHost: localhost\r\n\r\n");
+    let request = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
     stream.write_all(request.as_bytes()).await?;
 
     let mut buf = Vec::new();

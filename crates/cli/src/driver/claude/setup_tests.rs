@@ -8,16 +8,18 @@ use serde_json::json;
 use super::project_dir_name;
 
 #[test]
-fn project_dir_name_strips_leading_separator() {
+fn project_dir_name_keeps_leading_dash() {
     let name = project_dir_name(Path::new("/Users/alice/projects/myapp"));
-    assert!(!name.starts_with('-'));
-    assert!(name.contains("Users-alice-projects-myapp"));
+    assert!(name.starts_with('-'));
+    assert_eq!(name, "-Users-alice-projects-myapp");
 }
 
 #[test]
-fn project_dir_name_replaces_slashes() {
-    let name = project_dir_name(Path::new("/a/b/c"));
+fn project_dir_name_replaces_slashes_and_dots() {
+    let name = project_dir_name(Path::new("/a/b.c/d"));
     assert!(!name.contains('/'));
+    assert!(!name.contains('.'));
+    assert_eq!(name, "-a-b-c-d");
 }
 
 #[test]
