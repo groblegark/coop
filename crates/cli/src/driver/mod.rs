@@ -105,9 +105,6 @@ pub struct PromptContext {
     pub subtype: Option<String>,
     pub tool: Option<String>,
     pub input: Option<String>,
-    /// OAuth authorization URL (present during setup oauth_login prompts).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub auth_url: Option<String>,
     /// Numbered option labels parsed from the terminal screen (permission/plan prompts).
     #[serde(default)]
     pub options: Vec<String>,
@@ -135,7 +132,6 @@ impl PromptContext {
             subtype: None,
             tool: None,
             input: None,
-            auth_url: None,
             options: vec![],
             options_fallback: false,
             questions: vec![],
@@ -156,11 +152,6 @@ impl PromptContext {
 
     pub fn with_input(mut self, i: impl Into<String>) -> Self {
         self.input = Some(i.into());
-        self
-    }
-
-    pub fn with_auth_url(mut self, u: impl Into<String>) -> Self {
-        self.auth_url = Some(u.into());
         self
     }
 

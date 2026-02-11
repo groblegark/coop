@@ -862,9 +862,9 @@ function updateRespondUI(prompt) {
     // Auth URL (oauth_login prompts)
     const authPanel = document.getElementById('act-respond-setup-auth');
     const authUrlInput = document.getElementById('act-setup-auth-url');
-    if (prompt.auth_url) {
+    if (prompt.subtype === 'oauth_login' && prompt.input) {
       authPanel.style.display = '';
-      authUrlInput.value = prompt.auth_url;
+      authUrlInput.value = prompt.input;
     } else {
       authPanel.style.display = 'none';
       authUrlInput.value = '';

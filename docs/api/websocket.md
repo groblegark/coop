@@ -1155,7 +1155,6 @@ Server replies with a `start:configured` message.
   "subtype": "tool",
   "tool": "Bash",
   "input": "{\"command\":\"ls\"}",
-  "auth_url": null,
   "options": ["Yes", "Yes, and don't ask again for this tool", "No"],
   "options_fallback": false,
   "questions": [],
@@ -1169,8 +1168,7 @@ Server replies with a `start:configured` message.
 | `type` | string | Prompt type: `"permission"`, `"plan"`, `"question"`, `"setup"` |
 | `subtype` | string or null | Further classification (see HTTP API for known subtypes) |
 | `tool` | string or null | Tool name (permission prompts) |
-| `input` | string or null | Truncated tool input JSON (permission prompts) |
-| `auth_url` | string or null | OAuth authorization URL (setup `oauth_login` prompts) |
+| `input` | string or null | Truncated tool input JSON (permission prompts), or OAuth URL (setup `oauth_login` prompts) |
 | `options` | string[] | Numbered option labels parsed from the terminal screen |
 | `options_fallback` | bool | True when options are fallback labels (parser couldn't find real ones) |
 | `questions` | QuestionContext[] | All questions in a multi-question dialog |

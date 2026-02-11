@@ -201,7 +201,7 @@ fn oauth_login_extracts_auth_url_single_line() {
     assert_eq!(prompt.kind, PromptKind::Setup);
     assert_eq!(prompt.subtype.as_deref(), Some("oauth_login"));
     assert_eq!(
-        prompt.auth_url.as_deref(),
+        prompt.input.as_deref(),
         Some("https://claude.ai/oauth/authorize?client_id=abc&state=xyz")
     );
     assert_eq!(c, "screen:setup");
@@ -223,7 +223,7 @@ fn oauth_login_extracts_wrapped_auth_url() {
     let prompt = s.prompt().expect("should be Prompt");
     assert_eq!(prompt.subtype.as_deref(), Some("oauth_login"));
     assert_eq!(
-        prompt.auth_url.as_deref(),
+        prompt.input.as_deref(),
         Some("https://claude.ai/oauth/authorize?code=true&client_id=9d1c&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Asessions&state=BwPX")
     );
 }
@@ -241,7 +241,7 @@ fn oauth_login_extracts_platform_domain_auth_url() {
     let prompt = s.prompt().expect("should be Prompt");
     assert_eq!(prompt.subtype.as_deref(), Some("oauth_login"));
     assert_eq!(
-        prompt.auth_url.as_deref(),
+        prompt.input.as_deref(),
         Some("https://platform.claude.com/oauth/authorize?code=true&client_id=9d1c")
     );
 }
@@ -253,7 +253,7 @@ fn oauth_login_no_url_has_none_auth_url() {
     let (s, _) = classify_claude_screen(&snap).expect("should emit state");
     let prompt = s.prompt().expect("should be Prompt");
     assert_eq!(prompt.subtype.as_deref(), Some("oauth_login"));
-    assert!(prompt.auth_url.is_none());
+    assert!(prompt.input.is_none());
 }
 
 #[test]
@@ -286,7 +286,7 @@ fn plan_context_returns_plan_kind() {
     };
     let ctx = extract_plan_context(&screen);
     assert_eq!(ctx.kind, crate::driver::PromptKind::Plan);
-    assert!(ctx.auth_url.is_none());
+    assert!(ctx.input.is_none());
 }
 
 use super::parse_options_from_screen;

@@ -83,7 +83,7 @@ fn prompt_to_proto_converts_all_fields() {
     assert_eq!(p.r#type, "permission");
     assert_eq!(p.tool.as_deref(), Some("bash"));
     assert_eq!(p.input.as_deref(), Some("rm -rf /"));
-    assert!(p.auth_url.is_none());
+    // auth_url removed; OAuth URL goes in input
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn prompt_to_proto_handles_none_fields() {
     assert_eq!(p.r#type, "question");
     assert!(p.tool.is_none());
     assert!(p.input.is_none());
-    assert!(p.auth_url.is_none());
+    // auth_url removed; OAuth URL goes in input
 }
 
 #[test]

@@ -229,8 +229,7 @@ the session log, hooks, or screen.
 | `type` | `PromptKind` | Prompt kind: permission, plan, question, setup |
 | `subtype` | `string?` | Further classification (see below) |
 | `tool` | `string?` | Tool name (e.g. `"Bash"`, `"AskUserQuestion"`) |
-| `input` | `string?` | Truncated tool input preview (~200 chars) |
-| `auth_url` | `string?` | OAuth authorization URL (setup `oauth_login` only) |
+| `input` | `string?` | Truncated tool input preview (~200 chars), or OAuth URL (setup `oauth_login`) |
 | `options` | `string[]` | Numbered option labels parsed from the screen |
 | `options_fallback` | `bool` | True when options are fallback labels |
 | `questions` | `QuestionContext[]` | All questions in a multi-question dialog |

@@ -288,8 +288,7 @@ message PromptContext {
   //   setup: "theme_picker", "terminal_setup", "security_notes",
   //          "login_success", "login_method", "oauth_login"
   optional string subtype = 3;
-  // OAuth authorization URL (present during setup oauth_login prompts).
-  optional string auth_url = 4;
+  reserved 4;  // was auth_url, now folded into input
   // All questions in a multi-question dialog.
   repeated QuestionContext questions = 5;
   // 0-indexed current question; equals questions count at confirm phase.

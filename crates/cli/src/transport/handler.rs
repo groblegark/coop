@@ -219,6 +219,10 @@ pub async fn handle_nudge(state: &Store, message: &str) -> Result<NudgeOutcome, 
 
     match &*agent {
         AgentState::Idle => {}
+        // Allow nudge on oauth_login prompts (user pastes a login code + enter).
+        AgentState::Prompt { prompt }
+            if prompt.kind == crate::driver::PromptKind::Setup
+                && prompt.subtype.as_deref() == Some("oauth_login") => {}
         _ => {
             return Ok(NudgeOutcome {
                 delivered: false,

@@ -47,7 +47,6 @@ pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
         r#type: p.kind.as_str().to_owned(),
         tool: p.tool.clone(),
         input: p.input.clone(),
-        auth_url: p.auth_url.clone(),
         questions: p
             .questions
             .iter()

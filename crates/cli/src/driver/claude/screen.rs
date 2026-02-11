@@ -131,7 +131,7 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<(AgentState, Stri
                 .with_subtype(subtype)
                 .with_options(options)
                 .with_ready();
-            ctx.auth_url = auth_url;
+            ctx.input = auth_url;
             return Some((AgentState::Prompt { prompt: ctx }, "screen:setup".to_owned()));
         }
         None => {}
