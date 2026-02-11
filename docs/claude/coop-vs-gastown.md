@@ -41,20 +41,20 @@ Coop uses hooks for **state detection**.
 
 The hook types overlap but serve completely different purposes.
 
-| Signal                | GT | Coop | Notes                                          |
-| --------------------- | -- | ---- | ---------------------------------------------- |
-| Agent self-reporting  | ✓  | ✗    | Runs inside coop PTY via `gt` commands         |
-| Notification hook     | ✗  | ✓    |                                                |
-| PreToolUse hook       | ✓  | ✓+   | Coexists via disjoint matchers; adds prompts   |
-| PostToolUse hook      | ✓  | ✓+   | Coexists via `""` matcher; adds Working signal |
-| Stop hook             | ✓  | ✓+   | Coexists via `""` matcher; adds detection      |
-| SessionStart hook     | ✓  | ✓    | Coexists                                       |
-| UserPromptSubmit hook | ✓  | ✓+   | Coexists; adds Working signal                  |
-| Session log watcher   | ✗  | ✓    |                                                |
-| Stdout JSONL          | ✗  | ✓    |                                                |
-| Process monitor       | ✓  | ✓    |                                                |
-| Screen parsing        | ✗  | ✓    |                                                |
-| Health check pings    | ✓  | ✗    | Replaced by passive state detection            |
+| Signal                | GT | Coop | Notes                         |
+| --------------------- | -- | ---- | ----------------------------- |
+| Agent self-reporting  | ✓  | ✗    | Runs inside coop PTY          |
+| Notification hook     | ✗  | ✓    |                               |
+| PreToolUse hook       | ✓  | ✓+   | Adds prompt detection         |
+| PostToolUse hook      | ✓  | ✓+   | Adds Working signal           |
+| Stop hook             | ✓  | ✓+   | Adds state detection          |
+| SessionStart hook     | ✓  | ✓    |                               |
+| UserPromptSubmit hook | ✓  | ✓+   | Adds Working signal           |
+| Session log watcher   | ✗  | ✓    |                               |
+| Stdout JSONL          | ✗  | ✓    |                               |
+| Process monitor       | ✓  | ✓    |                               |
+| Screen parsing        | ✗  | ✓    |                               |
+| Health check pings    | ✓  | ✗    |                               |
 
 
 ## Prompt Handling
@@ -76,23 +76,23 @@ Coop supports that but is also designed to support scenarios where prompts need 
 
 ## Startup Prompts
 
-| Prompt             | GT | Coop | Notes                                                                         |
-| ------------------ | -- | ---- | ----------------------------------------------------------------------------- |
-| Bypass permissions | ✓  | ✓    | GT: auto-accepts via capture-pane. Coop: suppresses idle, reports to consumer |
-| Workspace trust    | ✗  | ✓    | GT relies on `--dangerously-skip-permissions`                                 |
-| Login/onboarding   | ✗  | ✓    | GT expects pre-authenticated credentials                                      |
+| Prompt             | GT | Coop | Notes                                    |
+| ------------------ | -- | ---- | ---------------------------------------- |
+| Bypass permissions | ✓  | ✓    |                                          |
+| Workspace trust    | ✗  | ✓    |                                          |
+| Login/onboarding   | ✗  | ✓    | Extracts login link, exposes via API     |
 
-Coop does not auto-respond to startup prompts.
-It detects them (to suppress false idle signals) and reports them.
-The orchestrator responds via the API.
+With `--groom manual`, coop reports prompts without auto-responding. With
+`--groom auto` (default), coop auto-dismisses interactive dialogs but not
+text-based startup prompts.
 
 
 ## Idle / Stuck Detection
 
-| Aspect                  | GT | Coop | Notes                                                     |
-| ----------------------- | -- | ---- | --------------------------------------------------------- |
-| Passive state detection | ✗  | ✓    | Multi-tier composite detector                             |
-| Active health pings     | ✓  | ✗    | Deacon: 30s timeout, 3 failures → force-kill, 5m cooldown |
+| Aspect                  | GT | Coop | Notes                            |
+| ----------------------- | -- | ---- | -------------------------------- |
+| Passive state detection | ✗  | ✓    | Multi-tier composite detector    |
+| Active health pings     | ✓  | ✗    |                                  |
 
 GT's deacon actively probes agents. Coop passively observes and reports state;
 the consumer decides recovery strategy. GT's active probing is an
@@ -102,22 +102,24 @@ sending health check pings.
 
 ## Input Encoding
 
-| Action              | GT | Coop | Notes                                                         |
-| ------------------- | -- | ---- | ------------------------------------------------------------- |
-| Nudge               | ✓  | ✓+   |                                                               |
-| Permission respond  | ✗  | ✓    |                                                               |
-| AskUser respond     | ✗  | ✓    |                                                               |
-| Plan respond        | ✗  | ✓    |                                                               |
-| Input debouncing    | ✓  | ✓    |                                                               |
+| Action              | GT | Coop |
+| ------------------- | -- | ---- |
+| Nudge               | ✓  | ✓+   |
+| Permission respond  | ✗  | ✓    |
+| AskUser respond     | ✗  | ✓    |
+| Plan respond        | ✗  | ✓    |
+| Input debouncing    | ✓  | ✓    |
 
 
 ## Session Resume
 
-| Aspect                | GT | Coop |
-| --------------------- | -- | ---- |
-| Resume conversation   | ✓  | ✓    |
-| Predecessor discovery | ✓  | ✗    |
-| Log offset recovery   | ✗  | ✓    |
+| Aspect                | GT | Coop | Notes                             |
+| --------------------- | -- | ---- | --------------------------------- |
+| Resume conversation   | ✓  | ✓    |                                   |
+| Predecessor discovery | ✓  | ✗    |                                   |
+| Log offset recovery   | ✗  | ✓    |                                   |
+| Credential switch     | ✗  | ✓+   | Profiles with rate-limit rotation |
+| Multi-account         | ✓  | ✓    |                                   |
 
 GT uses beacons (`[GAS TOWN] recipient <- sender • timestamp • topic`) for predecessor discovery in Claude's `/resume` picker.
 Coop's `--resume` discovers the log file and passes `--resume <id>` to Claude.
@@ -170,7 +172,6 @@ These remain orchestrator-level concerns in Gastown:
 | Witness protocol            | POLECAT_DONE, HELP, MERGED, RATE_LIMITED messages (runs inside coop PTY) |
 | Deacon health policy        | Stuck recovery: thresholds, cooldowns, force-kill (subscribes to coop state events) |
 | Beacon / predecessor        | Session continuity for `/resume` picker |
-| Credential management       | Multi-account OAuth, `CLAUDE_CONFIG_DIR`, rate limit tracking |
 | Merge queue (refinery)      | Sequential rebase, conflict → fresh polecat |
 | Polecat lifecycle           | Spawn, work, `gt done`, die |
 | Work assignment             | `gt sling`, beads, hook-driven context injection |

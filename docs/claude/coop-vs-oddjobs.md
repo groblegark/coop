@@ -16,64 +16,66 @@ After:   Engine → CoopAdapter → HTTP/gRPC → coop → PTY → Claude Code
 
 ## Session Management
 
-| Capability           | OJ | Coop | Notes                           |
-| -------------------- | -- | ---- | ------------------------------- |
-| Spawn                | ✓  | ✓    | tmux session vs native PTY      |
-| Terminal rendering   | ✓  | ✓+   | raw text vs VTE-parsed screen   |
-| Input injection      | ✓  | ✓    | `send-keys` vs PTY write        |
-| Kill                 | ✓  | ✓    |                                 |
-| Liveness / exit code | ✓  | ✓    | `pane_dead` vs waitpid          |
-| Output preservation  | ✓  | ✓    | `remain-on-exit` vs ring buffer |
+| Capability           | OJ | Coop | Notes             |
+| -------------------- | -- | ---- | ----------------- |
+| Spawn                | ✓  | ✓    |                   |
+| Terminal rendering   | ✓  | ✓+   | VTE-parsed screen |
+| Input injection      | ✓  | ✓    |                   |
+| Kill                 | ✓  | ✓    |                   |
+| Liveness / exit code | ✓  | ✓    |                   |
+| Output preservation  | ✓  | ✓    |                   |
 
 
 ## State Detection
 
-| Signal              | OJ | Coop | Notes                               |
-| ------------------- | -- | ---- | ----------------------------------- |
-| Notification hook   | ✓  | ✓    |                                     |
-| PreToolUse hook     | ✓  | ✓    |                                     |
-| PostToolUse hook    | ✗  | ✓    |                                     |
-| Stop hook           | ✓  | ✓+   | Adds state detection to exit gating |
-| SessionStart hook   | ✓  | ✓    |                                     |
-| Session log watcher | ✓  | ✓+   | Continuous watch replaces 5s poll   |
-| Stdout JSONL        | ✗  | ✓    |                                     |
-| Process monitor     | ✓  | ✓    |                                     |
-| Screen parsing      | ✗  | ✓    |                                     |
+| Signal              | OJ | Coop |
+| ------------------- | -- | ---- |
+| Notification hook   | ✓  | ✓    |
+| PreToolUse hook     | ✓  | ✓    |
+| PostToolUse hook    | ✗  | ✓    |
+| UserPromptSubmit    | ✗  | ✓    |
+| Stop hook           | ✓  | ✓    |
+| SessionStart hook   | ✓  | ✓    |
+| Session log watcher | ✓  | ✓    |
+| Stdout JSONL        | ✗  | ✓    |
+| Process monitor     | ✓  | ✓    |
+| Screen parsing      | ✗  | ✓    |
 
 
 ## Prompt Handling
 
-| Prompt                    | OJ | Coop | Notes                                       |
-| ------------------------- | -- | ---- | ------------------------------------------- |
-| Permission detection      | ✓  | ✓    | Both via Notification hook                  |
-| Permission response       | ✓  | ✓    | OJ: numbered option. Coop: `{n}\r`          |
-| AskUser detection         | ✓  | ✓    | Both via PreToolUse hook                    |
-| AskUser response          | ✓  | ✓+   | Coop adds multi-question encoding           |
-| Plan detection            | ✓  | ✓    | Both via PreToolUse hook                    |
-| Plan response             | ✓  | ✓    | OJ: arrow keys. Coop: `{n}\r`               |
-| Setup dialog detection    | ✗  | ✓    | Tier 5 screen classification                |
-| Setup dialog response     | ✗  | ✓    | `{n}\r`                                     |
-| Prompt context extraction | ✗  | ✓    | tool, input, options, questions, ready flag |
+| Prompt                    | OJ | Coop | Notes                        |
+| ------------------------- | -- | ---- | ---------------------------- |
+| Permission detection      | ✓  | ✓    |                              |
+| Permission response       | ✓  | ✓    |                              |
+| AskUser detection         | ✓  | ✓    |                              |
+| AskUser response          | ✓  | ✓+   | Adds multi-question encoding |
+| Plan detection            | ✓  | ✓    |                              |
+| Plan response             | ✓  | ✓    |                              |
+| Setup dialog detection    | ✗  | ✓    | Tier 5 screen classification |
+| Setup dialog response     | ✗  | ✓    |                              |
+| Prompt context extraction | ✗  | ✓    |                              |
 
 
 ## Startup Prompts
 
-| Prompt             | OJ | Coop | Notes                                                        |
-| ------------------ | -- | ---- | ------------------------------------------------------------ |
-| Bypass permissions | ✓  | ✓    | OJ: auto-accepts. Coop: suppresses idle, reports to consumer |
-| Workspace trust    | ✓  | ✓    | Same                                                         |
-| Login/onboarding   | ✓  | ✓    | OJ: kills session. Coop: reports as `Prompt(Setup)`          |
+| Prompt             | OJ | Coop | Notes                                    |
+| ------------------ | -- | ---- | ---------------------------------------- |
+| Bypass permissions | ✓  | ✓    |                                          |
+| Workspace trust    | ✓  | ✓    |                                          |
+| Login/onboarding   | ✗  | ✓    | Extracts login link, exposes via API     |
 
-Coop does not auto-respond to startup prompts. It detects them (to suppress
-false idle signals) and reports them. The orchestrator responds via the API.
+With `--groom manual`, coop reports prompts without auto-responding. With
+`--groom auto` (default), coop auto-dismisses interactive dialogs but not
+text-based startup prompts.
 
 
 ## Idle Detection
 
-| Aspect                  | OJ | Coop | Notes                                                               |
-| ----------------------- | -- | ---- | ------------------------------------------------------------------- |
-| Grace timer             | ✓  | ✗    | OJ: 60s two-phase confirmation. Coop: tier-priority resolution only |
-| Self-trigger prevention | ✓  | ✗    | OJ: suppresses auto-resume 60s after nudge                          |
+| Aspect                  | OJ | Coop | Notes                          |
+| ----------------------- | -- | ---- | ------------------------------ |
+| Grace timer             | ✓  | ✗    | 60s two-phase confirmation     |
+| Self-trigger prevention | ✓  | ✗    | Suppresses 60s after nudge     |
 
 Coop has no grace timer. The composite detector resolves competing idle/working
 signals via tier priority — higher-confidence tiers override lower ones, and
@@ -85,24 +87,26 @@ timer to distinguish "idle between tools" from "actually idle."
 
 ## Input Encoding
 
-| Action           | OJ | Coop | Notes                                             |
-| ---------------- | -- | ---- | ------------------------------------------------- |
-| Nudge            | ✓  | ✓    | OJ clears partial input (Esc+pause+Esc) first     |
-| Delay scaling    | ✗  | ✓    | base + per-byte factor, capped at max             |
-| Nudge retry      | ✗  | ✓    | Resend `\r` once if no state transition in timeout|
-| Input clearing   | ✓  | ✗    | Coop relies on consumer sending at the right time |
-| Input debouncing | ✗  | ✓    | `InputGate`: 200ms min gap between deliveries  |
+| Action           | OJ | Coop | Notes                              |
+| ---------------- | -- | ---- | ---------------------------------- |
+| Nudge            | ✓  | ✓    |                                    |
+| Delay scaling    | ✗  | ✓    |                                    |
+| Nudge retry      | ✗  | ✓    | Resend `\r` if no state transition |
+| Input clearing   | ✓  | ✗    |                                    |
+| Input debouncing | ✗  | ✓    | 200ms min gap between deliveries   |
 
 
 ## Session Resume
 
-| Aspect              | OJ | Coop |
-| ------------------- | -- | ---- |
-| Resume conversation | ✓  | ✓    |
-| Session ID tracking | ✓  | ✓    |
-| Log offset recovery | ✗  | ✓    |
-| Daemon reconnect    | ✓  | ✓    |
-| Suspend/resume      | ✓  | ✗    |
+| Aspect               | OJ | Coop | Notes                               |
+| -------------------- | -- | ---- | ----------------------------------- |
+| Resume conversation  | ✓  | ✓    |                                     |
+| Session ID tracking  | ✓  | ✓    |                                     |
+| Log offset recovery  | ✗  | ✓    |                                     |
+| Daemon reconnect     | ✓  | ✓    |                                     |
+| Suspend/resume       | ✓  | ✗    |                                     |
+| Credential switch    | ✗  | ✓    | Profiles with rate-limit rotation   |
+| Transcript snapshots | ✗  | ✓    | Snapshots on compaction             |
 
 Oddjobs has job-level suspension (`StepStatus::Suspended`) that pauses state
 processing while keeping the tmux session alive. Coop has no equivalent;

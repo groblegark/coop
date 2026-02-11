@@ -125,3 +125,20 @@ The minimum credential switch for a session depends on the flow:
 
 The `hasCompletedOnboarding`, `lastOnboardingVersion`, and `projects.*` fields
 can remain from the previous session -- they are per-install, not per-identity.
+
+
+## Coop Integration
+
+Coop does **not** read `.credentials.json` or `.claude.json` directly. Instead,
+credentials are passed to the Claude child process via environment variables
+(`ANTHROPIC_API_KEY` for Flow B, `CLAUDE_CODE_OAUTH_TOKEN` for Flow A). Claude
+Code's own logic reads from these variables or its config files.
+
+**Session switch** (`POST /api/v1/session/switch`): the orchestrator sends a
+`credentials` map (key-value pairs that become env vars). Coop merges these
+into the child process environment and respawns with `--resume`, preserving the
+conversation.
+
+**Named profiles** (`POST /api/v1/session/profiles`): the orchestrator
+registers multiple credential sets. Coop rotates between profiles automatically
+on rate-limit errors, parking the session when all profiles are exhausted.

@@ -149,6 +149,7 @@ dialog types:
 | Login success | `"login_success"` | `Prompt(Setup)` |
 | Login method | `"login_method"` | `Prompt(Setup)` |
 | OAuth login | `"oauth_login"` | `Prompt(Setup)` |
+| Settings error | `"settings_error"` | `Prompt(Setup)` |
 | Tool permission | -- | Suppressed (Tier 1 handles) |
 
 The idle prompt is detected by scanning for the `❯` (U+276F) character at the
@@ -171,7 +172,7 @@ conflicts with these rules:
 State priority (lowest to highest):
 
 ```
-Starting/Unknown(0) < Idle(1) < Error(2) < Working(3) < Prompt(4) < Exited(5)
+Starting/Unknown(0) < Idle(1) < Error/Parked(2) < Working(3) < Prompt(4) < Switching/Exited(5)
 ```
 
 
@@ -201,6 +202,8 @@ The full set of agent states:
 | `Idle` | `idle` | Idle, ready for a nudge |
 | `Prompt` | `prompt` | Presenting a prompt (permission, plan, question, or setup) |
 | `Error` | `error` | Error occurred (rate limit, auth, etc.) |
+| `Parked` | `parked` | Rate-limited and waiting; carries `reason` and `resume_at_epoch_ms` |
+| `Switching` | `switching` | Credential switch in progress (PTY respawn) |
 | `Exited` | `exited` | Child process exited |
 | `Unknown` | `unknown` | State cannot be determined |
 
@@ -224,7 +227,7 @@ the session log, hooks, or screen.
 | Field | Type | Description |
 |-------|------|-------------|
 | `type` | `PromptKind` | Prompt kind: permission, plan, question, setup |
-| `subtype` | `string?` | Further classification (e.g. `"trust"`, `"oauth_login"`) |
+| `subtype` | `string?` | Further classification (see below) |
 | `tool` | `string?` | Tool name (e.g. `"Bash"`, `"AskUserQuestion"`) |
 | `input` | `string?` | Truncated tool input preview (~200 chars) |
 | `auth_url` | `string?` | OAuth authorization URL (setup `oauth_login` only) |
@@ -247,8 +250,10 @@ provides the `questions` array with question text and option labels.
 populate `options`.
 
 **Setup prompts** are `ready: true` immediately. Detected entirely via Tier 5
-screen classification. Subtypes: `theme_picker`, `terminal_setup`,
-`security_notes`, `login_success`, `login_method`, `oauth_login`.
+screen classification. Interactive dialog subtypes: `theme_picker`,
+`terminal_setup`, `security_notes`, `login_success`, `login_method`,
+`oauth_login`, `settings_error`. Text-based startup subtypes:
+`startup_trust`, `startup_bypass`, `startup_login`.
 
 
 ## Encoding
@@ -298,20 +303,25 @@ Claude may present blocking prompts during startup before reaching the idle
 state. Coop handles these through Tier 5 screen detection:
 
 **Text-based prompts** (workspace trust y/n, permission bypass y/n, login)
-are detected to suppress false idle signals — the `❯` idle check is skipped
-when a startup prompt is on screen. Coop does **not** auto-respond to these;
-the orchestrator must respond via the API.
+are detected via broad phrase matching and reported as `Prompt(Setup)` states
+with `startup_*` subtypes. These are checked after interactive dialog
+classification since some phrases overlap (e.g. "trust this folder" appears
+in both the y/n prompt and the workspace trust picker).
 
-| Prompt | Detection pattern | Coop behavior |
-|--------|-------------------|---------------|
-| Workspace trust | "trust the files", "do you trust" | Suppressed from idle detection |
-| Permission bypass | "skip permissions", "allow tool use without prompting" | Suppressed from idle detection |
-| Login required | "please sign in", "login required" | Suppressed from idle detection |
+| Prompt | Subtype | Detection pattern |
+|--------|---------|-------------------|
+| Workspace trust | `"startup_trust"` | "trust the files", "do you trust" |
+| Permission bypass | `"startup_bypass"` | "skip permissions", "allow tool use without prompting" |
+| Login required | `"startup_login"` | "please sign in", "login required" |
+
+Coop does **not** auto-respond to text-based prompts (no reliable keystroke
+encoding). With `--groom auto`, interactive dialogs are auto-dismissed; text
+prompts still require the orchestrator to respond via the API.
 
 **Interactive dialogs** (theme picker, terminal setup, OAuth login, workspace
 trust picker, etc.) are classified by Tier 5 signal-phrase matching and
 reported as `Prompt(Setup)` or `Prompt(Permission)` states with subtypes.
-The orchestrator responds via the API.
+The orchestrator responds via the API (or `--groom auto` auto-dismisses).
 
 
 ## Session Resume
@@ -475,8 +485,11 @@ Flags relevant to Claude sessions:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--agent claude` | -- | Enable Claude-specific detection and encoding |
-| `--idle-timeout SECS` | `0` (disabled) | Session-level idle timeout (shuts down after N seconds idle) |
 | `--resume HINT` | -- | Discover and resume a previous session |
+| `--groom LEVEL` | `auto` | Prompt handling: `auto` (auto-dismiss), `manual`, `pristine` (no hooks) |
+| `--agent-config PATH` | -- | JSON file with orchestrator settings, hooks, and MCP servers |
+| `--socket PATH` | -- | Unix domain socket for HTTP transport |
+| `--port-grpc PORT` | -- | gRPC port (separate from HTTP) |
 
 
 ## Source Layout
