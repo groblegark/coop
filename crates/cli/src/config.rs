@@ -78,9 +78,9 @@ pub struct Config {
     #[arg(long, env = "COOP_AUTH_TOKEN")]
     pub auth_token: Option<String>,
 
-    /// Agent type (claude, codex, gemini, unknown).
-    #[arg(long, env = "COOP_AGENT", default_value = "unknown")]
-    pub agent: String,
+    /// Agent type (claude, codex, gemini, unknown). Auto-detected from command if omitted.
+    #[arg(long, env = "COOP_AGENT")]
+    pub agent: Option<String>,
 
     /// Path to agent-specific config file.
     #[arg(long, env = "COOP_AGENT_CONFIG")]
@@ -190,7 +190,7 @@ impl Config {
             anyhow::bail!("cannot specify both a command and --attach");
         }
         if !has_command && !has_attach {
-            anyhow::bail!("an agent command is required (e.g. coop --port 3000 claude)");
+            anyhow::bail!("an agent command is required (e.g. coop --port 8080 claude)");
         }
 
         // Validate agent type
@@ -251,7 +251,7 @@ impl Config {
             host: "127.0.0.1".into(),
             port_grpc: None,
             auth_token: None,
-            agent: "unknown".into(),
+            agent: None,
             agent_config: None,
             attach: None,
             cols: 80,
@@ -287,14 +287,33 @@ impl Config {
     }
 
     /// Parse the agent type string into an enum.
+    ///
+    /// When `--agent` is not set, infers the type from the basename of `command[0]`.
     pub fn agent_enum(&self) -> anyhow::Result<AgentType> {
-        match self.agent.to_lowercase().as_str() {
-            "claude" => Ok(AgentType::Claude),
-            "codex" => Ok(AgentType::Codex),
-            "gemini" => Ok(AgentType::Gemini),
-            "unknown" => Ok(AgentType::Unknown),
-            other => anyhow::bail!("invalid agent type: {other}"),
+        if let Some(ref agent) = self.agent {
+            return match agent.to_lowercase().as_str() {
+                "claude" => Ok(AgentType::Claude),
+                "codex" => Ok(AgentType::Codex),
+                "gemini" => Ok(AgentType::Gemini),
+                "unknown" => Ok(AgentType::Unknown),
+                other => anyhow::bail!("invalid agent type: {other}"),
+            };
         }
+
+        // Auto-detect from command basename
+        let basename = self
+            .command
+            .first()
+            .and_then(|cmd| std::path::Path::new(cmd).file_name())
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+
+        Ok(match basename {
+            "claude" | "claudeless" => AgentType::Claude,
+            "codex" => AgentType::Codex,
+            "gemini" => AgentType::Gemini,
+            _ => AgentType::Unknown,
+        })
     }
 }
 

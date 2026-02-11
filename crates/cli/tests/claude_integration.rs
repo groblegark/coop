@@ -43,7 +43,7 @@ fn scenario_path(name: &str) -> String {
 
 fn claude_config(scenario: &str, prompt: &str) -> Config {
     Config {
-        agent: "claude".into(),
+        agent: None, // auto-detected from "claudeless" command
         command: vec![
             "claudeless".into(),
             "--scenario".into(),

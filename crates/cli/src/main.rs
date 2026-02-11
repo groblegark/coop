@@ -55,10 +55,10 @@ fn after_help() -> String {
     format!(
         "\
 {h}Examples:{r}
-  {l}coop --port {c}3000 {l}claude{r}
-  {l}coop --port {c}3000 {l}--agent {c}claude {l}claude --dangerously-skip-permissions{r}
+  {l}coop --port {c}8080 {l}claude{r}
+  {l}coop --port {c}8080 {l}claude --dangerously-skip-permissions{r}
   {l}coop --socket {c}/tmp/coop.sock {l}gemini
-  {l}coop attach {c}ws://localhost:3000{r}"
+  {l}coop attach {c}ws://localhost:8080{r}"
     )
 }
 

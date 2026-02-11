@@ -49,14 +49,14 @@ fn invalid_config(args: &[&str], expected_substr: &str) {
 }
 
 #[test]
-fn agent_claude() -> anyhow::Result<()> {
+fn agent_explicit_flag() -> anyhow::Result<()> {
     let config = parse(&["coop", "--port", "8080", "--agent", "claude", "--", "echo"]);
     assert_eq!(config.agent_enum()?, AgentType::Claude);
     Ok(())
 }
 
 #[test]
-fn agent_unknown_default() -> anyhow::Result<()> {
+fn agent_unknown_when_no_match() -> anyhow::Result<()> {
     let config = parse(&["coop", "--port", "8080", "--", "echo"]);
     assert_eq!(config.agent_enum()?, AgentType::Unknown);
     Ok(())
@@ -66,6 +66,42 @@ fn agent_unknown_default() -> anyhow::Result<()> {
 fn agent_invalid() {
     let config = parse(&["coop", "--port", "8080", "--agent", "gpt", "--", "echo"]);
     assert!(config.agent_enum().is_err());
+}
+
+#[test]
+fn agent_auto_detect_claude() -> anyhow::Result<()> {
+    let config =
+        parse(&["coop", "--port", "8080", "--", "claude", "--dangerously-skip-permissions"]);
+    assert_eq!(config.agent_enum()?, AgentType::Claude);
+    Ok(())
+}
+
+#[test]
+fn agent_auto_detect_claudeless() -> anyhow::Result<()> {
+    let config = parse(&["coop", "--port", "8080", "--", "claudeless", "--scenario", "test.toml"]);
+    assert_eq!(config.agent_enum()?, AgentType::Claude);
+    Ok(())
+}
+
+#[test]
+fn agent_auto_detect_gemini() -> anyhow::Result<()> {
+    let config = parse(&["coop", "--port", "8080", "--", "gemini"]);
+    assert_eq!(config.agent_enum()?, AgentType::Gemini);
+    Ok(())
+}
+
+#[test]
+fn agent_auto_detect_from_path() -> anyhow::Result<()> {
+    let config = parse(&["coop", "--port", "8080", "--", "/usr/local/bin/claude"]);
+    assert_eq!(config.agent_enum()?, AgentType::Claude);
+    Ok(())
+}
+
+#[test]
+fn agent_explicit_overrides_auto_detect() -> anyhow::Result<()> {
+    let config = parse(&["coop", "--port", "8080", "--agent", "unknown", "--", "claude"]);
+    assert_eq!(config.agent_enum()?, AgentType::Unknown);
+    Ok(())
 }
 
 // -- GroomLevel --

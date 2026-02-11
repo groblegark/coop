@@ -19,11 +19,11 @@ cargo build --release
 ## Usage
 
 ```bash
-# Claude with structured detection
-coop --agent claude --port 8080 -- claude --dangerously-skip-permissions
+# Claude basics
+coop --port 8080 claude --dangerously-skip-permissions
 
 # Serve on a Unix socket
-coop --agent claude --socket /tmp/coop.sock -- claude
+coop --socket /tmp/coop.sock -- claude
 
 # Dumb PTY server (no driver)
 coop --port 8080 -- /bin/bash
@@ -32,10 +32,10 @@ coop --port 8080 -- /bin/bash
 coop --agent claude --attach tmux:my-session --port 8080
 
 # Enable gRPC alongside HTTP
-coop --agent claude --port 8080 --port-grpc 9090 -- claude
+coop --port 8080 --port-grpc 9090 -- claude
 
 # Resume a previous Claude session
-coop --agent claude --port 8080 --resume <session-id> -- claude
+coop --port 8080 --resume <session-id> -- claude
 ```
 
 ## API
