@@ -58,6 +58,32 @@ pub struct AttachArgs {
 /// Detach key: Ctrl+] (ASCII 0x1d), same as telnet / docker attach.
 const DETACH_KEY: u8 = 0x1d;
 
+/// Refresh key: Ctrl+L (ASCII 0x0c), traditional terminal clear/redraw.
+const REFRESH_KEY: u8 = 0x0c;
+
+// Terminal escape sequences for screen management.
+
+/// Enter alternate screen buffer (SMCUP). Isolates coop's display from the
+/// user's shell scrollback so detaching cleanly restores the original content.
+const SMCUP: &[u8] = b"\x1b[?1049h";
+
+/// Exit alternate screen buffer (RMCUP). Restores the primary screen buffer
+/// and cursor position, bringing back the user's original shell content.
+const RMCUP: &[u8] = b"\x1b[?1049l";
+
+/// Clear screen and move cursor home. Used after entering the alternate
+/// screen buffer to start with a blank slate.
+const CLEAR_HOME: &[u8] = b"\x1b[2J\x1b[H";
+
+/// Begin synchronized update (DEC private mode 2026). Tells the terminal to
+/// batch subsequent output and render it atomically, preventing flicker during
+/// large redraws. Supported by Ghostty, kitty, iTerm2, WezTerm, foot.
+/// Unsupported terminals ignore the sequence harmlessly.
+const SYNC_START: &[u8] = b"\x1b[?2026h";
+
+/// End synchronized update. Flushes the batched output to the screen.
+const SYNC_END: &[u8] = b"\x1b[?2026l";
+
 /// One-time panic hook installation guard.
 static PANIC_HOOK_INSTALLED: Once = Once::new();
 
@@ -115,6 +141,9 @@ struct AttachState {
     started: Instant,
     /// Byte offset into the output ring for smart replay.
     next_offset: u64,
+    /// True while waiting for the first Replay response after (re)connect.
+    /// Used to end the synchronized update that wraps the initial redraw.
+    sync_pending: bool,
 }
 
 impl AttachState {
@@ -125,6 +154,7 @@ impl AttachState {
             rows,
             started: Instant::now(),
             next_offset: 0,
+            sync_pending: false,
         }
     }
 
@@ -166,6 +196,21 @@ fn terminal_size() -> Option<(u16, u16)> {
     } else {
         None
     }
+}
+
+/// Enter the alternate screen buffer, clear it, and prepare for coop output.
+/// Wraps the initial clear in a synchronized update for flicker-free startup.
+fn enter_alt_screen(stdout: &mut std::io::Stdout) {
+    let _ = stdout.write_all(SMCUP);
+    let _ = stdout.write_all(SYNC_START);
+    let _ = stdout.write_all(CLEAR_HOME);
+    let _ = stdout.flush();
+}
+
+/// Exit the alternate screen buffer, restoring the user's original terminal.
+fn exit_alt_screen(stdout: &mut std::io::Stdout) {
+    let _ = stdout.write_all(RMCUP);
+    let _ = stdout.flush();
 }
 
 /// Set the scroll region to rows 1..content_rows (leaving the last row free
@@ -331,6 +376,14 @@ async fn attach(
         std::panic::set_hook(Box::new(move |info| {
             if let Ok(mut guard) = PANIC_TERMIOS.lock() {
                 if let Some(ref termios) = *guard {
+                    // Exit alternate screen before restoring termios so the
+                    // user's original shell content reappears.
+                    // SAFETY: Writing to stdout fd 1 in panic hook; fd remains
+                    // valid for the lifetime of the process.
+                    #[allow(unsafe_code)]
+                    unsafe {
+                        nix::libc::write(1, RMCUP.as_ptr().cast(), RMCUP.len());
+                    }
                     // SAFETY: Restoring terminal attributes in panic hook; stdin
                     // fd 0 remains valid for the lifetime of the process.
                     #[allow(unsafe_code)]
@@ -345,6 +398,9 @@ async fn attach(
     });
 
     let mut stdout = std::io::stdout();
+
+    // Enter alternate screen buffer — isolates coop display from shell scrollback.
+    enter_alt_screen(&mut stdout);
 
     // Determine initial terminal size.
     let (init_cols, init_rows) = terminal_size().unwrap_or((80, 24));
@@ -390,8 +446,9 @@ async fn attach(
                     // Reconnect failure — treat as disconnected.
                     if max_reconnects > 0 && attempt >= max_reconnects {
                         reset_scroll_region_if(&mut stdout, sl_active);
+                        exit_alt_screen(&mut stdout);
                         drop(raw_guard);
-                        eprintln!("\r\ncoop attach: max reconnects reached, giving up.");
+                        eprintln!("coop attach: max reconnects reached, giving up.");
                         return 1;
                     }
                     let backoff = reconnect_backoff(attempt);
@@ -427,6 +484,12 @@ async fn attach(
                 send_msg(&mut ws_tx, &ClientMessage::Resize { cols: state.cols, rows: state.rows })
                     .await;
         }
+
+        // Begin synchronized update for the initial replay redraw.
+        let _ = stdout.write_all(SYNC_START);
+        let _ = stdout.write_all(CLEAR_HOME);
+        let _ = stdout.flush();
+        state.sync_pending = true;
 
         let _ = send_msg(
             &mut ws_tx,
@@ -468,15 +531,17 @@ async fn attach(
             SessionResult::Disconnected(reason) => {
                 if max_reconnects == 0 {
                     reset_scroll_region_if(&mut stdout, sl_active);
+                    exit_alt_screen(&mut stdout);
                     drop(raw_guard);
-                    eprintln!("\r\ncoop attach: disconnected: {reason}");
+                    eprintln!("coop attach: disconnected: {reason}");
                     return 1;
                 }
                 attempt += 1;
                 if attempt > max_reconnects {
                     reset_scroll_region_if(&mut stdout, sl_active);
+                    exit_alt_screen(&mut stdout);
                     drop(raw_guard);
-                    eprintln!("\r\ncoop attach: max reconnects reached, giving up.");
+                    eprintln!("coop attach: max reconnects reached, giving up.");
                     return 1;
                 }
                 reset_scroll_region_if(&mut stdout, sl_active);
@@ -493,10 +558,11 @@ async fn attach(
         }
     }
 
-    // Clean up: reset scroll region, restore terminal.
+    // Clean up: reset scroll region, exit alt screen, restore terminal.
     reset_scroll_region_if(&mut stdout, sl_active);
+    exit_alt_screen(&mut stdout);
     drop(raw_guard);
-    eprintln!("\r\ndetached from coop session.");
+    eprintln!("detached from coop session.");
     exit_code
 }
 
@@ -559,6 +625,11 @@ where
                                 if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&data) {
                                     ctx.state.next_offset = offset + decoded.len() as u64;
                                     let _ = ctx.stdout.write_all(&decoded);
+                                    // End synchronized update after initial replay.
+                                    if ctx.state.sync_pending {
+                                        ctx.state.sync_pending = false;
+                                        let _ = ctx.stdout.write_all(SYNC_END);
+                                    }
                                     let _ = ctx.stdout.flush();
                                 }
                             }
@@ -617,6 +688,25 @@ where
                             }
                             return SessionResult::Detached;
                         }
+                        // Ctrl+L: force a full screen redraw from the ring buffer.
+                        if bytes.contains(&REFRESH_KEY) {
+                            // Filter out the Ctrl+L byte(s) and send remaining input.
+                            let filtered: Vec<u8> = bytes.iter().copied().filter(|&b| b != REFRESH_KEY).collect();
+                            if !filtered.is_empty() {
+                                let encoded = base64::engine::general_purpose::STANDARD.encode(&filtered);
+                                let _ = send_msg(ws_tx, &ClientMessage::SendInputRaw { data: encoded }).await;
+                            }
+                            // Request full replay for redraw, wrapped in sync update.
+                            let _ = ctx.stdout.write_all(SYNC_START);
+                            let _ = ctx.stdout.write_all(CLEAR_HOME);
+                            if *ctx.sl_active {
+                                set_scroll_region(ctx.stdout, ctx.state.rows - 1);
+                            }
+                            let _ = ctx.stdout.flush();
+                            ctx.state.sync_pending = true;
+                            let _ = send_msg(ws_tx, &ClientMessage::GetReplay { offset: 0, limit: None }).await;
+                            continue;
+                        }
                         let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
                         if send_msg(ws_tx, &ClientMessage::SendInputRaw { data: encoded }).await.is_err() {
                             return SessionResult::Disconnected("send failed".to_owned());
@@ -626,7 +716,7 @@ where
                 }
             }
 
-            // Terminal resize.
+            // Terminal resize — triggers full redraw (like tmux).
             _ = async {
                 match ctx.sigwinch.as_mut() {
                     Some(s) => { s.recv().await; }
@@ -639,6 +729,10 @@ where
 
                     let was_active = *ctx.sl_active;
                     *ctx.sl_active = ctx.sl_cfg.enabled && rows > 2;
+
+                    // Begin synchronized update + clear for a flicker-free resize redraw.
+                    let _ = ctx.stdout.write_all(SYNC_START);
+                    let _ = ctx.stdout.write_all(CLEAR_HOME);
 
                     if *ctx.sl_active {
                         reset_scroll_region(ctx.stdout);
@@ -656,6 +750,11 @@ where
                         }
                         let _ = send_msg(ws_tx, &ClientMessage::Resize { cols, rows }).await;
                     }
+
+                    let _ = ctx.stdout.flush();
+                    // Request full replay to repaint with new dimensions.
+                    ctx.state.sync_pending = true;
+                    let _ = send_msg(ws_tx, &ClientMessage::GetReplay { offset: 0, limit: None }).await;
                 }
             }
 
