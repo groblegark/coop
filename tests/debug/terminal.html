@@ -316,7 +316,7 @@
           <div id="act-respond-question" style="display:none;">
             <div id="act-question-text" style="font-size:10px;color:#aaa;margin-bottom:4px;"></div>
             <div id="act-question-options" class="action-column"></div>
-            <div class="action-row" style="margin-top:4px;">
+            <div id="act-question-freeform-row" class="action-row" style="margin-top:4px;">
               <input type="text" id="act-question-freeform" placeholder="Other (freeform text)..." />
               <button class="action-btn" id="act-question-freeform-send">Send</button>
             </div>
@@ -825,7 +825,16 @@ const respondPanels = {
   question: document.getElementById('act-respond-question'),
 };
 
+let lastPromptJson = null;
+let lastLastMessage = null;
+
 function updateRespondUI(prompt, lastMessage) {
+  // Skip full re-render if nothing changed (preserves user input in text fields).
+  const promptJson = JSON.stringify(prompt);
+  if (promptJson === lastPromptJson && lastMessage === lastLastMessage) return;
+  lastPromptJson = promptJson;
+  lastLastMessage = lastMessage;
+
   currentPrompt = prompt;
   const kindEl = document.getElementById('act-respond-kind');
   const lastMsgEl = document.getElementById('act-respond-last-msg');
@@ -950,8 +959,10 @@ function updateRespondUI(prompt, lastMessage) {
     const textEl = document.getElementById('act-question-text');
     const optsEl = document.getElementById('act-question-options');
     optsEl.innerHTML = '';
+    const freeformRow = document.getElementById('act-question-freeform-row');
     if (q) {
       textEl.textContent = q.question;
+      freeformRow.style.display = '';
       q.options.forEach((opt, i) => {
         const btn = document.createElement('button');
         btn.className = 'key-btn';
@@ -963,19 +974,40 @@ function updateRespondUI(prompt, lastMessage) {
         optsEl.appendChild(btn);
       });
     } else {
-      textEl.textContent = prompt.question_current >= (prompt.questions?.length ?? 0)
-        ? '(confirm phase)' : '(no question data)';
+      const isConfirm = prompt.question_current >= (prompt.questions?.length ?? 0);
+      textEl.textContent = isConfirm ? '(confirm phase)' : '(no question data)';
+      freeformRow.style.display = 'none';
+      if (isConfirm) {
+        // Submit = Enter, Cancel = Escape — sent as raw input since the
+        // respond API's Question branch only handles answers, not options.
+        const submitBtn = document.createElement('button');
+        submitBtn.className = 'action-btn btn-success';
+        submitBtn.textContent = '1. Submit answers';
+        submitBtn.addEventListener('click', async () => {
+          const res = await apiPost('/api/v1/input', { text: '', enter: true });
+          showResult('act-respond-result', res);
+        });
+        optsEl.appendChild(submitBtn);
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'action-btn btn-danger';
+        cancelBtn.textContent = '2. Cancel';
+        cancelBtn.addEventListener('click', async () => {
+          const res = await apiPost('/api/v1/input', { text: '\x1b', enter: false });
+          showResult('act-respond-result', res);
+        });
+        optsEl.appendChild(cancelBtn);
+      }
     }
     document.getElementById('act-question-freeform').value = '';
   }
 }
 
-// Plan feedback handler (option = last option index)
+// Plan feedback handler — option number is buttons + 1 (the last option we sliced off)
 document.getElementById('act-plan-feedback-send').addEventListener('click', async () => {
   const feedback = document.getElementById('act-plan-feedback').value || undefined;
-  // Feedback uses the last option number
   const planOptsEl = document.getElementById('act-respond-plan-options');
-  const lastOption = planOptsEl.children.length;
+  const lastOption = planOptsEl.children.length + 1;
   const res = await apiPost('/api/v1/agent/respond', { option: lastOption, text: feedback });
   showResult('act-respond-result', res);
 });
