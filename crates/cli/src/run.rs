@@ -16,6 +16,8 @@ use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 use crate::config::{self, Config, GroomLevel};
+use crate::broker::distributor::Distributor;
+use crate::broker::registry::PodRegistry;
 use crate::credential::CredentialBroker;
 use crate::driver::claude::resume;
 use crate::driver::claude::setup as claude_setup;
@@ -464,10 +466,16 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let profile_state = Arc::new(ProfileState::new());
 
     // Credential broker (Epic 16): create if configured.
-    let credential_broker = credential_config.as_ref().map(|config| {
-        let (broker, _rx) = CredentialBroker::new(config);
-        broker
-    });
+    let (credential_broker, credential_event_rx) = match credential_config.as_ref() {
+        Some(config) => {
+            let (broker, rx) = CredentialBroker::new(config);
+            (Some(broker), Some(rx))
+        }
+        None => (None, None),
+    };
+
+    // Pod registry (Epic 16b): only useful in broker mode.
+    let broker_registry = credential_broker.as_ref().map(|_| Arc::new(PodRegistry::new()));
 
     let event_log = Arc::new(EventLog::new(setup.as_ref().map(|s| s.session_dir.as_path())));
 
@@ -515,6 +523,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         input_activity: Arc::new(tokio::sync::Notify::new()),
         event_log: Arc::clone(&event_log),
         credentials: credential_broker,
+        broker_registry: broker_registry.clone(),
     });
 
     // Spawn event log subscriber — persists state/hook events to JSONL files.
@@ -556,6 +565,25 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         let sd = shutdown.clone();
         tokio::spawn(async move {
             broker.run(sd).await;
+        });
+    }
+
+    // Spawn pod health checker and credential distributor (Epic 16b/16c).
+    if let (Some(ref registry), Some(ref broker), Some(event_rx)) =
+        (&broker_registry, &store.credentials, credential_event_rx)
+    {
+        // Health check loop.
+        let reg = Arc::clone(registry);
+        let sd = shutdown.clone();
+        tokio::spawn(async move {
+            reg.run_health_checks(sd).await;
+        });
+
+        // Distribution loop.
+        let distributor = Distributor::new(Arc::clone(registry), Arc::clone(broker));
+        let sd = shutdown.clone();
+        tokio::spawn(async move {
+            distributor.run(event_rx, sd).await;
         });
     }
 

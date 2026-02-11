@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 pub mod attach;
+pub mod broker;
 pub mod config;
 pub mod credential;
 pub mod driver;

@@ -4,6 +4,7 @@
 //! HTTP request/response types and axum handler implementations.
 
 mod agent;
+mod broker;
 mod credential;
 mod env;
 mod events;
@@ -14,6 +15,7 @@ mod transcript;
 mod usage;
 
 pub use agent::*;
+pub use broker::*;
 pub use credential::*;
 pub use env::*;
 pub use events::*;

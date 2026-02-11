@@ -205,6 +205,7 @@ impl StoreBuilder {
             input_activity: Arc::new(tokio::sync::Notify::new()),
             event_log: Arc::new(EventLog::new(None)),
             credentials: None,
+            broker_registry: None,
         });
 
         StoreCtx { store, input_rx, switch_rx }

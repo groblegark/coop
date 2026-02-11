@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
+use crate::broker::registry::PodRegistry;
 use crate::config::GroomLevel;
 use crate::credential::CredentialBroker;
 use crate::driver::{
@@ -73,6 +74,9 @@ pub struct Store {
     /// Credential broker for centralized OAuth token management (Epic 16).
     /// `None` when no `credentials` config is provided.
     pub credentials: Option<Arc<CredentialBroker>>,
+    /// Pod registry for credential distribution (Epic 16b).
+    /// `None` when broker mode is not enabled.
+    pub broker_registry: Option<Arc<PodRegistry>>,
 }
 
 /// Terminal I/O: screen, ring buffer, child process.
