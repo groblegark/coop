@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use axum::http::StatusCode;
 use axum::middleware;
+use axum::response::Html;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -308,9 +309,13 @@ pub fn keys_to_bytes(keys: &[String]) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+/// Embedded web terminal UI (served at `/`).
+const TERMINAL_HTML: &str = include_str!("terminal.html");
+
 /// Build the axum `Router` with all HTTP and WebSocket routes.
 pub fn build_router(state: Arc<Store>) -> Router {
     Router::new()
+        .route("/", get(|| async { Html(TERMINAL_HTML) }))
         .route("/api/v1/health", get(http::health))
         .route("/api/v1/ready", get(http::ready))
         .route("/api/v1/screen", get(http::screen))
