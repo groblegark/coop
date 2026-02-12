@@ -93,18 +93,18 @@ export async function waitForHealth(
 }
 
 export async function openBrowser(port: number): Promise<void> {
-	const html = `file://${scriptDir()}/terminal.html?port=${port}`;
-	console.log(`Opening ${html}`);
+	const url = `http://localhost:${port}/`;
+	console.log(`Opening ${url}`);
 
 	try {
 		// macOS
-		await $`open ${html}`.quiet();
+		await $`open ${url}`.quiet();
 	} catch {
 		try {
 			// Linux
-			await $`xdg-open ${html}`.quiet();
+			await $`xdg-open ${url}`.quiet();
 		} catch {
-			console.log(`Open manually: ${html}`);
+			console.log(`Open manually: ${url}`);
 		}
 	}
 }

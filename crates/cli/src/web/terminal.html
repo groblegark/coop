@@ -411,10 +411,10 @@ import { FitAddon }  from 'https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/
 import { WebglAddon } from 'https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/+esm';
 import { Terminal }  from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm';
 
-const params = new URLSearchParams(location.search);
-const PORT = params.get('port') || '7070';
-const BASE = `http://localhost:${PORT}`;
-const WS_URL = `ws://localhost:${PORT}/ws?subscribe=pty,state,usage`;
+// Derive base URLs from wherever this page is served
+const BASE = location.origin;
+const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const WS_URL = `${wsProto}//${location.host}/ws?subscribe=pty,state,usage`;
 
 const dot        = document.getElementById('dot');
 const label      = document.getElementById('label');
@@ -1123,7 +1123,7 @@ function connect() {
   ws = new WebSocket(WS_URL);
 
   ws.onopen = () => {
-    setStatus('connected', `Connected — localhost:${PORT}`);
+    setStatus('connected', `Connected — ${location.host}`);
 
     // Replay full history
     send(ws, { event: 'replay:get', offset: 0 });
