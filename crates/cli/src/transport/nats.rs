@@ -8,6 +8,10 @@ use std::path::Path;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
+use crate::transport::ws::{
+    profile_event_to_msg, start_event_to_msg, stop_event_to_msg, transition_to_msg,
+    usage_event_to_msg, ServerMessage,
+};
 use crate::transport::Store;
 
 /// Authentication options for connecting to NATS.
@@ -47,39 +51,62 @@ impl NatsPublisher {
             tokio::select! {
                 _ = shutdown.cancelled() => break,
                 event = state_rx.recv() => {
-                    self.handle(event, &format!("{}.state", self.prefix)).await;
+                    self.handle_with(event, &format!("{}.state", self.prefix), |e| {
+                        transition_to_msg(&e)
+                    }).await;
                 }
                 event = prompt_rx.recv() => {
-                    self.handle(event, &format!("{}.prompt", self.prefix)).await;
+                    self.handle_with(event, &format!("{}.prompt", self.prefix), |e| {
+                        ServerMessage::PromptOutcome {
+                            source: e.source,
+                            r#type: e.r#type,
+                            subtype: e.subtype,
+                            option: e.option,
+                        }
+                    }).await;
                 }
                 event = hook_rx.recv() => {
-                    self.handle(event, &format!("{}.hook", self.prefix)).await;
+                    self.handle_with(event, &format!("{}.hook", self.prefix), |e| {
+                        ServerMessage::HookRaw { data: e.json }
+                    }).await;
                 }
                 event = stop_rx.recv() => {
-                    self.handle(event, &format!("{}.stop", self.prefix)).await;
+                    self.handle_with(event, &format!("{}.stop", self.prefix), |e| {
+                        stop_event_to_msg(&e)
+                    }).await;
                 }
                 event = start_rx.recv() => {
-                    self.handle(event, &format!("{}.start", self.prefix)).await;
+                    self.handle_with(event, &format!("{}.start", self.prefix), |e| {
+                        start_event_to_msg(&e)
+                    }).await;
                 }
                 event = usage_rx.recv() => {
-                    self.handle(event, &format!("{}.usage", self.prefix)).await;
+                    self.handle_with(event, &format!("{}.usage", self.prefix), |e| {
+                        usage_event_to_msg(&e)
+                    }).await;
                 }
                 event = profile_rx.recv() => {
-                    self.handle(event, &format!("{}.profile", self.prefix)).await;
+                    self.handle_with(event, &format!("{}.profile", self.prefix), |e| {
+                        profile_event_to_msg(&e)
+                    }).await;
                 }
             }
         }
     }
 
-    /// Serialize and publish a single event, logging errors without propagating.
-    async fn handle<T: serde::Serialize>(
+    /// Convert a domain event to a [`ServerMessage`], serialize, and publish.
+    async fn handle_with<T, F>(
         &self,
         result: Result<T, broadcast::error::RecvError>,
         subject: &str,
-    ) {
+        convert: F,
+    ) where
+        F: FnOnce(T) -> ServerMessage,
+    {
         match result {
             Ok(event) => {
-                let payload = match serde_json::to_vec(&event) {
+                let msg = convert(event);
+                let payload = match serde_json::to_vec(&msg) {
                     Ok(p) => p,
                     Err(e) => {
                         tracing::warn!("nats: failed to serialize event for {subject}: {e}");
