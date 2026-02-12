@@ -9,9 +9,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Derive version from git tags so local builds show the real version
     // instead of the placeholder in Cargo.toml.
-    if let Ok(output) = std::process::Command::new("git")
-        .args(["describe", "--tags", "--always"])
-        .output()
+    if let Ok(output) =
+        std::process::Command::new("git").args(["describe", "--tags", "--always"]).output()
     {
         let desc = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !desc.is_empty() {

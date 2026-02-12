@@ -157,10 +157,7 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<(AgentState, Stri
         if !trimmed.is_empty() && trimmed.starts_with('\u{276f}') {
             // Skip dialog option markers like "❯ 1. No, exit"
             let after = trimmed['\u{276f}'.len_utf8()..].trim_start();
-            let is_dialog_option = after
-                .as_bytes()
-                .first()
-                .map_or(false, |b| b.is_ascii_digit());
+            let is_dialog_option = after.as_bytes().first().is_some_and(|b| b.is_ascii_digit());
             if !is_dialog_option {
                 return Some((AgentState::Idle, "screen:idle".to_owned()));
             }
