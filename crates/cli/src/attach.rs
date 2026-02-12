@@ -61,40 +61,16 @@ const DETACH_KEY: u8 = 0x1d;
 /// Refresh key: Ctrl+L (ASCII 0x0c), traditional terminal clear/redraw.
 const REFRESH_KEY: u8 = 0x0c;
 
-// Terminal escape sequences for screen management.
-
-/// Enter alternate screen buffer (SMCUP). Isolates coop's display from the
-/// user's shell scrollback so detaching cleanly restores the original content.
-const SMCUP: &[u8] = b"\x1b[?1049h";
-
-/// Exit alternate screen buffer (RMCUP). Restores the primary screen buffer
-/// and cursor position, bringing back the user's original shell content.
-const RMCUP: &[u8] = b"\x1b[?1049l";
-
-/// Clear screen and move cursor home. Used after entering the alternate
-/// screen buffer to start with a blank slate.
+const SMCUP: &[u8] = b"\x1b[?1049h"; // Enter alternate screen buffer
+const RMCUP: &[u8] = b"\x1b[?1049l"; // Exit alternate screen buffer
 const CLEAR_HOME: &[u8] = b"\x1b[2J\x1b[H";
+const SYNC_START: &[u8] = b"\x1b[?2026h"; // DEC synchronized update begin
+const SYNC_END: &[u8] = b"\x1b[?2026l"; // DEC synchronized update end
 
-/// Begin synchronized update (DEC private mode 2026). Tells the terminal to
-/// batch subsequent output and render it atomically, preventing flicker during
-/// large redraws. Supported by Ghostty, kitty, iTerm2, WezTerm, foot.
-/// Unsupported terminals ignore the sequence harmlessly.
-const SYNC_START: &[u8] = b"\x1b[?2026h";
-
-/// End synchronized update. Flushes the batched output to the screen.
-const SYNC_END: &[u8] = b"\x1b[?2026l";
-
-/// One-time panic hook installation guard.
 static PANIC_HOOK_INSTALLED: Once = Once::new();
-
-/// Saved terminal state for panic-time restoration.
-/// Populated when entering raw mode, cleared on drop.
 static PANIC_TERMIOS: Mutex<Option<nix::libc::termios>> = Mutex::new(None);
 
-/// Default statusline refresh interval in seconds.
 const DEFAULT_STATUSLINE_INTERVAL: u64 = 5;
-
-/// Ping keepalive interval.
 const PING_INTERVAL: Duration = Duration::from_secs(30);
 
 /// WebSocket stream over a TCP (possibly TLS) connection.
@@ -123,17 +99,13 @@ impl From<&AttachArgs> for StatuslineConfig {
     }
 }
 
-/// Result of a single `connect_and_run` session.
 enum SessionResult {
-    /// Agent exited normally with a code.
     Exited(i32),
-    /// User pressed the detach key.
     Detached,
-    /// WebSocket connection was lost.
     Disconnected(String),
 }
 
-/// Mutable state tracked across connections (survives reconnects).
+/// State tracked across reconnects.
 struct AttachState {
     agent_state: String,
     cols: u16,
@@ -163,7 +135,7 @@ impl AttachState {
     }
 }
 
-/// RAII guard that restores the original terminal attributes on drop.
+/// RAII guard that restores terminal attributes on drop.
 struct RawModeGuard {
     original: termios::Termios,
 }
@@ -198,8 +170,6 @@ fn terminal_size() -> Option<(u16, u16)> {
     }
 }
 
-/// Enter the alternate screen buffer, clear it, and prepare for coop output.
-/// Wraps the initial clear in a synchronized update for flicker-free startup.
 fn enter_alt_screen(stdout: &mut std::io::Stdout) {
     let _ = stdout.write_all(SMCUP);
     let _ = stdout.write_all(SYNC_START);
@@ -207,42 +177,31 @@ fn enter_alt_screen(stdout: &mut std::io::Stdout) {
     let _ = stdout.flush();
 }
 
-/// Exit the alternate screen buffer, restoring the user's original terminal.
 fn exit_alt_screen(stdout: &mut std::io::Stdout) {
     let _ = stdout.write_all(RMCUP);
     let _ = stdout.flush();
 }
 
-/// Set the scroll region to rows 1..content_rows (leaving the last row free
-/// for the statusline). Moves cursor to home position.
 fn set_scroll_region(stdout: &mut std::io::Stdout, content_rows: u16) {
-    // ESC[1;Nr — set scroll region. ESC[H — move cursor to home.
     let _ = write!(stdout, "\x1b[1;{content_rows}r\x1b[H");
     let _ = stdout.flush();
 }
 
-/// Reset the scroll region to full terminal.
 fn reset_scroll_region(stdout: &mut std::io::Stdout) {
     let _ = write!(stdout, "\x1b[r");
     let _ = stdout.flush();
 }
 
-/// Render the statusline on the bottom row of the terminal.
+/// Render statusline on the bottom row (save cursor, reverse video, restore).
 fn render_statusline(stdout: &mut std::io::Stdout, content: &str, cols: u16, rows: u16) {
-    // Truncate to column width at a valid char boundary.
     let max = cols as usize;
     let truncated =
         if content.len() > max { &content[..content.floor_char_boundary(max)] } else { content };
-    // Save cursor, move to last row col 1, reverse video, write padded content, restore.
-    let _ = write!(
-        stdout,
-        "\x1b7\x1b[{rows};1H\x1b[7m{truncated:<width$}\x1b[0m\x1b8",
-        width = cols as usize
-    );
+    let _ =
+        write!(stdout, "\x1b7\x1b[{rows};1H\x1b[7m{truncated:<width$}\x1b[0m\x1b8", width = max);
     let _ = stdout.flush();
 }
 
-/// Build the default built-in statusline string.
 fn builtin_statusline(state: &AttachState) -> String {
     format!(
         " [coop] {} | {}s | {}x{}",
@@ -253,33 +212,26 @@ fn builtin_statusline(state: &AttachState) -> String {
     )
 }
 
-/// Run a shell command and capture its stdout as a statusline string.
+/// Run a shell command with template expansion ({state}, {cols}, {rows}, {uptime}).
 async fn run_statusline_cmd(cmd: &str, state: &AttachState) -> String {
-    // Expand template variables.
     let expanded = cmd
         .replace("{state}", &state.agent_state)
         .replace("{cols}", &state.cols.to_string())
         .replace("{rows}", &state.rows.to_string())
         .replace("{uptime}", &state.uptime_secs().to_string());
-
-    let output = tokio::process::Command::new("sh")
+    match tokio::process::Command::new("sh")
         .args(["-c", &expanded])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .output()
-        .await;
-
-    match output {
+        .await
+    {
         Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_owned(),
         _ => format!(" [coop] statusline cmd failed: {cmd}"),
     }
 }
 
-/// Run the `coop attach` subcommand. Returns a process exit code.
-///
-/// This is async because the attach loop uses tokio for WebSocket I/O,
-/// signal handling, and timers. It must be called from within a tokio
-/// runtime (e.g. from `#[tokio::main]` in main.rs).
+/// Run `coop attach`. Returns a process exit code.
 pub async fn run(args: AttachArgs) -> i32 {
     if args.url.is_none() && args.socket.is_none() {
         eprintln!("error: COOP_URL is not set and no URL or --socket argument provided");
@@ -297,31 +249,20 @@ pub async fn run(args: AttachArgs) -> i32 {
     .await
 }
 
-/// Build the WebSocket URL with subscription flags.
 fn build_ws_url(base_url: &str) -> String {
-    let subscribe = "pty,state";
     let base = base_url.trim_end_matches('/');
-    if let Some(rest) = base.strip_prefix("https://") {
-        format!("wss://{rest}/ws?subscribe={subscribe}")
-    } else if let Some(rest) = base.strip_prefix("http://") {
-        format!("ws://{rest}/ws?subscribe={subscribe}")
-    } else {
-        format!("ws://{base}/ws?subscribe={subscribe}")
-    }
+    let scheme = if base.starts_with("https://") { "wss" } else { "ws" };
+    let host =
+        base.strip_prefix("https://").or_else(|| base.strip_prefix("http://")).unwrap_or(base);
+    format!("{scheme}://{host}/ws?subscribe=pty,state")
 }
 
-/// Establish a WebSocket connection over TCP or Unix socket.
-///
-/// When `socket` is `Some`, connects over a Unix domain socket (UDS takes
-/// priority). The `ws://localhost` URI is a formality — tungstenite needs a
-/// valid WS URI for the HTTP upgrade handshake, but the Host header is
-/// meaningless over UDS. The path+query (`/ws?subscribe=...`) is what the
-/// server routes on.
+/// Connect over Unix socket (preferred) or TCP. The `ws://localhost` URI over
+/// UDS is a formality — tungstenite needs it for the HTTP upgrade handshake.
 async fn connect_ws(
     url: Option<&str>,
     socket: Option<&str>,
 ) -> Result<Either<TcpWs, UnixWs>, String> {
-    // Unix socket takes priority when both are provided.
     if let Some(path) = socket {
         let stream =
             tokio::net::UnixStream::connect(path).await.map_err(|e| format!("{path}: {e}"))?;
@@ -443,9 +384,11 @@ async fn attach(
             match connect_ws(url, socket).await {
                 Ok(s) => s,
                 Err(e) => {
-                    // Reconnect failure — treat as disconnected.
-                    if max_reconnects > 0 && attempt >= max_reconnects {
-                        reset_scroll_region_if(&mut stdout, sl_active);
+                    attempt += 1;
+                    if attempt > max_reconnects {
+                        if sl_active {
+                            reset_scroll_region(&mut stdout);
+                        }
                         exit_alt_screen(&mut stdout);
                         drop(raw_guard);
                         eprintln!("coop attach: max reconnects reached, giving up.");
@@ -459,7 +402,6 @@ async fn attach(
                     );
                     let _ = stdout.flush();
                     tokio::time::sleep(backoff).await;
-                    attempt += 1;
                     continue;
                 }
             }
@@ -472,39 +414,26 @@ async fn attach(
             let _ = send_msg(&mut ws_tx, &ClientMessage::Auth { token: token.to_owned() }).await;
         }
 
-        if sl_active && state.rows > 2 {
+        let content_rows = if sl_active && state.rows > 2 {
             set_scroll_region(&mut stdout, state.rows - 1);
-            let _ = send_msg(
-                &mut ws_tx,
-                &ClientMessage::Resize { cols: state.cols, rows: state.rows - 1 },
-            )
-            .await;
+            state.rows - 1
         } else {
-            let _ =
-                send_msg(&mut ws_tx, &ClientMessage::Resize { cols: state.cols, rows: state.rows })
-                    .await;
-        }
+            state.rows
+        };
+        let _ =
+            send_msg(&mut ws_tx, &ClientMessage::Resize { cols: state.cols, rows: content_rows })
+                .await;
 
-        // Begin synchronized update for the initial replay redraw.
+        // Begin synchronized redraw for initial replay.
         let _ = stdout.write_all(SYNC_START);
         let _ = stdout.write_all(CLEAR_HOME);
         let _ = stdout.flush();
         state.sync_pending = true;
-
         let _ = send_msg(
             &mut ws_tx,
             &ClientMessage::GetReplay { offset: state.next_offset, limit: None },
         )
         .await;
-
-        if sl_active {
-            let _ = send_msg(&mut ws_tx, &ClientMessage::GetAgent {}).await;
-            let content = match &sl_cfg.cmd {
-                Some(cmd) => run_statusline_cmd(cmd, &state).await,
-                None => builtin_statusline(&state),
-            };
-            render_statusline(&mut stdout, &content, state.cols, state.rows);
-        }
 
         let mut ctx = AttachContext {
             state: &mut state,
@@ -514,9 +443,12 @@ async fn attach(
             sigwinch: &mut sigwinch,
             stdout: &mut stdout,
         };
-        let result = connect_and_run(&mut ws_tx, &mut ws_rx, &mut ctx).await;
+        if *ctx.sl_active {
+            let _ = send_msg(&mut ws_tx, &ClientMessage::GetAgent {}).await;
+        }
+        ctx.refresh_statusline().await;
 
-        // Send close frame (best-effort).
+        let result = connect_and_run(&mut ws_tx, &mut ws_rx, &mut ctx).await;
         let _ = ws_tx.send(tokio_tungstenite::tungstenite::Message::Close(None)).await;
 
         match result {
@@ -529,22 +461,22 @@ async fn attach(
                 break;
             }
             SessionResult::Disconnected(reason) => {
-                if max_reconnects == 0 {
-                    reset_scroll_region_if(&mut stdout, sl_active);
-                    exit_alt_screen(&mut stdout);
-                    drop(raw_guard);
-                    eprintln!("coop attach: disconnected: {reason}");
-                    return 1;
-                }
                 attempt += 1;
-                if attempt > max_reconnects {
-                    reset_scroll_region_if(&mut stdout, sl_active);
+                let give_up = max_reconnects == 0 || attempt > max_reconnects;
+                if sl_active {
+                    reset_scroll_region(&mut stdout);
+                }
+                if give_up {
                     exit_alt_screen(&mut stdout);
                     drop(raw_guard);
-                    eprintln!("coop attach: max reconnects reached, giving up.");
+                    let why = if max_reconnects == 0 {
+                        reason
+                    } else {
+                        "max reconnects reached".to_owned()
+                    };
+                    eprintln!("coop attach: {why}");
                     return 1;
                 }
-                reset_scroll_region_if(&mut stdout, sl_active);
                 let backoff = reconnect_backoff(attempt);
                 let _ = write!(
                     stdout,
@@ -553,29 +485,22 @@ async fn attach(
                 );
                 let _ = stdout.flush();
                 tokio::time::sleep(backoff).await;
-                continue;
             }
         }
     }
 
-    // Clean up: reset scroll region, exit alt screen, restore terminal.
-    reset_scroll_region_if(&mut stdout, sl_active);
+    if sl_active {
+        reset_scroll_region(&mut stdout);
+    }
     exit_alt_screen(&mut stdout);
     drop(raw_guard);
     eprintln!("detached from coop session.");
     exit_code
 }
 
-/// Compute reconnect backoff: 500ms * 2^attempt, capped at 10s.
+/// Exponential backoff: 500ms * 2^attempt, capped at 10s.
 fn reconnect_backoff(attempt: u32) -> Duration {
-    let ms = 500u64.saturating_mul(1u64 << attempt.min(20));
-    Duration::from_millis(ms.min(10_000))
-}
-
-fn reset_scroll_region_if(stdout: &mut std::io::Stdout, sl_active: bool) {
-    if sl_active {
-        reset_scroll_region(stdout);
-    }
+    Duration::from_millis(500u64.saturating_mul(1u64 << attempt.min(20)).min(10_000))
 }
 
 /// Mutable context passed to `connect_and_run`, grouping resources that
@@ -589,8 +514,46 @@ struct AttachContext<'a> {
     stdout: &'a mut std::io::Stdout,
 }
 
-/// Inner event loop for a single WebSocket connection. Returns when the
-/// session ends, the user detaches, or the connection is lost.
+impl AttachContext<'_> {
+    /// Decode base64 PTY data, write to stdout, advance offset, end sync if pending.
+    fn write_pty_data(&mut self, data: &str, offset: u64) {
+        if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(data) {
+            self.state.next_offset = offset + decoded.len() as u64;
+            let _ = self.stdout.write_all(&decoded);
+            if self.state.sync_pending {
+                self.state.sync_pending = false;
+                let _ = self.stdout.write_all(SYNC_END);
+            }
+            let _ = self.stdout.flush();
+        }
+    }
+
+    /// Refresh the statusline bar (no-op if statusline is inactive).
+    async fn refresh_statusline(&mut self) {
+        if !*self.sl_active {
+            return;
+        }
+        let content = match &self.sl_cfg.cmd {
+            Some(cmd) => run_statusline_cmd(cmd, self.state).await,
+            None => builtin_statusline(self.state),
+        };
+        render_statusline(self.stdout, &content, self.state.cols, self.state.rows);
+    }
+
+    /// Begin a synchronized redraw: sync-start + clear + optional scroll region.
+    fn begin_sync_redraw(&mut self) {
+        let _ = self.stdout.write_all(SYNC_START);
+        let _ = self.stdout.write_all(CLEAR_HOME);
+        if *self.sl_active {
+            set_scroll_region(self.stdout, self.state.rows - 1);
+        }
+        let _ = self.stdout.flush();
+        self.state.sync_pending = true;
+    }
+}
+
+/// Event loop for a single WebSocket connection. Returns on session end,
+/// user detach, or connection loss.
 async fn connect_and_run<WsTx, WsRx>(
     ws_tx: &mut WsTx,
     ws_rx: &mut WsRx,
@@ -622,101 +585,63 @@ where
                         match serde_json::from_str::<ServerMessage>(&text) {
                             Ok(ServerMessage::Pty { data, offset, .. })
                             | Ok(ServerMessage::Replay { data, offset, .. }) => {
-                                if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&data) {
-                                    ctx.state.next_offset = offset + decoded.len() as u64;
-                                    let _ = ctx.stdout.write_all(&decoded);
-                                    // End synchronized update after initial replay.
-                                    if ctx.state.sync_pending {
-                                        ctx.state.sync_pending = false;
-                                        let _ = ctx.stdout.write_all(SYNC_END);
-                                    }
-                                    let _ = ctx.stdout.flush();
-                                }
+                                ctx.write_pty_data(&data, offset);
                             }
                             Ok(ServerMessage::Exit { code, .. }) => {
-                                let exit_code = code.unwrap_or(0);
-                                // Drain remaining output with a short deadline.
-                                let drain_deadline = tokio::time::Instant::now() + Duration::from_millis(200);
+                                let deadline = tokio::time::Instant::now() + Duration::from_millis(200);
                                 while let Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text)))) =
-                                    tokio::time::timeout_at(drain_deadline, ws_rx.next()).await
+                                    tokio::time::timeout_at(deadline, ws_rx.next()).await
                                 {
                                     if let Ok(ServerMessage::Pty { data, offset, .. } | ServerMessage::Replay { data, offset, .. }) = serde_json::from_str(&text) {
-                                        if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&data) {
-                                            ctx.state.next_offset = offset + decoded.len() as u64;
-                                            let _ = ctx.stdout.write_all(&decoded);
-                                            let _ = ctx.stdout.flush();
-                                        }
+                                        ctx.write_pty_data(&data, offset);
                                     }
                                 }
-                                return SessionResult::Exited(exit_code);
+                                return SessionResult::Exited(code.unwrap_or(0));
                             }
                             Ok(ServerMessage::Error { code, message }) => {
                                 return SessionResult::Disconnected(format!("[{code}] {message}"));
                             }
                             Ok(ServerMessage::Transition { next, .. }) => {
                                 ctx.state.agent_state = next;
-                                if *ctx.sl_active {
-                                    let content = match &ctx.sl_cfg.cmd {
-                                        Some(cmd) => run_statusline_cmd(cmd, ctx.state).await,
-                                        None => builtin_statusline(ctx.state),
-                                    };
-                                    render_statusline(ctx.stdout, &content, ctx.state.cols, ctx.state.rows);
-                                }
+                                ctx.refresh_statusline().await;
                             }
-                            Ok(_) => {}
-                            Err(_) => {}
+                            _ => {}
                         }
                     }
                     Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))) | None => {
                         return SessionResult::Disconnected("connection closed".to_owned());
                     }
-                    Some(Ok(_)) => {}
-                    Some(Err(e)) => {
-                        return SessionResult::Disconnected(format!("{e}"));
-                    }
+                    Some(Err(e)) => return SessionResult::Disconnected(format!("{e}")),
+                    _ => {}
                 }
             }
 
             // Local stdin input.
             data = ctx.stdin_rx.recv() => {
-                match data {
-                    Some(bytes) => {
-                        if let Some(pos) = bytes.iter().position(|&b| b == DETACH_KEY) {
-                            if pos > 0 {
-                                let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes[..pos]);
-                                let _ = send_msg(ws_tx, &ClientMessage::SendInputRaw { data: encoded }).await;
-                            }
-                            return SessionResult::Detached;
-                        }
-                        // Ctrl+L: force a full screen redraw from the ring buffer.
-                        if bytes.contains(&REFRESH_KEY) {
-                            // Filter out the Ctrl+L byte(s) and send remaining input.
-                            let filtered: Vec<u8> = bytes.iter().copied().filter(|&b| b != REFRESH_KEY).collect();
-                            if !filtered.is_empty() {
-                                let encoded = base64::engine::general_purpose::STANDARD.encode(&filtered);
-                                let _ = send_msg(ws_tx, &ClientMessage::SendInputRaw { data: encoded }).await;
-                            }
-                            // Request full replay for redraw, wrapped in sync update.
-                            let _ = ctx.stdout.write_all(SYNC_START);
-                            let _ = ctx.stdout.write_all(CLEAR_HOME);
-                            if *ctx.sl_active {
-                                set_scroll_region(ctx.stdout, ctx.state.rows - 1);
-                            }
-                            let _ = ctx.stdout.flush();
-                            ctx.state.sync_pending = true;
-                            let _ = send_msg(ws_tx, &ClientMessage::GetReplay { offset: 0, limit: None }).await;
-                            continue;
-                        }
-                        let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                        if send_msg(ws_tx, &ClientMessage::SendInputRaw { data: encoded }).await.is_err() {
-                            return SessionResult::Disconnected("send failed".to_owned());
-                        }
+                let Some(bytes) = data else {
+                    return SessionResult::Disconnected("stdin closed".to_owned());
+                };
+                if let Some(pos) = bytes.iter().position(|&b| b == DETACH_KEY) {
+                    if pos > 0 {
+                        let _ = send_raw(ws_tx, &bytes[..pos]).await;
                     }
-                    None => return SessionResult::Disconnected("stdin closed".to_owned()),
+                    return SessionResult::Detached;
+                }
+                if bytes.contains(&REFRESH_KEY) {
+                    let filtered: Vec<u8> = bytes.iter().copied().filter(|&b| b != REFRESH_KEY).collect();
+                    if !filtered.is_empty() {
+                        let _ = send_raw(ws_tx, &filtered).await;
+                    }
+                    ctx.begin_sync_redraw();
+                    let _ = send_msg(ws_tx, &ClientMessage::GetReplay { offset: 0, limit: None }).await;
+                    continue;
+                }
+                if send_raw(ws_tx, &bytes).await.is_err() {
+                    return SessionResult::Disconnected("send failed".to_owned());
                 }
             }
 
-            // Terminal resize — triggers full redraw (like tmux).
+            // Terminal resize — triggers full redraw.
             _ = async {
                 match ctx.sigwinch.as_mut() {
                     Some(s) => { s.recv().await; }
@@ -726,56 +651,26 @@ where
                 if let Some((cols, rows)) = terminal_size() {
                     ctx.state.cols = cols;
                     ctx.state.rows = rows;
-
                     let was_active = *ctx.sl_active;
                     *ctx.sl_active = ctx.sl_cfg.enabled && rows > 2;
 
-                    // Begin synchronized update + clear for a flicker-free resize redraw.
-                    let _ = ctx.stdout.write_all(SYNC_START);
-                    let _ = ctx.stdout.write_all(CLEAR_HOME);
-
-                    if *ctx.sl_active {
+                    if was_active || *ctx.sl_active {
                         reset_scroll_region(ctx.stdout);
-                        let content_rows = rows - 1;
-                        set_scroll_region(ctx.stdout, content_rows);
-                        let _ = send_msg(ws_tx, &ClientMessage::Resize { cols, rows: content_rows }).await;
-                        let content = match &ctx.sl_cfg.cmd {
-                            Some(cmd) => run_statusline_cmd(cmd, ctx.state).await,
-                            None => builtin_statusline(ctx.state),
-                        };
-                        render_statusline(ctx.stdout, &content, cols, rows);
-                    } else {
-                        if was_active {
-                            reset_scroll_region(ctx.stdout);
-                        }
-                        let _ = send_msg(ws_tx, &ClientMessage::Resize { cols, rows }).await;
                     }
-
-                    let _ = ctx.stdout.flush();
-                    // Request full replay to repaint with new dimensions.
-                    ctx.state.sync_pending = true;
+                    let content_rows = if *ctx.sl_active { set_scroll_region(ctx.stdout, rows - 1); rows - 1 } else { rows };
+                    let _ = send_msg(ws_tx, &ClientMessage::Resize { cols, rows: content_rows }).await;
+                    ctx.begin_sync_redraw();
+                    ctx.refresh_statusline().await;
                     let _ = send_msg(ws_tx, &ClientMessage::GetReplay { offset: 0, limit: None }).await;
                 }
             }
 
-            // Statusline refresh timer.
-            _ = sl_interval.tick(), if *ctx.sl_active => {
-                let content = match &ctx.sl_cfg.cmd {
-                    Some(cmd) => run_statusline_cmd(cmd, ctx.state).await,
-                    None => builtin_statusline(ctx.state),
-                };
-                render_statusline(ctx.stdout, &content, ctx.state.cols, ctx.state.rows);
-            }
-
-            // Ping keepalive.
-            _ = ping_interval.tick() => {
-                let _ = send_msg(ws_tx, &ClientMessage::Ping {}).await;
-            }
+            _ = sl_interval.tick(), if *ctx.sl_active => { ctx.refresh_statusline().await; }
+            _ = ping_interval.tick() => { let _ = send_msg(ws_tx, &ClientMessage::Ping {}).await; }
         }
     }
 }
 
-/// Serialize and send a JSON text message over WebSocket.
 async fn send_msg<S>(tx: &mut S, msg: &ClientMessage) -> Result<(), String>
 where
     S: SinkExt<tokio_tungstenite::tungstenite::Message> + Unpin,
@@ -784,6 +679,14 @@ where
     tx.send(tokio_tungstenite::tungstenite::Message::Text(text.into()))
         .await
         .map_err(|_| "WebSocket send failed".to_owned())
+}
+
+async fn send_raw<S>(tx: &mut S, bytes: &[u8]) -> Result<(), String>
+where
+    S: SinkExt<tokio_tungstenite::tungstenite::Message> + Unpin,
+{
+    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+    send_msg(tx, &ClientMessage::SendInputRaw { data }).await
 }
 
 #[cfg(test)]
