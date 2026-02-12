@@ -449,6 +449,10 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     let profile_state = Arc::new(ProfileState::new());
+    // Apply --profile mode from CLI/env.
+    if let Ok(mode) = config.profile.parse::<crate::profile::ProfileMode>() {
+        profile_state.set_mode(mode);
+    }
 
     let event_log = Arc::new(EventLog::new(setup.as_ref().map(|s| s.session_dir.as_path())));
 
@@ -570,6 +574,18 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         tokio::spawn(async move {
             publisher.run(&store_ref, sd).await;
         });
+    }
+
+    // Spawn mux self-registration client if COOP_MUX_URL is set.
+    {
+        let sid = store.session_id.read().await.clone();
+        crate::mux_client::spawn_if_configured(
+            &sid,
+            config.port,
+            config.auth_token.as_deref(),
+            shutdown.clone(),
+        )
+        .await;
     }
 
     // Spawn HTTP server

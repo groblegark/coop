@@ -8,6 +8,7 @@ pub mod driver;
 pub mod error;
 pub mod event;
 pub mod event_log;
+pub mod mux_client;
 pub mod profile;
 pub mod record;
 pub mod ring;

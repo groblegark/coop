@@ -571,19 +571,38 @@ async fn handle_client_message(
         }
 
         // Profiles
-        ClientMessage::RegisterProfiles { profiles, config } => {
+        ClientMessage::RegisterProfiles { profiles } => {
             require_auth!(authed);
             let count = profiles.len();
-            state.profile.register(profiles, config).await;
+            state.profile.register(profiles).await;
             Some(ServerMessage::ProfilesRegistered { count })
         }
 
         ClientMessage::ListProfiles {} => {
             require_auth!(authed);
             let profiles = state.profile.list().await;
-            let config = state.profile.config().await;
+            let mode = state.profile.mode().as_str().to_owned();
             let active_profile = state.profile.active_name().await;
-            Some(ServerMessage::ProfileList { profiles, config, active_profile })
+            Some(ServerMessage::ProfileList { profiles, mode, active_profile })
+        }
+
+        ClientMessage::GetProfileMode {} => {
+            require_auth!(authed);
+            let mode = state.profile.mode().as_str().to_owned();
+            Some(ServerMessage::ProfileMode { mode })
+        }
+
+        ClientMessage::SetProfileMode { mode } => {
+            require_auth!(authed);
+            match mode.parse::<crate::profile::ProfileMode>() {
+                Ok(m) => {
+                    state.profile.set_mode(m);
+                    Some(ServerMessage::ProfileMode { mode: m.as_str().to_owned() })
+                }
+                Err(_) => {
+                    Some(ws_error(ErrorCode::BadRequest, "invalid mode: expected auto or manual"))
+                }
+            }
         }
 
         // Session switch

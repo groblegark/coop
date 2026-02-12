@@ -103,6 +103,8 @@ enum Commands {
     Open(coop::command::open::OpenArgs),
     /// Resolve a stop hook from inside the PTY.
     Send(coop::command::send::SendArgs),
+    /// Manage mux credentials (list, seed, reauth).
+    Cred(coop::command::cred::CredArgs),
 }
 
 #[tokio::main]
@@ -118,6 +120,9 @@ async fn main() {
         }
         Some(Commands::Send(args)) => {
             std::process::exit(coop::command::send::run(&args));
+        }
+        Some(Commands::Cred(args)) => {
+            std::process::exit(coop::command::cred::run(&args));
         }
         None => {
             let config = cli.config;

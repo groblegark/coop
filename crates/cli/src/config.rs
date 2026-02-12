@@ -155,6 +155,10 @@ pub struct Config {
     #[arg(long, env = "COOP_GROOM", default_value = "auto")]
     pub groom: String,
 
+    /// Profile rotation mode: auto or manual.
+    #[arg(long, env = "COOP_PROFILE", default_value = "auto")]
+    pub profile: String,
+
     // -- Duration overrides (skip from CLI; set in Config::test()) --------
     /// Drain timeout in ms (0 = disabled, immediate kill on shutdown).
     #[clap(skip)]
@@ -314,6 +318,7 @@ impl Config {
             nats_password: None,
             nats_creds: None,
             groom: "manual".into(),
+            profile: "auto".into(),
             command: vec!["echo".into()],
             drain_timeout_ms: Some(100),
             shutdown_timeout_ms: Some(100),

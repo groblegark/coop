@@ -11,7 +11,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::error::ErrorCode;
-use crate::profile::{ProfileConfig, ProfileEntry, ProfileInfo};
+use crate::profile::{ProfileEntry, ProfileInfo, ProfileMode};
 use crate::switch::SwitchRequest;
 use crate::transport::handler::resolve_switch_profile;
 use crate::transport::state::Store;
@@ -43,15 +43,13 @@ pub async fn switch_session(
 #[derive(Debug, Deserialize)]
 pub struct RegisterProfilesRequest {
     pub profiles: Vec<ProfileEntry>,
-    #[serde(default)]
-    pub config: Option<ProfileConfig>,
 }
 
 /// Response for `GET /api/v1/session/profiles`.
 #[derive(Debug, Serialize)]
 pub struct ProfileListResponse {
     pub profiles: Vec<ProfileInfo>,
-    pub config: ProfileConfig,
+    pub mode: String,
     pub active_profile: Option<String>,
 }
 
@@ -61,14 +59,50 @@ pub async fn register_profiles(
     Json(req): Json<RegisterProfilesRequest>,
 ) -> impl IntoResponse {
     let count = req.profiles.len();
-    s.profile.register(req.profiles, req.config).await;
+    s.profile.register(req.profiles).await;
     Json(serde_json::json!({ "registered": count }))
 }
 
 /// `GET /api/v1/session/profiles` — list all profiles with status.
 pub async fn list_profiles(State(s): State<Arc<Store>>) -> impl IntoResponse {
     let profiles = s.profile.list().await;
-    let config = s.profile.config().await;
+    let mode = s.profile.mode().as_str().to_owned();
     let active_profile = s.profile.active_name().await;
-    Json(ProfileListResponse { profiles, config, active_profile })
+    Json(ProfileListResponse { profiles, mode, active_profile })
+}
+
+// -- Profile Mode -------------------------------------------------------------
+
+/// Request body for `PUT /api/v1/session/profiles/mode`.
+#[derive(Debug, Deserialize)]
+pub struct ProfileModeRequest {
+    pub mode: String,
+}
+
+/// Response for `GET/PUT /api/v1/session/profiles/mode`.
+#[derive(Debug, Serialize)]
+pub struct ProfileModeResponse {
+    pub mode: String,
+}
+
+/// `GET /api/v1/session/profiles/mode` — get the current profile rotation mode.
+pub async fn get_profile_mode(State(s): State<Arc<Store>>) -> impl IntoResponse {
+    let mode = s.profile.mode().as_str().to_owned();
+    Json(ProfileModeResponse { mode })
+}
+
+/// `PUT /api/v1/session/profiles/mode` — set the profile rotation mode.
+pub async fn put_profile_mode(
+    State(s): State<Arc<Store>>,
+    Json(req): Json<ProfileModeRequest>,
+) -> impl IntoResponse {
+    match req.mode.parse::<ProfileMode>() {
+        Ok(mode) => {
+            s.profile.set_mode(mode);
+            Json(ProfileModeResponse { mode: mode.as_str().to_owned() }).into_response()
+        }
+        Err(_) => ErrorCode::BadRequest
+            .to_http_response("invalid mode: expected auto or manual")
+            .into_response(),
+    }
 }

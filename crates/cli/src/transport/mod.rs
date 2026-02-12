@@ -334,6 +334,10 @@ pub fn build_router(state: Arc<Store>) -> Router {
         .route("/api/v1/stop/resolve", post(http::resolve_stop))
         .route("/api/v1/session/usage", get(http::session_usage))
         .route("/api/v1/session/profiles", post(http::register_profiles).get(http::list_profiles))
+        .route(
+            "/api/v1/session/profiles/mode",
+            get(http::get_profile_mode).put(http::put_profile_mode),
+        )
         .route("/api/v1/session/switch", post(http::switch_session))
         .route("/api/v1/shutdown", post(http::shutdown))
         .route("/api/v1/config/stop", get(http::get_stop_config).put(http::put_stop_config))

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::driver::{AgentState, PromptContext};
 use crate::error::ErrorCode;
 use crate::event::TransitionEvent;
-use crate::profile::{ProfileConfig, ProfileEntry, ProfileInfo};
+use crate::profile::{ProfileEntry, ProfileInfo};
 use crate::screen::{CursorPosition, ScreenSnapshot};
 use crate::start::StartEvent;
 use crate::stop::StopEvent;
@@ -131,11 +131,15 @@ pub enum ClientMessage {
     #[serde(rename = "profiles:register")]
     RegisterProfiles {
         profiles: Vec<ProfileEntry>,
-        #[serde(default)]
-        config: Option<ProfileConfig>,
     },
     #[serde(rename = "profiles:list")]
     ListProfiles {},
+    #[serde(rename = "profiles:mode")]
+    GetProfileMode {},
+    #[serde(rename = "profiles:mode:set")]
+    SetProfileMode {
+        mode: String,
+    },
 
     // Session switch
     #[serde(rename = "session:switch")]
@@ -416,8 +420,12 @@ pub enum ServerMessage {
     #[serde(rename = "profiles")]
     ProfileList {
         profiles: Vec<ProfileInfo>,
-        config: ProfileConfig,
+        mode: String,
         active_profile: Option<String>,
+    },
+    #[serde(rename = "profiles:mode")]
+    ProfileMode {
+        mode: String,
     },
 
     // Session switch
