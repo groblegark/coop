@@ -1,4 +1,4 @@
-.PHONY: check ci fmt install coverage outdated try-claude try-claudeless try-gemini docker-test-image try-docker-claudeless try-docker-claude try-docker-gemini test-docker capture-claude
+.PHONY: check ci fmt install coverage outdated try-claude try-claudeless try-gemini try-mux docker-claudeless try-docker-claudeless try-docker-claude try-docker-gemini test-docker capture-claude
 
 # Quick checks
 #
@@ -56,8 +56,13 @@ try-claudeless:
 try-gemini:
 	@COOP_AGENT=gemini bun tests/debug/start.ts -- gemini
 
+# Launch coopmux + N coop/claude sessions with mux dashboard
+# Usage: make try-mux SESSIONS=5
+try-mux:
+	@bun tests/debug/start-mux.ts --sessions $(or $(SESSIONS),3)
+
 # Build Docker claudeless image (for testing)
-docker-test-image:
+docker-claudeless:
 	docker build --target claudeless -t coop:test .
 
 # Launch coop + claudeless in Docker with browser terminal
@@ -82,5 +87,5 @@ capture-claude:
 	@bun tests/debug/capture-claude.ts --config $(or $(CONFIG),empty)
 
 # Run Docker e2e tests (builds test image first)
-test-docker: docker-test-image
+test-docker: docker-claudeless
 	COOP_DOCKER_TESTS=1 cargo test --test docker_e2e -- --test-threads=1

@@ -19,9 +19,19 @@ export function coopBin(): string {
 	return join(rootDir(), "target/debug/coop");
 }
 
+/** Path to the debug coopmux binary */
+export function coopmuxBin(): string {
+	return join(rootDir(), "target/debug/coopmux");
+}
+
 export async function buildCoop(): Promise<void> {
 	console.log("Building coop…");
 	await $`cargo build -p coop --manifest-path ${rootDir()}/Cargo.toml`;
+}
+
+export async function buildAll(): Promise<void> {
+	console.log("Building coop + coopmux…");
+	await $`cargo build -p coop -p coop-mux --manifest-path ${rootDir()}/Cargo.toml`;
 }
 
 export async function buildDocker(target: string, tag: string): Promise<void> {
@@ -93,7 +103,10 @@ export async function waitForHealth(
 }
 
 export async function openBrowser(port: number): Promise<void> {
-	const url = `http://localhost:${port}/`;
+	await openBrowserUrl(`http://localhost:${port}/`);
+}
+
+export async function openBrowserUrl(url: string): Promise<void> {
 	console.log(`Opening ${url}`);
 
 	try {
