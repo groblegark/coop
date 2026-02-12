@@ -123,6 +123,10 @@ pub struct Config {
     #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_name = "AGENT")]
     pub command: Vec<String>,
 
+    /// Enable session recording from start.
+    #[arg(long, env = "COOP_RECORD")]
+    pub record: bool,
+
     /// Groom level: auto, manual, pristine.
     #[arg(long, env = "COOP_GROOM", default_value = "auto")]
     pub groom: String,
@@ -278,6 +282,7 @@ impl Config {
             log_format: "json".into(),
             log_level: "debug".into(),
             resume: None,
+            record: false,
             groom: "manual".into(),
             command: vec!["echo".into()],
             drain_timeout_ms: Some(100),

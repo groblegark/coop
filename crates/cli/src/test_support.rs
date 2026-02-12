@@ -203,6 +203,7 @@ impl StoreBuilder {
             }),
             input_activity: Arc::new(tokio::sync::Notify::new()),
             event_log: Arc::new(EventLog::new(None)),
+            record: Arc::new(crate::record::RecordingState::new(None, 80, 24)),
         });
 
         StoreCtx { store, input_rx, switch_rx }

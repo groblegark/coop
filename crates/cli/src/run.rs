@@ -30,6 +30,7 @@ use crate::profile::ProfileState;
 use crate::pty::adapter::{AttachSpec, TmuxBackend};
 use crate::pty::spawn::NativePty;
 use crate::pty::Backend;
+use crate::record::RecordingState;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::session::{Session, SessionConfig, SessionOutcome};
@@ -451,6 +452,12 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     let event_log = Arc::new(EventLog::new(setup.as_ref().map(|s| s.session_dir.as_path())));
 
+    let record_state = Arc::new(RecordingState::new(
+        setup.as_ref().map(|s| s.session_dir.as_path()),
+        config.cols,
+        config.rows,
+    ));
+
     let store = Arc::new(Store {
         terminal,
         driver: Arc::new(DriverState {
@@ -493,7 +500,13 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         profile: profile_state,
         input_activity: Arc::new(tokio::sync::Notify::new()),
         event_log: Arc::clone(&event_log),
+        record: Arc::clone(&record_state),
     });
+
+    // Enable recording if --record flag is set.
+    if config.record {
+        store.record.enable().await;
+    }
 
     // Spawn event log subscriber — persists state/hook events to JSONL files.
     {
@@ -527,6 +540,16 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             }
         });
     }
+
+    // Spawn recording subscriber — captures screen snapshots at semantic events,
+    // plus periodic screenshots 30s after the last hook event.
+    crate::record::spawn_subscriber(
+        Arc::clone(&store.record),
+        Arc::clone(&store.terminal),
+        &store.channels.state_tx,
+        &store.channels.hook_tx,
+        shutdown.clone(),
+    );
 
     // Spawn HTTP server
     if let Some(port) = config.port {

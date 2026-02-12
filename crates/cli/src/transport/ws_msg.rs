@@ -110,6 +110,19 @@ pub enum ClientMessage {
         since_line: u64,
     },
 
+    // Recording
+    #[serde(rename = "recording:get")]
+    GetRecording {},
+    #[serde(rename = "recording:put")]
+    PutRecording {
+        enabled: bool,
+    },
+    #[serde(rename = "recording:catchup")]
+    CatchupRecording {
+        #[serde(default)]
+        since_seq: u64,
+    },
+
     // Usage
     #[serde(rename = "usage:get")]
     GetUsage {},
@@ -352,6 +365,31 @@ pub enum ServerMessage {
         seq: u64,
     },
 
+    // Recording
+    #[serde(rename = "recording")]
+    Recording {
+        enabled: bool,
+        path: Option<String>,
+        entries: u64,
+    },
+    #[serde(rename = "recording:configured")]
+    RecordingConfigured {
+        enabled: bool,
+        path: Option<String>,
+    },
+    #[serde(rename = "recording:catchup")]
+    RecordingCatchup {
+        entries: Vec<crate::record::RecordingEntry>,
+    },
+    #[serde(rename = "recording:entry")]
+    RecordingEntryMsg {
+        ts: u64,
+        seq: u64,
+        kind: String,
+        detail: serde_json::Value,
+        screen: ScreenSnapshot,
+    },
+
     // Usage
     #[serde(rename = "usage")]
     Usage {
@@ -414,6 +452,7 @@ pub struct SubscriptionFlags {
     pub messages: bool,
     pub transcripts: bool,
     pub usage: bool,
+    pub recording: bool,
 }
 
 impl SubscriptionFlags {
@@ -430,6 +469,7 @@ impl SubscriptionFlags {
                 "messages" => flags.messages = true,
                 "transcripts" => flags.transcripts = true,
                 "usage" => flags.usage = true,
+                "recording" => flags.recording = true,
                 _ => {}
             }
         }

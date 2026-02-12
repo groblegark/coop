@@ -82,6 +82,17 @@ service Coop {
   // Stream start hook events in real time.
   rpc StreamStartEvents(StreamStartEventsRequest) returns (stream StartEvent);
 
+  // Recording
+
+  // Get current recording status.
+  rpc GetRecording(GetRecordingRequest) returns (GetRecordingResponse);
+  // Toggle recording on/off.
+  rpc PutRecording(PutRecordingRequest) returns (PutRecordingResponse);
+  // Catch up on missed recording entries.
+  rpc CatchupRecording(CatchupRecordingRequest) returns (CatchupRecordingResponse);
+  // Stream recording entries in real time.
+  rpc StreamRecordingEvents(StreamRecordingEventsRequest) returns (stream RecordingEntryProto);
+
   // Usage tracking
 
   // Get cumulative API usage for the current session.
@@ -580,6 +591,43 @@ message UsageEvent {
   uint64 request_count = 6;
   uint64 total_api_ms = 7;
   uint64 seq = 8;
+}
+
+
+// -- Recording ----------------------------------------------------------------
+
+message GetRecordingRequest {}
+message GetRecordingResponse {
+  bool enabled = 1;
+  string path = 2;
+  uint64 entries = 3;
+}
+
+message PutRecordingRequest {
+  bool enabled = 1;
+}
+message PutRecordingResponse {
+  bool enabled = 1;
+  string path = 2;
+}
+
+message CatchupRecordingRequest {
+  uint64 since_seq = 1;
+}
+message CatchupRecordingResponse {
+  repeated RecordingEntryProto entries = 1;
+}
+
+message StreamRecordingEventsRequest {}
+// A single recording entry with screen snapshot.
+message RecordingEntryProto {
+  uint64 ts = 1;
+  uint64 seq = 2;
+  string kind = 3;
+  // Event-specific detail as JSON.
+  string detail_json = 4;
+  // Full screen snapshot as JSON.
+  string screen_json = 5;
 }
 
 

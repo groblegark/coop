@@ -6,6 +6,7 @@
 mod agent;
 mod events;
 mod hooks;
+mod record;
 mod screen;
 mod switch;
 mod transcript;
@@ -14,6 +15,7 @@ mod usage;
 pub use agent::*;
 pub use events::*;
 pub use hooks::*;
+pub use record::*;
 pub use screen::*;
 pub use switch::*;
 pub use transcript::*;

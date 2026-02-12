@@ -17,6 +17,7 @@ use crate::event::{
 };
 use crate::event_log::EventLog;
 use crate::profile::ProfileState;
+use crate::record::RecordingState;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::start::StartState;
@@ -65,6 +66,8 @@ pub struct Store {
     pub input_activity: Arc<tokio::sync::Notify>,
     /// File-backed event log for state/hook event catchup on WS reconnect.
     pub event_log: Arc<EventLog>,
+    /// Session recording state. Always present (defaults to disabled).
+    pub record: Arc<RecordingState>,
 }
 
 /// Terminal I/O: screen, ring buffer, child process.
