@@ -4,6 +4,7 @@
 use crate::driver::AgentState;
 use bytes::Bytes;
 use nix::sys::signal::Signal;
+use serde::Serialize;
 
 /// Raw or rendered output from the terminal backend.
 #[derive(Debug, Clone)]
@@ -13,7 +14,7 @@ pub enum OutputEvent {
 }
 
 /// Agent state transition with sequence number for ordering.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TransitionEvent {
     pub prev: AgentState,
     pub next: AgentState,
@@ -39,7 +40,7 @@ pub enum InputEvent {
 }
 
 /// A prompt response was delivered to the agent's terminal (auto-dismiss or API).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PromptOutcome {
     /// How the response was triggered: `"groom"` (auto-dismiss) or `"api"`.
     pub source: String,
@@ -52,7 +53,7 @@ pub struct PromptOutcome {
 }
 
 /// Raw hook event JSON from the hook FIFO pipe.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RawHookEvent {
     pub json: serde_json::Value,
 }

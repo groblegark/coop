@@ -50,9 +50,7 @@ crates/cli/               # Single crate (binary + lib)
 │   ├── main.rs            # CLI, startup
 │   ├── lib.rs             # Library root (re-exports modules)
 │   ├── run.rs             # prepare() + run() session entrypoint
-│   ├── attach.rs          # Attach to existing tmux/screen sessions
 │   ├── config.rs          # SessionSettings, duration knobs
-│   ├── send.rs            # Input delivery (InputGate, nudge, respond)
 │   ├── start.rs           # Start hook state (context injection)
 │   ├── stop.rs            # Stop hook state (gating)
 │   ├── error.rs           # ErrorCode enum

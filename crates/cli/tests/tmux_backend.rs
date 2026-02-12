@@ -8,9 +8,9 @@
 //! user's default tmux.
 
 use bytes::Bytes;
-use coop::driver::ExitStatus;
 use coop::backend::adapter::TmuxBackend;
 use coop::backend::{Backend, BackendInput};
+use coop::driver::ExitStatus;
 use std::path::PathBuf;
 use std::process::Command;
 use tokio::sync::mpsc;

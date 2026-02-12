@@ -127,6 +127,14 @@ pub struct Config {
     #[arg(long, env = "COOP_RECORD")]
     pub record: bool,
 
+    /// NATS server URL (e.g. nats://localhost:4222). Enables NATS publishing when set.
+    #[arg(long, env = "COOP_NATS_URL")]
+    pub nats_url: Option<String>,
+
+    /// NATS subject prefix for published events.
+    #[arg(long, env = "COOP_NATS_PREFIX", default_value = "coop.events")]
+    pub nats_prefix: String,
+
     /// Groom level: auto, manual, pristine.
     #[arg(long, env = "COOP_GROOM", default_value = "auto")]
     pub groom: String,
@@ -283,6 +291,8 @@ impl Config {
             log_level: "debug".into(),
             resume: None,
             record: false,
+            nats_url: None,
+            nats_prefix: "coop.events".into(),
             groom: "manual".into(),
             command: vec!["echo".into()],
             drain_timeout_ms: Some(100),

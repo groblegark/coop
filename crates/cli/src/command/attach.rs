@@ -65,11 +65,11 @@ const REFRESH_KEY: u8 = 0x0c;
 /// user's shell scrollback so detaching cleanly restores the original content.
 const SMCUP: &[u8] = b"\x1b[?1049h";
 
-/// Exit alternate screen buffer (RMCUP). Restores the primary screen buffer 
+/// Exit alternate screen buffer (RMCUP). Restores the primary screen buffer
 /// and cursor position, bringing back the user's original shell content.
 const RMCUP: &[u8] = b"\x1b[?1049l";
 
-/// Clear screen and move cursor home. Used after entering the alternate screen buffer to start with a blank slate. 
+/// Clear screen and move cursor home. Used after entering the alternate screen buffer to start with a blank slate.
 const CLEAR_HOME: &[u8] = b"\x1b[2J\x1b[H";
 
 /// Begin synchronized update (DEC private mode 2026). Tells the terminal to

@@ -15,6 +15,9 @@ use tracing::{error, info};
 
 use tracing_subscriber::EnvFilter;
 
+use crate::backend::adapter::{AdapterSpec, TmuxBackend};
+use crate::backend::spawn::NativePty;
+use crate::backend::Backend;
 use crate::config::{self, Config, GroomLevel};
 use crate::driver::claude::resume;
 use crate::driver::claude::setup as claude_setup;
@@ -27,9 +30,6 @@ use crate::driver::{
 use crate::event::InputEvent;
 use crate::event_log::EventLog;
 use crate::profile::ProfileState;
-use crate::backend::adapter::{AdapterSpec, TmuxBackend};
-use crate::backend::spawn::NativePty;
-use crate::backend::Backend;
 use crate::record::RecordingState;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
@@ -550,6 +550,17 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         &store.channels.hook_tx,
         shutdown.clone(),
     );
+
+    // Spawn NATS publisher if configured.
+    if let Some(ref nats_url) = config.nats_url {
+        let publisher =
+            crate::transport::nats::NatsPublisher::connect(nats_url, &config.nats_prefix).await?;
+        let store_ref = Arc::clone(&store);
+        let sd = shutdown.clone();
+        tokio::spawn(async move {
+            publisher.run(&store_ref, sd).await;
+        });
+    }
 
     // Spawn HTTP server
     if let Some(port) = config.port {

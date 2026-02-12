@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
+pub mod backend;
 pub mod command;
 pub mod config;
 pub mod driver;
@@ -8,7 +9,6 @@ pub mod error;
 pub mod event;
 pub mod event_log;
 pub mod profile;
-pub mod backend;
 pub mod record;
 pub mod ring;
 pub mod run;

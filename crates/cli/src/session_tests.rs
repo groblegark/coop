@@ -6,9 +6,9 @@ use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 
+use crate::backend::spawn::NativePty;
 use crate::config::{Config, GroomLevel};
 use crate::driver::{AgentState, PromptContext, PromptKind};
-use crate::backend::spawn::NativePty;
 use crate::session::{Session, SessionConfig, SessionOutcome};
 use crate::switch::SwitchRequest;
 use crate::test_support::{MockDetector, MockPty, StoreBuilder, StoreCtx, StubRespondEncoder};

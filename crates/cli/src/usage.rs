@@ -50,7 +50,7 @@ impl SessionUsage {
 }
 
 /// Broadcast payload for usage updates.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct UsageEvent {
     pub cumulative: SessionUsage,
     pub seq: u64,

@@ -8,8 +8,8 @@ use std::str::FromStr;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-use crate::driver::ExitStatus;
 use crate::backend::{Backend, BackendInput};
+use crate::driver::ExitStatus;
 
 /// Specifies which terminal multiplexer session to attach to.
 #[derive(Debug, Clone, PartialEq, Eq)]

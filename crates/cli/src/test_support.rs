@@ -13,6 +13,7 @@ use bytes::Bytes;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
+use crate::backend::Backend;
 use crate::config::GroomLevel;
 use crate::driver::{
     AgentState, AgentType, Detector, ExitStatus, NudgeEncoder, NudgeStep, RespondEncoder,
@@ -22,7 +23,6 @@ use crate::event::{
 };
 use crate::event_log::EventLog;
 use crate::profile::ProfileState;
-use crate::backend::Backend;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::start::{StartConfig, StartState};

@@ -8,6 +8,7 @@ members = [
 
 [workspace.dependencies]
 anyhow = "1"
+async-nats = "0.40"
 axum = { version = "0.8", features = ["ws"] }
 base64 = "0.22"
 bytes = "1"

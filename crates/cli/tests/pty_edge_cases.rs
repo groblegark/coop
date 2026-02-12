@@ -9,9 +9,9 @@ use std::time::Duration;
 use bytes::Bytes;
 use tokio::sync::mpsc;
 
-use coop::config::Config;
 use coop::backend::spawn::NativePty;
 use coop::backend::{Backend, BackendInput};
+use coop::config::Config;
 use coop::session::{Session, SessionConfig};
 use coop::test_support::{StoreBuilder, StoreCtx};
 
