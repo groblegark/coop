@@ -193,7 +193,6 @@ fn env_duration_defaults() {
     assert_eq!(config.reap_poll(), Duration::from_millis(50));
     assert_eq!(config.input_delay(), Duration::from_millis(200));
     assert_eq!(config.input_delay_per_byte(), Duration::from_millis(1));
-    assert_eq!(config.input_delay_max(), Duration::from_millis(5000));
     assert_eq!(config.nudge_timeout(), Duration::from_millis(4000));
     assert_eq!(config.idle_timeout(), Duration::ZERO);
     assert_eq!(config.groom_dismiss_delay(), Duration::from_millis(500));
@@ -213,7 +212,6 @@ fn test_config_uses_fast_timings() {
     assert_eq!(config.reap_poll(), Duration::from_millis(10));
     assert_eq!(config.input_delay(), Duration::from_millis(10));
     assert_eq!(config.input_delay_per_byte(), Duration::ZERO);
-    assert_eq!(config.input_delay_max(), Duration::from_millis(50));
     assert_eq!(config.nudge_timeout(), Duration::from_millis(100));
     assert_eq!(config.idle_timeout(), Duration::ZERO);
     assert_eq!(config.drain_timeout(), Duration::from_millis(100));

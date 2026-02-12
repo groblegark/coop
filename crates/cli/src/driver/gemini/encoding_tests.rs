@@ -11,7 +11,6 @@ fn test_nudge_encoder() -> GeminiNudgeEncoder {
     GeminiNudgeEncoder {
         input_delay: Duration::from_millis(200),
         input_delay_per_byte: Duration::from_millis(1),
-        input_delay_max: Duration::from_millis(5000),
     }
 }
 

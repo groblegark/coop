@@ -283,7 +283,6 @@ All durations can be overridden via environment variables (milliseconds):
 | `COOP_NUDGE_TIMEOUT_MS` | `4000` | Wait for `working` after nudge delivery |
 | `COOP_INPUT_DELAY_MS` | `200` | Base delay between message and Enter |
 | `COOP_INPUT_DELAY_PER_BYTE_MS` | `1` | Extra delay per byte beyond 256 |
-| `COOP_INPUT_DELAY_MAX_MS` | `5000` | Maximum input delay |
 | `COOP_GROOM_DISMISS_DELAY_MS` | `500` | Delay before auto-dismissing prompts |
 | `COOP_SCREEN_DEBOUNCE_MS` | `50` | Screen update broadcast interval |
 | `COOP_SCREEN_POLL_MS` | `3000` | Screen detector poll interval |

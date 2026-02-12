@@ -13,8 +13,6 @@ pub struct SafeNudgeEncoder {
     pub input_delay: Duration,
     /// Per-byte delay added for messages longer than 256 bytes.
     pub input_delay_per_byte: Duration,
-    /// Maximum nudge delay (caps the base + per-byte scaling).
-    pub input_delay_max: Duration,
 }
 
 impl NudgeEncoder for SafeNudgeEncoder {
@@ -22,7 +20,6 @@ impl NudgeEncoder for SafeNudgeEncoder {
         let delay = crate::driver::compute_nudge_delay(
             self.input_delay,
             self.input_delay_per_byte,
-            self.input_delay_max,
             message.len(),
         );
         vec![

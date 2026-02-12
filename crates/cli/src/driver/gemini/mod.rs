@@ -58,7 +58,6 @@ impl GeminiDriver {
             nudge: GeminiNudgeEncoder {
                 input_delay: config.input_delay(),
                 input_delay_per_byte: config.input_delay_per_byte(),
-                input_delay_max: config.input_delay_max(),
             },
             respond: GeminiRespondEncoder { input_delay: config.input_delay() },
             detectors,

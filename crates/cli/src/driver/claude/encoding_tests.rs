@@ -11,7 +11,6 @@ fn test_nudge_encoder() -> ClaudeNudgeEncoder {
     ClaudeNudgeEncoder {
         input_delay: Duration::from_millis(200),
         input_delay_per_byte: Duration::from_millis(1),
-        input_delay_max: Duration::from_millis(5000),
     }
 }
 
@@ -46,12 +45,12 @@ fn nudge_delay_scales_with_length() {
 }
 
 #[test]
-fn nudge_delay_capped_at_max() {
+fn nudge_delay_scales_for_large_input() {
     let encoder = test_nudge_encoder();
-    // 10000 bytes would compute 200+9744=9944ms but cap is 5000ms
+    // 10000 bytes: 200ms + (10000-256)*1ms = 200+9744 = 9944ms
     let msg = "x".repeat(10000);
     let steps = encoder.encode(&msg);
-    assert_eq!(steps[0].delay_after, Some(Duration::from_millis(5000)));
+    assert_eq!(steps[0].delay_after, Some(Duration::from_millis(9944)));
 }
 
 #[test]
@@ -59,7 +58,6 @@ fn compute_nudge_delay_short_message() {
     let d = compute_nudge_delay(
         Duration::from_millis(200),
         Duration::from_millis(1),
-        Duration::from_millis(5000),
         100,
     );
     assert_eq!(d, Duration::from_millis(200));
@@ -71,22 +69,20 @@ fn compute_nudge_delay_medium_message() {
     let d = compute_nudge_delay(
         Duration::from_millis(200),
         Duration::from_millis(1),
-        Duration::from_millis(5000),
         512,
     );
     assert_eq!(d, Duration::from_millis(456));
 }
 
 #[test]
-fn compute_nudge_delay_large_message_capped() {
-    // 20000 bytes: 200ms + 19744ms = 19944ms, capped at 5000ms
+fn compute_nudge_delay_large_message() {
+    // 20000 bytes: 200ms + (20000-256)*1ms = 19944ms
     let d = compute_nudge_delay(
         Duration::from_millis(200),
         Duration::from_millis(1),
-        Duration::from_millis(5000),
         20000,
     );
-    assert_eq!(d, Duration::from_millis(5000));
+    assert_eq!(d, Duration::from_millis(19944));
 }
 
 #[yare::parameterized(

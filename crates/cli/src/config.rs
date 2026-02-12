@@ -182,8 +182,6 @@ pub struct Config {
     #[clap(skip)]
     pub input_delay_per_byte_ms: Option<u64>,
     #[clap(skip)]
-    pub input_delay_max_ms: Option<u64>,
-    #[clap(skip)]
     pub nudge_timeout_ms: Option<u64>,
     #[clap(skip)]
     pub idle_timeout_ms: Option<u64>,
@@ -279,7 +277,6 @@ impl Config {
         "COOP_INPUT_DELAY_PER_BYTE_MS",
         1
     );
-    duration_field!(input_delay_max, input_delay_max_ms, "COOP_INPUT_DELAY_MAX_MS", 5_000);
     duration_field!(nudge_timeout, nudge_timeout_ms, "COOP_NUDGE_TIMEOUT_MS", 4_000);
     duration_field!(idle_timeout, idle_timeout_ms, "COOP_IDLE_TIMEOUT_MS", 0);
     duration_field!(drain_timeout, drain_timeout_ms, "COOP_DRAIN_TIMEOUT_MS", 20_000);
@@ -330,7 +327,6 @@ impl Config {
             reap_poll_ms: Some(10),
             input_delay_ms: Some(10),
             input_delay_per_byte_ms: Some(0),
-            input_delay_max_ms: Some(50),
             nudge_timeout_ms: Some(100),
             idle_timeout_ms: Some(0),
             groom_dismiss_delay_ms: Some(50),

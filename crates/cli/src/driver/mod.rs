@@ -300,17 +300,10 @@ impl DetectorSinks {
 /// Compute a scaled nudge delay based on message length.
 ///
 /// For short messages (≤256 bytes), returns the base delay.
-/// For longer messages, adds `per_byte` for each byte beyond 256,
-/// capped at `max`.
-pub fn compute_nudge_delay(
-    base: Duration,
-    per_byte: Duration,
-    max: Duration,
-    len: usize,
-) -> Duration {
+/// For longer messages, adds `per_byte` for each byte beyond 256.
+pub fn compute_nudge_delay(base: Duration, per_byte: Duration, len: usize) -> Duration {
     let extra_bytes = len.saturating_sub(256);
-    let scaled = base + per_byte * extra_bytes as u32;
-    scaled.min(max)
+    base + per_byte * extra_bytes as u32
 }
 
 /// If this prompt is a disruption (safe to auto-dismiss), returns the
