@@ -87,8 +87,21 @@ pub async fn ws_mux_handler(
     Query(query): Query<MuxQuery>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
+    // Validate token from query param (mirrors /ws handler pattern).
+    if let Some(ref expected) = state.config.auth_token {
+        match &query.token {
+            Some(tok) if crate::transport::auth::constant_time_eq(tok, expected) => {}
+            _ => {
+                return (
+                    axum::http::StatusCode::UNAUTHORIZED,
+                    axum::Json(serde_json::json!({"error":"unauthorized"})),
+                )
+                    .into_response();
+            }
+        }
+    }
     let flags = MuxFlags::parse(&query);
-    ws.on_upgrade(move |socket| handle_mux_connection(state, flags, socket))
+    ws.on_upgrade(move |socket| handle_mux_connection(state, flags, socket)).into_response()
 }
 
 /// Per-connection event loop for multiplexed clients.

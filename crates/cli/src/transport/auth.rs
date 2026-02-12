@@ -90,11 +90,16 @@ pub async fn auth_layer(
 ) -> Response {
     let path = req.uri().path();
 
-    // Health, WebSocket, and hook endpoints skip HTTP auth.
+    // Health, WebSocket, hook, and static HTML endpoints skip HTTP auth.
     // WebSocket auth is handled in the WS handler via query param or Auth message.
     // Hook endpoints are called from inside the PTY (same machine, no token).
+    // Static HTML pages (/, /mux) are safe — they contain no secrets and the
+    // WebSocket/API calls they make handle auth separately.
     if path == "/api/v1/health"
         || path == "/ws"
+        || path == "/ws/mux"
+        || path == "/"
+        || path == "/mux"
         || path == "/api/v1/hooks/stop"
         || path == "/api/v1/hooks/stop/resolve"
         || path == "/api/v1/hooks/start"

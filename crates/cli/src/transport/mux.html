@@ -139,7 +139,10 @@ import { WebglAddon } from 'https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18
 import { Terminal } from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm';
 
 const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-const WS_URL = `${wsProto}//${location.host}/ws/mux?subscribe=state,screen,credentials`;
+// Extract auth token from ?token= query param so we can forward it to WS and API calls.
+const AUTH_TOKEN = new URLSearchParams(location.search).get('token') || '';
+const tokenParam = AUTH_TOKEN ? `&token=${encodeURIComponent(AUTH_TOKEN)}` : '';
+const WS_URL = `${wsProto}//${location.host}/ws/mux?subscribe=state,screen,credentials${tokenParam}`;
 
 const grid = document.getElementById('grid');
 const empty = document.getElementById('empty');
