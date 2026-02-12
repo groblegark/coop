@@ -8,8 +8,8 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; background: #1e1e1e; overflow: hidden; }
 
-  #main { display: flex; height: calc(100% - 24px); }
-  #terminal { flex: 1; min-width: 0; padding: 8px; }
+  #main { display: flex; height: calc(100% - 32px); }
+  #terminal { flex: 1; min-width: 0; padding: 16px; }
 
   /* --- Sidebar --- */
   #sidebar {
@@ -160,10 +160,15 @@
 
   /* --- Status bar --- */
   #status {
-    height: 24px; line-height: 24px; padding: 0 8px;
-    font: 12px/24px monospace; color: #ccc; background: #111;
+    height: 32px; line-height: 32px; padding: 0 12px;
+    font: 13px/32px Menlo, Monaco, monospace; color: #ddd; background: #1a1a1a;
+    border-top: 1px solid #333;
     display: flex; justify-content: space-between; align-items: center;
     flex-shrink: 0;
+  }
+  #status-left { display: flex; align-items: center; gap: 10px; }
+  #status-brand {
+    font-weight: 700; color: #888; letter-spacing: 0.03em;
   }
   #status .dot {
     display: inline-block; width: 8px; height: 8px; border-radius: 50%;
@@ -172,15 +177,16 @@
   .dot-connected    { background: #4ec950; }
   .dot-connecting   { background: #e8a317; }
   .dot-disconnected { background: #e04040; }
+  #status .sep { color: #444; margin: 0 2px; }
   #toggle-btn {
     background: none; border: 1px solid #555; color: #aaa;
-    font: 11px monospace; padding: 1px 8px; cursor: pointer;
+    font: 11px Menlo, Monaco, monospace; padding: 2px 10px; cursor: pointer;
     border-radius: 3px; margin-left: 8px;
   }
   #toggle-btn:hover { border-color: #888; color: #ddd; }
   #agent-state {
-    font-weight: 600; margin-right: 12px;
-    padding: 1px 8px; border-radius: 3px;
+    font-weight: 600;
+    padding: 2px 10px; border-radius: 3px;
     border: 1px solid #444; color: #ccc;
     display: none;
   }
@@ -196,8 +202,8 @@
 <body>
 <div id="main">
   <div id="terminal"></div>
-  <div id="resize-handle"></div>
-  <div id="sidebar">
+  <div id="resize-handle" class="hidden"></div>
+  <div id="sidebar" class="hidden">
     <div id="tab-bar">
       <div class="tab active" data-tab="state">State</div>
       <div class="tab" data-tab="events">Events</div>
@@ -395,14 +401,15 @@
   </div>
 </div>
 <div id="status">
-  <span>
-    <span id="dot" class="dot dot-connecting"></span>
-    <span id="label">Connecting…</span>
+  <span id="status-left">
+    <span id="status-brand">[coop]</span>
+    <span id="agent-state"></span>
+    <span class="sep">|</span>
+    <span><span id="dot" class="dot dot-connecting"></span><span id="label">Connecting…</span></span>
   </span>
   <span>
-    <span id="agent-state"></span>
     <span id="info"></span>
-    <button id="toggle-btn">Hide</button>
+    <button id="toggle-btn">Inspector</button>
   </span>
 </div>
 
@@ -475,7 +482,7 @@ tabs.forEach(t => t.addEventListener('click', () => {
 
 const sidebar = document.getElementById('sidebar');
 const toggleBtn = document.getElementById('toggle-btn');
-let sidebarVisible = true;
+let sidebarVisible = false;
 
 function setSidebarVisible(show) {
   sidebarVisible = show;
