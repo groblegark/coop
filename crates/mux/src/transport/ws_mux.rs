@@ -12,9 +12,10 @@ use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 
-use crate::state::{MuxEvent, MuxState};
-use crate::transport::auth;
+use crate::events::{backfill_events, MuxFilter};
+use crate::state::MuxState;
 use crate::upstream::client::UpstreamClient;
+use crate::transport::auth;
 
 /// Query parameters for the aggregated mux WebSocket.
 #[derive(Debug, Deserialize)]
@@ -36,55 +37,6 @@ fn default_subscribe() -> String {
     "state,screen,credentials".to_owned()
 }
 
-/// Parsed subscription preferences.
-struct MuxFlags {
-    all_sessions: bool,
-    session_filter: Vec<String>,
-    state: bool,
-    screen: bool,
-    credentials: bool,
-}
-
-impl MuxFlags {
-    fn parse(query: &MuxAggQuery) -> Self {
-        let all_sessions = query.sessions == "all";
-        let session_filter: Vec<String> = if all_sessions {
-            vec![]
-        } else {
-            query.sessions.split(',').map(|s| s.trim().to_owned()).collect()
-        };
-        let mut state = false;
-        let mut screen = false;
-        let mut credentials = false;
-        for token in query.subscribe.split(',') {
-            match token.trim() {
-                "state" => state = true,
-                "screen" => screen = true,
-                "credentials" => credentials = true,
-                _ => {}
-            }
-        }
-        Self { all_sessions, session_filter, state, screen, credentials }
-    }
-
-    fn wants_session(&self, session: &str) -> bool {
-        self.all_sessions || self.session_filter.iter().any(|s| s == session)
-    }
-
-    fn wants_event(&self, event: &MuxEvent) -> bool {
-        match event {
-            MuxEvent::State { session, .. } => self.state && self.wants_session(session),
-            MuxEvent::Screen { session, .. } => self.screen && self.wants_session(session),
-            MuxEvent::Credential { session, .. } => {
-                self.credentials && self.wants_session(session)
-            }
-            MuxEvent::SessionOnline { session, .. } | MuxEvent::SessionOffline { session, .. } => {
-                self.wants_session(session)
-            }
-        }
-    }
-}
-
 /// `GET /ws/mux` — WebSocket upgrade for aggregated session stream.
 pub async fn ws_mux_handler(
     State(state): State<Arc<MuxState>>,
@@ -101,53 +53,23 @@ pub async fn ws_mux_handler(
             .into_response();
     }
 
-    let flags = MuxFlags::parse(&query);
-    ws.on_upgrade(move |socket| handle_mux_connection(state, flags, socket))
+    let filter = MuxFilter::new(&query.sessions, &query.subscribe);
+    ws.on_upgrade(move |socket| handle_mux_connection(state, filter, socket))
         .into_response()
 }
 
 /// Per-connection event loop for aggregated mux clients.
-async fn handle_mux_connection(state: Arc<MuxState>, flags: MuxFlags, socket: WebSocket) {
+async fn handle_mux_connection(state: Arc<MuxState>, filter: MuxFilter, socket: WebSocket) {
     let (mut ws_tx, mut ws_rx) = socket.split();
 
     let mut mux_rx = state.aggregator.subscribe();
 
     // Send initial cached state for all matching sessions.
     let cached = state.aggregator.cached_state().await;
-    for (session_id, cache) in &cached {
-        if !flags.wants_session(session_id) {
-            continue;
-        }
-        // Send cached agent state.
-        if flags.state {
-            if let Some(ref agent_state) = cache.agent_state {
-                let evt = MuxEvent::State {
-                    session: session_id.clone(),
-                    prev: String::new(),
-                    next: agent_state.clone(),
-                    seq: 0,
-                };
-                if let Ok(json) = serde_json::to_string(&evt) {
-                    if ws_tx.send(Message::Text(json.into())).await.is_err() {
-                        return;
-                    }
-                }
-            }
-        }
-        // Send cached screen.
-        if flags.screen {
-            if let Some(ref lines) = cache.screen_lines {
-                let evt = MuxEvent::Screen {
-                    session: session_id.clone(),
-                    lines: lines.clone(),
-                    cols: cache.screen_cols,
-                    rows: cache.screen_rows,
-                };
-                if let Ok(json) = serde_json::to_string(&evt) {
-                    if ws_tx.send(Message::Text(json.into())).await.is_err() {
-                        return;
-                    }
-                }
+    for evt in backfill_events(&cached, &filter) {
+        if let Ok(json) = serde_json::to_string(&evt) {
+            if ws_tx.send(Message::Text(json.into())).await.is_err() {
+                return;
             }
         }
     }
@@ -161,7 +83,7 @@ async fn handle_mux_connection(state: Arc<MuxState>, flags: MuxFlags, socket: We
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 };
-                if flags.wants_event(&event) {
+                if filter.wants_event(&event) {
                     if let Ok(json) = serde_json::to_string(&event) {
                         if ws_tx.send(Message::Text(json.into())).await.is_err() {
                             break;

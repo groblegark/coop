@@ -174,6 +174,102 @@ pub async fn parse_upstream_message(
     }
 }
 
+// -- Subscription filtering ---------------------------------------------------
+
+/// Parsed subscription preferences for a mux WebSocket connection.
+///
+/// Shared by both the standalone `coop-mux` and the embedded broker multiplexer.
+/// Callers construct a `MuxFilter` from their query parameters, then use
+/// [`wants_session`] and [`wants_event`] to decide what to forward.
+pub struct MuxFilter {
+    all_sessions: bool,
+    session_filter: Vec<String>,
+    pub state: bool,
+    pub screen: bool,
+    pub credentials: bool,
+}
+
+impl MuxFilter {
+    /// Build a filter from raw query-style parameters.
+    ///
+    /// `sessions_csv` — comma-separated session/pod identifiers, or `"all"`.
+    /// `subscribe_csv` — comma-separated event types: `"state,screen,credentials"`.
+    pub fn new(sessions_csv: &str, subscribe_csv: &str) -> Self {
+        let all_sessions = sessions_csv == "all";
+        let session_filter: Vec<String> = if all_sessions {
+            vec![]
+        } else {
+            sessions_csv.split(',').map(|s| s.trim().to_owned()).collect()
+        };
+        let mut state = false;
+        let mut screen = false;
+        let mut credentials = false;
+        for token in subscribe_csv.split(',') {
+            match token.trim() {
+                "state" => state = true,
+                "screen" => screen = true,
+                "credentials" => credentials = true,
+                _ => {}
+            }
+        }
+        Self { all_sessions, session_filter, state, screen, credentials }
+    }
+
+    /// Whether the filter accepts events for the given session identifier.
+    pub fn wants_session(&self, session: &str) -> bool {
+        self.all_sessions || self.session_filter.iter().any(|s| s == session)
+    }
+
+    /// Whether the filter accepts this specific event.
+    pub fn wants_event(&self, event: &MuxEvent) -> bool {
+        let session = event.session();
+        match event {
+            MuxEvent::State { .. } => self.state && self.wants_session(session),
+            MuxEvent::Screen { .. } => self.screen && self.wants_session(session),
+            MuxEvent::Credential { .. } => self.credentials && self.wants_session(session),
+            MuxEvent::SessionOnline { .. } | MuxEvent::SessionOffline { .. } => {
+                self.wants_session(session)
+            }
+        }
+    }
+}
+
+/// Build a vec of cached `MuxEvent`s to send as initial backfill on WS connect.
+///
+/// Returns events matching the filter from the provided cache snapshot.
+pub fn backfill_events(
+    cache: &HashMap<String, SessionCache>,
+    filter: &MuxFilter,
+) -> Vec<MuxEvent> {
+    let mut events = Vec::new();
+    for (session_id, entry) in cache {
+        if !filter.wants_session(session_id) {
+            continue;
+        }
+        if filter.state {
+            if let Some(ref agent_state) = entry.agent_state {
+                events.push(MuxEvent::State {
+                    session: session_id.clone(),
+                    prev: String::new(),
+                    next: agent_state.clone(),
+                    seq: 0,
+                });
+            }
+        }
+        if filter.screen {
+            if let Some(ref lines) = entry.screen_lines {
+                events.push(MuxEvent::Screen {
+                    session: session_id.clone(),
+                    lines: lines.clone(),
+                    cols: entry.screen_cols,
+                    rows: entry.screen_rows,
+                });
+            }
+        }
+    }
+    events
+}
+
 // -- Utility -----------------------------------------------------------------
 
 /// Build an upstream WebSocket URL from a coop HTTP base URL.

@@ -241,6 +241,141 @@ fn mux_event_session_offline_serialization() {
     assert_eq!(json["session"], "s1");
 }
 
+// -- MuxFilter tests ----------------------------------------------------------
+
+use coop_mux::events::{backfill_events, MuxFilter, SessionCache};
+use std::collections::HashMap;
+
+#[test]
+fn mux_filter_all_sessions_all_events() {
+    let filter = MuxFilter::new("all", "state,screen,credentials");
+    assert!(filter.wants_session("any-pod"));
+    assert!(filter.wants_session("another-one"));
+
+    let evt = MuxEvent::State {
+        session: "pod-1".to_owned(),
+        prev: "idle".to_owned(),
+        next: "working".to_owned(),
+        seq: 1,
+    };
+    assert!(filter.wants_event(&evt));
+}
+
+#[test]
+fn mux_filter_specific_sessions() {
+    let filter = MuxFilter::new("pod-a,pod-b", "state,screen,credentials");
+    assert!(filter.wants_session("pod-a"));
+    assert!(filter.wants_session("pod-b"));
+    assert!(!filter.wants_session("pod-c"));
+
+    let evt_a = MuxEvent::Screen {
+        session: "pod-a".to_owned(),
+        lines: vec![],
+        cols: 80,
+        rows: 24,
+    };
+    let evt_c = MuxEvent::Screen {
+        session: "pod-c".to_owned(),
+        lines: vec![],
+        cols: 80,
+        rows: 24,
+    };
+    assert!(filter.wants_event(&evt_a));
+    assert!(!filter.wants_event(&evt_c));
+}
+
+#[test]
+fn mux_filter_event_type_filtering() {
+    let filter = MuxFilter::new("all", "state");
+    let state_evt = MuxEvent::State {
+        session: "s1".to_owned(),
+        prev: "".to_owned(),
+        next: "idle".to_owned(),
+        seq: 0,
+    };
+    let screen_evt = MuxEvent::Screen {
+        session: "s1".to_owned(),
+        lines: vec![],
+        cols: 80,
+        rows: 24,
+    };
+    let cred_evt = MuxEvent::Credential {
+        session: "s1".to_owned(),
+        account: "a".to_owned(),
+        status: "ok".to_owned(),
+        error: None,
+    };
+    assert!(filter.wants_event(&state_evt));
+    assert!(!filter.wants_event(&screen_evt));
+    assert!(!filter.wants_event(&cred_evt));
+}
+
+#[test]
+fn mux_filter_session_online_offline_always_pass_session_check() {
+    let filter = MuxFilter::new("pod-a", "state");
+    let online = MuxEvent::SessionOnline {
+        session: "pod-a".to_owned(),
+        url: "http://x".to_owned(),
+    };
+    let offline = MuxEvent::SessionOffline { session: "pod-a".to_owned() };
+    let online_other = MuxEvent::SessionOnline {
+        session: "pod-b".to_owned(),
+        url: "http://y".to_owned(),
+    };
+    assert!(filter.wants_event(&online));
+    assert!(filter.wants_event(&offline));
+    assert!(!filter.wants_event(&online_other));
+}
+
+#[test]
+fn backfill_events_returns_matching_cached_state() {
+    let mut cache = HashMap::new();
+    cache.insert("pod-a".to_owned(), SessionCache {
+        agent_state: Some("idle".to_owned()),
+        screen_lines: Some(vec!["hello".to_owned()]),
+        screen_cols: 80,
+        screen_rows: 24,
+        credential_status: Some("ok".to_owned()),
+    });
+    cache.insert("pod-b".to_owned(), SessionCache {
+        agent_state: Some("working".to_owned()),
+        screen_lines: None,
+        ..Default::default()
+    });
+
+    let filter = MuxFilter::new("pod-a", "state,screen");
+    let events = backfill_events(&cache, &filter);
+
+    // Should get state + screen for pod-a, nothing for pod-b
+    assert_eq!(events.len(), 2);
+    let has_state = events.iter().any(|e| matches!(e, MuxEvent::State { session, .. } if session == "pod-a"));
+    let has_screen = events.iter().any(|e| matches!(e, MuxEvent::Screen { session, .. } if session == "pod-a"));
+    assert!(has_state);
+    assert!(has_screen);
+}
+
+#[test]
+fn backfill_events_empty_cache() {
+    let cache = HashMap::new();
+    let filter = MuxFilter::new("all", "state,screen,credentials");
+    let events = backfill_events(&cache, &filter);
+    assert!(events.is_empty());
+}
+
+#[test]
+fn backfill_events_skips_missing_fields() {
+    let mut cache = HashMap::new();
+    cache.insert("pod-a".to_owned(), SessionCache {
+        agent_state: None,
+        screen_lines: None,
+        ..Default::default()
+    });
+
+    let filter = MuxFilter::new("all", "state,screen");
+    let events = backfill_events(&cache, &filter);
+    assert!(events.is_empty());
+}
+
 // -- MuxEvent deserialization (round-trip) -------------------------------------
 
 #[test]
