@@ -1,6 +1,6 @@
 # Mux Architecture
 
-Coop-mux is a multiplexing proxy that aggregates multiple coop sessions behind
+Coopmux is a multiplexing proxy that aggregates multiple coop sessions behind
 a single API. It provides real-time session monitoring, a web dashboard, and
 optional credential brokering for OAuth token refresh and distribution.
 
@@ -127,7 +127,7 @@ Provider defaults: `claude` → `ANTHROPIC_API_KEY`, `openai` → `OPENAI_API_KE
 `gemini` → `GOOGLE_API_KEY`.
 
 Credentials are persisted to `$COOP_MUX_STATE_DIR/credentials.json` (falling
-back to `$XDG_STATE_HOME/coop-mux/` then `$HOME/.local/state/coop-mux/`).
+back to `$XDG_STATE_HOME/coop/mux/` then `$HOME/.local/state/coop/mux/`).
 
 ### Refresh Lifecycle
 

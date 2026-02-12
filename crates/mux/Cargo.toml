@@ -10,7 +10,7 @@ name = "coop_mux"
 path = "src/lib.rs"
 
 [[bin]]
-name = "coop-mux"
+name = "coopmux"
 path = "src/main.rs"
 
 [dependencies]

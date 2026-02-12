@@ -3,9 +3,9 @@
 
 use clap::Parser;
 
-/// Configuration for the coop-mux proxy.
+/// Configuration for the coopmux proxy.
 #[derive(Debug, Clone, Parser)]
-#[command(name = "coop-mux", version, about = "PTY multiplexing proxy for coop instances.")]
+#[command(name = "coopmux", version, about = "PTY multiplexing proxy for coop instances.")]
 pub struct MuxConfig {
     /// Host to bind on.
     #[arg(long, default_value = "127.0.0.1", env = "COOP_MUX_HOST")]

@@ -244,6 +244,51 @@ async fn setup_to_permission_transition_accepted() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A Tier 2 detector that emits with `tier_override: Some(1)` should be
+/// treated as Tier 1, allowing it to override a stale Tier 1 Working state.
+/// This models the interrupt detection path: the log detector (Tier 2) sees
+/// "[Request interrupted by user]" and emits Idle at Tier 1.
+#[tokio::test]
+async fn tier_override_lets_tier2_override_tier1() -> anyhow::Result<()> {
+    let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![
+        // Tier 1 hook detector sets Working
+        Box::new(MockDetector::new(1, vec![(Duration::from_millis(50), AgentState::Working)])),
+        // Tier 2 log detector emits Idle with tier_override=1 (interrupt detected)
+        Box::new(MockDetector::with_overrides(
+            2,
+            vec![(Duration::from_millis(100), AgentState::Idle, Some(1))],
+        )),
+    ];
+
+    let results = run_composite(detectors, Duration::from_millis(300)).await?;
+
+    assert!(results.len() >= 2, "expected Working then Idle: {results:?}");
+    assert_eq!(results[0].state, AgentState::Working);
+    assert_eq!(results[0].tier, 1);
+
+    let idle = results.iter().find(|s| s.state == AgentState::Idle);
+    assert!(idle.is_some(), "Idle with tier_override=1 should override stale Working");
+    assert_eq!(idle.unwrap().tier, 1, "overridden tier should be 1");
+    Ok(())
+}
+
+/// Without a tier override, the same Tier 2 Idle emission should be rejected
+/// (confirming the override is what makes the difference).
+#[tokio::test]
+async fn tier2_idle_without_override_rejected() -> anyhow::Result<()> {
+    let detectors: Vec<Box<dyn crate::driver::Detector>> = vec![
+        Box::new(MockDetector::new(1, vec![(Duration::from_millis(50), AgentState::Working)])),
+        // Same Tier 2 Idle but no override — should be rejected
+        Box::new(MockDetector::new(2, vec![(Duration::from_millis(100), AgentState::Idle)])),
+    ];
+
+    let results = run_composite(detectors, Duration::from_millis(300)).await?;
+
+    let has_idle = results.iter().any(|s| s.state == AgentState::Idle);
+    assert!(!has_idle, "Tier 2 Idle without override should be rejected as downgrade");
+    Ok(())
+}
+
 /// Regression: Claude fires both `ToolBefore(ExitPlanMode)` → Prompt(Plan) and
 /// `Notification(permission_prompt)` → Prompt(Permission) for the same user-facing
 /// plan approval moment. When the permission notification arrives after the

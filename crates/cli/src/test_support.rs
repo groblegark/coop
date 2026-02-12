@@ -364,13 +364,21 @@ macro_rules! assert_err_contains {
 /// A configurable detector for testing [`CompositeDetector`] tier resolution.
 ///
 /// Emits a sequence of `(delay, state)` pairs, then waits for shutdown.
+/// Each emission can optionally include a tier override.
 pub struct MockDetector {
     tier_val: u8,
-    states: Vec<(Duration, AgentState)>,
+    states: Vec<(Duration, AgentState, Option<u8>)>,
 }
 
 impl MockDetector {
     pub fn new(tier: u8, states: Vec<(Duration, AgentState)>) -> Self {
+        Self {
+            tier_val: tier,
+            states: states.into_iter().map(|(d, s)| (d, s, None)).collect(),
+        }
+    }
+
+    pub fn with_overrides(tier: u8, states: Vec<(Duration, AgentState, Option<u8>)>) -> Self {
         Self { tier_val: tier, states }
     }
 }
@@ -382,11 +390,11 @@ impl Detector for MockDetector {
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
-            for (delay, state) in self.states {
+            for (delay, state, tier_override) in self.states {
                 tokio::select! {
                     _ = shutdown.cancelled() => return,
                     _ = tokio::time::sleep(delay) => {
-                        if state_tx.send((state, String::new(), None)).await.is_err() {
+                        if state_tx.send((state, String::new(), tier_override)).await.is_err() {
                             return;
                         }
                     }

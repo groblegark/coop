@@ -53,19 +53,19 @@ pub fn refresh_margin_secs() -> u64 {
 
 /// Resolve the state directory for mux data (credentials, etc.).
 ///
-/// Checks `COOP_MUX_STATE_DIR`, then `$XDG_STATE_HOME/coop-mux`,
-/// then `$HOME/.local/state/coop-mux`.
+/// Checks `COOP_MUX_STATE_DIR`, then `$XDG_STATE_HOME/coop/mux`,
+/// then `$HOME/.local/state/coop/mux`.
 pub fn state_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("COOP_MUX_STATE_DIR") {
         return PathBuf::from(dir);
     }
     if let Ok(xdg) = std::env::var("XDG_STATE_HOME") {
-        return PathBuf::from(xdg).join("coop-mux");
+        return PathBuf::from(xdg).join("coop/mux");
     }
     if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home).join(".local/state/coop-mux");
+        return PathBuf::from(home).join(".local/state/coop/mux");
     }
-    PathBuf::from(".coop-mux")
+    PathBuf::from(".coop/mux")
 }
 
 /// Events emitted by the credential broker.

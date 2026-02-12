@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-//! Coop-mux: PTY multiplexing proxy for coop instances.
+//! Coopmux: PTY multiplexing proxy for coop instances.
 
 pub mod config;
 pub mod credential;
@@ -52,14 +52,14 @@ pub async fn run(config: MuxConfig) -> anyhow::Result<()> {
         broker.spawn_refresh_loops();
         crate::credential::distributor::spawn_distributor(Arc::clone(&state), event_rx);
 
-        tracing::info!("coop-mux listening on {addr} (credentials enabled)");
+        tracing::info!("coopmux listening on {addr} (credentials enabled)");
         spawn_health_checker(Arc::clone(&state));
         let router = build_router(state);
         let listener = TcpListener::bind(&addr).await?;
         axum::serve(listener, router).with_graceful_shutdown(shutdown.cancelled_owned()).await?;
     } else {
         let state = Arc::new(state);
-        tracing::info!("coop-mux listening on {addr}");
+        tracing::info!("coopmux listening on {addr}");
         spawn_health_checker(Arc::clone(&state));
         let router = build_router(state);
         let listener = TcpListener::bind(&addr).await?;
