@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>coop-mux dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0d1117; color: #c9d1d9; }
+  header { padding: 12px 20px; border-bottom: 1px solid #21262d; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 16px; font-weight: 600; }
+  header .count { font-size: 13px; color: #8b949e; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 12px; padding: 16px; }
+  .tile { background: #161b22; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; cursor: pointer; transition: border-color 0.15s; }
+  .tile:hover { border-color: #388bfd; }
+  .tile-header { padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #21262d; }
+  .tile-header .session-id { font-size: 13px; font-weight: 600; font-family: monospace; }
+  .tile-header .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500; text-transform: uppercase; }
+  .badge-idle { background: #1f6feb33; color: #58a6ff; }
+  .badge-working { background: #23863633; color: #3fb950; }
+  .badge-prompt { background: #9e6a0333; color: #d29922; }
+  .badge-error { background: #da363333; color: #f85149; }
+  .badge-exited { background: #21262d; color: #8b949e; }
+  .badge-unknown { background: #21262d; color: #8b949e; }
+  .badge-starting { background: #1f6feb33; color: #58a6ff; }
+  .screen-preview { padding: 8px; font-family: monospace; font-size: 10px; line-height: 1.3; white-space: pre; overflow: hidden; height: 140px; color: #8b949e; background: #0d1117; }
+  .no-sessions { text-align: center; padding: 80px 20px; color: #8b949e; }
+  .no-sessions p { font-size: 14px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>coop-mux</h1>
+  <span class="count" id="session-count">0 sessions</span>
+</header>
+<div class="grid" id="grid"></div>
+<div class="no-sessions" id="empty-state">
+  <p>No sessions registered</p>
+</div>
+<script>
+const grid = document.getElementById('grid');
+const emptyState = document.getElementById('empty-state');
+const sessionCount = document.getElementById('session-count');
+const sessions = new Map(); // id -> { el, state, screen }
+
+function badgeClass(state) {
+  if (!state) return 'badge-unknown';
+  const s = state.toLowerCase();
+  if (s === 'idle' || s === 'waiting_for_input') return 'badge-idle';
+  if (s === 'working') return 'badge-working';
+  if (s.includes('prompt')) return 'badge-prompt';
+  if (s.includes('error') || s === 'parked') return 'badge-error';
+  if (s === 'exited') return 'badge-exited';
+  if (s === 'starting') return 'badge-starting';
+  return 'badge-unknown';
+}
+
+function createTile(id, url, state) {
+  const tile = document.createElement('div');
+  tile.className = 'tile';
+  tile.dataset.sessionId = id;
+  tile.innerHTML = `
+    <div class="tile-header">
+      <span class="session-id">${id.substring(0, 12)}</span>
+      <span class="badge ${badgeClass(state)}" data-badge>${state || 'unknown'}</span>
+    </div>
+    <div class="screen-preview" data-screen></div>
+  `;
+  tile.addEventListener('click', () => {
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    window.open(`/?ws=${encodeURIComponent(wsProto + '//' + location.host + '/ws/' + id)}`, '_blank');
+  });
+  return tile;
+}
+
+function updateUI() {
+  const n = sessions.size;
+  sessionCount.textContent = `${n} session${n !== 1 ? 's' : ''}`;
+  emptyState.style.display = n === 0 ? 'block' : 'none';
+  grid.style.display = n === 0 ? 'none' : 'grid';
+}
+
+function connect() {
+  const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const params = new URLSearchParams(location.search);
+  let url = `${wsProto}//${location.host}/ws/mux`;
+  const token = params.get('token');
+  if (token) url += `?token=${encodeURIComponent(token)}`;
+
+  const ws = new WebSocket(url);
+
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+
+    if (msg.event === 'sessions') {
+      // Initial session list.
+      const ids = [];
+      for (const s of msg.sessions) {
+        ids.push(s.id);
+        if (!sessions.has(s.id)) {
+          const tile = createTile(s.id, s.url, s.state);
+          grid.appendChild(tile);
+          sessions.set(s.id, { el: tile, state: s.state });
+        }
+      }
+      // Subscribe to all sessions.
+      if (ids.length > 0) {
+        ws.send(JSON.stringify({ event: 'subscribe', sessions: ids }));
+      }
+      updateUI();
+    } else if (msg.type === 'state') {
+      // State transition.
+      const info = sessions.get(msg.session);
+      if (info) {
+        info.state = msg.next;
+        const badge = info.el.querySelector('[data-badge]');
+        badge.textContent = msg.next;
+        badge.className = `badge ${badgeClass(msg.next)}`;
+      }
+    } else if (msg.type === 'session_online') {
+      if (!sessions.has(msg.session)) {
+        const tile = createTile(msg.session, msg.url, null);
+        grid.appendChild(tile);
+        sessions.set(msg.session, { el: tile, state: null });
+        ws.send(JSON.stringify({ event: 'subscribe', sessions: [msg.session] }));
+        updateUI();
+      }
+    } else if (msg.type === 'session_offline') {
+      const info = sessions.get(msg.session);
+      if (info) {
+        info.el.remove();
+        sessions.delete(msg.session);
+        updateUI();
+      }
+    } else if (msg.event === 'screen_batch') {
+      for (const scr of msg.screens) {
+        const info = sessions.get(scr.session);
+        if (info) {
+          const preview = info.el.querySelector('[data-screen]');
+          preview.textContent = scr.lines.join('\n');
+        }
+      }
+    }
+  };
+
+  ws.onclose = () => {
+    setTimeout(connect, 2000);
+  };
+
+  ws.onerror = () => {
+    ws.close();
+  };
+}
+
+connect();
+</script>
+</body>
+</html>

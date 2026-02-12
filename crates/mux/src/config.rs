@@ -34,6 +34,10 @@ pub struct MuxConfig {
     /// Max consecutive health failures before evicting a session.
     #[arg(long, default_value_t = 3, env = "COOP_MUX_MAX_HEALTH_FAILURES")]
     pub max_health_failures: u32,
+
+    /// Path to credential configuration JSON file.
+    #[arg(long, env = "COOP_MUX_CREDENTIAL_CONFIG")]
+    pub credential_config: Option<std::path::PathBuf>,
 }
 
 impl MuxConfig {

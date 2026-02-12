@@ -6,22 +6,71 @@ use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use std::time::Instant;
 
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::MuxConfig;
+use crate::credential::broker::CredentialBroker;
 use crate::upstream::ws_bridge::WsBridge;
+
+/// Events emitted by the mux for aggregation consumers.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum MuxEvent {
+    /// An agent state transition from an upstream session.
+    State { session: String, prev: String, next: String, seq: u64 },
+    /// An upstream session came online (feed connected).
+    SessionOnline { session: String, url: String },
+    /// An upstream session went offline (deregistered or feed disconnected).
+    SessionOffline { session: String },
+}
+
+/// Per-session event feed and watcher tracking.
+pub struct SessionFeed {
+    /// Broadcast channel for mux events (state transitions, online/offline).
+    pub event_tx: broadcast::Sender<MuxEvent>,
+    /// Per-session watcher count. Feed + poller start when >0, stop when 0.
+    pub watchers: RwLock<HashMap<String, WatcherState>>,
+}
+
+/// Tracks per-session watcher count and feed cancellation.
+pub struct WatcherState {
+    pub count: usize,
+    /// Cancel token for the event feed task.
+    pub cancel: CancellationToken,
+}
+
+impl Default for SessionFeed {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SessionFeed {
+    pub fn new() -> Self {
+        let (event_tx, _) = broadcast::channel(256);
+        Self { event_tx, watchers: RwLock::new(HashMap::new()) }
+    }
+}
 
 /// Shared mux state.
 pub struct MuxState {
     pub sessions: RwLock<HashMap<String, Arc<SessionEntry>>>,
     pub config: MuxConfig,
     pub shutdown: CancellationToken,
+    pub feed: SessionFeed,
+    pub credential_broker: Option<Arc<CredentialBroker>>,
 }
 
 impl MuxState {
     pub fn new(config: MuxConfig, shutdown: CancellationToken) -> Self {
-        Self { sessions: RwLock::new(HashMap::new()), config, shutdown }
+        Self {
+            sessions: RwLock::new(HashMap::new()),
+            config,
+            shutdown,
+            feed: SessionFeed::new(),
+            credential_broker: None,
+        }
     }
 }
 
@@ -37,6 +86,8 @@ pub struct SessionEntry {
     pub health_failures: AtomicU32,
     pub cancel: CancellationToken,
     pub ws_bridge: RwLock<Option<Arc<WsBridge>>>,
+    /// Credential account names this session wants distributed as profiles.
+    pub profiles_needed: Vec<String>,
 }
 
 /// Cached screen snapshot from upstream.

@@ -33,6 +33,9 @@ pub struct RegisterRequest {
     pub id: Option<String>,
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
+    /// Credential account names this session wants distributed as profiles.
+    #[serde(default)]
+    pub profiles_needed: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -97,6 +100,7 @@ pub async fn register_session(
         health_failures: std::sync::atomic::AtomicU32::new(0),
         cancel: cancel.clone(),
         ws_bridge: tokio::sync::RwLock::new(None),
+        profiles_needed: req.profiles_needed,
     });
 
     // Spawn screen + status poller.
@@ -116,6 +120,15 @@ pub async fn deregister_session(
     let mut sessions = s.sessions.write().await;
     if let Some(entry) = sessions.remove(&id) {
         entry.cancel.cancel();
+        // Emit SessionOffline and clean up any active feed/poller watchers.
+        let _ =
+            s.feed.event_tx.send(crate::state::MuxEvent::SessionOffline { session: id.clone() });
+        {
+            let mut watchers = s.feed.watchers.write().await;
+            if let Some(ws) = watchers.remove(&id) {
+                ws.cancel.cancel();
+            }
+        }
         tracing::info!(session_id = %id, "session deregistered");
         Json(DeregisterResponse { id, removed: true }).into_response()
     } else {
