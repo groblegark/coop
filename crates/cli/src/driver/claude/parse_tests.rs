@@ -5,7 +5,7 @@ use serde_json::json;
 
 use crate::driver::AgentState;
 
-use super::{extract_assistant_text, parse_claude_state};
+use super::{extract_assistant_text, format_claude_cause, parse_claude_state};
 
 #[yare::parameterized(
     error_string = {
@@ -23,6 +23,10 @@ use super::{extract_assistant_text, parse_claude_state};
     user_message = {
         json!({ "type": "user", "message": { "content": [{ "type": "text", "text": "hello" }] } }),
         Some(AgentState::Working)
+    },
+    user_interrupt = {
+        json!({ "type": "user", "message": { "content": [{ "type": "text", "text": "[Request interrupted by user]" }] } }),
+        Some(AgentState::Idle)
     },
     assistant_tool_use = {
         json!({ "type": "assistant", "message": { "content": [{ "type": "tool_use", "name": "Bash", "input": { "command": "ls" } }] } }),
@@ -135,4 +139,22 @@ fn assistant_with_ask_user_produces_question() {
 )]
 fn assistant_text_extraction(entry: serde_json::Value, expected: Option<String>) {
     assert_eq!(extract_assistant_text(&entry), expected);
+}
+
+#[test]
+fn cause_for_user_interrupt_is_log_user() {
+    let entry = json!({
+        "type": "user",
+        "message": { "content": [{ "type": "text", "text": "[Request interrupted by user]" }] }
+    });
+    assert_eq!(format_claude_cause(&entry, "log"), "log:user");
+}
+
+#[test]
+fn cause_for_normal_user_message_is_log_user() {
+    let entry = json!({
+        "type": "user",
+        "message": { "content": [{ "type": "text", "text": "hello" }] }
+    });
+    assert_eq!(format_claude_cause(&entry, "log"), "log:user");
 }
