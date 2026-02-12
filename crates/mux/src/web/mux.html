@@ -34,6 +34,7 @@
   .btn-expand { background: none; border: none; color: #8b949e; cursor: pointer; font-size: 14px; padding: 2px 4px; }
   .btn-expand:hover { color: #c9d1d9; }
   .term-wrap { flex: 1; overflow: hidden; position: relative; }
+  .tile:not(.expanded) .term-wrap .xterm { position: absolute; bottom: 0; left: 0; }
   .no-sessions { text-align: center; padding: 80px 20px; color: #8b949e; flex: 1; display: flex; align-items: center; justify-content: center; }
   .no-sessions p { font-size: 14px; }
 </style>
@@ -54,7 +55,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/lib/addon-webgl.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
 <script>
 const grid = document.getElementById('grid');
 const emptyState = document.getElementById('empty-state');
@@ -62,7 +62,10 @@ const statTotal = document.getElementById('stat-total');
 const statHealthy = document.getElementById('stat-healthy');
 const statCredAlerts = document.getElementById('stat-cred-alerts');
 
-// session id -> { el, state, term, fitAddon, metadata, credAlert }
+const PREVIEW_FONT_SIZE = 9;
+const MAX_EXPANDED_FONT_SIZE = 18;
+
+// session id -> { el, state, term, metadata, credAlert, sourceCols, sourceRows }
 const sessions = new Map();
 let focusedSession = null;
 let expandedSession = null;
@@ -115,8 +118,8 @@ function createTile(id, url, state, metadata) {
 
   const termEl = tile.querySelector('[data-term]');
   const term = new Terminal({
-    scrollback: 500,
-    fontSize: 11,
+    scrollback: 0,
+    fontSize: PREVIEW_FONT_SIZE,
     fontFamily: "'SF Mono', 'Cascadia Code', 'Fira Code', Menlo, Monaco, monospace",
     theme: {
       background: '#0d1117',
@@ -129,8 +132,6 @@ function createTile(id, url, state, metadata) {
     convertEol: true,
   });
 
-  const fitAddon = new FitAddon.FitAddon();
-  term.loadAddon(fitAddon);
   term.open(termEl);
 
   // Try WebGL renderer with fallback
@@ -139,8 +140,6 @@ function createTile(id, url, state, metadata) {
     webglAddon.onContextLoss(() => { webglAddon.dispose(); });
     term.loadAddon(webglAddon);
   } catch (_) { /* canvas fallback */ }
-
-  requestAnimationFrame(() => fitAddon.fit());
 
   // Click to focus
   tile.addEventListener('click', (e) => {
@@ -161,7 +160,7 @@ function createTile(id, url, state, metadata) {
     }
   });
 
-  return { el: tile, term, fitAddon, state, metadata: metadata || null, credAlert: false };
+  return { el: tile, term, state, metadata: metadata || null, credAlert: false, sourceCols: 80, sourceRows: 24 };
 }
 
 function setFocus(id) {
@@ -183,13 +182,19 @@ function setFocus(id) {
   }
 }
 
+function expandedFontSize(cols) {
+  const width = window.innerWidth - 40;
+  const charRatio = 0.6;
+  return Math.min(Math.floor(width / (cols * charRatio)), MAX_EXPANDED_FONT_SIZE);
+}
+
 function toggleExpand(id) {
   if (expandedSession === id) {
     // Collapse
     const info = sessions.get(id);
     if (info) {
       info.el.classList.remove('expanded');
-      requestAnimationFrame(() => info.fitAddon.fit());
+      info.term.options.fontSize = PREVIEW_FONT_SIZE;
     }
     expandedSession = null;
   } else {
@@ -198,15 +203,15 @@ function toggleExpand(id) {
       const prev = sessions.get(expandedSession);
       if (prev) {
         prev.el.classList.remove('expanded');
-        requestAnimationFrame(() => prev.fitAddon.fit());
+        prev.term.options.fontSize = PREVIEW_FONT_SIZE;
       }
     }
     expandedSession = id;
     const info = sessions.get(id);
     if (info) {
       info.el.classList.add('expanded');
+      info.term.options.fontSize = expandedFontSize(info.sourceCols);
       setFocus(id);
-      requestAnimationFrame(() => info.fitAddon.fit());
     }
   }
 }
@@ -251,13 +256,16 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Resize handler
+// Resize handler — recalculate expanded tile font size
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
-    for (const [, info] of sessions) {
-      info.fitAddon.fit();
+    if (expandedSession) {
+      const info = sessions.get(expandedSession);
+      if (info) {
+        info.term.options.fontSize = expandedFontSize(info.sourceCols);
+      }
     }
   }, 100);
 });
@@ -327,7 +335,9 @@ function connect() {
       for (const scr of msg.screens) {
         const info = sessions.get(scr.session);
         if (info) {
-          // Write screen content to xterm
+          info.sourceCols = scr.cols;
+          info.sourceRows = scr.rows;
+          info.term.resize(scr.cols, scr.rows);
           info.term.reset();
           info.term.write(scr.lines.join('\r\n'));
         }
