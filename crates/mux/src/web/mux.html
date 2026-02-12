@@ -38,6 +38,15 @@
   .xterm .xterm-cursor-layer { display: none !important; }
   .no-sessions { text-align: center; padding: 80px 20px; color: #8b949e; flex: 1; display: flex; align-items: center; justify-content: center; }
   .no-sessions p { font-size: 14px; }
+  #drop-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(30, 30, 30, 0.85);
+    border: 3px dashed #7cb7ff;
+    display: none; align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+  #drop-overlay.visible { display: flex; pointer-events: auto; }
+  .drop-label { font: 600 20px/1 Menlo, Monaco, monospace; color: #7cb7ff; letter-spacing: 0.05em; }
 </style>
 </head>
 <body>
@@ -49,6 +58,7 @@
     <span id="stat-cred-alerts" class="alert" style="display:none">0 credential alerts</span>
   </div>
 </header>
+<div id="drop-overlay"><span class="drop-label">Drop file to upload</span></div>
 <div class="grid" id="grid"></div>
 <div class="no-sessions" id="empty-state">
   <p>No sessions registered</p>
@@ -441,6 +451,95 @@ function connect() {
   ws.onerror = () => {
     ws.close();
   };
+}
+
+// --- Drag-and-drop file upload ---
+const dropOverlay = document.getElementById('drop-overlay');
+let dragCounter = 0;
+
+document.addEventListener('dragenter', (e) => {
+  e.preventDefault();
+  dragCounter++;
+  if (dragCounter === 1) dropOverlay.classList.add('visible');
+});
+
+document.addEventListener('dragleave', (e) => {
+  e.preventDefault();
+  dragCounter--;
+  if (dragCounter <= 0) {
+    dragCounter = 0;
+    dropOverlay.classList.remove('visible');
+  }
+});
+
+document.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+});
+
+document.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  dragCounter = 0;
+  dropOverlay.classList.remove('visible');
+
+  if (!focusedSession) {
+    console.error('[upload] no session focused — ignoring drop');
+    return;
+  }
+
+  const info = sessions.get(focusedSession);
+  if (!info) return;
+
+  const files = e.dataTransfer.files;
+  if (!files.length) return;
+
+  const params = new URLSearchParams(location.search);
+  const token = params.get('token');
+
+  const paths = [];
+  for (const file of files) {
+    try {
+      const data = await readFileAsBase64(file);
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`/api/v1/sessions/${focusedSession}/upload`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ filename: file.name, data }),
+      });
+      const json = await res.json();
+      if (res.ok && json.path) {
+        paths.push(json.path);
+      } else {
+        const msg = json?.error?.message || JSON.stringify(json) || 'unknown error';
+        info.term.write(`\r\n\x1b[31m[upload error: ${msg}]\x1b[0m\r\n`);
+      }
+    } catch (err) {
+      info.term.write(`\r\n\x1b[31m[upload error: ${err.message}]\x1b[0m\r\n`);
+    }
+  }
+
+  if (paths.length) {
+    const text = paths.join(' ') + ' ';
+    if (expandedSession === focusedSession && expandedWs && expandedWs.readyState === WebSocket.OPEN) {
+      expandedWs.send(JSON.stringify({ event: 'input:send:raw', data: b64encode(encoder.encode(text)) }));
+    } else if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ event: 'input:send', session: focusedSession, text }));
+    }
+  }
+  info.term.focus();
+});
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const idx = reader.result.indexOf(',');
+      resolve(idx >= 0 ? reader.result.slice(idx + 1) : reader.result);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 connect();

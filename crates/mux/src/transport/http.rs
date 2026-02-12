@@ -250,6 +250,15 @@ pub async fn session_input_keys(
     proxy_post(&s, &id, "/api/v1/input/keys", body).await
 }
 
+/// `POST /api/v1/sessions/{id}/upload` — proxy file upload to upstream.
+pub async fn session_upload(
+    State(s): State<Arc<MuxState>>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    proxy_post(&s, &id, "/api/v1/upload", body).await
+}
+
 /// Generic POST proxy to upstream coop.
 async fn proxy_post(
     state: &MuxState,
