@@ -312,8 +312,10 @@ async fn nats_receives_state_transitions() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("no NATS message"))?;
     let event: serde_json::Value = serde_json::from_slice(&msg.payload)?;
     assert!(event["seq"].is_u64());
-    assert!(event["prev"].is_object() || event["prev"].is_string());
-    assert!(event["next"].is_object() || event["next"].is_string());
+    assert!(event["prev"].is_string());
+    assert!(event["next"].is_string());
+    // Identity fields are injected into every NATS payload.
+    assert!(event["session_id"].is_string(), "expected session_id in NATS payload");
 
     let _ = nats_proc.kill();
     Ok(())

@@ -5,6 +5,7 @@
 
 use std::path::Path;
 
+use serde_json::Value;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
@@ -24,9 +25,17 @@ pub struct NatsAuth {
 }
 
 /// Publishes coop events to NATS subjects as JSON.
+///
+/// Each published message is a JSON object with the `ServerMessage` fields
+/// plus injected identity fields:
+/// - `session_id` — current agent session ID (tracks switches)
+/// - `k8s` — optional Kubernetes pod metadata (when running in K8s)
 pub struct NatsPublisher {
     client: async_nats::Client,
     prefix: String,
+    /// Static K8s metadata detected at construction time.
+    /// `Value::Null` when not running in Kubernetes.
+    k8s_metadata: Value,
 }
 
 impl NatsPublisher {
@@ -34,7 +43,8 @@ impl NatsPublisher {
     pub async fn connect(url: &str, prefix: &str, auth: NatsAuth) -> anyhow::Result<Self> {
         let opts = build_connect_options(auth).await?;
         let client = opts.connect(url).await?;
-        Ok(Self { client, prefix: prefix.to_owned() })
+        let k8s_metadata = crate::mux_client::detect_metadata();
+        Ok(Self { client, prefix: prefix.to_owned(), k8s_metadata })
     }
 
     /// Subscribe to all broadcast channels and publish events until shutdown.
@@ -51,12 +61,12 @@ impl NatsPublisher {
             tokio::select! {
                 _ = shutdown.cancelled() => break,
                 event = state_rx.recv() => {
-                    self.handle_with(event, &format!("{}.state", self.prefix), |e| {
+                    self.handle_with(store, event, &format!("{}.state", self.prefix), |e| {
                         transition_to_msg(&e)
                     }).await;
                 }
                 event = prompt_rx.recv() => {
-                    self.handle_with(event, &format!("{}.prompt", self.prefix), |e| {
+                    self.handle_with(store, event, &format!("{}.prompt", self.prefix), |e| {
                         ServerMessage::PromptOutcome {
                             source: e.source,
                             r#type: e.r#type,
@@ -66,27 +76,27 @@ impl NatsPublisher {
                     }).await;
                 }
                 event = hook_rx.recv() => {
-                    self.handle_with(event, &format!("{}.hook", self.prefix), |e| {
+                    self.handle_with(store, event, &format!("{}.hook", self.prefix), |e| {
                         ServerMessage::HookRaw { data: e.json }
                     }).await;
                 }
                 event = stop_rx.recv() => {
-                    self.handle_with(event, &format!("{}.stop", self.prefix), |e| {
+                    self.handle_with(store, event, &format!("{}.stop", self.prefix), |e| {
                         stop_event_to_msg(&e)
                     }).await;
                 }
                 event = start_rx.recv() => {
-                    self.handle_with(event, &format!("{}.start", self.prefix), |e| {
+                    self.handle_with(store, event, &format!("{}.start", self.prefix), |e| {
                         start_event_to_msg(&e)
                     }).await;
                 }
                 event = usage_rx.recv() => {
-                    self.handle_with(event, &format!("{}.usage", self.prefix), |e| {
+                    self.handle_with(store, event, &format!("{}.usage", self.prefix), |e| {
                         usage_event_to_msg(&e)
                     }).await;
                 }
                 event = profile_rx.recv() => {
-                    self.handle_with(event, &format!("{}.profile", self.prefix), |e| {
+                    self.handle_with(store, event, &format!("{}.profile", self.prefix), |e| {
                         profile_event_to_msg(&e)
                     }).await;
                 }
@@ -94,9 +104,10 @@ impl NatsPublisher {
         }
     }
 
-    /// Convert a domain event to a [`ServerMessage`], serialize, and publish.
+    /// Convert a domain event to a [`ServerMessage`], inject identity fields, and publish.
     async fn handle_with<T, F>(
         &self,
+        store: &Store,
         result: Result<T, broadcast::error::RecvError>,
         subject: &str,
         convert: F,
@@ -106,7 +117,27 @@ impl NatsPublisher {
         match result {
             Ok(event) => {
                 let msg = convert(event);
-                let payload = match serde_json::to_vec(&msg) {
+                let mut obj = match serde_json::to_value(&msg) {
+                    Ok(Value::Object(map)) => map,
+                    Ok(_) => return, // ServerMessage always serializes to an object
+                    Err(e) => {
+                        tracing::warn!("nats: failed to serialize event for {subject}: {e}");
+                        return;
+                    }
+                };
+
+                // Inject session identity.
+                let session_id = store.session_id.read().await.clone();
+                obj.insert("session_id".to_owned(), Value::String(session_id));
+
+                // Inject K8s metadata when available.
+                if let Value::Object(ref meta) = self.k8s_metadata {
+                    for (k, v) in meta {
+                        obj.insert(k.clone(), v.clone());
+                    }
+                }
+
+                let payload = match serde_json::to_vec(&obj) {
                     Ok(p) => p,
                     Err(e) => {
                         tracing::warn!("nats: failed to serialize event for {subject}: {e}");
