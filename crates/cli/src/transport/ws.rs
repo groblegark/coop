@@ -288,7 +288,7 @@ async fn handle_connection(
                     Err(_) => continue,
                 };
                 if flags.profiles {
-                    let msg = ServerMessage::ProfileUpdate { profile: event };
+                    let msg = profile_event_to_msg(&event);
                     if send_json(&mut ws_tx, &msg).await.is_err() {
                         break;
                     }

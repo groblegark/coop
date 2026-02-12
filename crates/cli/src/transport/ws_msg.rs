@@ -429,9 +429,18 @@ pub enum ServerMessage {
     },
 
     // Profile lifecycle
-    #[serde(rename = "profile:update")]
-    ProfileUpdate {
-        profile: crate::event::ProfileEvent,
+    #[serde(rename = "profile:switched")]
+    ProfileSwitched {
+        from: Option<String>,
+        to: String,
+    },
+    #[serde(rename = "profile:exhausted")]
+    ProfileExhausted {
+        profile: String,
+    },
+    #[serde(rename = "profile:rotation:exhausted")]
+    ProfileRotationExhausted {
+        retry_after_secs: u64,
     },
 
     // Session switch
@@ -638,7 +647,18 @@ pub fn hook_entry_to_msg(entry: &crate::event_log::HookEntry) -> ServerMessage {
 
 /// Convert a `ProfileEvent` to a `ServerMessage`.
 pub fn profile_event_to_msg(event: &crate::event::ProfileEvent) -> ServerMessage {
-    ServerMessage::ProfileUpdate { profile: event.clone() }
+    use crate::event::ProfileEvent;
+    match event {
+        ProfileEvent::ProfileSwitched { from, to } => {
+            ServerMessage::ProfileSwitched { from: from.clone(), to: to.clone() }
+        }
+        ProfileEvent::ProfileExhausted { profile } => {
+            ServerMessage::ProfileExhausted { profile: profile.clone() }
+        }
+        ProfileEvent::ProfileRotationExhausted { retry_after_secs } => {
+            ServerMessage::ProfileRotationExhausted { retry_after_secs: *retry_after_secs }
+        }
+    }
 }
 
 /// Convert a `StartEvent` to a `ServerMessage`.

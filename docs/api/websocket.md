@@ -47,7 +47,7 @@ Set via the `subscribe` query parameter on the upgrade URL (comma-separated flag
 | `hooks` | `hook:raw` messages with raw hook FIFO JSON |
 | `messages` | `message:raw` messages with raw agent JSONL |
 | `transcripts` | `transcript:saved` messages with transcript save events |
-| `profiles` | `profile:update` messages with profile lifecycle events |
+| `profiles` | `profile:switched`, `profile:exhausted`, `profile:rotation:exhausted` messages |
 
 Default (no `subscribe` param) = no push events (request-reply only).
 
@@ -296,33 +296,54 @@ Transcript save event. Sent when `transcripts` is subscribed.
 | `seq` | int | Monotonic sequence number |
 
 
-### `profile:update`
+### `profile:switched`
 
-Profile lifecycle event. Sent when `profiles` is subscribed, whenever a
-profile switch, exhaustion, or rotation exhaustion occurs.
+Active profile changed. Sent when `profiles` is subscribed.
 
 ```json
 {
-  "event": "profile:update",
-  "profile": {
-    "event": "profile:switched",
-    "from": "profile-a",
-    "to": "profile-b"
-  }
+  "event": "profile:switched",
+  "from": "profile-a",
+  "to": "profile-b"
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `profile` | ProfileEvent | The profile lifecycle event |
+| `from` | string or null | Previous profile name (null on first activation) |
+| `to` | string | New active profile name |
 
-**ProfileEvent variants:**
 
-| Event | Fields | Description |
-|-------|--------|-------------|
-| `profile:switched` | `from` (string or null), `to` (string) | Active profile changed |
-| `profile:exhausted` | `profile` (string) | A single profile became rate-limited |
-| `profile:rotation:exhausted` | `retry_after_secs` (int) | All profiles on cooldown |
+### `profile:exhausted`
+
+A single profile became rate-limited. Sent when `profiles` is subscribed.
+
+```json
+{
+  "event": "profile:exhausted",
+  "profile": "profile-a"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `profile` | string | Name of the exhausted profile |
+
+
+### `profile:rotation:exhausted`
+
+All profiles are on cooldown. Sent when `profiles` is subscribed.
+
+```json
+{
+  "event": "profile:rotation:exhausted",
+  "retry_after_secs": 300
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `retry_after_secs` | int | Seconds until the earliest profile becomes available again |
 
 
 ### `health`
