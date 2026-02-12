@@ -115,18 +115,20 @@ fn plan_accept_options(option: u32, expected: &[u8]) {
 }
 
 #[test]
-fn plan_option_4_with_feedback() {
+fn plan_feedback_sends_up_arrow_then_text_then_enter() {
     let encoder = ClaudeRespondEncoder::default();
     let steps = encoder.encode_plan(4, Some("Don't modify the schema"));
-    assert_eq!(steps.len(), 2);
-    assert_eq!(steps[0].bytes, b"4");
+    assert_eq!(steps.len(), 3);
+    assert_eq!(steps[0].bytes, b"\x1b[A");
     assert_eq!(steps[0].delay_after, Some(Duration::from_millis(200)));
-    assert_eq!(steps[1].bytes, b"Don't modify the schema\r");
-    assert!(steps[1].delay_after.is_none());
+    assert_eq!(steps[1].bytes, b"Don't modify the schema");
+    assert_eq!(steps[1].delay_after, Some(Duration::from_millis(200)));
+    assert_eq!(steps[2].bytes, b"\r");
+    assert!(steps[2].delay_after.is_none());
 }
 
 #[test]
-fn plan_option_4_without_feedback() {
+fn plan_option_4_without_feedback_sends_digit() {
     let encoder = ClaudeRespondEncoder::default();
     let steps = encoder.encode_plan(4, None);
     assert_eq!(steps.len(), 1);
@@ -148,8 +150,13 @@ fn question_single_with_freeform_text() {
     let encoder = ClaudeRespondEncoder::default();
     let answers = [QuestionAnswer { option: None, text: Some("Use Redis instead".to_string()) }];
     let steps = encoder.encode_question(&answers, 1);
-    assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].bytes, b"Use Redis instead\r");
+    assert_eq!(steps.len(), 3);
+    assert_eq!(steps[0].bytes, b"\x1b[A");
+    assert_eq!(steps[0].delay_after, Some(Duration::from_millis(200)));
+    assert_eq!(steps[1].bytes, b"Use Redis instead");
+    assert_eq!(steps[1].delay_after, Some(Duration::from_millis(200)));
+    assert_eq!(steps[2].bytes, b"\r");
+    assert!(steps[2].delay_after.is_none());
 }
 
 #[test]
@@ -196,11 +203,14 @@ fn question_all_at_once_freeform_mixed() {
         QuestionAnswer { option: None, text: Some("custom answer".to_string()) },
     ];
     let steps = encoder.encode_question(&answers, 2);
-    assert_eq!(steps.len(), 3);
+    // option: digit(1 step) + freeform: up+text+enter(3 steps) + final confirm(1 step)
+    assert_eq!(steps.len(), 5);
     assert_eq!(steps[0].bytes, b"1");
     assert_eq!(steps[0].delay_after, Some(Duration::from_millis(200)));
-    assert_eq!(steps[1].bytes, b"custom answer\r");
-    assert_eq!(steps[1].delay_after, Some(Duration::from_millis(200)));
-    assert_eq!(steps[2].bytes, b"\r");
-    assert!(steps[2].delay_after.is_none());
+    assert_eq!(steps[1].bytes, b"\x1b[A");
+    assert_eq!(steps[2].bytes, b"custom answer");
+    assert_eq!(steps[3].bytes, b"\r");
+    assert_eq!(steps[3].delay_after, Some(Duration::from_millis(200)));
+    assert_eq!(steps[4].bytes, b"\r");
+    assert!(steps[4].delay_after.is_none());
 }

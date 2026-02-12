@@ -244,6 +244,7 @@ async fn hook_detector_pre_tool_use_exit_plan_mode() -> anyhow::Result<()> {
     assert!(matches!(states[0], AgentState::Prompt { .. }));
     if let AgentState::Prompt { prompt } = &states[0] {
         assert_eq!(prompt.kind, crate::driver::PromptKind::Plan);
+        assert!(prompt.ready, "hook-detected Plan prompt should be immediately ready");
     }
     Ok(())
 }

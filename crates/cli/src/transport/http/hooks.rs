@@ -14,6 +14,7 @@ use crate::driver::ErrorCategory;
 use crate::start::{compose_start_script, StartConfig};
 use crate::stop::{generate_block_reason, StopConfig, StopMode, StopType};
 use crate::transport::state::Store;
+use axum::http::StatusCode;
 
 // -- Stop hook types ----------------------------------------------------------
 
@@ -129,15 +130,19 @@ pub async fn hooks_stop(
         .into_response()
 }
 
-/// `POST /api/v1/hooks/stop/resolve` — store signal body, set flag.
+/// `POST /api/v1/stop/resolve` — validate, store signal body, set flag.
 pub async fn resolve_stop(
     State(s): State<Arc<Store>>,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let stop = &s.stop;
-    *stop.signal_body.write().await = Some(body);
-    stop.signaled.store(true, std::sync::atomic::Ordering::Release);
-    Json(serde_json::json!({ "accepted": true }))
+    match s.stop.resolve(body).await {
+        Ok(()) => Json(serde_json::json!({ "accepted": true })).into_response(),
+        Err(msg) => {
+            s.stop.emit(StopType::Rejected, None, Some(msg.clone()));
+            (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({ "error": msg })))
+                .into_response()
+        }
+    }
 }
 
 /// `GET /api/v1/config/stop` — read current stop config.

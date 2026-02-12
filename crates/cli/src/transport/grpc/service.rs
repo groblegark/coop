@@ -461,9 +461,7 @@ impl proto::coop_server::Coop for CoopGrpc {
         let req = request.into_inner();
         let body: serde_json::Value = serde_json::from_str(&req.body_json)
             .map_err(|e| Status::invalid_argument(format!("invalid JSON: {e}")))?;
-        let stop = &self.state.stop;
-        *stop.signal_body.write().await = Some(body);
-        stop.signaled.store(true, std::sync::atomic::Ordering::Release);
+        self.state.stop.resolve(body).await.map_err(Status::invalid_argument)?;
         Ok(Response::new(proto::ResolveStopResponse { accepted: true }))
     }
 
@@ -521,6 +519,75 @@ impl proto::coop_server::Coop for CoopGrpc {
                 session_id: event.session_id,
                 injected: event.injected,
                 seq: event.seq,
+            })
+        });
+        Ok(Response::new(stream))
+    }
+
+    // -- Recording ------------------------------------------------------------
+
+    async fn get_recording(
+        &self,
+        _request: Request<proto::GetRecordingRequest>,
+    ) -> Result<Response<proto::GetRecordingResponse>, Status> {
+        let status = self.state.record.status();
+        Ok(Response::new(proto::GetRecordingResponse {
+            enabled: status.enabled,
+            path: status.path.unwrap_or_default(),
+            entries: status.entries,
+        }))
+    }
+
+    async fn put_recording(
+        &self,
+        request: Request<proto::PutRecordingRequest>,
+    ) -> Result<Response<proto::PutRecordingResponse>, Status> {
+        let req = request.into_inner();
+        if req.enabled {
+            self.state.record.enable().await;
+        } else {
+            self.state.record.disable();
+        }
+        let status = self.state.record.status();
+        Ok(Response::new(proto::PutRecordingResponse {
+            enabled: status.enabled,
+            path: status.path.unwrap_or_default(),
+        }))
+    }
+
+    async fn catchup_recording(
+        &self,
+        request: Request<proto::CatchupRecordingRequest>,
+    ) -> Result<Response<proto::CatchupRecordingResponse>, Status> {
+        let req = request.into_inner();
+        let entries = self.state.record.catchup(req.since_seq);
+        let proto_entries: Vec<proto::RecordingEntryProto> = entries
+            .into_iter()
+            .map(|e| proto::RecordingEntryProto {
+                ts: e.ts,
+                seq: e.seq,
+                kind: e.kind,
+                detail_json: e.detail.to_string(),
+                screen_json: serde_json::to_string(&e.screen).unwrap_or_default(),
+            })
+            .collect();
+        Ok(Response::new(proto::CatchupRecordingResponse { entries: proto_entries }))
+    }
+
+    type StreamRecordingEventsStream = GrpcStream<proto::RecordingEntryProto>;
+
+    async fn stream_recording_events(
+        &self,
+        _request: Request<proto::StreamRecordingEventsRequest>,
+    ) -> Result<Response<Self::StreamRecordingEventsStream>, Status> {
+        let record_rx = self.state.record.record_tx.subscribe();
+        let stream = spawn_broadcast_stream(record_rx, |event| {
+            Some(proto::RecordingEntryProto {
+                ts: event.ts,
+                seq: event.seq,
+                kind: event.kind,
+                detail_json: event.detail.to_string(),
+                screen_json: serde_json::to_string(&event.screen).unwrap_or_default(),
             })
         });
         Ok(Response::new(stream))

@@ -58,3 +58,21 @@ fn resume_args_with_session_id() {
     let args = resume_args("sess-42");
     assert_eq!(args, vec!["--resume", "sess-42"]);
 }
+
+#[test]
+fn discover_respects_claude_config_dir() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let config_dir = root.path().join("custom-claude");
+    let project_dir = config_dir.join("projects").join("-fake-project");
+    std::fs::create_dir_all(&project_dir)?;
+    let log = project_dir.join("abc-123.jsonl");
+    std::fs::write(&log, "{}\n")?;
+
+    // Point CLAUDE_CONFIG_DIR at our temp dir.
+    std::env::set_var("CLAUDE_CONFIG_DIR", &config_dir);
+    let result = discover_session_log("-fake-project");
+    std::env::remove_var("CLAUDE_CONFIG_DIR");
+
+    assert_eq!(result?, Some(log));
+    Ok(())
+}

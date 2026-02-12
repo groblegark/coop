@@ -42,9 +42,9 @@ async fn hooks_stop_allow_mode_returns_empty() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn hooks_stop_signal_mode_blocks_without_signal() -> anyhow::Result<()> {
+async fn hooks_stop_auto_mode_blocks_without_signal() -> anyhow::Result<()> {
     let config = StopConfig {
-        mode: StopMode::Signal,
+        mode: StopMode::Auto,
         prompt: Some("Finish work first.".to_owned()),
         schema: None,
     };
@@ -64,17 +64,15 @@ async fn hooks_stop_signal_mode_blocks_without_signal() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn hooks_stop_signal_mode_allows_after_signal() -> anyhow::Result<()> {
-    let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
+async fn hooks_stop_auto_mode_allows_after_signal() -> anyhow::Result<()> {
+    let config = StopConfig { mode: StopMode::Auto, prompt: None, schema: None };
     let StoreCtx { store: state, .. } = stop_state(config);
     let app = build_router(state.clone());
     let server = axum_test::TestServer::new(app).anyhow()?;
 
     // Send a signal first.
-    let resp = server
-        .post("/api/v1/hooks/stop/resolve")
-        .json(&serde_json::json!({"status": "done"}))
-        .await;
+    let resp =
+        server.post("/api/v1/stop/resolve").json(&serde_json::json!({"status": "done"})).await;
     resp.assert_status(StatusCode::OK);
 
     // Now stop should be allowed.
@@ -90,7 +88,7 @@ async fn hooks_stop_signal_mode_allows_after_signal() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn hooks_stop_safety_valve_always_allows() -> anyhow::Result<()> {
-    let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
+    let config = StopConfig { mode: StopMode::Auto, prompt: None, schema: None };
     let StoreCtx { store: state, .. } = stop_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
@@ -108,7 +106,7 @@ async fn hooks_stop_safety_valve_always_allows() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn hooks_stop_unrecoverable_error_allows() -> anyhow::Result<()> {
-    let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
+    let config = StopConfig { mode: StopMode::Auto, prompt: None, schema: None };
     let StoreCtx { store: state, .. } = stop_state(config);
     // Set unrecoverable error state.
     *state.driver.error.write().await = Some(crate::transport::state::ErrorInfo {
@@ -136,7 +134,7 @@ async fn resolve_stop_stores_body() -> anyhow::Result<()> {
     let server = axum_test::TestServer::new(app).anyhow()?;
 
     let resp = server
-        .post("/api/v1/hooks/stop/resolve")
+        .post("/api/v1/stop/resolve")
         .json(&serde_json::json!({"status": "complete", "notes": "all good"}))
         .await;
     resp.assert_status(StatusCode::OK);
@@ -155,7 +153,7 @@ async fn resolve_stop_stores_body() -> anyhow::Result<()> {
 #[tokio::test]
 async fn get_stop_config_returns_current() -> anyhow::Result<()> {
     let config =
-        StopConfig { mode: StopMode::Signal, prompt: Some("test prompt".to_owned()), schema: None };
+        StopConfig { mode: StopMode::Auto, prompt: Some("test prompt".to_owned()), schema: None };
     let StoreCtx { store: state, .. } = stop_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
@@ -163,7 +161,7 @@ async fn get_stop_config_returns_current() -> anyhow::Result<()> {
     let resp = server.get("/api/v1/config/stop").await;
     resp.assert_status(StatusCode::OK);
     let body: serde_json::Value = serde_json::from_str(&resp.text())?;
-    assert_eq!(body["mode"], "signal");
+    assert_eq!(body["mode"], "auto");
     assert_eq!(body["prompt"], "test prompt");
     Ok(())
 }
@@ -182,7 +180,7 @@ async fn put_stop_config_updates() -> anyhow::Result<()> {
     // Update to signal mode.
     let resp = server
         .put("/api/v1/config/stop")
-        .json(&serde_json::json!({"mode": "signal", "prompt": "Wait for signal"}))
+        .json(&serde_json::json!({"mode": "auto", "prompt": "Wait for signal"}))
         .await;
     resp.assert_status(StatusCode::OK);
     let body = resp.text();
@@ -191,14 +189,14 @@ async fn put_stop_config_updates() -> anyhow::Result<()> {
     // Verify the update.
     let resp = server.get("/api/v1/config/stop").await;
     let body: serde_json::Value = serde_json::from_str(&resp.text())?;
-    assert_eq!(body["mode"], "signal");
+    assert_eq!(body["mode"], "auto");
     assert_eq!(body["prompt"], "Wait for signal");
     Ok(())
 }
 
 #[tokio::test]
 async fn hooks_stop_emits_stop_events() -> anyhow::Result<()> {
-    let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
+    let config = StopConfig { mode: StopMode::Auto, prompt: None, schema: None };
     let StoreCtx { store: state, .. } = stop_state(config);
     let mut stop_rx = state.stop.stop_tx.subscribe();
 
@@ -219,13 +217,13 @@ async fn hooks_stop_emits_stop_events() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn signal_consumed_after_stop_check() -> anyhow::Result<()> {
-    let config = StopConfig { mode: StopMode::Signal, prompt: None, schema: None };
+    let config = StopConfig { mode: StopMode::Auto, prompt: None, schema: None };
     let StoreCtx { store: state, .. } = stop_state(config);
     let app = build_router(state);
     let server = axum_test::TestServer::new(app).anyhow()?;
 
     // Signal, then check stop — should allow.
-    server.post("/api/v1/hooks/stop/resolve").json(&serde_json::json!({"ok": true})).await;
+    server.post("/api/v1/stop/resolve").json(&serde_json::json!({"status": "done"})).await;
     let resp = server
         .post("/api/v1/hooks/stop")
         .json(&serde_json::json!({"event": "stop", "data": {"stop_hook_active": false}}))
@@ -259,8 +257,7 @@ async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
     resp.assert_status(StatusCode::OK);
 
     // Resolve stop should work without auth.
-    let resp =
-        server.post("/api/v1/hooks/stop/resolve").json(&serde_json::json!({"ok": true})).await;
+    let resp = server.post("/api/v1/stop/resolve").json(&serde_json::json!({"ok": true})).await;
     resp.assert_status(StatusCode::OK);
 
     // Start hook should work without auth.
@@ -274,6 +271,81 @@ async fn auth_exempt_for_hooks_stop_and_resolve() -> anyhow::Result<()> {
     let resp = server.get("/api/v1/screen").await;
     resp.assert_status(StatusCode::UNAUTHORIZED);
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn resolve_stop_rejects_invalid_body() -> anyhow::Result<()> {
+    use std::collections::BTreeMap;
+
+    use crate::stop::{StopSchema, StopSchemaField};
+
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        "status".to_owned(),
+        StopSchemaField {
+            required: true,
+            r#enum: Some(vec!["done".to_owned(), "error".to_owned()]),
+            descriptions: None,
+            description: None,
+        },
+    );
+    let config =
+        StopConfig { mode: StopMode::Auto, prompt: None, schema: Some(StopSchema { fields }) };
+    let StoreCtx { store: state, .. } = stop_state(config);
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    // Send a body that fails schema validation.
+    let resp =
+        server.post("/api/v1/stop/resolve").json(&serde_json::json!({"status": "bogus"})).await;
+    resp.assert_status(StatusCode::UNPROCESSABLE_ENTITY);
+    let body: serde_json::Value = serde_json::from_str(&resp.text())?;
+    assert!(body["error"].as_str().unwrap_or("").contains("bogus"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn hooks_stop_gate_mode_blocks() -> anyhow::Result<()> {
+    let config = StopConfig {
+        mode: StopMode::Gate,
+        prompt: Some("Waiting for orchestrator decision.".to_owned()),
+        schema: None,
+    };
+    let StoreCtx { store: state, .. } = stop_state(config);
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    let resp = server
+        .post("/api/v1/hooks/stop")
+        .json(&serde_json::json!({"event": "stop", "data": {"stop_hook_active": false}}))
+        .await;
+    resp.assert_status(StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_str(&resp.text())?;
+    assert_eq!(body["decision"], "block");
+    Ok(())
+}
+
+#[tokio::test]
+async fn hooks_stop_gate_mode_prompt_verbatim() -> anyhow::Result<()> {
+    let config = StopConfig {
+        mode: StopMode::Gate,
+        prompt: Some("Run bd decision create.".to_owned()),
+        schema: None,
+    };
+    let StoreCtx { store: state, .. } = stop_state(config);
+    let app = build_router(state);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    let resp = server
+        .post("/api/v1/hooks/stop")
+        .json(&serde_json::json!({"event": "stop", "data": {"stop_hook_active": false}}))
+        .await;
+    resp.assert_status(StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_str(&resp.text())?;
+    assert_eq!(body["decision"], "block");
+    // Gate mode returns prompt verbatim — no `coop send` commands appended.
+    assert_eq!(body["reason"], "Run bd decision create.");
     Ok(())
 }
 

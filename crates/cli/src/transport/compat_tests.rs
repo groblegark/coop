@@ -17,11 +17,11 @@ fn test_router() -> Router {
 }
 
 #[tokio::test]
-async fn rejects_http10() -> anyhow::Result<()> {
+async fn passes_http10() -> anyhow::Result<()> {
     let app = test_router();
     let req = Request::builder().version(Version::HTTP_10).uri("/test").body(Body::empty())?;
     let resp = app.oneshot(req).await?;
-    assert_eq!(resp.status(), StatusCode::HTTP_VERSION_NOT_SUPPORTED);
+    assert_eq!(resp.status(), StatusCode::OK);
     Ok(())
 }
 

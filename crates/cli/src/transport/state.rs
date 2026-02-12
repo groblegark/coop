@@ -20,6 +20,7 @@ use crate::event::{
 };
 use crate::event_log::EventLog;
 use crate::profile::ProfileState;
+use crate::record::RecordingState;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::start::StartState;
@@ -80,6 +81,8 @@ pub struct Store {
     /// Terminal multiplexer for multi-pod dashboard (broker mode only).
     /// `None` when broker mode is not enabled.
     pub multiplexer: Option<Arc<crate::broker::mux::Multiplexer>>,
+    /// Session recording state. Always present (defaults to disabled).
+    pub record: Arc<RecordingState>,
 }
 
 /// Terminal I/O: screen, ring buffer, child process.

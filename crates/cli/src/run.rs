@@ -33,6 +33,7 @@ use crate::profile::ProfileState;
 use crate::pty::adapter::{AttachSpec, TmuxBackend};
 use crate::pty::spawn::NativePty;
 use crate::pty::Backend;
+use crate::record::RecordingState;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::session::{Session, SessionConfig, SessionOutcome};
@@ -441,7 +442,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     // Switch channel: capacity 1 enforces single-switch-at-a-time.
     let (switch_tx, switch_rx) = mpsc::channel::<SwitchRequest>(1);
 
-    let resolve_url = format!("{coop_url_for_setup}/api/v1/hooks/stop/resolve");
+    let resolve_url = format!("{coop_url_for_setup}/api/v1/stop/resolve");
     let stop_state = Arc::new(StopState::new(stop_config, resolve_url));
     let start_state = Arc::new(StartState::new(start_config));
     let switch_state = Arc::new(SwitchState {
@@ -486,6 +487,12 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     });
 
     let event_log = Arc::new(EventLog::new(setup.as_ref().map(|s| s.session_dir.as_path())));
+
+    let record_state = Arc::new(RecordingState::new(
+        setup.as_ref().map(|s| s.session_dir.as_path()),
+        config.cols,
+        config.rows,
+    ));
 
     let store = Arc::new(Store {
         terminal,
@@ -533,7 +540,13 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         credentials: credential_broker,
         broker_registry: broker_registry.clone(),
         multiplexer: multiplexer.clone(),
+        record: Arc::clone(&record_state),
     });
+
+    // Enable recording if --record flag is set.
+    if config.record {
+        store.record.enable().await;
+    }
 
     // Spawn event log subscriber — persists state/hook events to JSONL files.
     {
@@ -604,6 +617,16 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             mux.run(sd).await;
         });
     }
+
+    // Spawn recording subscriber — captures screen snapshots at semantic events,
+    // plus periodic screenshots 30s after the last hook event.
+    crate::record::spawn_subscriber(
+        Arc::clone(&store.record),
+        Arc::clone(&store.terminal),
+        &store.channels.state_tx,
+        &store.channels.hook_tx,
+        shutdown.clone(),
+    );
 
     // Spawn HTTP server
     if let Some(port) = config.port {

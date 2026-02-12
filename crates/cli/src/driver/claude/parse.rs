@@ -57,7 +57,12 @@ pub fn extract_assistant_text(json: &Value) -> Option<String> {
     if texts.is_empty() {
         return None;
     }
-    Some(texts.join("\n"))
+    let joined = texts.join("\n");
+    let trimmed = joined.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_owned())
 }
 
 /// Parse a Claude session log JSONL entry into an [`AgentState`].

@@ -54,10 +54,16 @@ pub fn map_claude_hook(event: HookEvent) -> Option<(AgentState, String)> {
                 },
                 "hook:prompt(question)".into(),
             )),
-            "ExitPlanMode" => Some((
-                AgentState::Prompt { prompt: PromptContext::new(PromptKind::Plan) },
-                "hook:prompt(plan)".into(),
-            )),
+            "ExitPlanMode" => {
+                let mut ctx = PromptContext::new(PromptKind::Plan);
+                if let Some(input) = tool_input {
+                    if let Ok(s) = serde_json::to_string(input) {
+                        ctx = ctx.with_input(s);
+                    }
+                }
+                ctx = ctx.with_ready();
+                Some((AgentState::Prompt { prompt: ctx }, "hook:prompt(plan)".into()))
+            }
             "EnterPlanMode" => Some((AgentState::Working, "hook:working".into())),
             _ => None,
         },

@@ -21,8 +21,10 @@ fn test_config(name: &str, token_url: &str) -> CredentialConfig {
             token_url: Some(token_url.to_owned()),
             client_id: Some("test-client".to_owned()),
             r#static: false,
+            device_auth_url: None,
             refresh_margin_secs: 5,
         }],
+        persist_path: None,
     }
 }
 
@@ -33,9 +35,11 @@ fn static_config(name: &str) -> CredentialConfig {
             provider: "anthropic".to_owned(),
             token_url: None,
             client_id: None,
+            device_auth_url: None,
             r#static: true,
             refresh_margin_secs: 0,
         }],
+        persist_path: None,
     }
 }
 
@@ -48,6 +52,7 @@ async fn new_creates_accounts_from_config() {
                 provider: "claude".to_owned(),
                 token_url: Some("http://localhost/token".to_owned()),
                 client_id: Some("client-1".to_owned()),
+                device_auth_url: None,
                 r#static: false,
                 refresh_margin_secs: 900,
             },
@@ -56,10 +61,12 @@ async fn new_creates_accounts_from_config() {
                 provider: "anthropic".to_owned(),
                 token_url: None,
                 client_id: None,
+                device_auth_url: None,
                 r#static: true,
                 refresh_margin_secs: 0,
             },
         ],
+        persist_path: None,
     };
 
     let (broker, _rx) = CredentialBroker::new(&config);
@@ -127,6 +134,7 @@ async fn credentials_for_maps_provider_to_env_key() {
                 provider: "openai".to_owned(),
                 token_url: None,
                 client_id: None,
+                device_auth_url: None,
                 r#static: true,
                 refresh_margin_secs: 0,
             },
@@ -135,10 +143,12 @@ async fn credentials_for_maps_provider_to_env_key() {
                 provider: "gemini".to_owned(),
                 token_url: None,
                 client_id: None,
+                device_auth_url: None,
                 r#static: true,
                 refresh_margin_secs: 0,
             },
         ],
+        persist_path: None,
     };
 
     let (broker, _rx) = CredentialBroker::new(&config);
@@ -161,6 +171,7 @@ async fn all_credentials_excludes_revoked() {
                 provider: "claude".to_owned(),
                 token_url: None,
                 client_id: None,
+                device_auth_url: None,
                 r#static: true,
                 refresh_margin_secs: 0,
             },
@@ -169,10 +180,12 @@ async fn all_credentials_excludes_revoked() {
                 provider: "claude".to_owned(),
                 token_url: None,
                 client_id: None,
+                device_auth_url: None,
                 r#static: false,
                 refresh_margin_secs: 0,
             },
         ],
+        persist_path: None,
     };
 
     let (broker, _rx) = CredentialBroker::new(&config);

@@ -115,13 +115,18 @@ pub struct Config {
     #[arg(long, env = "COOP_LOG_LEVEL", default_value = "info")]
     pub log_level: String,
 
-    /// Resume a previous session from a log path or workspace ID.
-    #[arg(long, env = "COOP_RESUME")]
+    /// Resume a previous session. Accepts a .jsonl log path, a workspace
+    /// path (e.g. /Users/me/myapp), or a project directory name.
+    #[arg(long, env = "COOP_RESUME", value_name = "HINT")]
     pub resume: Option<String>,
 
     /// Agent command to run.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_name = "AGENT")]
     pub command: Vec<String>,
+
+    /// Enable session recording from start.
+    #[arg(long, env = "COOP_RECORD")]
+    pub record: bool,
 
     /// Groom level: auto, manual, pristine.
     #[arg(long, env = "COOP_GROOM", default_value = "auto")]
@@ -308,6 +313,7 @@ impl Config {
             log_format: "json".into(),
             log_level: "debug".into(),
             resume: None,
+            record: false,
             groom: "manual".into(),
             nats_url: None,
             nats_token: None,

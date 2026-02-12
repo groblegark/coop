@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 
 use crate::driver::AgentState;
 
+use super::setup::{claude_config_dir, project_dir_name};
+
 /// Recovered state from a previous session log.
 #[derive(Debug, Clone)]
 pub struct ResumeState {
@@ -23,9 +25,15 @@ pub struct ResumeState {
 
 /// Find the most recent Claude session log for a workspace.
 ///
-/// Scans `~/.claude/projects/<workspace-hash>/` for the latest `.jsonl` file.
-/// The `workspace_hint` is a path or identifier used to locate the session
-/// directory.
+/// Scans `<config-dir>/projects/<workspace-hash>/` for the latest `.jsonl`
+/// file, where `<config-dir>` is `$CLAUDE_CONFIG_DIR` (or `$HOME/.claude`).
+///
+/// The `workspace_hint` accepts:
+/// - A direct path to a `.jsonl` log file (returned as-is).
+/// - A workspace path (e.g. `/Users/me/myapp`) — matched against project
+///   directory names.
+/// - A partial directory name (e.g. `-Users-me-myapp`) — substring-matched
+///   against project directory names.
 pub fn discover_session_log(workspace_hint: &str) -> anyhow::Result<Option<PathBuf>> {
     // Try the hint directly as a path first.
     let direct = Path::new(workspace_hint);
@@ -34,18 +42,15 @@ pub fn discover_session_log(workspace_hint: &str) -> anyhow::Result<Option<PathB
     }
 
     // Scan the Claude projects directory for session logs.
-    let home = std::env::var("HOME").unwrap_or_default();
-    if home.is_empty() {
-        return Ok(None);
-    }
-
-    let projects_dir = Path::new(&home).join(".claude").join("projects");
+    let projects_dir = claude_config_dir().join("projects");
     if !projects_dir.is_dir() {
         return Ok(None);
     }
 
-    // Build candidate directories: look for a hash that matches the workspace hint,
-    // or scan all project directories.
+    // Build candidate directories: look for a project dir that matches the workspace hint.
+    // Normalize the hint using the same convention as Claude's project directory naming
+    // so raw paths (e.g. `/Users/me/myapp`) match directory names (`-Users-me-myapp`).
+    let normalized_hint = project_dir_name(Path::new(workspace_hint));
     let mut candidates: Vec<PathBuf> = Vec::new();
 
     if let Ok(entries) = std::fs::read_dir(&projects_dir) {
@@ -53,9 +58,7 @@ pub fn discover_session_log(workspace_hint: &str) -> anyhow::Result<Option<PathB
             let path = entry.path();
             if path.is_dir() {
                 let dir_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                // Match if the directory name contains the workspace hint
-                // (Claude uses a hash of the workspace path as directory name).
-                if dir_name.contains(workspace_hint) || workspace_hint.contains(&dir_name) {
+                if dir_name.contains(&normalized_hint) || normalized_hint.contains(&dir_name) {
                     candidates.push(path);
                 }
             }

@@ -3,7 +3,7 @@
 
 //! `coop send` — resolve a stop hook from inside the PTY.
 //!
-//! Posts a JSON body to `$COOP_URL/api/v1/hooks/stop/resolve` and prints the
+//! Posts a JSON body to `$COOP_URL/api/v1/stop/resolve` and prints the
 //! response. This replaces the raw `curl` command that block-reason messages
 //! previously suggested.
 
@@ -30,7 +30,7 @@ pub fn run(args: &SendArgs) -> i32 {
 /// Inner implementation: resolve the stop hook given a base URL and optional
 /// JSON body argument.
 fn send(coop_url: &str, body_arg: Option<&str>) -> i32 {
-    let url = format!("{}/api/v1/hooks/stop/resolve", coop_url.trim_end_matches('/'));
+    let url = format!("{}/api/v1/stop/resolve", coop_url.trim_end_matches('/'));
     let body_str = body_arg.unwrap_or("{}");
 
     let body: serde_json::Value = match serde_json::from_str(body_str) {

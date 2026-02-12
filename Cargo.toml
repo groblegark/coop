@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/cli",
+    "crates/mux",
     "tests/specs",
 ]
 
@@ -31,7 +32,9 @@ tonic = "0.14"
 tonic-prost = "0.14"
 async-nats = "0.39"
 futures-util = "0.3"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 tempfile = "3"
+tokio-tungstenite = "0.28"
 uuid = { version = "1", features = ["v4"] }
 
 # build dependencies
@@ -41,8 +44,6 @@ tonic-prost-build = "0.14"
 # dev dependencies
 axum-test = "18"
 proptest = "1"
-reqwest = { version = "0.13", default-features = false, features = ["json", "blocking", "rustls"] }
-tokio-tungstenite = "0.28"
 yare = "3"
 
 [workspace.package]

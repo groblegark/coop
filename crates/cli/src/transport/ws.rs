@@ -98,6 +98,7 @@ async fn handle_connection(
     let mut transcript_rx = state.transcript.transcript_tx.subscribe();
     let mut usage_rx = state.usage.usage_tx.subscribe();
     let mut cred_rx = state.credentials.as_ref().map(|b| b.subscribe());
+    let mut record_rx = state.record.record_tx.subscribe();
     let mut authed = !needs_auth;
 
     // Send initial state: either replay from event log or current-state snapshot.
@@ -275,6 +276,24 @@ async fn handle_connection(
                 };
                 if flags.credentials {
                     let msg = credential_event_to_msg(&event);
+                    if send_json(&mut ws_tx, &msg).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            event = record_rx.recv() => {
+                let event = match event {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                if flags.recording {
+                    let msg = ServerMessage::RecordingEntryMsg {
+                        ts: event.ts,
+                        seq: event.seq,
+                        kind: event.kind,
+                        detail: event.detail,
+                        screen: event.screen,
+                    };
                     if send_json(&mut ws_tx, &msg).await.is_err() {
                         break;
                     }
@@ -497,10 +516,10 @@ async fn handle_client_message(
 
         ClientMessage::ResolveStop { body } => {
             require_auth!(authed);
-            let stop = &state.stop;
-            *stop.signal_body.write().await = Some(body);
-            stop.signaled.store(true, std::sync::atomic::Ordering::Release);
-            Some(ServerMessage::StopResolved { accepted: true })
+            match state.stop.resolve(body).await {
+                Ok(()) => Some(ServerMessage::StopResolved { accepted: true }),
+                Err(msg) => Some(ws_error(ErrorCode::BadRequest, &msg)),
+            }
         }
 
         // Start hook
@@ -601,6 +620,34 @@ async fn handle_client_message(
                     Some(ws_error(ErrorCode::Internal, "switch channel closed"))
                 }
             }
+        }
+
+        // Recording
+        ClientMessage::GetRecording {} => {
+            require_auth!(authed);
+            let status = state.record.status();
+            Some(ServerMessage::Recording {
+                enabled: status.enabled,
+                path: status.path,
+                entries: status.entries,
+            })
+        }
+
+        ClientMessage::PutRecording { enabled } => {
+            require_auth!(authed);
+            if enabled {
+                state.record.enable().await;
+            } else {
+                state.record.disable();
+            }
+            let status = state.record.status();
+            Some(ServerMessage::RecordingConfigured { enabled: status.enabled, path: status.path })
+        }
+
+        ClientMessage::CatchupRecording { since_seq } => {
+            require_auth!(authed);
+            let entries = state.record.catchup(since_seq);
+            Some(ServerMessage::RecordingCatchup { entries })
         }
 
         // Lifecycle

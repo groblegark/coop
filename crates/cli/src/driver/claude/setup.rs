@@ -201,18 +201,24 @@ fn inject_coop_permissions(config: &mut serde_json::Value) {
     }
 }
 
+/// Return Claude's config directory.
+///
+/// Respects `CLAUDE_CONFIG_DIR` if set, otherwise defaults to `$HOME/.claude`.
+pub(crate) fn claude_config_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("CLAUDE_CONFIG_DIR") {
+        return PathBuf::from(dir);
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    PathBuf::from(home).join(".claude")
+}
+
 /// Compute the expected session log path for a given working directory
 /// and session ID.
 ///
-/// Claude stores logs at `~/.claude/projects/<project-dir-name>/<uuid>.jsonl`.
+/// Claude stores logs at `<config-dir>/projects/<project-dir-name>/<uuid>.jsonl`.
 pub(crate) fn session_log_path(working_dir: &Path, session_id: &str) -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_default();
     let dir_name = project_dir_name(working_dir);
-    Path::new(&home)
-        .join(".claude")
-        .join("projects")
-        .join(dir_name)
-        .join(format!("{session_id}.jsonl"))
+    claude_config_dir().join("projects").join(dir_name).join(format!("{session_id}.jsonl"))
 }
 
 /// Convert a working directory path into Claude's project directory name.
@@ -222,7 +228,7 @@ pub(crate) fn session_log_path(working_dir: &Path, session_id: &str) -> PathBuf 
 pub fn project_dir_name(path: &Path) -> String {
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let s = canonical.display().to_string();
-    s.replace('/', "-").trim_start_matches('-').to_owned()
+    s.replace(['/', '.'], "-")
 }
 
 #[cfg(test)]

@@ -11,11 +11,19 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use tokio_util::sync::CancellationToken;
 
+use coop::credential::CredentialEvent;
 use coop::driver::AgentState;
 use coop::event::TransitionEvent;
 use coop::stop::{StopEvent, StopType};
 use coop::test_support::{NatsServer, StoreBuilder, StoreCtx};
 use coop::transport::nats_pub::{NatsPublisher, StateEventPayload, StopEventPayload};
+
+/// Create a dummy credential event receiver (no credentials in NATS tests).
+fn dummy_cred_rx() -> tokio::sync::broadcast::Receiver<CredentialEvent> {
+    let (tx, rx) = tokio::sync::broadcast::channel(1);
+    drop(tx);
+    rx
+}
 
 const RECV_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -55,7 +63,7 @@ async fn nats_publishes_state_transition() -> anyhow::Result<()> {
     let shutdown = CancellationToken::new();
     let sd = shutdown.clone();
     let pub_handle = tokio::spawn(async move {
-        publisher.run(state_rx, stop_rx, sd).await;
+        publisher.run(state_rx, stop_rx, dummy_cred_rx(), sd).await;
     });
 
     // Send a state transition via broadcast channel.
@@ -99,7 +107,7 @@ async fn nats_publishes_state_with_cause_and_message() -> anyhow::Result<()> {
     let shutdown = CancellationToken::new();
     let sd = shutdown.clone();
     let pub_handle = tokio::spawn(async move {
-        publisher.run(state_rx, stop_rx, sd).await;
+        publisher.run(state_rx, stop_rx, dummy_cred_rx(), sd).await;
     });
 
     let _ = store.channels.state_tx.send(TransitionEvent {
@@ -141,7 +149,7 @@ async fn nats_publishes_stop_event() -> anyhow::Result<()> {
     let shutdown = CancellationToken::new();
     let sd = shutdown.clone();
     let pub_handle = tokio::spawn(async move {
-        publisher.run(state_rx, stop_rx, sd).await;
+        publisher.run(state_rx, stop_rx, dummy_cred_rx(), sd).await;
     });
 
     // Emit a stop event.
@@ -177,7 +185,7 @@ async fn nats_publishes_stop_event_with_signal() -> anyhow::Result<()> {
     let shutdown = CancellationToken::new();
     let sd = shutdown.clone();
     let pub_handle = tokio::spawn(async move {
-        publisher.run(state_rx, stop_rx, sd).await;
+        publisher.run(state_rx, stop_rx, dummy_cred_rx(), sd).await;
     });
 
     let signal_body = serde_json::json!({"status": "done", "message": "all tasks complete"});
@@ -216,7 +224,7 @@ async fn nats_publishes_stop_event_with_error() -> anyhow::Result<()> {
     let shutdown = CancellationToken::new();
     let sd = shutdown.clone();
     let pub_handle = tokio::spawn(async move {
-        publisher.run(state_rx, stop_rx, sd).await;
+        publisher.run(state_rx, stop_rx, dummy_cred_rx(), sd).await;
     });
 
     store.stop.emit(StopType::Error, None, Some("unrecoverable failure".to_owned()));
@@ -246,7 +254,7 @@ async fn nats_shutdown_stops_publisher() -> anyhow::Result<()> {
     let shutdown = CancellationToken::new();
     let sd = shutdown.clone();
     let pub_handle = tokio::spawn(async move {
-        publisher.run(state_rx, stop_rx, sd).await;
+        publisher.run(state_rx, stop_rx, dummy_cred_rx(), sd).await;
     });
 
     // Cancel immediately.
@@ -276,7 +284,7 @@ async fn nats_connect_via_config() -> anyhow::Result<()> {
     let shutdown = CancellationToken::new();
     let sd = shutdown.clone();
     let handle = tokio::spawn(async move {
-        publisher.run(state_tx.subscribe(), stop_tx.subscribe(), sd).await;
+        publisher.run(state_tx.subscribe(), stop_tx.subscribe(), dummy_cred_rx(), sd).await;
     });
     shutdown.cancel();
     tokio::time::timeout(Duration::from_secs(2), handle).await??;
@@ -304,7 +312,7 @@ async fn nats_concurrent_subscribers_receive_events() -> anyhow::Result<()> {
     let shutdown = CancellationToken::new();
     let sd = shutdown.clone();
     let pub_handle = tokio::spawn(async move {
-        publisher.run(state_rx, stop_rx, sd).await;
+        publisher.run(state_rx, stop_rx, dummy_cred_rx(), sd).await;
     });
 
     // Send one event.
@@ -348,7 +356,7 @@ async fn nats_subject_prefix_is_respected() -> anyhow::Result<()> {
     let shutdown = CancellationToken::new();
     let sd = shutdown.clone();
     let pub_handle = tokio::spawn(async move {
-        publisher.run(state_rx, stop_rx, sd).await;
+        publisher.run(state_rx, stop_rx, dummy_cred_rx(), sd).await;
     });
 
     let _ = store.channels.state_tx.send(TransitionEvent {

@@ -20,7 +20,7 @@ Authorization: Bearer <token>
 ```
 
 **Auth-exempt paths:** `/api/v1/health`, `/api/v1/hooks/stop`,
-`/api/v1/hooks/stop/resolve`, `/api/v1/hooks/start`, and `/ws` (WebSocket
+`/api/v1/stop/resolve`, `/api/v1/hooks/start`, and `/ws` (WebSocket
 handles auth separately via query param or Auth message).
 
 Unauthenticated requests receive a `401` response:
@@ -635,10 +635,10 @@ Called by the stop hook script. Returns a verdict.
 5. Otherwise → block
 
 
-### `POST /api/v1/hooks/stop/resolve`
+### `POST /api/v1/stop/resolve`
 
-Resolve a pending stop gate so the agent is allowed to stop. Stores the
-JSON body as the signal payload.
+Resolve a pending stop gate so the agent is allowed to stop. Validates the
+body against the configured schema (if any) and stores it as the signal payload.
 
 **Request:** Any valid JSON body.
 
@@ -649,11 +649,21 @@ JSON body as the signal payload.
 }
 ```
 
-**Response:**
+**Response (accepted):**
 
 ```json
 {
   "accepted": true
+}
+```
+
+**Response (rejected, 422):**
+
+When a schema is configured and the body fails validation:
+
+```json
+{
+  "error": "field \"status\": value \"bogus\" is not one of: done, error"
 }
 ```
 
@@ -666,7 +676,7 @@ Read the current stop hook configuration.
 
 ```json
 {
-  "mode": "signal",
+  "mode": "auto",
   "prompt": "Before stopping, summarize what you accomplished.",
   "schema": {
     "fields": {
@@ -990,7 +1000,7 @@ Initiate graceful shutdown of the coop process.
 
 ```json
 {
-  "mode": "signal",
+  "mode": "auto",
   "prompt": "Custom prompt text",
   "schema": {
     "fields": {
@@ -1007,9 +1017,9 @@ Initiate graceful shutdown of the coop process.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `mode` | string | `"allow"` (always allow stops) or `"signal"` (block until signaled) |
-| `prompt` | string or null | Custom prompt text included in the block reason |
-| `schema` | object or null | Schema describing expected signal body fields |
+| `mode` | string | `"allow"` (always allow), `"auto"` (block with generated instructions), or `"gate"` (block with verbatim prompt) |
+| `prompt` | string or null | Custom prompt text. In `auto` mode, included as preamble to generated instructions. In `gate` mode, returned verbatim as the block reason (required). |
+| `schema` | object or null | Schema describing expected signal body fields. Used for validation on resolve. In `auto` mode, also used to generate `coop send` examples. Ignored by `gate` mode block reason. |
 | `schema.fields` | object | Map of field name → field definition |
 | `schema.fields.*.required` | bool | Whether this field is required |
 | `schema.fields.*.enum` | string[] or null | Allowed values |

@@ -610,7 +610,7 @@ Stop hook configuration. Sent in reply to `stop:config:get`.
 ```json
 {
   "event": "stop:config",
-  "config": { "mode": "signal", "prompt": "wait" }
+  "config": { "mode": "auto", "prompt": "wait" }
 }
 ```
 
@@ -1069,7 +1069,7 @@ Update the stop hook configuration. **Requires auth.**
 ```json
 {
   "event": "stop:config:put",
-  "config": { "mode": "signal", "prompt": "wait" }
+  "config": { "mode": "auto", "prompt": "wait" }
 }
 ```
 
