@@ -63,18 +63,24 @@ pub async fn credentials_reauth(
     State(s): State<Arc<MuxState>>,
     Json(req): Json<ReauthRequest>,
 ) -> impl IntoResponse {
-    let Some(ref _broker) = s.credential_broker else {
+    let Some(ref broker) = s.credential_broker else {
         return MuxError::BadRequest
             .to_http_response("credential broker not configured")
             .into_response();
     };
 
-    // Device code flow is async and complex. For now, return a placeholder
-    // that the full implementation would fill in with device_code::initiate_reauth.
-    let account = req.account.unwrap_or_else(|| "default".to_owned());
-    Json(serde_json::json!({
-        "account": account,
-        "message": "device code flow not yet implemented for this account"
-    }))
-    .into_response()
+    let account = req.account.unwrap_or_else(|| {
+        broker.config().accounts.first().map(|a| a.name.clone()).unwrap_or_default()
+    });
+
+    match broker.initiate_reauth(&account).await {
+        Ok(resp) => Json(serde_json::json!({
+            "account": account,
+            "user_code": resp.user_code,
+            "auth_url": resp.verification_uri,
+            "expires_in": resp.expires_in,
+        }))
+        .into_response(),
+        Err(e) => MuxError::BadRequest.to_http_response(e.to_string()).into_response(),
+    }
 }

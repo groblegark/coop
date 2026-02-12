@@ -33,11 +33,13 @@ pub struct SessionFeed {
     pub watchers: RwLock<HashMap<String, WatcherState>>,
 }
 
-/// Tracks per-session watcher count and feed cancellation.
+/// Tracks per-session watcher count and feed/poller cancellation.
 pub struct WatcherState {
     pub count: usize,
     /// Cancel token for the event feed task.
-    pub cancel: CancellationToken,
+    pub feed_cancel: CancellationToken,
+    /// Cancel token for screen + status pollers.
+    pub poller_cancel: CancellationToken,
 }
 
 impl Default for SessionFeed {

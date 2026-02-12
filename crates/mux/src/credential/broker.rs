@@ -9,6 +9,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{broadcast, RwLock};
 
+use crate::credential::device_code;
+use crate::credential::oauth::DeviceCodeResponse;
 use crate::credential::persist::{PersistedAccount, PersistedCredentials};
 use crate::credential::refresh::refresh_with_retries;
 use crate::credential::{
@@ -61,6 +63,11 @@ impl CredentialBroker {
                 .build()
                 .unwrap_or_default(),
         })
+    }
+
+    /// Get a reference to the credential config.
+    pub fn config(&self) -> &CredentialConfig {
+        &self.config
     }
 
     /// Load persisted credentials and seed account states.
@@ -134,6 +141,88 @@ impl CredentialBroker {
                 }
             })
             .collect()
+    }
+
+    /// Initiate the device code re-authentication flow for an account.
+    ///
+    /// Returns the device code response with user code and verification URL.
+    /// Spawns a background task that polls for authorization completion and
+    /// seeds credentials on success.
+    pub async fn initiate_reauth(
+        self: &Arc<Self>,
+        account_name: &str,
+    ) -> anyhow::Result<DeviceCodeResponse> {
+        // Look up the account config.
+        let acct_config = self
+            .config
+            .accounts
+            .iter()
+            .find(|a| a.name == account_name)
+            .ok_or_else(|| anyhow::anyhow!("unknown account: {account_name}"))?;
+
+        let device_auth_url = acct_config
+            .device_auth_url
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("no device_auth_url configured for {account_name}"))?;
+        let client_id = acct_config
+            .client_id
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("no client_id configured for {account_name}"))?;
+        let token_url = acct_config
+            .token_url
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("no token_url configured for {account_name}"))?;
+
+        let resp = device_code::initiate_reauth(&self.http, device_auth_url, client_id).await?;
+
+        // Emit ReauthRequired event.
+        let _ = self.event_tx.send(CredentialEvent::ReauthRequired {
+            account: account_name.to_owned(),
+            auth_url: resp.verification_uri.clone(),
+            user_code: resp.user_code.clone(),
+        });
+
+        // Spawn background poll task.
+        let broker = Arc::clone(self);
+        let name = account_name.to_owned();
+        let device_code = resp.device_code.clone();
+        let interval = resp.interval;
+        let expires_in = resp.expires_in;
+        let poll_token_url = token_url.to_owned();
+        let poll_client_id = client_id.to_owned();
+
+        tokio::spawn(async move {
+            match device_code::poll_device_code(
+                &broker.http,
+                &poll_token_url,
+                &poll_client_id,
+                &device_code,
+                interval,
+                expires_in,
+            )
+            .await
+            {
+                Ok(token) => {
+                    if let Err(e) = broker
+                        .seed(&name, token.access_token, token.refresh_token, Some(token.expires_in))
+                        .await
+                    {
+                        tracing::warn!(account = %name, err = %e, "failed to seed after reauth");
+                    } else {
+                        tracing::info!(account = %name, "reauth completed, credentials seeded");
+                    }
+                }
+                Err(e) => {
+                    let _ = broker.event_tx.send(CredentialEvent::RefreshFailed {
+                        account: name.clone(),
+                        error: e.to_string(),
+                    });
+                    tracing::warn!(account = %name, err = %e, "device code polling failed");
+                }
+            }
+        });
+
+        Ok(resp)
     }
 
     /// Spawn refresh loops for all non-static accounts.

@@ -143,7 +143,18 @@ Provider defaults: `claude` → `ANTHROPIC_API_KEY`, `openai` → `OPENAI_API_KE
 4. **Persistence**: after each refresh, tokens are atomically saved to
    `persist_path`
 5. **Re-auth**: if refresh permanently fails, triggers device code flow
-   (RFC 8628)
+   (RFC 8628) via `POST /api/v1/credentials/reauth`
+
+### Event Channels
+
+Credential events (`CredentialEvent`) flow through the broker's own
+`broadcast::Sender<CredentialEvent>` channel — they do **not** flow through
+`MuxEvent` (the session feed channel). This is because credential events
+originate in the mux broker, not in upstream coop sessions.
+
+The distributor subscribes to `CredentialEvent` and pushes fresh tokens to
+matching sessions. Dashboard clients receive credential status updates by
+polling `GET /api/v1/credentials/status`.
 
 ### Account Status
 

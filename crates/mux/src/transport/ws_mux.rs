@@ -19,6 +19,7 @@ use tokio_util::sync::CancellationToken;
 use crate::state::{MuxEvent, MuxState, WatcherState};
 use crate::transport::auth;
 use crate::upstream::feed::spawn_event_feed;
+use crate::upstream::poller::spawn_screen_poller;
 
 /// Query parameters for `/ws/mux`.
 #[derive(Debug, Deserialize)]
@@ -268,7 +269,7 @@ async fn start_watching(state: &MuxState, session_id: &str) {
         return;
     }
 
-    // Start a new event feed for this session.
+    // Start a new event feed and pollers for this session.
     let sessions = state.sessions.read().await;
     let entry = match sessions.get(session_id) {
         Some(e) => Arc::clone(e),
@@ -276,10 +277,16 @@ async fn start_watching(state: &MuxState, session_id: &str) {
     };
     drop(sessions);
 
-    let cancel = CancellationToken::new();
-    spawn_event_feed(state.feed.event_tx.clone(), entry, cancel.clone());
+    let feed_cancel = CancellationToken::new();
+    spawn_event_feed(state.feed.event_tx.clone(), Arc::clone(&entry), feed_cancel.clone());
 
-    watchers.insert(session_id.to_owned(), WatcherState { count: 1, cancel });
+    let poller_cancel = CancellationToken::new();
+    spawn_screen_poller(entry, &state.config, poller_cancel.clone());
+
+    watchers.insert(
+        session_id.to_owned(),
+        WatcherState { count: 1, feed_cancel, poller_cancel },
+    );
 }
 
 /// Decrement watcher count for a session, stopping the event feed when 0.
@@ -288,7 +295,8 @@ async fn stop_watching(state: &MuxState, session_id: &str) {
     if let Some(ws) = watchers.get_mut(session_id) {
         ws.count = ws.count.saturating_sub(1);
         if ws.count == 0 {
-            ws.cancel.cancel();
+            ws.feed_cancel.cancel();
+            ws.poller_cancel.cancel();
             watchers.remove(session_id);
         }
     }

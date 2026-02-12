@@ -14,7 +14,6 @@ use tokio_util::sync::CancellationToken;
 use crate::error::MuxError;
 use crate::state::{epoch_ms, MuxState, SessionEntry};
 use crate::upstream::client::UpstreamClient;
-use crate::upstream::poller::spawn_screen_poller;
 
 // -- Request/Response types ---------------------------------------------------
 
@@ -103,9 +102,6 @@ pub async fn register_session(
         profiles_needed: req.profiles_needed,
     });
 
-    // Spawn screen + status poller.
-    spawn_screen_poller(Arc::clone(&entry), &s.config);
-
     s.sessions.write().await.insert(id.clone(), entry);
     tracing::info!(session_id = %id, "session registered");
 
@@ -126,7 +122,8 @@ pub async fn deregister_session(
         {
             let mut watchers = s.feed.watchers.write().await;
             if let Some(ws) = watchers.remove(&id) {
-                ws.cancel.cancel();
+                ws.feed_cancel.cancel();
+                ws.poller_cancel.cancel();
             }
         }
         tracing::info!(session_id = %id, "session deregistered");
