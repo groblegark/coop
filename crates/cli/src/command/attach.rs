@@ -61,14 +61,28 @@ const DETACH_KEY: u8 = 0x1d;
 /// Refresh key: Ctrl+L (ASCII 0x0c), traditional terminal clear/redraw.
 const REFRESH_KEY: u8 = 0x0c;
 
-const SMCUP: &[u8] = b"\x1b[?1049h"; // Enter alternate screen buffer
-const RMCUP: &[u8] = b"\x1b[?1049l"; // Exit alternate screen buffer
-const CLEAR_HOME: &[u8] = b"\x1b[2J\x1b[H";
-const SYNC_START: &[u8] = b"\x1b[?2026h"; // DEC synchronized update begin
-const SYNC_END: &[u8] = b"\x1b[?2026l"; // DEC synchronized update end
+/// Enter alternate screen buffer (SMCUP). Isolates coop's display from the
+/// user's shell scrollback so detaching cleanly restores the original content.
+const SMCUP: &[u8] = b"\x1b[?1049h";
 
-static PANIC_HOOK_INSTALLED: Once = Once::new();
+/// Exit alternate screen buffer (RMCUP). Restores the primary screen buffer 
+/// and cursor position, bringing back the user's original shell content.
+const RMCUP: &[u8] = b"\x1b[?1049l";
+
+/// Clear screen and move cursor home. Used after entering the alternate screen buffer to start with a blank slate. 
+const CLEAR_HOME: &[u8] = b"\x1b[2J\x1b[H";
+
+/// Begin synchronized update (DEC private mode 2026). Tells the terminal to
+/// batch subsequent output and render it atomically, preventing flicker during large redraws.
+/// Supported by Ghostty, kitty, iTerm2, WezTerm, foot.
+/// Unsupported terminals ignore the sequence harmlessly.
+const SYNC_START: &[u8] = b"\x1b[?2026h";
+const SYNC_END: &[u8] = b"\x1b[?2026l";
+
+/// Saved terminal state for panic-time restoration.
+/// Populated when entering raw mode, cleared on drop.
 static PANIC_TERMIOS: Mutex<Option<nix::libc::termios>> = Mutex::new(None);
+static PANIC_HOOK_INSTALLED: Once = Once::new();
 
 const DEFAULT_STATUSLINE_INTERVAL: u64 = 5;
 const PING_INTERVAL: Duration = Duration::from_secs(30);
