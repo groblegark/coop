@@ -188,7 +188,7 @@ function createTile(id, url, state, metadata) {
     }
   });
 
-  return { el: tile, term, fitAddon, state, metadata: metadata || null, credAlert: false, sourceCols: 80, sourceRows: 24 };
+  return { el: tile, term, fitAddon, state, metadata: metadata || null, credAlert: false, sourceCols: 80, sourceRows: 24, lastScreenLines: null };
 }
 
 function setFocus(id) {
@@ -220,7 +220,11 @@ function collapseSession(id) {
   info.term.options.fontSize = PREVIEW_FONT_SIZE;
   info.term.options.scrollback = 0;
   info.term.reset();
-  // Next screen_batch will repopulate
+  // Immediately restore preview from last screen data
+  if (info.lastScreenLines) {
+    info.term.resize(info.sourceCols, info.lastScreenLines.length);
+    info.term.write(info.lastScreenLines.join('\r\n'));
+  }
 }
 
 function expandSession(id) {
@@ -397,22 +401,27 @@ function connect() {
 
     } else if (msg.event === 'screen_batch') {
       for (const scr of msg.screens) {
-        if (scr.session === expandedSession) continue; // live PTY handles this
         const info = sessions.get(scr.session);
-        if (info) {
-          // Strip trailing empty lines so content anchors to bottom of tile
-          const lines = scr.lines.slice();
-          while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
-            lines.pop();
-          }
-          if (lines.length === 0) lines.push('');
+        if (!info) continue;
 
-          info.sourceCols = scr.cols;
-          info.sourceRows = scr.rows;
-          info.term.resize(scr.cols, lines.length);
-          info.term.reset();
-          info.term.write(lines.join('\r\n'));
+        // Strip trailing empty lines so content anchors to bottom of tile
+        const lines = scr.lines.slice();
+        while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+          lines.pop();
         }
+        if (lines.length === 0) lines.push('');
+
+        // Always store latest screen data (needed for collapse restore)
+        info.sourceCols = scr.cols;
+        info.sourceRows = scr.rows;
+        info.lastScreenLines = lines;
+
+        // Skip rendering for expanded session — live PTY handles it
+        if (scr.session === expandedSession) continue;
+
+        info.term.resize(scr.cols, lines.length);
+        info.term.reset();
+        info.term.write(lines.join('\r\n'));
       }
     }
   };
