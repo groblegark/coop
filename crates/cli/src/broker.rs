@@ -7,6 +7,7 @@
 //! to them after each successful OAuth refresh via coop's existing
 //! profile API (`POST /api/v1/session/profiles`, `POST /api/v1/session/switch`).
 
+pub mod client;
 pub mod distributor;
 pub mod mux;
 pub mod registry;

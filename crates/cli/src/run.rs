@@ -621,6 +621,14 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         });
     }
 
+    // Spawn broker registration client (registers this pod with a central broker).
+    if let Some(broker_config) = crate::broker::client::BrokerClientConfig::from_config(&config) {
+        let sd = shutdown.clone();
+        tokio::spawn(async move {
+            crate::broker::client::run(broker_config, sd).await;
+        });
+    }
+
     // Spawn Unix socket server
     if let Some(ref socket_path) = config.socket {
         let router = build_router(Arc::clone(&store));

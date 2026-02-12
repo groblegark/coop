@@ -144,6 +144,19 @@ pub struct Config {
     #[arg(long, env = "COOP_NATS_PUBLISH_DISABLE")]
     pub nats_publish_disable: bool,
 
+    /// Broker URL to register with on startup (e.g. "http://coop-broker:8080").
+    /// When set, this coop instance registers as a managed pod with the broker.
+    #[arg(long, env = "COOP_BROKER_URL")]
+    pub broker_url: Option<String>,
+
+    /// Auth token for the broker API.
+    #[arg(long, env = "COOP_BROKER_TOKEN")]
+    pub broker_token: Option<String>,
+
+    /// Pod name to register with the broker (defaults to HOSTNAME).
+    #[arg(long, env = "COOP_BROKER_POD_NAME")]
+    pub broker_pod_name: Option<String>,
+
     // -- Duration overrides (skip from CLI; set in Config::test()) --------
     /// Drain timeout in ms (0 = disabled, immediate kill on shutdown).
     #[clap(skip)]
@@ -300,6 +313,9 @@ impl Config {
             nats_token: None,
             nats_prefix: "coop.events".into(),
             nats_publish_disable: false,
+            broker_url: None,
+            broker_token: None,
+            broker_pod_name: None,
             command: vec!["echo".into()],
             drain_timeout_ms: Some(100),
             shutdown_timeout_ms: Some(100),
