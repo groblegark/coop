@@ -4,7 +4,7 @@
 use crate::driver::AgentState;
 use bytes::Bytes;
 use nix::sys::signal::Signal;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Raw or rendered output from the terminal backend.
 #[derive(Debug, Clone)]
@@ -64,6 +64,21 @@ pub struct RawMessageEvent {
     pub json: serde_json::Value,
     /// Origin of the message: `"stdout"` (Tier 3) or `"log"` (Tier 2).
     pub source: String,
+}
+
+/// Profile lifecycle event emitted by the profile rotation system.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum ProfileEvent {
+    /// Active profile changed after a successful switch.
+    #[serde(rename = "profile:switched")]
+    ProfileSwitched { from: Option<String>, to: String },
+    /// A single profile became rate-limited.
+    #[serde(rename = "profile:exhausted")]
+    ProfileExhausted { profile: String },
+    /// All profiles are on cooldown — agent is parked.
+    #[serde(rename = "profile:rotation:exhausted")]
+    ProfileRotationExhausted { retry_after_secs: u64 },
 }
 
 /// Named signals that can be delivered to the child process.

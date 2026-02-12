@@ -36,6 +36,16 @@ enum MuxClientMessage {
     Subscribe { sessions: Vec<String> },
     /// Unsubscribe from sessions.
     Unsubscribe { sessions: Vec<String> },
+    /// Forward keyboard input to a session.
+    #[serde(rename = "input:send")]
+    InputSend {
+        session: String,
+        text: String,
+        #[serde(default)]
+        enter: bool,
+    },
+    /// Resize a session's terminal.
+    Resize { session: String, cols: u16, rows: u16 },
 }
 
 /// Server → client messages on `/ws/mux`.
@@ -91,6 +101,7 @@ struct SessionSnapshot {
     id: String,
     url: String,
     state: Option<String>,
+    metadata: serde_json::Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -148,6 +159,7 @@ async fn handle_mux_ws(state: Arc<MuxState>, socket: WebSocket) {
                 id: entry.id.clone(),
                 url: entry.url.clone(),
                 state: cached_state,
+                metadata: entry.metadata.clone(),
             });
         }
         let msg = MuxServerMessage::Sessions { sessions: snapshots };
@@ -169,13 +181,16 @@ async fn handle_mux_ws(state: Arc<MuxState>, socket: WebSocket) {
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(_) => break,
                 };
-                // Only forward events for watched sessions.
-                let session_id = match &event {
-                    MuxEvent::State { session, .. } => session,
-                    MuxEvent::SessionOnline { session, .. } => session,
-                    MuxEvent::SessionOffline { session } => session,
+                // Forward credential events to all clients; other events only for watched sessions.
+                let should_forward = match &event {
+                    MuxEvent::CredentialRefreshed { .. }
+                    | MuxEvent::CredentialRefreshFailed { .. }
+                    | MuxEvent::CredentialReauthRequired { .. } => true,
+                    MuxEvent::State { session, .. }
+                    | MuxEvent::SessionOnline { session, .. }
+                    | MuxEvent::SessionOffline { session } => watched.contains(session),
                 };
-                if watched.contains(session_id) {
+                if should_forward {
                     let msg = MuxServerMessage::Event(event);
                     if send_json(&mut ws_tx, &msg).await.is_err() {
                         break;
@@ -240,6 +255,12 @@ async fn handle_mux_ws(state: Arc<MuxState>, socket: WebSocket) {
                                         }
                                     }
                                 }
+                                MuxClientMessage::InputSend { session, text, enter } => {
+                                    proxy_input(&state, &session, &text, enter).await;
+                                }
+                                MuxClientMessage::Resize { session, cols, rows } => {
+                                    proxy_resize(&state, &session, cols, rows).await;
+                                }
                             }
                         } else {
                             let err = MuxServerMessage::Error { message: "invalid message".to_owned() };
@@ -297,6 +318,36 @@ async fn stop_watching(state: &MuxState, session_id: &str) {
             watchers.remove(session_id);
         }
     }
+}
+
+/// Proxy keyboard input to an upstream session.
+async fn proxy_input(state: &MuxState, session_id: &str, text: &str, enter: bool) {
+    let sessions = state.sessions.read().await;
+    let entry = match sessions.get(session_id) {
+        Some(e) => Arc::clone(e),
+        None => return,
+    };
+    drop(sessions);
+
+    let client =
+        crate::upstream::client::UpstreamClient::new(entry.url.clone(), entry.auth_token.clone());
+    let body = serde_json::json!({ "text": text, "enter": enter });
+    let _ = client.post_json("/api/v1/input", &body).await;
+}
+
+/// Proxy terminal resize to an upstream session.
+async fn proxy_resize(state: &MuxState, session_id: &str, cols: u16, rows: u16) {
+    let sessions = state.sessions.read().await;
+    let entry = match sessions.get(session_id) {
+        Some(e) => Arc::clone(e),
+        None => return,
+    };
+    drop(sessions);
+
+    let client =
+        crate::upstream::client::UpstreamClient::new(entry.url.clone(), entry.auth_token.clone());
+    let body = serde_json::json!({ "cols": cols, "rows": rows });
+    let _ = client.post_json("/api/v1/resize", &body).await;
 }
 
 /// Send a JSON message over the WebSocket.

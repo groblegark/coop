@@ -98,6 +98,7 @@ async fn handle_connection(
     let mut transcript_rx = state.transcript.transcript_tx.subscribe();
     let mut usage_rx = state.usage.usage_tx.subscribe();
     let mut record_rx = state.record.record_tx.subscribe();
+    let mut profile_rx = state.profile.profile_tx.subscribe();
     let mut authed = !needs_auth;
 
     // Send initial state: either replay from event log or current-state snapshot.
@@ -276,6 +277,18 @@ async fn handle_connection(
                         detail: event.detail,
                         screen: event.screen,
                     };
+                    if send_json(&mut ws_tx, &msg).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            event = profile_rx.recv() => {
+                let event = match event {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                if flags.profiles {
+                    let msg = ServerMessage::ProfileUpdate { profile: event };
                     if send_json(&mut ws_tx, &msg).await.is_err() {
                         break;
                     }

@@ -13,10 +13,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
 use tracing::debug;
 
 use crate::driver::AgentState;
+use crate::event::ProfileEvent;
 use crate::switch::SwitchRequest;
 
 /// A registered credential profile.
@@ -107,6 +108,8 @@ pub struct ProfileState {
     switch_history: RwLock<VecDeque<Instant>>,
     /// Dedup flag: ensures only one retry timer is pending at a time.
     retry_pending: AtomicBool,
+    /// Broadcast channel for profile lifecycle events.
+    pub profile_tx: broadcast::Sender<ProfileEvent>,
 }
 
 /// Entry in a registration request.
@@ -146,11 +149,13 @@ impl Default for ProfileState {
 impl ProfileState {
     /// Create an empty profile state with default config.
     pub fn new() -> Self {
+        let (profile_tx, _) = broadcast::channel(64);
         Self {
             profiles: RwLock::new(Vec::new()),
             mode: AtomicU8::new(ProfileMode::Auto.as_u8()),
             switch_history: RwLock::new(VecDeque::new()),
             retry_pending: AtomicBool::new(false),
+            profile_tx,
         }
     }
 
@@ -215,6 +220,10 @@ impl ProfileState {
         let mut profiles = self.profiles.write().await;
         let found = profiles.iter().any(|p| p.name == name);
         if found {
+            let prev_active = profiles
+                .iter()
+                .find(|p| matches!(p.status, ProfileStatus::Active))
+                .map(|p| p.name.clone());
             for p in profiles.iter_mut() {
                 if p.name == name {
                     p.status = ProfileStatus::Active;
@@ -222,6 +231,10 @@ impl ProfileState {
                     p.status = ProfileStatus::Available;
                 }
             }
+            drop(profiles);
+            let _ = self
+                .profile_tx
+                .send(ProfileEvent::ProfileSwitched { from: prev_active, to: name.to_owned() });
         }
         found
     }
@@ -261,7 +274,10 @@ impl ProfileState {
         // Mark current active profile as rate-limited.
         let active_idx = profiles.iter().position(|p| matches!(p.status, ProfileStatus::Active));
         if let Some(idx) = active_idx {
+            let exhausted_name = profiles[idx].name.clone();
             profiles[idx].status = ProfileStatus::RateLimited { cooldown_until: now + cooldown };
+            let _ =
+                self.profile_tx.send(ProfileEvent::ProfileExhausted { profile: exhausted_name });
         }
 
         // Promote expired cooldowns to Available.
@@ -310,6 +326,9 @@ impl ProfileState {
                     })
                     .min()
                     .unwrap_or(cooldown);
+                let _ = self.profile_tx.send(ProfileEvent::ProfileRotationExhausted {
+                    retry_after_secs: retry_after.as_secs(),
+                });
                 RotateOutcome::Exhausted { retry_after }
             }
         }

@@ -11,7 +11,8 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use super::convert::{
-    prompt_to_proto, screen_snapshot_to_proto, screen_snapshot_to_response, transition_to_proto,
+    profile_event_to_proto, prompt_to_proto, screen_snapshot_to_proto, screen_snapshot_to_response,
+    transition_to_proto,
 };
 use super::{proto, spawn_broadcast_stream, CoopGrpc, GrpcStream};
 use crate::error::ErrorCode;
@@ -692,6 +693,18 @@ impl proto::coop_server::Coop for CoopGrpc {
             .map_err(|_| Status::invalid_argument("invalid mode: expected auto or manual"))?;
         self.state.profile.set_mode(mode);
         Ok(Response::new(proto::ProfileModeResponse { mode: mode.as_str().to_owned() }))
+    }
+
+    type StreamProfileEventsStream = GrpcStream<proto::ProfileEvent>;
+
+    async fn stream_profile_events(
+        &self,
+        _request: Request<proto::StreamProfileEventsRequest>,
+    ) -> Result<Response<Self::StreamProfileEventsStream>, Status> {
+        let profile_rx = self.state.profile.profile_tx.subscribe();
+        let stream =
+            spawn_broadcast_stream(profile_rx, |event| Some(profile_event_to_proto(&event)));
+        Ok(Response::new(stream))
     }
 
     // -- Session management ---------------------------------------------------

@@ -47,6 +47,7 @@ Set via the `subscribe` query parameter on the upgrade URL (comma-separated flag
 | `hooks` | `hook:raw` messages with raw hook FIFO JSON |
 | `messages` | `message:raw` messages with raw agent JSONL |
 | `transcripts` | `transcript:saved` messages with transcript save events |
+| `profiles` | `profile:update` messages with profile lifecycle events |
 
 Default (no `subscribe` param) = no push events (request-reply only).
 
@@ -293,6 +294,35 @@ Transcript save event. Sent when `transcripts` is subscribed.
 | `timestamp` | string | Timestamp when the snapshot was taken |
 | `line_count` | int | Number of lines in the transcript |
 | `seq` | int | Monotonic sequence number |
+
+
+### `profile:update`
+
+Profile lifecycle event. Sent when `profiles` is subscribed, whenever a
+profile switch, exhaustion, or rotation exhaustion occurs.
+
+```json
+{
+  "event": "profile:update",
+  "profile": {
+    "event": "profile:switched",
+    "from": "profile-a",
+    "to": "profile-b"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `profile` | ProfileEvent | The profile lifecycle event |
+
+**ProfileEvent variants:**
+
+| Event | Fields | Description |
+|-------|--------|-------------|
+| `profile:switched` | `from` (string or null), `to` (string) | Active profile changed |
+| `profile:exhausted` | `profile` (string) | A single profile became rate-limited |
+| `profile:rotation:exhausted` | `retry_after_secs` (int) | All profiles on cooldown |
 
 
 ### `health`

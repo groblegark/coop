@@ -13,8 +13,8 @@ use serde::Deserialize;
 
 use crate::state::{MuxState, SessionEntry};
 use crate::transport::auth;
-use crate::upstream::client::UpstreamClient;
 use crate::upstream::bridge::WsBridge;
+use crate::upstream::client::UpstreamClient;
 
 /// Query parameters for downstream WS upgrade.
 #[derive(Debug, Clone, Deserialize)]

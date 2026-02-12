@@ -110,6 +110,8 @@ service Coop {
   rpc GetProfileMode(GetProfileModeRequest) returns (ProfileModeResponse);
   // Set the profile rotation mode.
   rpc SetProfileMode(SetProfileModeRequest) returns (ProfileModeResponse);
+  // Stream profile lifecycle events in real time.
+  rpc StreamProfileEvents(StreamProfileEventsRequest) returns (stream ProfileEvent);
 
   // Session management
 
@@ -682,6 +684,21 @@ message SetProfileModeRequest {
 message ProfileModeResponse {
   // Current mode: "auto" or "manual".
   string mode = 1;
+}
+
+message StreamProfileEventsRequest {}
+// Profile lifecycle event (switch, exhaustion, rotation exhaustion).
+message ProfileEvent {
+  // Event type: "profile:switched", "profile:exhausted", "profile:rotation:exhausted".
+  string event_type = 1;
+  // Previous active profile (profile:switched).
+  optional string from = 2;
+  // New active profile (profile:switched).
+  optional string to = 3;
+  // Profile name (profile:exhausted).
+  optional string profile = 4;
+  // Seconds until retry (profile:rotation:exhausted).
+  optional uint64 retry_after_secs = 5;
 }
 
 

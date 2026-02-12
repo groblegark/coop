@@ -43,6 +43,7 @@ pub fn spawn_event_feed(
                     let _ = event_tx.send(MuxEvent::SessionOnline {
                         session: session_id.clone(),
                         url: entry.url.clone(),
+                        metadata: entry.metadata.clone(),
                     });
 
                     let (_, mut read) = ws_stream.split();

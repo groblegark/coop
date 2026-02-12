@@ -69,13 +69,16 @@ pub fn state_dir() -> PathBuf {
 }
 
 /// Events emitted by the credential broker.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
 pub enum CredentialEvent {
     /// Fresh credentials are available for distribution.
     Refreshed { account: String, credentials: HashMap<String, String> },
     /// A refresh attempt failed.
+    #[serde(rename = "refresh:failed")]
     RefreshFailed { account: String, error: String },
     /// User interaction required (device code flow).
+    #[serde(rename = "reauth:required")]
     ReauthRequired { account: String, auth_url: String, user_code: String },
 }
 

@@ -41,6 +41,7 @@ impl NatsPublisher {
         let mut stop_rx = store.stop.stop_tx.subscribe();
         let mut start_rx = store.start.start_tx.subscribe();
         let mut usage_rx = store.usage.usage_tx.subscribe();
+        let mut profile_rx = store.profile.profile_tx.subscribe();
 
         loop {
             tokio::select! {
@@ -62,6 +63,9 @@ impl NatsPublisher {
                 }
                 event = usage_rx.recv() => {
                     self.handle(event, &format!("{}.usage", self.prefix)).await;
+                }
+                event = profile_rx.recv() => {
+                    self.handle(event, &format!("{}.profile", self.prefix)).await;
                 }
             }
         }

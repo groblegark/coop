@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use clap::Parser;
-
 /// Configuration for the coopmux proxy.
-#[derive(Debug, Clone, Parser)]
-#[command(name = "coopmux", version, about = "PTY multiplexing proxy for coop instances.")]
+#[derive(Debug, Clone, clap::Args)]
 pub struct MuxConfig {
     /// Host to bind on.
     #[arg(long, default_value = "127.0.0.1", env = "COOP_MUX_HOST")]

@@ -20,7 +20,7 @@ use tower_http::cors::CorsLayer;
 use crate::state::MuxState;
 
 /// Embedded mux dashboard HTML.
-const MUX_HTML: &str = include_str!("mux.html");
+const MUX_HTML: &str = include_str!("../web/mux.html");
 
 /// Build the axum `Router` with all mux routes.
 pub fn build_router(state: Arc<MuxState>) -> Router {

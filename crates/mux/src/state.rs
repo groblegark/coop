@@ -11,18 +11,52 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::MuxConfig;
 use crate::credential::broker::CredentialBroker;
+use crate::credential::CredentialEvent;
 use crate::upstream::bridge::WsBridge;
 
 /// Events emitted by the mux for aggregation consumers.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "event", rename_all = "snake_case")]
 pub enum MuxEvent {
     /// An agent state transition from an upstream session.
     State { session: String, prev: String, next: String, seq: u64 },
     /// An upstream session came online (feed connected).
-    SessionOnline { session: String, url: String },
+    #[serde(rename = "session:online")]
+    SessionOnline { session: String, url: String, metadata: serde_json::Value },
     /// An upstream session went offline (deregistered or feed disconnected).
+    #[serde(rename = "session:offline")]
     SessionOffline { session: String },
+    /// Credentials refreshed successfully for an account.
+    #[serde(rename = "credential:refreshed")]
+    CredentialRefreshed { account: String },
+    /// A credential refresh attempt failed.
+    #[serde(rename = "credential:refresh:failed")]
+    CredentialRefreshFailed { account: String, error: String },
+    /// User interaction required for credential reauthorization.
+    #[serde(rename = "credential:reauth:required")]
+    CredentialReauthRequired { account: String, auth_url: String, user_code: String },
+}
+
+impl MuxEvent {
+    /// Convert a [`CredentialEvent`] into a `MuxEvent`, stripping secrets
+    /// (access tokens from `Refreshed` are not included).
+    pub fn from_credential(event: &CredentialEvent) -> Self {
+        match event {
+            CredentialEvent::Refreshed { account, .. } => {
+                Self::CredentialRefreshed { account: account.clone() }
+            }
+            CredentialEvent::RefreshFailed { account, error } => {
+                Self::CredentialRefreshFailed { account: account.clone(), error: error.clone() }
+            }
+            CredentialEvent::ReauthRequired { account, auth_url, user_code } => {
+                Self::CredentialReauthRequired {
+                    account: account.clone(),
+                    auth_url: auth_url.clone(),
+                    user_code: user_code.clone(),
+                }
+            }
+        }
+    }
 }
 
 /// Per-session event feed and watcher tracking.

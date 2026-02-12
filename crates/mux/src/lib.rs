@@ -34,6 +34,7 @@ pub async fn run(config: MuxConfig) -> anyhow::Result<()> {
         let contents = std::fs::read_to_string(cred_path)?;
         let cred_config: crate::credential::CredentialConfig = serde_json::from_str(&contents)?;
         let (event_tx, event_rx) = broadcast::channel(64);
+        let cred_bridge_rx = event_tx.subscribe();
         let broker = CredentialBroker::new(cred_config, event_tx);
 
         // Load persisted credentials if available.
@@ -51,6 +52,23 @@ pub async fn run(config: MuxConfig) -> anyhow::Result<()> {
         let state = Arc::new(state);
         broker.spawn_refresh_loops();
         crate::credential::distributor::spawn_distributor(Arc::clone(&state), event_rx);
+
+        // Bridge credential events into the MuxEvent broadcast channel.
+        {
+            let mux_event_tx = state.feed.event_tx.clone();
+            tokio::spawn(async move {
+                let mut rx = cred_bridge_rx;
+                loop {
+                    match rx.recv().await {
+                        Ok(e) => {
+                            let _ = mux_event_tx.send(crate::state::MuxEvent::from_credential(&e));
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
 
         tracing::info!("coopmux listening on {addr} (credentials enabled)");
         spawn_health_checker(Arc::clone(&state));

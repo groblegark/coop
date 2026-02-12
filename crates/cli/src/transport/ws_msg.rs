@@ -428,6 +428,12 @@ pub enum ServerMessage {
         mode: String,
     },
 
+    // Profile lifecycle
+    #[serde(rename = "profile:update")]
+    ProfileUpdate {
+        profile: crate::event::ProfileEvent,
+    },
+
     // Session switch
     #[serde(rename = "session:switched")]
     SessionSwitched {
@@ -461,6 +467,7 @@ pub struct SubscriptionFlags {
     pub transcripts: bool,
     pub usage: bool,
     pub recording: bool,
+    pub profiles: bool,
 }
 
 impl SubscriptionFlags {
@@ -478,6 +485,7 @@ impl SubscriptionFlags {
                 "transcripts" => flags.transcripts = true,
                 "usage" => flags.usage = true,
                 "recording" => flags.recording = true,
+                "profiles" => flags.profiles = true,
                 _ => {}
             }
         }
@@ -626,6 +634,11 @@ pub fn transition_entry_to_msg(entry: &crate::event_log::TransitionEntry) -> Ser
 /// Convert a [`HookEntry`] (from event log catchup) to a `ServerMessage`.
 pub fn hook_entry_to_msg(entry: &crate::event_log::HookEntry) -> ServerMessage {
     ServerMessage::HookRaw { data: entry.json.clone() }
+}
+
+/// Convert a `ProfileEvent` to a `ServerMessage`.
+pub fn profile_event_to_msg(event: &crate::event::ProfileEvent) -> ServerMessage {
+    ServerMessage::ProfileUpdate { profile: event.clone() }
 }
 
 /// Convert a `StartEvent` to a `ServerMessage`.

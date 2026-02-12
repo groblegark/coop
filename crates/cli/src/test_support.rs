@@ -372,10 +372,7 @@ pub struct MockDetector {
 
 impl MockDetector {
     pub fn new(tier: u8, states: Vec<(Duration, AgentState)>) -> Self {
-        Self {
-            tier_val: tier,
-            states: states.into_iter().map(|(d, s)| (d, s, None)).collect(),
-        }
+        Self { tier_val: tier, states: states.into_iter().map(|(d, s)| (d, s, None)).collect() }
     }
 
     pub fn with_overrides(tier: u8, states: Vec<(Duration, AgentState, Option<u8>)>) -> Self {

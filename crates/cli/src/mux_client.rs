@@ -7,6 +7,7 @@
 //! mux server on startup, re-registers periodically as a heartbeat, and
 //! deregisters on shutdown.
 
+use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -119,6 +120,43 @@ pub async fn run(config: MuxRegistration, shutdown: CancellationToken) {
     }
 }
 
+/// Detect optional Kubernetes metadata from environment variables.
+///
+/// Returns `Value::Null` when not running in Kubernetes (i.e. `KUBERNETES_SERVICE_HOST`
+/// is not set). When running in K8s, returns a JSON object with available pod metadata.
+pub fn detect_metadata() -> Value {
+    detect_metadata_with(|name| std::env::var(name).ok())
+}
+
+/// Inner implementation that accepts a lookup function for testability.
+fn detect_metadata_with(get_env: impl Fn(&str) -> Option<String>) -> Value {
+    if get_env("KUBERNETES_SERVICE_HOST").is_none() {
+        return Value::Null;
+    }
+
+    let env_fields: &[(&str, &str)] = &[
+        ("pod", "POD_NAME"),
+        ("pod", "HOSTNAME"),
+        ("namespace", "POD_NAMESPACE"),
+        ("node", "NODE_NAME"),
+        ("ip", "POD_IP"),
+        ("service_account", "POD_SERVICE_ACCOUNT"),
+    ];
+
+    let mut k8s = serde_json::Map::new();
+    for &(field, var) in env_fields {
+        // Skip if we already have this field (POD_NAME takes priority over HOSTNAME for "pod").
+        if k8s.contains_key(field) {
+            continue;
+        }
+        if let Some(val) = get_env(var) {
+            k8s.insert(field.to_owned(), Value::String(val));
+        }
+    }
+
+    serde_json::json!({ "k8s": k8s })
+}
+
 /// POST /api/v1/sessions to register this coop instance.
 async fn register(
     client: &reqwest::Client,
@@ -126,10 +164,12 @@ async fn register(
     config: &MuxRegistration,
 ) -> anyhow::Result<()> {
     let url = format!("{base}/api/v1/sessions");
+    let metadata = detect_metadata();
     let body = serde_json::json!({
         "url": config.coop_url,
         "auth_token": config.coop_token,
         "id": config.session_id,
+        "metadata": metadata,
     });
     let mut req = client.post(&url).json(&body);
     if let Some(ref token) = config.mux_token {
@@ -155,3 +195,7 @@ async fn deregister(
     resp.error_for_status()?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "mux_client_tests.rs"]
+mod tests;

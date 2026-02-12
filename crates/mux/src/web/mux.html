@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>coopmux dashboard</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; }
+  header { padding: 10px 20px; border-bottom: 1px solid #21262d; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+  header h1 { font-size: 16px; font-weight: 600; }
+  .stats { display: flex; gap: 16px; font-size: 13px; color: #8b949e; }
+  .stats .alert { color: #f85149; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(480px, 1fr)); gap: 12px; padding: 16px; flex: 1; overflow: auto; align-content: start; }
+  .tile { background: #161b22; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; height: 280px; transition: border-color 0.15s; }
+  .tile.focused { border-color: #388bfd; }
+  .tile.expanded { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 100; border-radius: 0; height: auto; border: none; }
+  .tile-header { padding: 6px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #21262d; flex-shrink: 0; gap: 8px; }
+  .tile-header .left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .tile-header .session-id { font-size: 13px; font-weight: 600; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile-header .subtitle { font-size: 11px; color: #8b949e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile-header .right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .tile-header .cred-alert { font-size: 12px; color: #f85149; display: none; }
+  .tile-header .cred-alert.visible { display: inline; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500; text-transform: uppercase; white-space: nowrap; }
+  .badge-idle { background: #1f6feb33; color: #58a6ff; }
+  .badge-working { background: #23863633; color: #3fb950; }
+  .badge-prompt { background: #9e6a0333; color: #d29922; }
+  .badge-error { background: #da363333; color: #f85149; }
+  .badge-exited { background: #21262d; color: #8b949e; }
+  .badge-unknown { background: #21262d; color: #8b949e; }
+  .badge-starting { background: #1f6feb33; color: #58a6ff; }
+  .btn-expand { background: none; border: none; color: #8b949e; cursor: pointer; font-size: 14px; padding: 2px 4px; }
+  .btn-expand:hover { color: #c9d1d9; }
+  .term-wrap { flex: 1; overflow: hidden; position: relative; }
+  .no-sessions { text-align: center; padding: 80px 20px; color: #8b949e; flex: 1; display: flex; align-items: center; justify-content: center; }
+  .no-sessions p { font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>coopmux</h1>
+  <div class="stats">
+    <span id="stat-total">0 sessions</span>
+    <span id="stat-healthy">0 healthy</span>
+    <span id="stat-cred-alerts" class="alert" style="display:none">0 credential alerts</span>
+  </div>
+</header>
+<div class="grid" id="grid"></div>
+<div class="no-sessions" id="empty-state">
+  <p>No sessions registered</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/lib/addon-webgl.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+<script>
+const grid = document.getElementById('grid');
+const emptyState = document.getElementById('empty-state');
+const statTotal = document.getElementById('stat-total');
+const statHealthy = document.getElementById('stat-healthy');
+const statCredAlerts = document.getElementById('stat-cred-alerts');
+
+// session id -> { el, state, term, fitAddon, metadata, credAlert }
+const sessions = new Map();
+let focusedSession = null;
+let expandedSession = null;
+let ws = null;
+
+// Credential alerts (account -> status)
+const credentialAlerts = new Map();
+
+function badgeClass(state) {
+  if (!state) return 'badge-unknown';
+  const s = state.toLowerCase();
+  if (s === 'idle' || s === 'waiting_for_input') return 'badge-idle';
+  if (s === 'working') return 'badge-working';
+  if (s.includes('prompt')) return 'badge-prompt';
+  if (s.includes('error') || s === 'parked') return 'badge-error';
+  if (s === 'exited') return 'badge-exited';
+  if (s === 'starting') return 'badge-starting';
+  return 'badge-unknown';
+}
+
+function subtitleFromMetadata(metadata) {
+  if (!metadata || !metadata.k8s) return '';
+  const k = metadata.k8s;
+  let text = '';
+  if (k.pod) text += `pod/${k.pod}`;
+  if (k.namespace) text += ` (${k.namespace})`;
+  return text;
+}
+
+function createTile(id, url, state, metadata) {
+  const tile = document.createElement('div');
+  tile.className = 'tile';
+  tile.dataset.sessionId = id;
+
+  const subtitle = subtitleFromMetadata(metadata);
+  tile.innerHTML = `
+    <div class="tile-header">
+      <div class="left">
+        <span class="session-id">${id.substring(0, 12)}</span>
+        ${subtitle ? `<span class="subtitle">${subtitle}</span>` : ''}
+      </div>
+      <div class="right">
+        <span class="cred-alert" data-cred-alert title="Credential issue">&#9888; auth</span>
+        <span class="badge ${badgeClass(state)}" data-badge>${state || 'unknown'}</span>
+        <button class="btn-expand" data-expand title="Expand">&#10530;</button>
+      </div>
+    </div>
+    <div class="term-wrap" data-term></div>
+  `;
+
+  const termEl = tile.querySelector('[data-term]');
+  const term = new Terminal({
+    scrollback: 500,
+    fontSize: 11,
+    fontFamily: "'SF Mono', 'Cascadia Code', 'Fira Code', Menlo, Monaco, monospace",
+    theme: {
+      background: '#0d1117',
+      foreground: '#c9d1d9',
+      cursor: '#58a6ff',
+      selectionBackground: '#388bfd44',
+    },
+    cursorBlink: false,
+    disableStdin: true,
+    convertEol: true,
+  });
+
+  const fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(termEl);
+
+  // Try WebGL renderer with fallback
+  try {
+    const webglAddon = new WebglAddon.WebglAddon();
+    webglAddon.onContextLoss(() => { webglAddon.dispose(); });
+    term.loadAddon(webglAddon);
+  } catch (_) { /* canvas fallback */ }
+
+  requestAnimationFrame(() => fitAddon.fit());
+
+  // Click to focus
+  tile.addEventListener('click', (e) => {
+    if (e.target.closest('[data-expand]')) return;
+    setFocus(id);
+  });
+
+  // Expand button
+  tile.querySelector('[data-expand]').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleExpand(id);
+  });
+
+  // Forward keyboard input when focused
+  term.onData((data) => {
+    if (focusedSession === id && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ event: 'input:send', session: id, text: data }));
+    }
+  });
+
+  return { el: tile, term, fitAddon, state, metadata: metadata || null, credAlert: false };
+}
+
+function setFocus(id) {
+  if (focusedSession === id) return;
+  // Unfocus previous
+  if (focusedSession) {
+    const prev = sessions.get(focusedSession);
+    if (prev) {
+      prev.el.classList.remove('focused');
+      prev.term.options.disableStdin = true;
+    }
+  }
+  focusedSession = id;
+  const info = sessions.get(id);
+  if (info) {
+    info.el.classList.add('focused');
+    info.term.options.disableStdin = false;
+    info.term.focus();
+  }
+}
+
+function toggleExpand(id) {
+  if (expandedSession === id) {
+    // Collapse
+    const info = sessions.get(id);
+    if (info) {
+      info.el.classList.remove('expanded');
+      requestAnimationFrame(() => info.fitAddon.fit());
+    }
+    expandedSession = null;
+  } else {
+    // Collapse previous if any
+    if (expandedSession) {
+      const prev = sessions.get(expandedSession);
+      if (prev) {
+        prev.el.classList.remove('expanded');
+        requestAnimationFrame(() => prev.fitAddon.fit());
+      }
+    }
+    expandedSession = id;
+    const info = sessions.get(id);
+    if (info) {
+      info.el.classList.add('expanded');
+      setFocus(id);
+      requestAnimationFrame(() => info.fitAddon.fit());
+    }
+  }
+}
+
+function updateStats() {
+  const n = sessions.size;
+  statTotal.textContent = `${n} session${n !== 1 ? 's' : ''}`;
+  emptyState.style.display = n === 0 ? 'flex' : 'none';
+  grid.style.display = n === 0 ? 'none' : 'grid';
+
+  let healthy = 0;
+  for (const [, info] of sessions) {
+    const s = (info.state || '').toLowerCase();
+    if (s && s !== 'exited' && !s.includes('error')) healthy++;
+  }
+  statHealthy.textContent = `${healthy} healthy`;
+
+  const alertCount = [...credentialAlerts.values()].filter(s => s !== 'refreshed').length;
+  if (alertCount > 0) {
+    statCredAlerts.textContent = `${alertCount} credential alert${alertCount !== 1 ? 's' : ''}`;
+    statCredAlerts.style.display = 'inline';
+  } else {
+    statCredAlerts.style.display = 'none';
+  }
+}
+
+function handleCredentialEvent(msg) {
+  const account = msg.account;
+  const event = msg.event;
+  if (event === 'credential:refreshed') {
+    credentialAlerts.delete(account);
+  } else {
+    credentialAlerts.set(account, event);
+  }
+  updateStats();
+}
+
+// Escape to collapse expanded tile
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && expandedSession) {
+    toggleExpand(expandedSession);
+  }
+});
+
+// Resize handler
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    for (const [, info] of sessions) {
+      info.fitAddon.fit();
+    }
+  }, 100);
+});
+
+function connect() {
+  const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const params = new URLSearchParams(location.search);
+  let url = `${wsProto}//${location.host}/ws/mux`;
+  const token = params.get('token');
+  if (token) url += `?token=${encodeURIComponent(token)}`;
+
+  ws = new WebSocket(url);
+
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+
+    if (msg.event === 'sessions') {
+      // Initial session list
+      const ids = [];
+      for (const s of msg.sessions) {
+        ids.push(s.id);
+        if (!sessions.has(s.id)) {
+          const info = createTile(s.id, s.url, s.state, s.metadata);
+          grid.appendChild(info.el);
+          sessions.set(s.id, info);
+        }
+      }
+      if (ids.length > 0) {
+        ws.send(JSON.stringify({ event: 'subscribe', sessions: ids }));
+      }
+      updateStats();
+
+    } else if (msg.event === 'state') {
+      const info = sessions.get(msg.session);
+      if (info) {
+        info.state = msg.next;
+        const badge = info.el.querySelector('[data-badge]');
+        badge.textContent = msg.next;
+        badge.className = `badge ${badgeClass(msg.next)}`;
+        updateStats();
+      }
+
+    } else if (msg.event === 'session:online') {
+      if (!sessions.has(msg.session)) {
+        const info = createTile(msg.session, msg.url, null, msg.metadata);
+        grid.appendChild(info.el);
+        sessions.set(msg.session, info);
+        ws.send(JSON.stringify({ event: 'subscribe', sessions: [msg.session] }));
+        updateStats();
+      }
+
+    } else if (msg.event === 'session:offline') {
+      const info = sessions.get(msg.session);
+      if (info) {
+        info.term.dispose();
+        info.el.remove();
+        sessions.delete(msg.session);
+        if (focusedSession === msg.session) focusedSession = null;
+        if (expandedSession === msg.session) expandedSession = null;
+        updateStats();
+      }
+
+    } else if (msg.event === 'credential:refreshed' || msg.event === 'credential:refresh:failed' || msg.event === 'credential:reauth:required') {
+      handleCredentialEvent(msg);
+
+    } else if (msg.event === 'screen_batch') {
+      for (const scr of msg.screens) {
+        const info = sessions.get(scr.session);
+        if (info) {
+          // Write screen content to xterm
+          info.term.reset();
+          info.term.write(scr.lines.join('\r\n'));
+        }
+      }
+    }
+  };
+
+  ws.onclose = () => {
+    ws = null;
+    setTimeout(connect, 2000);
+  };
+
+  ws.onerror = () => {
+    ws.close();
+  };
+}
+
+connect();
+</script>
+</body>
+</html>
