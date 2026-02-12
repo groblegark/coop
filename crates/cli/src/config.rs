@@ -135,6 +135,22 @@ pub struct Config {
     #[arg(long, env = "COOP_NATS_PREFIX", default_value = "coop.events")]
     pub nats_prefix: String,
 
+    /// NATS auth token.
+    #[arg(long, env = "COOP_NATS_TOKEN")]
+    pub nats_token: Option<String>,
+
+    /// NATS username (used with --nats-password).
+    #[arg(long, env = "COOP_NATS_USER")]
+    pub nats_user: Option<String>,
+
+    /// NATS password (used with --nats-user).
+    #[arg(long, env = "COOP_NATS_PASSWORD")]
+    pub nats_password: Option<String>,
+
+    /// Path to NATS credentials file (.creds) for JWT/NKey auth.
+    #[arg(long, env = "COOP_NATS_CREDS")]
+    pub nats_creds: Option<std::path::PathBuf>,
+
     /// Groom level: auto, manual, pristine.
     #[arg(long, env = "COOP_GROOM", default_value = "auto")]
     pub groom: String,
@@ -293,6 +309,10 @@ impl Config {
             record: false,
             nats_url: None,
             nats_prefix: "coop.events".into(),
+            nats_token: None,
+            nats_user: None,
+            nats_password: None,
+            nats_creds: None,
             groom: "manual".into(),
             command: vec!["echo".into()],
             drain_timeout_ms: Some(100),

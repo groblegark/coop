@@ -553,8 +553,18 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     // Spawn NATS publisher if configured.
     if let Some(ref nats_url) = config.nats_url {
-        let publisher =
-            crate::transport::nats::NatsPublisher::connect(nats_url, &config.nats_prefix).await?;
+        let nats_auth = crate::transport::nats::NatsAuth {
+            token: config.nats_token.clone(),
+            user: config.nats_user.clone(),
+            password: config.nats_password.clone(),
+            creds_path: config.nats_creds.as_deref().map(Into::into),
+        };
+        let publisher = crate::transport::nats::NatsPublisher::connect(
+            nats_url,
+            &config.nats_prefix,
+            nats_auth,
+        )
+        .await?;
         let store_ref = Arc::clone(&store);
         let sd = shutdown.clone();
         tokio::spawn(async move {

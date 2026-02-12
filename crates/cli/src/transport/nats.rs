@@ -3,10 +3,21 @@
 
 //! NATS event publisher — broadcasts coop events to NATS subjects.
 
+use std::path::Path;
+
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
 use crate::transport::Store;
+
+/// Authentication options for connecting to NATS.
+#[derive(Debug, Default)]
+pub struct NatsAuth {
+    pub token: Option<String>,
+    pub user: Option<String>,
+    pub password: Option<String>,
+    pub creds_path: Option<Box<Path>>,
+}
 
 /// Publishes coop events to NATS subjects as JSON.
 pub struct NatsPublisher {
@@ -15,9 +26,10 @@ pub struct NatsPublisher {
 }
 
 impl NatsPublisher {
-    /// Connect to the NATS server at `url` and configure the subject prefix.
-    pub async fn connect(url: &str, prefix: &str) -> anyhow::Result<Self> {
-        let client = async_nats::connect(url).await?;
+    /// Connect to the NATS server at `url` with optional authentication.
+    pub async fn connect(url: &str, prefix: &str, auth: NatsAuth) -> anyhow::Result<Self> {
+        let opts = build_connect_options(auth).await?;
+        let client = opts.connect(url).await?;
         Ok(Self { client, prefix: prefix.to_owned() })
     }
 
@@ -82,4 +94,25 @@ impl NatsPublisher {
             }
         }
     }
+}
+
+/// Build `ConnectOptions` from the auth configuration.
+///
+/// Priority (first match wins):
+/// 1. Credentials file (JWT/NKey — standard NATS 2.0 auth)
+/// 2. Token
+/// 3. Username/password
+/// 4. No auth
+async fn build_connect_options(auth: NatsAuth) -> anyhow::Result<async_nats::ConnectOptions> {
+    if let Some(ref path) = auth.creds_path {
+        return Ok(async_nats::ConnectOptions::with_credentials_file(path).await?);
+    }
+    if let Some(token) = auth.token {
+        return Ok(async_nats::ConnectOptions::with_token(token));
+    }
+    if let Some(user) = auth.user {
+        let pass = auth.password.unwrap_or_default();
+        return Ok(async_nats::ConnectOptions::with_user_and_password(user, pass));
+    }
+    Ok(async_nats::ConnectOptions::new())
 }
