@@ -99,6 +99,8 @@ struct Cli {
 enum Commands {
     /// Attach an interactive terminal to a running coop server.
     Attach(coop::attach::AttachArgs),
+    /// Open the web terminal UI in a browser.
+    Open(coop::open::OpenArgs),
     /// Resolve a stop hook from inside the PTY.
     Send(coop::send::SendArgs),
 }
@@ -110,6 +112,9 @@ async fn main() {
     match cli.subcommand {
         Some(Commands::Attach(args)) => {
             std::process::exit(coop::attach::run(args).await);
+        }
+        Some(Commands::Open(args)) => {
+            std::process::exit(coop::open::run(&args));
         }
         Some(Commands::Send(args)) => {
             std::process::exit(coop::send::run(&args));

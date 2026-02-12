@@ -7,6 +7,7 @@ pub mod driver;
 pub mod error;
 pub mod event;
 pub mod event_log;
+pub mod open;
 pub mod profile;
 pub mod pty;
 pub mod record;
