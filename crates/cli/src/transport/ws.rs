@@ -97,6 +97,7 @@ async fn handle_connection(
     let mut message_rx = state.channels.message_tx.subscribe();
     let mut transcript_rx = state.transcript.transcript_tx.subscribe();
     let mut usage_rx = state.usage.usage_tx.subscribe();
+    let mut cred_rx = state.credentials.as_ref().map(|b| b.subscribe());
     let mut authed = !needs_auth;
 
     // Send initial state: either replay from event log or current-state snapshot.
@@ -257,6 +258,23 @@ async fn handle_connection(
                 };
                 if flags.messages {
                     let msg = ServerMessage::MessageRaw { data: event.json, source: event.source };
+                    if send_json(&mut ws_tx, &msg).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            event = async {
+                match cred_rx.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                let event = match event {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                if flags.credentials {
+                    let msg = credential_event_to_msg(&event);
                     if send_json(&mut ws_tx, &msg).await.is_err() {
                         break;
                     }

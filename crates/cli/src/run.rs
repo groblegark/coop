@@ -661,6 +661,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     {
         use crate::driver::nats_recv::NatsConfig;
         use crate::transport::nats_pub::{NatsPubConfig, NatsPublisher};
+        use tokio::sync::broadcast;
 
         // Use explicit config or auto-discover from env.
         let nats_config = if let Some(ref url) = config.nats_url {
@@ -681,10 +682,17 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             if !config.nats_publish_disable {
                 let state_rx = store.channels.state_tx.subscribe();
                 let stop_rx = store.stop.stop_tx.subscribe();
+                let cred_rx = match store.credentials.as_ref() {
+                    Some(broker) => broker.subscribe(),
+                    None => {
+                        let (_, rx) = broadcast::channel::<crate::credential::CredentialEvent>(1);
+                        rx
+                    }
+                };
                 let sd = shutdown.clone();
                 tokio::spawn(async move {
                     match NatsPublisher::connect(&pub_config).await {
-                        Ok(publisher) => publisher.run(state_rx, stop_rx, sd).await,
+                        Ok(publisher) => publisher.run(state_rx, stop_rx, cred_rx, sd).await,
                         Err(e) => {
                             tracing::warn!("NATS publisher failed to connect: {e}");
                         }

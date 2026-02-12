@@ -393,6 +393,21 @@ pub enum ServerMessage {
         accepted: bool,
     },
 
+    // Credentials
+    #[serde(rename = "credential:status")]
+    CredentialStatus {
+        account: String,
+        status: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+    #[serde(rename = "credential:reauth_required")]
+    CredentialReauthRequired {
+        account: String,
+        auth_url: String,
+        user_code: String,
+    },
+
     // Connection
     Pong {},
     Error {
@@ -414,6 +429,7 @@ pub struct SubscriptionFlags {
     pub messages: bool,
     pub transcripts: bool,
     pub usage: bool,
+    pub credentials: bool,
 }
 
 impl SubscriptionFlags {
@@ -430,6 +446,7 @@ impl SubscriptionFlags {
                 "messages" => flags.messages = true,
                 "transcripts" => flags.transcripts = true,
                 "usage" => flags.usage = true,
+                "credentials" => flags.credentials = true,
                 _ => {}
             }
         }
@@ -587,5 +604,25 @@ pub fn start_event_to_msg(event: &StartEvent) -> ServerMessage {
         session_id: event.session_id.clone(),
         injected: event.injected,
         seq: event.seq,
+    }
+}
+
+/// Convert a `CredentialEvent` to a `ServerMessage`.
+pub fn credential_event_to_msg(event: &crate::credential::CredentialEvent) -> ServerMessage {
+    match event {
+        crate::credential::CredentialEvent::RefreshFailed { account, error } => {
+            ServerMessage::CredentialStatus {
+                account: account.clone(),
+                status: "refresh_failed".to_owned(),
+                error: Some(error.clone()),
+            }
+        }
+        crate::credential::CredentialEvent::Refreshed { account, .. } => {
+            ServerMessage::CredentialStatus {
+                account: account.clone(),
+                status: "refreshed".to_owned(),
+                error: None,
+            }
+        }
     }
 }
