@@ -20,9 +20,7 @@ pub async fn broker_pods(State(s): State<Arc<Store>>) -> impl IntoResponse {
             let pods = registry.list().await;
             Json(serde_json::json!({ "pods": pods })).into_response()
         }
-        None => ErrorCode::NotFound
-            .to_http_response("broker not enabled")
-            .into_response(),
+        None => ErrorCode::NotFound.to_http_response("broker not enabled").into_response(),
     }
 }
 
@@ -32,9 +30,7 @@ pub async fn broker_register(
     Json(req): Json<RegisterRequest>,
 ) -> impl IntoResponse {
     let Some(ref registry) = s.broker_registry else {
-        return ErrorCode::NotFound
-            .to_http_response("broker not enabled")
-            .into_response();
+        return ErrorCode::NotFound.to_http_response("broker not enabled").into_response();
     };
 
     let name = req.name.clone();
@@ -53,9 +49,7 @@ pub async fn broker_deregister(
     Json(req): Json<DeregisterRequest>,
 ) -> impl IntoResponse {
     let Some(ref registry) = s.broker_registry else {
-        return ErrorCode::NotFound
-            .to_http_response("broker not enabled")
-            .into_response();
+        return ErrorCode::NotFound.to_http_response("broker not enabled").into_response();
     };
 
     let removed = registry.deregister(&req.name).await;

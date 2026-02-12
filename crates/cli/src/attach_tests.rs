@@ -700,8 +700,7 @@ mod terminal_fidelity {
         buf.extend_from_slice(CLEAR_HOME);
         // The composed sequence should be: enter alt screen + begin sync + clear
         assert_eq!(
-            &buf,
-            b"\x1b[?1049h\x1b[?2026h\x1b[2J\x1b[H",
+            &buf, b"\x1b[?1049h\x1b[?2026h\x1b[2J\x1b[H",
             "enter_alt_screen should compose SMCUP + SYNC_START + CLEAR_HOME"
         );
     }

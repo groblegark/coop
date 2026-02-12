@@ -22,19 +22,9 @@ use crate::broker::registry::PodRegistry;
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MuxEvent {
     /// A pod's agent state changed.
-    State {
-        pod: String,
-        prev: String,
-        next: String,
-        seq: u64,
-    },
+    State { pod: String, prev: String, next: String, seq: u64 },
     /// A pod's screen was updated.
-    Screen {
-        pod: String,
-        lines: Vec<String>,
-        cols: u16,
-        rows: u16,
-    },
+    Screen { pod: String, lines: Vec<String>, cols: u16, rows: u16 },
     /// A pod's credential status changed.
     Credential {
         pod: String,
@@ -44,14 +34,9 @@ pub enum MuxEvent {
         error: Option<String>,
     },
     /// A pod came online (registered or reconnected).
-    PodOnline {
-        pod: String,
-        coop_url: String,
-    },
+    PodOnline { pod: String, coop_url: String },
     /// A pod went offline (deregistered or connection lost).
-    PodOffline {
-        pod: String,
-    },
+    PodOffline { pod: String },
 }
 
 /// Cached state for a single pod.
@@ -140,11 +125,8 @@ impl Multiplexer {
         // Remove streams for pods no longer in the registry.
         {
             let mut streams = self.streams.write().await;
-            let to_remove: Vec<String> = streams
-                .keys()
-                .filter(|name| !registered_names.contains(*name))
-                .cloned()
-                .collect();
+            let to_remove: Vec<String> =
+                streams.keys().filter(|name| !registered_names.contains(*name)).cloned().collect();
             for name in to_remove {
                 if let Some(handle) = streams.remove(&name) {
                     handle.cancel.cancel();
@@ -170,19 +152,14 @@ impl Multiplexer {
             let cache = Arc::clone(&self.cache);
             let cancel_clone = cancel.clone();
 
-            let _ = event_tx.send(MuxEvent::PodOnline {
-                pod: pod_name.clone(),
-                coop_url: coop_url.clone(),
-            });
+            let _ = event_tx
+                .send(MuxEvent::PodOnline { pod: pod_name.clone(), coop_url: coop_url.clone() });
 
             let handle = tokio::spawn(async move {
                 run_pod_stream(pod_name, coop_url, event_tx, cache, cancel_clone).await;
             });
 
-            self.streams.write().await.insert(
-                pod.name.clone(),
-                PodStreamHandle { cancel, handle },
-            );
+            self.streams.write().await.insert(pod.name.clone(), PodStreamHandle { cancel, handle });
             debug!(pod = %pod.name, "started pod stream");
         }
     }
@@ -205,9 +182,7 @@ async fn run_pod_stream(
         }
 
         // Convert HTTP URL to WebSocket URL.
-        let ws_url = coop_url
-            .replace("http://", "ws://")
-            .replace("https://", "wss://");
+        let ws_url = coop_url.replace("http://", "ws://").replace("https://", "wss://");
         let ws_url = format!("{ws_url}/ws?subscribe=screen,state,credentials");
 
         debug!(pod = %pod_name, url = %ws_url, "connecting to pod");
@@ -219,9 +194,7 @@ async fn run_pod_stream(
             }
             Err(e) => {
                 warn!(pod = %pod_name, error = %e, "pod stream disconnected");
-                let _ = event_tx.send(MuxEvent::PodOffline {
-                    pod: pod_name.clone(),
-                });
+                let _ = event_tx.send(MuxEvent::PodOffline { pod: pod_name.clone() });
             }
         }
 
@@ -293,20 +266,14 @@ async fn handle_pod_message(
             let next = msg.get("next").and_then(|v| v.as_str()).unwrap_or("").to_owned();
             let seq = msg.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
 
-            cache.write().await
-                .entry(pod_name.to_owned())
-                .or_default()
-                .agent_state = Some(next.clone());
+            cache.write().await.entry(pod_name.to_owned()).or_default().agent_state =
+                Some(next.clone());
 
-            let _ = event_tx.send(MuxEvent::State {
-                pod: pod_name.to_owned(),
-                prev,
-                next,
-                seq,
-            });
+            let _ = event_tx.send(MuxEvent::State { pod: pod_name.to_owned(), prev, next, seq });
         }
         "screen" => {
-            let lines: Vec<String> = msg.get("lines")
+            let lines: Vec<String> = msg
+                .get("lines")
                 .and_then(|v| v.as_array())
                 .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
                 .unwrap_or_default();
@@ -321,22 +288,15 @@ async fn handle_pod_message(
                 entry.screen_rows = rows;
             }
 
-            let _ = event_tx.send(MuxEvent::Screen {
-                pod: pod_name.to_owned(),
-                lines,
-                cols,
-                rows,
-            });
+            let _ = event_tx.send(MuxEvent::Screen { pod: pod_name.to_owned(), lines, cols, rows });
         }
         "credential:status" => {
             let account = msg.get("account").and_then(|v| v.as_str()).unwrap_or("").to_owned();
             let status = msg.get("status").and_then(|v| v.as_str()).unwrap_or("").to_owned();
             let error = msg.get("error").and_then(|v| v.as_str()).map(String::from);
 
-            cache.write().await
-                .entry(pod_name.to_owned())
-                .or_default()
-                .credential_status = Some(status.clone());
+            cache.write().await.entry(pod_name.to_owned()).or_default().credential_status =
+                Some(status.clone());
 
             let _ = event_tx.send(MuxEvent::Credential {
                 pod: pod_name.to_owned(),

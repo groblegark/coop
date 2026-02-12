@@ -123,16 +123,9 @@ pub enum CredentialEvent {
         credentials: HashMap<String, String>,
     },
     /// An account refresh failed after retries.
-    RefreshFailed {
-        account: String,
-        error: String,
-    },
+    RefreshFailed { account: String, error: String },
     /// A re-authentication flow was initiated (device code flow).
-    ReauthRequired {
-        account: String,
-        auth_url: String,
-        user_code: String,
-    },
+    ReauthRequired { account: String, auth_url: String, user_code: String },
 }
 
 /// OAuth token response from the provider.
@@ -246,11 +239,8 @@ impl CredentialBroker {
         account.access_token = access_token;
         account.refresh_token = refresh_token;
         account.expires_at = expires_in_secs.map(|s| Instant::now() + Duration::from_secs(s));
-        account.status = if account.config.r#static {
-            AccountStatus::Static
-        } else {
-            AccountStatus::Healthy
-        };
+        account.status =
+            if account.config.r#static { AccountStatus::Static } else { AccountStatus::Healthy };
 
         info!(account = name, "credentials seeded");
         true
@@ -264,9 +254,7 @@ impl CredentialBroker {
         accounts
             .values()
             .map(|a| {
-                let expires_in = a
-                    .expires_at
-                    .map(|e| e.saturating_duration_since(now).as_secs());
+                let expires_in = a.expires_at.map(|e| e.saturating_duration_since(now).as_secs());
                 let error = if a.status == AccountStatus::Revoked {
                     Some("refresh token revoked".to_owned())
                 } else {
@@ -340,16 +328,10 @@ impl CredentialBroker {
     ///
     /// Call this once after seeding initial credentials. The loop runs until
     /// the `shutdown` token is cancelled.
-    pub async fn run(
-        self: &Arc<Self>,
-        shutdown: tokio_util::sync::CancellationToken,
-    ) {
+    pub async fn run(self: &Arc<Self>, shutdown: tokio_util::sync::CancellationToken) {
         let accounts = self.accounts.read().await;
-        let names: Vec<String> = accounts
-            .values()
-            .filter(|a| !a.config.r#static)
-            .map(|a| a.name.clone())
-            .collect();
+        let names: Vec<String> =
+            accounts.values().filter(|a| !a.config.r#static).map(|a| a.name.clone()).collect();
         drop(accounts);
 
         let mut handles = Vec::new();
@@ -369,11 +351,7 @@ impl CredentialBroker {
     }
 
     /// Refresh loop for a single account.
-    async fn refresh_loop(
-        &self,
-        name: &str,
-        shutdown: tokio_util::sync::CancellationToken,
-    ) {
+    async fn refresh_loop(&self, name: &str, shutdown: tokio_util::sync::CancellationToken) {
         info!(account = name, "credential refresh loop started");
 
         loop {
@@ -396,8 +374,7 @@ impl CredentialBroker {
                         return;
                     }
                     _ => {
-                        let margin =
-                            Duration::from_secs(account.config.refresh_margin_secs);
+                        let margin = Duration::from_secs(account.config.refresh_margin_secs);
                         match account.expires_at {
                             Some(expires_at) => {
                                 let now = Instant::now();
@@ -549,18 +526,14 @@ impl CredentialBroker {
             .map_err(|e| RefreshError::Transient(format!("HTTP error: {e}")))?;
 
         let status = resp.status();
-        let body = resp
-            .text()
-            .await
-            .map_err(|e| RefreshError::Transient(format!("read body: {e}")))?;
+        let body =
+            resp.text().await.map_err(|e| RefreshError::Transient(format!("read body: {e}")))?;
 
         if !status.is_success() {
             // Try to parse as error response.
             if let Ok(err) = serde_json::from_str::<TokenErrorResponse>(&body) {
                 if err.error == "invalid_grant" {
-                    return Err(RefreshError::Revoked(
-                        err.error_description.unwrap_or(err.error),
-                    ));
+                    return Err(RefreshError::Revoked(err.error_description.unwrap_or(err.error)));
                 }
                 return Err(RefreshError::Transient(format!(
                     "{}: {}",
@@ -568,9 +541,7 @@ impl CredentialBroker {
                     err.error_description.unwrap_or_default()
                 )));
             }
-            return Err(RefreshError::Transient(format!(
-                "HTTP {status}: {body}"
-            )));
+            return Err(RefreshError::Transient(format!("HTTP {status}: {body}")));
         }
 
         let token: TokenResponse = serde_json::from_str(&body)
@@ -587,8 +558,7 @@ impl CredentialBroker {
             if let Some(new_refresh) = token.refresh_token {
                 account.refresh_token = Some(new_refresh);
             }
-            account.expires_at =
-                token.expires_in.map(|s| Instant::now() + Duration::from_secs(s));
+            account.expires_at = token.expires_in.map(|s| Instant::now() + Duration::from_secs(s));
             account.status = AccountStatus::Healthy;
 
             // Build credentials map for the event.
@@ -605,10 +575,9 @@ impl CredentialBroker {
 
         info!(account = name, "credentials refreshed successfully");
 
-        let _ = self.event_tx.send(CredentialEvent::Refreshed {
-            account: name.to_owned(),
-            credentials,
-        });
+        let _ = self
+            .event_tx
+            .send(CredentialEvent::Refreshed { account: name.to_owned(), credentials });
 
         Ok(())
     }
@@ -652,10 +621,8 @@ impl CredentialBroker {
             return Err(format!("device auth failed: {body}"));
         }
 
-        let device: DeviceCodeResponse = resp
-            .json()
-            .await
-            .map_err(|e| format!("parse device response: {e}"))?;
+        let device: DeviceCodeResponse =
+            resp.json().await.map_err(|e| format!("parse device response: {e}"))?;
 
         let auth_url = device
             .verification_uri_complete
@@ -675,12 +642,7 @@ impl CredentialBroker {
         let account = account_name.to_owned();
         tokio::spawn(async move {
             broker
-                .poll_device_code(
-                    &account,
-                    &device.device_code,
-                    device.interval,
-                    device.expires_in,
-                )
+                .poll_device_code(&account, &device.device_code, device.interval, device.expires_in)
                 .await;
         });
 
@@ -776,9 +738,8 @@ impl CredentialBroker {
                     if let Some(new_refresh) = token.refresh_token {
                         account.refresh_token = Some(new_refresh);
                     }
-                    account.expires_at = token
-                        .expires_in
-                        .map(|s| Instant::now() + Duration::from_secs(s));
+                    account.expires_at =
+                        token.expires_in.map(|s| Instant::now() + Duration::from_secs(s));
                     account.status = AccountStatus::Healthy;
 
                     let key = match account.provider.as_str() {

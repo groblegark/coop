@@ -175,7 +175,11 @@ impl PodRegistry {
                         pod.healthy = false;
                         let unreachable_for = pod.last_seen.elapsed();
                         if unreachable_for > PRUNE_AFTER {
-                            warn!(pod = name, secs = unreachable_for.as_secs(), "pruning unreachable pod");
+                            warn!(
+                                pod = name,
+                                secs = unreachable_for.as_secs(),
+                                "pruning unreachable pod"
+                            );
                             pods.remove(name);
                         } else {
                             debug!(pod = name, "health check failed, marking unhealthy");

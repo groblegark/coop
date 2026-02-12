@@ -71,10 +71,7 @@ pub async fn credentials_reauth(
         Some(name) => name,
         None => {
             let statuses = broker.status().await;
-            match statuses
-                .iter()
-                .find(|a| a.status == crate::credential::AccountStatus::Revoked)
-            {
+            match statuses.iter().find(|a| a.status == crate::credential::AccountStatus::Revoked) {
                 Some(a) => a.name.clone(),
                 None => {
                     return ErrorCode::NotFound
@@ -107,10 +104,7 @@ pub async fn credentials_seed(
             .into_response();
     };
 
-    if broker
-        .seed(&req.account, req.access_token, req.refresh_token, req.expires_in)
-        .await
-    {
+    if broker.seed(&req.account, req.access_token, req.refresh_token, req.expires_in).await {
         Json(serde_json::json!({ "seeded": true, "account": req.account })).into_response()
     } else {
         ErrorCode::NotFound

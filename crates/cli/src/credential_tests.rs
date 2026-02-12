@@ -81,7 +81,8 @@ async fn seed_sets_credentials_and_healthy_status() {
     let config = test_config("test", "http://localhost/token");
     let (broker, _rx) = CredentialBroker::new(&config);
 
-    let seeded = broker.seed("test", "access-123".into(), Some("refresh-456".into()), Some(3600)).await;
+    let seeded =
+        broker.seed("test", "access-123".into(), Some("refresh-456".into()), Some(3600)).await;
     assert!(seeded);
 
     let status = broker.status().await;
@@ -114,10 +115,7 @@ async fn static_account_returns_static_status() {
 
     let creds = broker.credentials_for("api-key").await;
     assert!(creds.is_some());
-    assert_eq!(
-        creds.expect("creds").get("ANTHROPIC_API_KEY"),
-        Some(&"sk-ant-xxx".to_owned())
-    );
+    assert_eq!(creds.expect("creds").get("ANTHROPIC_API_KEY"), Some(&"sk-ant-xxx".to_owned()));
 }
 
 #[tokio::test]
@@ -193,9 +191,7 @@ async fn all_credentials_excludes_revoked() {
 }
 
 /// Helper: start a mock OAuth token server that returns configurable responses.
-async fn mock_token_server(
-    responses: Vec<(u16, String)>,
-) -> (SocketAddr, Arc<AtomicU32>) {
+async fn mock_token_server(responses: Vec<(u16, String)>) -> (SocketAddr, Arc<AtomicU32>) {
     let call_count = Arc::new(AtomicU32::new(0));
     let call_count_clone = Arc::clone(&call_count);
     let responses = Arc::new(responses);
@@ -315,12 +311,9 @@ async fn do_refresh_transient_retries_then_succeeds() {
     })
     .to_string();
 
-    let (addr, call_count) = mock_token_server(vec![
-        (500, error_body.clone()),
-        (500, error_body),
-        (200, success_body),
-    ])
-    .await;
+    let (addr, call_count) =
+        mock_token_server(vec![(500, error_body.clone()), (500, error_body), (200, success_body)])
+            .await;
     let token_url = format!("http://{addr}/token");
 
     let config = test_config("test", &token_url);

@@ -28,8 +28,12 @@ pub struct MuxQuery {
     pub subscribe: String,
 }
 
-fn default_pods() -> String { "all".to_owned() }
-fn default_subscribe() -> String { "state,screen,credentials".to_owned() }
+fn default_pods() -> String {
+    "all".to_owned()
+}
+fn default_subscribe() -> String {
+    "state,screen,credentials".to_owned()
+}
 
 /// Parsed subscription preferences.
 struct MuxFlags {
@@ -88,11 +92,7 @@ pub async fn ws_mux_handler(
 }
 
 /// Per-connection event loop for multiplexed clients.
-async fn handle_mux_connection(
-    state: Arc<Store>,
-    flags: MuxFlags,
-    socket: WebSocket,
-) {
+async fn handle_mux_connection(state: Arc<Store>, flags: MuxFlags, socket: WebSocket) {
     let (mut ws_tx, mut ws_rx) = socket.split();
 
     // Get a MuxEvent receiver from the multiplexer (if available).
@@ -198,9 +198,6 @@ async fn proxy_input_to_pod(state: &Store, pod_name: &str, text: &str) {
 
     let url = format!("{}/api/v1/input", pod.coop_url);
     let client = reqwest::Client::new();
-    let _ = client
-        .post(&url)
-        .json(&serde_json::json!({ "text": text, "enter": true }))
-        .send()
-        .await;
+    let _ =
+        client.post(&url).json(&serde_json::json!({ "text": text, "enter": true })).send().await;
 }

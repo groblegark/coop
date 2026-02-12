@@ -63,10 +63,7 @@ fn build_client(token: &Option<String>) -> reqwest::Client {
             headers.insert(reqwest::header::AUTHORIZATION, val);
         }
     }
-    reqwest::Client::builder()
-        .default_headers(headers)
-        .build()
-        .unwrap_or_default()
+    reqwest::Client::builder().default_headers(headers).build().unwrap_or_default()
 }
 
 fn format_expires(secs: Option<u64>) -> String {
@@ -91,30 +88,15 @@ async fn fetch_status(client: &reqwest::Client, url: &str) -> Result<StatusRespo
         return Err(format!("server returned {}", resp.status()));
     }
 
-    resp.json::<StatusResponse>()
-        .await
-        .map_err(|e| format!("invalid response: {e}"))
+    resp.json::<StatusResponse>().await.map_err(|e| format!("invalid response: {e}"))
 }
 
 fn print_table(accounts: &[Account], detailed: bool) {
     // Column widths
-    let name_w = accounts
-        .iter()
-        .map(|a| a.name.len())
-        .max()
-        .unwrap_or(0)
-        .max(7);
-    let prov_w = accounts
-        .iter()
-        .map(|a| a.provider.len())
-        .max()
-        .unwrap_or(0)
-        .max(8);
+    let name_w = accounts.iter().map(|a| a.name.len()).max().unwrap_or(0).max(7);
+    let prov_w = accounts.iter().map(|a| a.provider.len()).max().unwrap_or(0).max(8);
 
-    println!(
-        "{:<name_w$}  {:<prov_w$}  {:<10}  {}",
-        "ACCOUNT", "PROVIDER", "STATUS", "EXPIRES IN"
-    );
+    println!("{:<name_w$}  {:<prov_w$}  {:<10}  {}", "ACCOUNT", "PROVIDER", "STATUS", "EXPIRES IN");
 
     for a in accounts {
         let expires = if a.status == "healthy" {
@@ -122,10 +104,7 @@ fn print_table(accounts: &[Account], detailed: bool) {
         } else {
             "\u{2014}".to_string()
         };
-        println!(
-            "{:<name_w$}  {:<prov_w$}  {:<10}  {}",
-            a.name, a.provider, a.status, expires
-        );
+        println!("{:<name_w$}  {:<prov_w$}  {:<10}  {}", a.name, a.provider, a.status, expires);
 
         if detailed {
             if let Some(err) = &a.error {
@@ -208,10 +187,8 @@ pub async fn run(args: CredArgs) -> i32 {
 
                 match fetch_status(&client, url).await {
                     Ok(status) => {
-                        if let Some(acct) = status
-                            .accounts
-                            .iter()
-                            .find(|a| a.name == reauth.account)
+                        if let Some(acct) =
+                            status.accounts.iter().find(|a| a.name == reauth.account)
                         {
                             if acct.status == "healthy" {
                                 println!(

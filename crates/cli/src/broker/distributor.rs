@@ -73,10 +73,7 @@ struct SwitchPayload {
 }
 
 impl Distributor {
-    pub fn new(
-        registry: Arc<PodRegistry>,
-        broker: Arc<CredentialBroker>,
-    ) -> Self {
+    pub fn new(registry: Arc<PodRegistry>, broker: Arc<CredentialBroker>) -> Self {
         Self {
             registry,
             broker,
@@ -188,11 +185,7 @@ fn filter_for_pod(
         // Pod wants all profiles.
         return all_creds.to_vec();
     }
-    all_creds
-        .iter()
-        .filter(|(name, _)| pod.profiles_needed.contains(name))
-        .cloned()
-        .collect()
+    all_creds.iter().filter(|(name, _)| pod.profiles_needed.contains(name)).cloned().collect()
 }
 
 /// Push credentials to a single pod. Registers profiles, then optionally
@@ -206,21 +199,13 @@ async fn push_to_pod(
     let pod_name = pod.name.clone();
 
     if creds.is_empty() {
-        return PushResult {
-            pod: pod_name,
-            success: true,
-            error: None,
-            switched: false,
-        };
+        return PushResult { pod: pod_name, success: true, error: None, switched: false };
     }
 
     // 1. Register profiles.
     let profiles: Vec<ProfileEntry> = creds
         .iter()
-        .map(|(name, c)| ProfileEntry {
-            name: name.clone(),
-            credentials: c.clone(),
-        })
+        .map(|(name, c)| ProfileEntry { name: name.clone(), credentials: c.clone() })
         .collect();
 
     let payload = ProfilePayload { profiles };
@@ -232,9 +217,7 @@ async fn push_to_pod(
     }
 
     for attempt in 0..=MAX_RETRIES {
-        let result = req
-            .try_clone()
-            .map(|r| r.json(&payload).send());
+        let result = req.try_clone().map(|r| r.json(&payload).send());
 
         match result {
             Some(fut) => match fut.await {
@@ -249,11 +232,16 @@ async fn push_to_pod(
                         return PushResult {
                             pod: pod_name,
                             success: false,
-                            error: Some(format!("profile registration failed: HTTP {status}: {body}")),
+                            error: Some(format!(
+                                "profile registration failed: HTTP {status}: {body}"
+                            )),
                             switched: false,
                         };
                     }
-                    warn!(pod = pod_name.as_str(), attempt, "profile registration failed: {status}");
+                    warn!(
+                        pod = pod_name.as_str(),
+                        attempt, "profile registration failed: {status}"
+                    );
                     tokio::time::sleep(Duration::from_millis(500)).await;
                 }
                 Err(e) => {
@@ -288,23 +276,18 @@ async fn push_to_pod(
     }
 
     let should_switch = match agent_req.send().await {
-        Ok(resp) if resp.status().is_success() => {
-            match resp.json::<AgentResponse>().await {
-                Ok(agent) => {
-                    matches!(agent.state.as_str(), "idle" | "waiting_for_input" | "exited")
-                }
-                Err(_) => false,
+        Ok(resp) if resp.status().is_success() => match resp.json::<AgentResponse>().await {
+            Ok(agent) => {
+                matches!(agent.state.as_str(), "idle" | "waiting_for_input" | "exited")
             }
-        }
+            Err(_) => false,
+        },
         _ => false,
     };
 
     if should_switch {
         let switch_url = format!("{}/api/v1/session/switch", pod.coop_url);
-        let switch_payload = SwitchPayload {
-            profile: refreshed_account.to_owned(),
-            force: false,
-        };
+        let switch_payload = SwitchPayload { profile: refreshed_account.to_owned(), force: false };
 
         let mut switch_req = client.post(&switch_url);
         if let Some(ref token) = pod.auth_token {
@@ -314,12 +297,7 @@ async fn push_to_pod(
         match switch_req.json(&switch_payload).send().await {
             Ok(resp) if resp.status().is_success() || resp.status().as_u16() == 202 => {
                 info!(pod = pod_name.as_str(), "session switched to refreshed profile");
-                return PushResult {
-                    pod: pod_name,
-                    success: true,
-                    error: None,
-                    switched: true,
-                };
+                return PushResult { pod: pod_name, success: true, error: None, switched: true };
             }
             Ok(resp) => {
                 debug!(
@@ -329,17 +307,15 @@ async fn push_to_pod(
                 );
             }
             Err(e) => {
-                debug!(pod = pod_name.as_str(), "switch request failed: {e} (profiles still registered)");
+                debug!(
+                    pod = pod_name.as_str(),
+                    "switch request failed: {e} (profiles still registered)"
+                );
             }
         }
     }
 
-    PushResult {
-        pod: pod_name,
-        success: true,
-        error: None,
-        switched: false,
-    }
+    PushResult { pod: pod_name, success: true, error: None, switched: false }
 }
 
 #[cfg(test)]
