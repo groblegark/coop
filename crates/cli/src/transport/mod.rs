@@ -312,11 +312,14 @@ pub fn keys_to_bytes(keys: &[String]) -> Result<Vec<u8>, String> {
 
 /// Embedded web terminal UI (served at `/`).
 const TERMINAL_HTML: &str = include_str!("terminal.html");
+/// Embedded multiplexer dashboard UI (served at `/mux`).
+const MUX_HTML: &str = include_str!("mux.html");
 
 /// Build the axum `Router` with all HTTP and WebSocket routes.
 pub fn build_router(state: Arc<Store>) -> Router {
     Router::new()
         .route("/", get(|| async { Html(TERMINAL_HTML) }))
+        .route("/mux", get(|| async { Html(MUX_HTML) }))
         .route("/api/v1/health", get(http::health))
         .route("/api/v1/ready", get(http::ready))
         .route("/api/v1/screen", get(http::screen))
