@@ -22,7 +22,7 @@ use crate::event::{
 };
 use crate::event_log::EventLog;
 use crate::profile::ProfileState;
-use crate::pty::Backend;
+use crate::backend::Backend;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::start::{StartConfig, StartState};
@@ -264,7 +264,7 @@ impl Backend for MockPty {
     fn run(
         &mut self,
         output_tx: mpsc::Sender<Bytes>,
-        mut input_rx: mpsc::Receiver<crate::pty::BackendInput>,
+        mut input_rx: mpsc::Receiver<crate::backend::BackendInput>,
         _resize_rx: mpsc::Receiver<(u16, u16)>,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<ExitStatus>> + Send + '_>> {
         let output = std::mem::take(&mut self.output);
@@ -285,10 +285,10 @@ impl Backend for MockPty {
             if drain_input {
                 while let Some(msg) = input_rx.recv().await {
                     match msg {
-                        crate::pty::BackendInput::Write(data) => {
+                        crate::backend::BackendInput::Write(data) => {
                             captured_input.lock().push(data);
                         }
-                        crate::pty::BackendInput::Drain(tx) => {
+                        crate::backend::BackendInput::Drain(tx) => {
                             let _ = tx.send(());
                         }
                     }

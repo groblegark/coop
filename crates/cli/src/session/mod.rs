@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::{Detector, ExitStatus, OptionParser};
-use crate::pty::{Backend, Boxed};
+use crate::backend::{Backend, Boxed};
 use crate::switch::SwitchRequest;
 use crate::transport::Store;
 

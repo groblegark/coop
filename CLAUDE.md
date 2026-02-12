@@ -59,9 +59,9 @@ crates/cli/               # Single crate (binary + lib)
 │   ├── event.rs           # OutputEvent, TransitionEvent, InputEvent, HookEvent
 │   ├── screen.rs          # Screen, ScreenSnapshot
 │   ├── ring.rs            # RingBuffer
-│   ├── pty/
+│   ├── backend/
 │   │   ├── mod.rs         # Backend trait
-│   │   ├── adapter.rs     # TmuxAdapter for --attach mode
+│   │   ├── adapter.rs     # TmuxBackend for --attach mode
 │   │   ├── nbio.rs        # Non-blocking I/O helpers (PtyFd, AsyncFd)
 │   │   └── spawn.rs       # NativePty backend (forkpty + exec)
 │   ├── transport/

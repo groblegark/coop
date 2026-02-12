@@ -9,8 +9,8 @@
 
 use bytes::Bytes;
 use coop::driver::ExitStatus;
-use coop::pty::adapter::TmuxBackend;
-use coop::pty::{Backend, BackendInput};
+use coop::backend::adapter::TmuxBackend;
+use coop::backend::{Backend, BackendInput};
 use std::path::PathBuf;
 use std::process::Command;
 use tokio::sync::mpsc;

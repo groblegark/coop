@@ -118,7 +118,7 @@ impl HookReceiver {
         if self.async_fd.is_none() {
             let std_file =
                 std::fs::OpenOptions::new().read(true).write(true).open(&self.pipe_path)?;
-            crate::pty::nbio::set_nonblocking(&std_file)?;
+            crate::backend::nbio::set_nonblocking(&std_file)?;
             let owned: OwnedFd = std_file.into();
             let fifo_fd = FifoFd(owned);
             let async_fd = AsyncFd::new(fifo_fd)?;

@@ -27,9 +27,9 @@ use crate::driver::{
 use crate::event::InputEvent;
 use crate::event_log::EventLog;
 use crate::profile::ProfileState;
-use crate::pty::adapter::{AttachSpec, TmuxBackend};
-use crate::pty::spawn::NativePty;
-use crate::pty::Backend;
+use crate::backend::adapter::{AdapterSpec, TmuxBackend};
+use crate::backend::spawn::NativePty;
+use crate::backend::Backend;
 use crate::record::RecordingState;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
@@ -398,12 +398,12 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     // 6. Spawn backend AFTER driver is built (FIFO must exist before child starts).
     let extra_env = setup.as_ref().map(|s| s.env_vars.as_slice()).unwrap_or(&[]);
     let backend: Box<dyn Backend> = if let Some(ref attach_spec) = config.attach {
-        let spec: AttachSpec = attach_spec.parse()?;
+        let spec: AdapterSpec = attach_spec.parse()?;
         match spec {
-            AttachSpec::Tmux { session } => {
+            AdapterSpec::Tmux { session } => {
                 Box::new(TmuxBackend::new(session)?.with_poll_interval(config.tmux_poll()))
             }
-            AttachSpec::Screen { session: _ } => {
+            AdapterSpec::Screen { session: _ } => {
                 anyhow::bail!("screen attach is not yet implemented");
             }
         }

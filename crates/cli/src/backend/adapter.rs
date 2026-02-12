@@ -9,16 +9,16 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::driver::ExitStatus;
-use crate::pty::{Backend, BackendInput};
+use crate::backend::{Backend, BackendInput};
 
 /// Specifies which terminal multiplexer session to attach to.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AttachSpec {
+pub enum AdapterSpec {
     Tmux { session: String },
     Screen { session: String },
 }
 
-impl FromStr for AttachSpec {
+impl FromStr for AdapterSpec {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -29,8 +29,8 @@ impl FromStr for AttachSpec {
             anyhow::bail!("invalid attach spec: session name cannot be empty");
         }
         match prefix {
-            "tmux" => Ok(AttachSpec::Tmux { session: name.to_string() }),
-            "screen" => Ok(AttachSpec::Screen { session: name.to_string() }),
+            "tmux" => Ok(AdapterSpec::Tmux { session: name.to_string() }),
+            "screen" => Ok(AdapterSpec::Screen { session: name.to_string() }),
             other => anyhow::bail!("invalid attach spec: unknown backend '{other}'"),
         }
     }

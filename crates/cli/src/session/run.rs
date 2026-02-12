@@ -15,7 +15,7 @@ use tracing::{debug, warn};
 use crate::config::Config;
 use crate::driver::{AgentState, CompositeDetector, DetectedState, ExitStatus, OptionParser};
 use crate::event::{InputEvent, OutputEvent};
-use crate::pty::BackendInput;
+use crate::backend::BackendInput;
 use crate::switch::SwitchRequest;
 use crate::transport::Store;
 

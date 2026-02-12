@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::{Config, GroomLevel};
 use crate::driver::{AgentState, PromptContext, PromptKind};
-use crate::pty::spawn::NativePty;
+use crate::backend::spawn::NativePty;
 use crate::session::{Session, SessionConfig, SessionOutcome};
 use crate::switch::SwitchRequest;
 use crate::test_support::{MockDetector, MockPty, StoreBuilder, StoreCtx, StubRespondEncoder};
