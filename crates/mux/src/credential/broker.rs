@@ -42,12 +42,11 @@ impl CredentialBroker {
     ) -> Arc<Self> {
         let mut accounts = HashMap::new();
         for acct in &config.accounts {
-            let status = if acct.r#static { AccountStatus::Static } else { AccountStatus::Expired };
             accounts.insert(
                 acct.name.clone(),
                 AccountState {
                     config: acct.clone(),
-                    status,
+                    status: AccountStatus::Expired,
                     access_token: None,
                     refresh_token: None,
                     expires_at: 0,
@@ -78,9 +77,7 @@ impl CredentialBroker {
                 state.access_token = Some(persisted.access_token.clone());
                 state.refresh_token = persisted.refresh_token.clone();
                 state.expires_at = persisted.expires_at;
-                if state.config.r#static {
-                    state.status = AccountStatus::Static;
-                } else if persisted.expires_at > epoch_secs() {
+                if persisted.expires_at > epoch_secs() {
                     state.status = AccountStatus::Healthy;
                 } else {
                     state.status = AccountStatus::Expired;
@@ -204,7 +201,12 @@ impl CredentialBroker {
             {
                 Ok(token) => {
                     if let Err(e) = broker
-                        .seed(&name, token.access_token, token.refresh_token, Some(token.expires_in))
+                        .seed(
+                            &name,
+                            token.access_token,
+                            token.refresh_token,
+                            Some(token.expires_in),
+                        )
                         .await
                     {
                         tracing::warn!(account = %name, err = %e, "failed to seed after reauth");
@@ -225,12 +227,12 @@ impl CredentialBroker {
         Ok(resp)
     }
 
-    /// Spawn refresh loops for all non-static accounts.
+    /// Spawn refresh loops for all accounts.
     pub fn spawn_refresh_loops(self: &Arc<Self>) {
         let accounts_snapshot: Vec<String> = {
             // We can't hold the lock across await, so collect names first.
             // We'll read config from the hashmap in the loop.
-            self.config.accounts.iter().filter(|a| !a.r#static).map(|a| a.name.clone()).collect()
+            self.config.accounts.iter().map(|a| a.name.clone()).collect()
         };
 
         for name in accounts_snapshot {
@@ -243,15 +245,13 @@ impl CredentialBroker {
 
     /// Refresh loop for a single account.
     async fn refresh_loop(&self, account_name: &str) {
+        let margin = crate::credential::refresh_margin_secs();
         loop {
-            let (token_url, client_id, refresh_token, margin, expires_at) = {
+            let (token_url, client_id, refresh_token, expires_at) = {
                 let accounts = self.accounts.read().await;
                 let Some(state) = accounts.get(account_name) else {
                     return;
                 };
-                if state.config.r#static {
-                    return;
-                }
                 let token_url = match state.config.token_url.as_deref() {
                     Some(u) => u.to_owned(),
                     None => {
@@ -274,13 +274,7 @@ impl CredentialBroker {
                         continue;
                     }
                 };
-                (
-                    token_url,
-                    client_id,
-                    refresh_token,
-                    state.config.refresh_margin_secs,
-                    state.expires_at,
-                )
+                (token_url, client_id, refresh_token, state.expires_at)
             };
 
             // Calculate sleep until margin before expiry.
@@ -342,11 +336,16 @@ impl CredentialBroker {
         }
     }
 
-    /// Persist current credentials to disk if configured.
+    /// Persist current credentials to disk.
     async fn persist(&self, accounts: &HashMap<String, AccountState>) {
-        let Some(ref path) = self.config.persist_path else {
-            return;
-        };
+        let dir = crate::credential::state_dir();
+        let path = dir.join("credentials.json");
+        if !dir.exists() {
+            if let Err(e) = std::fs::create_dir_all(&dir) {
+                tracing::warn!(err = %e, "failed to create state dir");
+                return;
+            }
+        }
         let mut persisted = PersistedCredentials::default();
         for (name, state) in accounts {
             if let Some(ref token) = state.access_token {
@@ -360,7 +359,7 @@ impl CredentialBroker {
                 );
             }
         }
-        if let Err(e) = crate::credential::persist::save(path, &persisted) {
+        if let Err(e) = crate::credential::persist::save(&path, &persisted) {
             tracing::warn!(err = %e, "failed to persist credentials");
         }
     }

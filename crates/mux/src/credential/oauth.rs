@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-//! OAuth helper types and utilities.
+//! OAuth helper types.
 
 use serde::{Deserialize, Serialize};
 
@@ -31,22 +31,4 @@ pub struct DeviceCodeResponse {
 
 fn default_interval() -> u64 {
     5
-}
-
-/// Build a URL-encoded form body string.
-pub fn urlencoded(params: &[(&str, &str)]) -> String {
-    params
-        .iter()
-        .map(|(k, v)| format!("{}={}", urlencoding(k), urlencoding(v)))
-        .collect::<Vec<_>>()
-        .join("&")
-}
-
-fn urlencoding(s: &str) -> String {
-    s.chars()
-        .map(|c| match c {
-            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
-            _ => format!("%{:02X}", c as u8),
-        })
-        .collect()
 }

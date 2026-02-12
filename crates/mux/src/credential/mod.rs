@@ -17,16 +17,12 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
 
 /// Top-level credential configuration loaded from `--credential-config`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CredentialConfig {
     /// Named credential accounts.
     pub accounts: Vec<AccountConfig>,
-    /// Path to persist refreshed credentials. If unset, credentials are in-memory only.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub persist_path: Option<PathBuf>,
 }
 
 /// Configuration for a single credential account.
@@ -48,16 +44,28 @@ pub struct AccountConfig {
     /// Device authorization URL for reauth flow.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_auth_url: Option<String>,
-    /// How many seconds before expiry to start refreshing (default: 900).
-    #[serde(default = "default_refresh_margin")]
-    pub refresh_margin_secs: u64,
-    /// If true, this is a static API key that never needs refreshing.
-    #[serde(default)]
-    pub r#static: bool,
 }
 
-fn default_refresh_margin() -> u64 {
-    900
+/// Refresh margin in seconds (`COOP_MUX_REFRESH_MARGIN_SECS`, default 900).
+pub fn refresh_margin_secs() -> u64 {
+    std::env::var("COOP_MUX_REFRESH_MARGIN_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(900)
+}
+
+/// Resolve the state directory for mux data (credentials, etc.).
+///
+/// Checks `COOP_MUX_STATE_DIR`, then `$XDG_STATE_HOME/coop-mux`,
+/// then `$HOME/.local/state/coop-mux`.
+pub fn state_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("COOP_MUX_STATE_DIR") {
+        return PathBuf::from(dir);
+    }
+    if let Ok(xdg) = std::env::var("XDG_STATE_HOME") {
+        return PathBuf::from(xdg).join("coop-mux");
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return PathBuf::from(home).join(".local/state/coop-mux");
+    }
+    PathBuf::from(".coop-mux")
 }
 
 /// Events emitted by the credential broker.
@@ -78,20 +86,6 @@ pub enum AccountStatus {
     Healthy,
     Refreshing,
     Expired,
-    Revoked,
-    Static,
-}
-
-impl AccountStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Healthy => "healthy",
-            Self::Refreshing => "refreshing",
-            Self::Expired => "expired",
-            Self::Revoked => "revoked",
-            Self::Static => "static",
-        }
-    }
 }
 
 /// Resolve the default env var name for a provider.
@@ -102,10 +96,4 @@ pub fn provider_default_env_key(provider: &str) -> &str {
         "gemini" | "google" => "GEMINI_API_KEY",
         _ => "API_KEY",
     }
-}
-
-/// Create a broadcast channel for credential events.
-pub fn credential_channel(
-) -> (broadcast::Sender<CredentialEvent>, broadcast::Receiver<CredentialEvent>) {
-    broadcast::channel(64)
 }

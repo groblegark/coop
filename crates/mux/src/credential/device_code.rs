@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use crate::credential::oauth::{urlencoded, DeviceCodeResponse, TokenResponse};
+use crate::credential::oauth::{DeviceCodeResponse, TokenResponse};
 
 /// Initiate the device authorization request.
 pub async fn initiate_reauth(
@@ -13,14 +13,7 @@ pub async fn initiate_reauth(
     device_auth_url: &str,
     client_id: &str,
 ) -> anyhow::Result<DeviceCodeResponse> {
-    let body = urlencoded(&[("client_id", client_id)]);
-
-    let resp = client
-        .post(device_auth_url)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(body)
-        .send()
-        .await?;
+    let resp = client.post(device_auth_url).form(&[("client_id", client_id)]).send().await?;
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -51,16 +44,13 @@ pub async fn poll_device_code(
             anyhow::bail!("device code polling timed out");
         }
 
-        let body = urlencoded(&[
-            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-            ("client_id", client_id),
-            ("device_code", device_code),
-        ]);
-
         let resp = client
             .post(token_url)
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(body)
+            .form(&[
+                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+                ("client_id", client_id),
+                ("device_code", device_code),
+            ])
             .send()
             .await?;
 

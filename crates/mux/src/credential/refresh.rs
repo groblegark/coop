@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use crate::credential::oauth::{urlencoded, TokenResponse};
+use crate::credential::oauth::TokenResponse;
 
 /// Perform a single token refresh request.
 pub async fn do_refresh(
@@ -14,16 +14,13 @@ pub async fn do_refresh(
     client_id: &str,
     refresh_token: &str,
 ) -> anyhow::Result<TokenResponse> {
-    let body = urlencoded(&[
-        ("grant_type", "refresh_token"),
-        ("client_id", client_id),
-        ("refresh_token", refresh_token),
-    ]);
-
     let resp = client
         .post(token_url)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(body)
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("client_id", client_id),
+            ("refresh_token", refresh_token),
+        ])
         .send()
         .await?;
 

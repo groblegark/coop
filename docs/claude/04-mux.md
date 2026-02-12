@@ -113,35 +113,32 @@ fresh credentials to registered sessions as profiles.
       "env_key": "ANTHROPIC_API_KEY",
       "token_url": "https://auth.example.com/token",
       "client_id": "...",
-      "device_auth_url": "https://auth.example.com/device",
-      "refresh_margin_secs": 900,
-      "static": false
+      "device_auth_url": "https://auth.example.com/device"
     }
-  ],
-  "persist_path": "/var/lib/coop-mux/credentials.json"
+  ]
 }
 ```
 
 | Field | Default | Purpose |
 |-------|---------|---------|
 | `env_key` | Provider default | Env var name for the credential |
-| `refresh_margin_secs` | `900` | Refresh this many seconds before expiry |
-| `static` | `false` | Static API key (no refresh) |
-| `persist_path` | None | Atomic JSON file for persisted tokens |
 
 Provider defaults: `claude` → `ANTHROPIC_API_KEY`, `openai` → `OPENAI_API_KEY`,
 `gemini` → `GOOGLE_API_KEY`.
 
+Credentials are persisted to `$COOP_MUX_STATE_DIR/credentials.json` (falling
+back to `$XDG_STATE_HOME/coop-mux/` then `$HOME/.local/state/coop-mux/`).
+
 ### Refresh Lifecycle
 
 1. **Seed**: initial tokens injected via `POST /api/v1/credentials/seed` or
-   loaded from `persist_path`
+   loaded from the state directory on startup
 2. **Refresh loop**: per-account background task refreshes tokens before expiry
    (exponential backoff on failure: 1s → 60s, 5 retries)
 3. **Distribution**: on refresh, credentials are pushed to sessions that
    declared matching `profiles_needed` during registration
-4. **Persistence**: after each refresh, tokens are atomically saved to
-   `persist_path`
+4. **Persistence**: after each refresh, tokens are atomically saved to the
+   state directory
 5. **Re-auth**: if refresh permanently fails, triggers device code flow
    (RFC 8628) via `POST /api/v1/credentials/reauth`
 
@@ -163,8 +160,6 @@ polling `GET /api/v1/credentials/status`.
 | `healthy` | Token is valid |
 | `refreshing` | Refresh in progress |
 | `expired` | Token expired, refresh pending |
-| `revoked` | Refresh token rejected, re-auth needed |
-| `static` | Static API key, no refresh |
 
 ### HTTP Endpoints
 
@@ -202,6 +197,8 @@ coop cred reauth [account]               # Trigger device code flow
 | `COOP_MUX_HEALTH_CHECK_MS` | `10000` | Health check interval |
 | `COOP_MUX_MAX_HEALTH_FAILURES` | `3` | Eviction threshold |
 | `COOP_MUX_CREDENTIAL_CONFIG` | None | Path to credential config JSON |
+| `COOP_MUX_STATE_DIR` | XDG state dir | State directory for persisted credentials |
+| `COOP_MUX_REFRESH_MARGIN_SECS` | `900` | Refresh this many seconds before token expiry |
 
 ### Coop Client
 

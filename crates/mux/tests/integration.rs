@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 use coop_mux::config::MuxConfig;
 use coop_mux::credential::broker::CredentialBroker;
 use coop_mux::credential::{AccountConfig, CredentialConfig};
+
 use coop_mux::state::{MuxState, SessionEntry};
 use coop_mux::transport::build_router;
 
@@ -36,8 +37,8 @@ fn test_state() -> Arc<MuxState> {
 }
 
 fn test_state_with_broker(accounts: Vec<AccountConfig>) -> Arc<MuxState> {
-    let config = CredentialConfig { accounts, persist_path: None };
-    let (event_tx, _rx) = coop_mux::credential::credential_channel();
+    let config = CredentialConfig { accounts };
+    let (event_tx, _rx) = tokio::sync::broadcast::channel(64);
     let broker = CredentialBroker::new(config, event_tx);
     let mut state = MuxState::new(test_config(), CancellationToken::new());
     state.credential_broker = Some(broker);
@@ -159,8 +160,6 @@ async fn credentials_seed_and_status() -> anyhow::Result<()> {
         token_url: None,
         client_id: None,
         device_auth_url: None,
-        refresh_margin_secs: 900,
-        r#static: false,
     }];
     let state = test_state_with_broker(accounts);
     let server = test_server(Arc::clone(&state));
@@ -194,10 +193,7 @@ async fn credentials_seed_and_status() -> anyhow::Result<()> {
 async fn credentials_reauth_without_broker_returns_400() -> anyhow::Result<()> {
     let state = test_state();
     let server = test_server(state);
-    let resp = server
-        .post("/api/v1/credentials/reauth")
-        .json(&serde_json::json!({}))
-        .await;
+    let resp = server.post("/api/v1/credentials/reauth").json(&serde_json::json!({})).await;
     resp.assert_status(axum::http::StatusCode::BAD_REQUEST);
     Ok(())
 }
