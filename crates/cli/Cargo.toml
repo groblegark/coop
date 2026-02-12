@@ -38,6 +38,7 @@ rustix.workspace = true
 tokio-stream.workspace = true
 tonic.workspace = true
 tonic-prost.workspace = true
+coop-mux = { path = "../mux" }
 futures-util.workspace = true
 parking_lot = "0.12.5"
 tempfile.workspace = true

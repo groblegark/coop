@@ -6,12 +6,14 @@ use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use std::time::Instant;
 
-use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::MuxConfig;
 use crate::upstream::ws_bridge::WsBridge;
+
+// Re-export shared event types so existing `use crate::state::MuxEvent` still works.
+pub use crate::events::{Aggregator, MuxEvent, SessionCache};
 
 /// Shared mux state.
 pub struct MuxState {
@@ -30,63 +32,6 @@ impl MuxState {
             shutdown,
             aggregator: Aggregator::new(),
         }
-    }
-}
-
-// -- Aggregated mux event types -----------------------------------------------
-
-/// Events emitted by the aggregator, tagged with the source session ID.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum MuxEvent {
-    /// A session's agent state changed.
-    State { session: String, prev: String, next: String, seq: u64 },
-    /// A session's screen was updated.
-    Screen { session: String, lines: Vec<String>, cols: u16, rows: u16 },
-    /// A session's credential status changed.
-    Credential {
-        session: String,
-        account: String,
-        status: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        error: Option<String>,
-    },
-    /// A session came online.
-    SessionOnline { session: String, url: String },
-    /// A session went offline.
-    SessionOffline { session: String },
-}
-
-/// Cached state for a single session.
-#[derive(Debug, Clone, Default)]
-pub struct SessionCache {
-    pub agent_state: Option<String>,
-    pub screen_lines: Option<Vec<String>>,
-    pub screen_cols: u16,
-    pub screen_rows: u16,
-    pub credential_status: Option<String>,
-}
-
-/// Aggregator hub — fans out session events to `/ws/mux` clients.
-pub struct Aggregator {
-    pub event_tx: broadcast::Sender<MuxEvent>,
-    pub cache: Arc<RwLock<HashMap<String, SessionCache>>>,
-}
-
-impl Aggregator {
-    pub fn new() -> Self {
-        let (event_tx, _) = broadcast::channel(256);
-        Self { event_tx, cache: Arc::new(RwLock::new(HashMap::new())) }
-    }
-
-    /// Subscribe to aggregated events.
-    pub fn subscribe(&self) -> broadcast::Receiver<MuxEvent> {
-        self.event_tx.subscribe()
-    }
-
-    /// Return cached state for all sessions.
-    pub async fn cached_state(&self) -> HashMap<String, SessionCache> {
-        self.cache.read().await.clone()
     }
 }
 

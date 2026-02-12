@@ -462,6 +462,7 @@ dependencies = [
  "base64",
  "bytes",
  "clap",
+ "coop-mux",
  "futures-util",
  "hyper-util",
  "nix",

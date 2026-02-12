@@ -387,14 +387,14 @@ function connect() {
     try { msg = JSON.parse(ev.data); } catch (_) { return; }
 
     const type = msg.type;
-    const podName = msg.pod;
+    const podName = msg.session;
 
-    if (type === 'pod_online') {
+    if (type === 'session_online') {
       if (!pods.has(podName)) createPodTile(podName);
       return;
     }
 
-    if (type === 'pod_offline') {
+    if (type === 'session_offline') {
       const pod = pods.get(podName);
       if (pod) updateBadge(pod, 'offline');
       return;

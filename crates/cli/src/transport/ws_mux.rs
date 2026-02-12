@@ -71,12 +71,14 @@ impl MuxFlags {
     }
 
     fn wants_event(&self, event: &MuxEvent) -> bool {
+        let session = event.session();
         match event {
-            MuxEvent::State { pod, .. } => self.state && self.wants_pod(pod),
-            MuxEvent::Screen { pod, .. } => self.screen && self.wants_pod(pod),
-            MuxEvent::Credential { pod, .. } => self.credentials && self.wants_pod(pod),
-            MuxEvent::PodOnline { pod, .. } => self.wants_pod(pod),
-            MuxEvent::PodOffline { pod, .. } => self.wants_pod(pod),
+            MuxEvent::State { .. } => self.state && self.wants_pod(session),
+            MuxEvent::Screen { .. } => self.screen && self.wants_pod(session),
+            MuxEvent::Credential { .. } => self.credentials && self.wants_pod(session),
+            MuxEvent::SessionOnline { .. } | MuxEvent::SessionOffline { .. } => {
+                self.wants_pod(session)
+            }
         }
     }
 }
@@ -132,7 +134,7 @@ async fn handle_mux_connection(state: Arc<Store>, flags: MuxFlags, socket: WebSo
             if flags.state {
                 if let Some(ref agent_state) = cache.agent_state {
                     let evt = MuxEvent::State {
-                        pod: pod_name.clone(),
+                        session: pod_name.clone(),
                         prev: String::new(),
                         next: agent_state.clone(),
                         seq: 0,
@@ -148,7 +150,7 @@ async fn handle_mux_connection(state: Arc<Store>, flags: MuxFlags, socket: WebSo
             if flags.screen {
                 if let Some(ref lines) = cache.screen_lines {
                     let evt = MuxEvent::Screen {
-                        pod: pod_name.clone(),
+                        session: pod_name.clone(),
                         lines: lines.clone(),
                         cols: cache.screen_cols,
                         rows: cache.screen_rows,
