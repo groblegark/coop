@@ -10,8 +10,9 @@
 //! Static credentials (API keys) are stored but not refreshed.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, RwLock};
@@ -71,6 +72,27 @@ fn default_refresh_margin() -> u64 {
 pub struct CredentialConfig {
     #[serde(default)]
     pub accounts: Vec<AccountConfig>,
+    /// Path to persist credentials (JSON file). When set, credentials are
+    /// written after every seed/refresh and loaded on startup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persist_path: Option<PathBuf>,
+}
+
+/// Serializable credential snapshot for file persistence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedCredentials {
+    pub accounts: HashMap<String, PersistedAccount>,
+}
+
+/// A single persisted account's tokens.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedAccount {
+    pub access_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    /// Expiry as milliseconds since Unix epoch.
+    #[serde(default)]
+    pub expires_at_ms: u64,
 }
 
 /// Live state of a single account.
@@ -186,6 +208,7 @@ pub struct CredentialBroker {
     accounts: RwLock<HashMap<String, AccountState>>,
     event_tx: broadcast::Sender<CredentialEvent>,
     http_client: reqwest::Client,
+    persist_path: Option<PathBuf>,
 }
 
 impl CredentialBroker {
@@ -218,9 +241,119 @@ impl CredentialBroker {
             accounts: RwLock::new(accounts),
             event_tx,
             http_client: reqwest::Client::new(),
+            persist_path: config.persist_path.clone(),
         });
 
         (broker, event_rx)
+    }
+
+    /// Load persisted credentials from disk and seed all found accounts.
+    /// Called once at startup before the refresh loop begins.
+    pub async fn load_persisted(&self) {
+        let Some(ref path) = self.persist_path else {
+            return;
+        };
+
+        let data = match std::fs::read_to_string(path) {
+            Ok(d) => d,
+            Err(e) => {
+                debug!(path = %path.display(), "no persisted credentials: {e}");
+                return;
+            }
+        };
+
+        let persisted: PersistedCredentials = match serde_json::from_str(&data) {
+            Ok(p) => p,
+            Err(e) => {
+                warn!(path = %path.display(), "failed to parse persisted credentials: {e}");
+                return;
+            }
+        };
+
+        let now_ms =
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+
+        let mut count = 0;
+        for (name, acct) in &persisted.accounts {
+            if acct.access_token.is_empty() {
+                continue;
+            }
+            let expires_in = if acct.expires_at_ms > now_ms {
+                Some((acct.expires_at_ms - now_ms) / 1000)
+            } else {
+                Some(0)
+            };
+            if self
+                .seed(name, acct.access_token.clone(), acct.refresh_token.clone(), expires_in)
+                .await
+            {
+                count += 1;
+            }
+        }
+
+        if count > 0 {
+            info!(count, path = %path.display(), "loaded persisted credentials");
+        }
+    }
+
+    /// Persist all account credentials to disk (atomic write).
+    async fn persist(&self) {
+        let Some(ref path) = self.persist_path else {
+            return;
+        };
+
+        let now_ms =
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+
+        let snapshot = {
+            let accounts = self.accounts.read().await;
+            let mut persisted = HashMap::new();
+            for (name, acct) in accounts.iter() {
+                if acct.access_token.is_empty() {
+                    continue;
+                }
+                let expires_at_ms = acct
+                    .expires_at
+                    .map(|e| {
+                        let remaining = e.saturating_duration_since(Instant::now());
+                        now_ms + remaining.as_millis() as u64
+                    })
+                    .unwrap_or(0);
+                persisted.insert(
+                    name.clone(),
+                    PersistedAccount {
+                        access_token: acct.access_token.clone(),
+                        refresh_token: acct.refresh_token.clone(),
+                        expires_at_ms,
+                    },
+                );
+            }
+            PersistedCredentials { accounts: persisted }
+        };
+
+        let json = match serde_json::to_string_pretty(&snapshot) {
+            Ok(j) => j,
+            Err(e) => {
+                warn!("failed to serialize credentials: {e}");
+                return;
+            }
+        };
+
+        // Atomic write: write to tmp file then rename.
+        let tmp = path.with_extension("tmp");
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = std::fs::write(&tmp, &json) {
+            warn!(path = %tmp.display(), "failed to write credentials: {e}");
+            return;
+        }
+        if let Err(e) = std::fs::rename(&tmp, path) {
+            warn!(path = %path.display(), "failed to rename credentials file: {e}");
+            return;
+        }
+
+        debug!(path = %path.display(), accounts = snapshot.accounts.len(), "persisted credentials");
     }
 
     /// Seed initial credentials for an account (e.g. from K8s secret mount).
@@ -243,6 +376,8 @@ impl CredentialBroker {
             if account.config.r#static { AccountStatus::Static } else { AccountStatus::Healthy };
 
         info!(account = name, "credentials seeded");
+        drop(accounts);
+        self.persist().await;
         true
     }
 
@@ -579,6 +714,7 @@ impl CredentialBroker {
             .event_tx
             .send(CredentialEvent::Refreshed { account: name.to_owned(), credentials });
 
+        self.persist().await;
         Ok(())
     }
 
@@ -758,6 +894,7 @@ impl CredentialBroker {
                     account: account_name.to_owned(),
                     credentials,
                 });
+                self.persist().await;
                 return;
             }
         }

@@ -469,6 +469,8 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     let (credential_broker, credential_event_rx) = match credential_config.as_ref() {
         Some(config) => {
             let (broker, rx) = CredentialBroker::new(config);
+            // Load any persisted credentials from disk before starting refresh loops.
+            broker.load_persisted().await;
             (Some(broker), Some(rx))
         }
         None => (None, None),
