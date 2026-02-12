@@ -11,17 +11,23 @@ pub mod ws_mux;
 use std::sync::Arc;
 
 use axum::middleware;
+use axum::response::Html;
 use axum::routing::{delete, get, post};
 use axum::Router;
 use tower_http::cors::CorsLayer;
 
 use crate::state::MuxState;
 
+/// Embedded multiplexer dashboard UI (served at `/mux`).
+const MUX_HTML: &str = include_str!("mux.html");
+
 /// Build the axum `Router` with all mux routes.
 pub fn build_router(state: Arc<MuxState>) -> Router {
     Router::new()
         // Health (no auth)
         .route("/api/v1/health", get(http::health))
+        // Dashboard UI
+        .route("/mux", get(|| async { Html(MUX_HTML) }))
         // Session management
         .route("/api/v1/sessions", post(http::register_session).get(http::list_sessions))
         .route("/api/v1/sessions/{id}", delete(http::deregister_session))
@@ -33,7 +39,7 @@ pub fn build_router(state: Arc<MuxState>) -> Router {
         .route("/api/v1/sessions/{id}/input", post(http::session_input))
         .route("/api/v1/sessions/{id}/input/raw", post(http::session_input_raw))
         .route("/api/v1/sessions/{id}/input/keys", post(http::session_input_keys))
-        // WebSocket
+        // WebSocket per-session
         .route("/ws/{session_id}", get(ws::ws_handler))
         // Aggregated WebSocket
         .route("/ws/mux", get(ws_mux::ws_mux_handler))
