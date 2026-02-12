@@ -206,6 +206,7 @@ impl StoreBuilder {
             event_log: Arc::new(EventLog::new(None)),
             credentials: None,
             broker_registry: None,
+            multiplexer: None,
         });
 
         StoreCtx { store, input_rx, switch_rx }

@@ -77,6 +77,9 @@ pub struct Store {
     /// Pod registry for credential distribution (Epic 16b).
     /// `None` when broker mode is not enabled.
     pub broker_registry: Option<Arc<PodRegistry>>,
+    /// Terminal multiplexer for multi-pod dashboard (broker mode only).
+    /// `None` when broker mode is not enabled.
+    pub multiplexer: Option<Arc<crate::broker::mux::Multiplexer>>,
 }
 
 /// Terminal I/O: screen, ring buffer, child process.

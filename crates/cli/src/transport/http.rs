@@ -6,6 +6,7 @@
 mod agent;
 mod broker;
 mod credential;
+mod mux;
 mod env;
 mod events;
 mod hooks;
@@ -17,6 +18,7 @@ mod usage;
 pub use agent::*;
 pub use broker::*;
 pub use credential::*;
+pub use mux::*;
 pub use env::*;
 pub use events::*;
 pub use hooks::*;

@@ -4,6 +4,7 @@
 pub mod attach;
 pub mod broker;
 pub mod config;
+pub mod cred;
 pub mod credential;
 pub mod driver;
 pub mod error;

@@ -477,6 +477,12 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     // Pod registry (Epic 16b): only useful in broker mode.
     let broker_registry = credential_broker.as_ref().map(|_| Arc::new(PodRegistry::new()));
 
+    // Multiplexer (multi-pod dashboard): only useful in broker mode.
+    let multiplexer = broker_registry.as_ref().map(|reg| {
+        let (mux, _rx) = crate::broker::mux::Multiplexer::new(Arc::clone(reg));
+        mux
+    });
+
     let event_log = Arc::new(EventLog::new(setup.as_ref().map(|s| s.session_dir.as_path())));
 
     let store = Arc::new(Store {
@@ -524,6 +530,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         event_log: Arc::clone(&event_log),
         credentials: credential_broker,
         broker_registry: broker_registry.clone(),
+        multiplexer: multiplexer.clone(),
     });
 
     // Spawn event log subscriber — persists state/hook events to JSONL files.
@@ -584,6 +591,15 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         let sd = shutdown.clone();
         tokio::spawn(async move {
             distributor.run(event_rx, sd).await;
+        });
+    }
+
+    // Spawn multiplexer aggregator (multi-pod dashboard).
+    if let Some(ref mux) = multiplexer {
+        let mux = Arc::clone(mux);
+        let sd = shutdown.clone();
+        tokio::spawn(async move {
+            mux.run(sd).await;
         });
     }
 

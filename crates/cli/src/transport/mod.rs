@@ -11,6 +11,7 @@ pub mod http;
 pub mod nats_pub;
 pub mod state;
 pub mod ws;
+pub mod ws_mux;
 
 pub use state::Store;
 
@@ -352,7 +353,10 @@ pub fn build_router(state: Arc<Store>) -> Router {
         .route("/api/v1/broker/pods", get(http::broker_pods))
         .route("/api/v1/broker/register", post(http::broker_register))
         .route("/api/v1/broker/deregister", post(http::broker_deregister))
+        .route("/api/v1/mux/pods", get(http::mux_list_pods))
+        .route("/api/v1/mux/pods/{name}/screen", get(http::mux_pod_screen))
         .route("/ws", get(ws::ws_handler))
+        .route("/ws/mux", get(ws_mux::ws_mux_handler))
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_layer))
         .layer(middleware::from_fn(compat::http_compat_layer))
         .layer(CorsLayer::permissive())
