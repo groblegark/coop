@@ -47,6 +47,55 @@ pub struct SeedRequest {
     pub expires_in: Option<u64>,
 }
 
+/// Request body for `POST /api/v1/credentials/reauth`.
+#[derive(Debug, Deserialize)]
+pub struct ReauthRequest {
+    /// Account name to re-authenticate. If omitted, re-auths the first revoked account.
+    #[serde(default)]
+    pub account: Option<String>,
+}
+
+/// `POST /api/v1/credentials/reauth` — initiate device code re-authentication.
+pub async fn credentials_reauth(
+    State(s): State<Arc<Store>>,
+    Json(req): Json<ReauthRequest>,
+) -> impl IntoResponse {
+    let Some(ref broker) = s.credentials else {
+        return ErrorCode::Internal
+            .to_http_response("credential broker not configured")
+            .into_response();
+    };
+
+    // Determine which account to re-auth.
+    let account_name = match req.account {
+        Some(name) => name,
+        None => {
+            let statuses = broker.status().await;
+            match statuses
+                .iter()
+                .find(|a| a.status == crate::credential::AccountStatus::Revoked)
+            {
+                Some(a) => a.name.clone(),
+                None => {
+                    return ErrorCode::NotFound
+                        .to_http_response("no revoked accounts found")
+                        .into_response();
+                }
+            }
+        }
+    };
+
+    match broker.initiate_reauth(&account_name).await {
+        Ok((auth_url, user_code)) => Json(serde_json::json!({
+            "account": account_name,
+            "auth_url": auth_url,
+            "user_code": user_code,
+        }))
+        .into_response(),
+        Err(e) => ErrorCode::Internal.to_http_response(e).into_response(),
+    }
+}
+
 /// `POST /api/v1/credentials/seed` — inject initial credentials for an account.
 pub async fn credentials_seed(
     State(s): State<Arc<Store>>,

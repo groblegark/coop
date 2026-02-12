@@ -184,9 +184,53 @@
   #agent-state.st-setup           { border-color: #b8a0e8; color: #b8a0e8; }
   #agent-state.st-error           { border-color: #e06060; color: #e06060; }
   #agent-state.st-exited          { border-color: #888; color: #888; }
+
+  /* Credential alert banner */
+  #cred-banner {
+    display: none;
+    background: #c0392b;
+    color: #fff;
+    padding: 8px 16px;
+    font-size: 13px;
+    align-items: center;
+    gap: 12px;
+    z-index: 100;
+  }
+  #cred-banner.visible { display: flex; }
+  #cred-banner .cred-msg { flex: 1; }
+  #cred-banner .cred-reauth-btn {
+    background: #fff;
+    color: #c0392b;
+    border: none;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 12px;
+  }
+  #cred-banner .cred-reauth-btn:hover { opacity: 0.9; }
+  #cred-banner .cred-auth-url {
+    display: none;
+    margin-top: 6px;
+    padding: 6px;
+    background: rgba(0,0,0,0.2);
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  #cred-banner .cred-auth-url a { color: #fff; }
 </style>
 </head>
 <body>
+<div id="cred-banner">
+  <span class="cred-msg">Authentication expired — re-authenticate to continue</span>
+  <button class="cred-reauth-btn" onclick="triggerReauth()">Re-authenticate</button>
+  <div class="cred-auth-url" id="cred-auth-url-panel">
+    <span>Open this URL to authenticate:</span><br>
+    <a id="cred-auth-link" href="#" target="_blank"></a>
+    <span id="cred-user-code" style="margin-left: 12px; font-weight: bold;"></span>
+    <button class="cred-reauth-btn" style="margin-left: 8px;" onclick="copyAuthUrl()">Copy URL</button>
+  </div>
+</div>
 <div id="main">
   <div id="terminal"></div>
   <div id="resize-handle"></div>
@@ -405,7 +449,7 @@ import { Terminal }  from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm'
 // Derive base URLs from wherever this page is served
 const BASE = location.origin;
 const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-const WS_URL = `${wsProto}//${location.host}/ws?subscribe=pty,state,usage`;
+const WS_URL = `${wsProto}//${location.host}/ws?subscribe=pty,state,usage,credentials`;
 
 const dot        = document.getElementById('dot');
 const label      = document.getElementById('label');
@@ -1092,6 +1136,10 @@ function connect() {
       renderTable(tUsage, { ...msg.cumulative, uptime_secs: '(live)' }, '');
     } else if (msg.event === 'error') {
       console.warn('server error:', msg.code, msg.message);
+    } else if (msg.event === 'credential:status') {
+      handleCredentialStatus(msg);
+    } else if (msg.event === 'credential:reauth_required') {
+      handleCredentialReauth(msg);
     }
   };
 
@@ -1160,6 +1208,52 @@ resizeHandle.addEventListener('mousedown', (e) => {
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
 });
+
+function handleCredentialStatus(msg) {
+  const banner = document.getElementById('cred-banner');
+  if (msg.status === 'refresh_failed' || msg.status === 'revoked') {
+    banner.querySelector('.cred-msg').textContent =
+      `Authentication expired for "${msg.account}" — re-authenticate to continue`;
+    banner.classList.add('visible');
+    // Hide auth URL panel on status update (may show new one via reauth_required)
+    document.getElementById('cred-auth-url-panel').style.display = 'none';
+  } else if (msg.status === 'refreshed' || msg.status === 'healthy') {
+    banner.classList.remove('visible');
+  }
+}
+
+function handleCredentialReauth(msg) {
+  const banner = document.getElementById('cred-banner');
+  banner.classList.add('visible');
+  banner.querySelector('.cred-msg').textContent =
+    `Re-authenticating "${msg.account}" — complete in browser`;
+  const urlPanel = document.getElementById('cred-auth-url-panel');
+  urlPanel.style.display = 'block';
+  const link = document.getElementById('cred-auth-link');
+  link.href = msg.auth_url;
+  link.textContent = msg.auth_url;
+  document.getElementById('cred-user-code').textContent = msg.user_code ? `Code: ${msg.user_code}` : '';
+}
+
+async function triggerReauth() {
+  try {
+    const res = await fetch('/api/v1/credentials/reauth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    if (!res.ok) {
+      console.error('Reauth request failed:', res.status);
+    }
+  } catch (e) {
+    console.error('Reauth request error:', e);
+  }
+}
+
+function copyAuthUrl() {
+  const link = document.getElementById('cred-auth-link');
+  navigator.clipboard.writeText(link.href).catch(() => {});
+}
 
 connect();
 </script>

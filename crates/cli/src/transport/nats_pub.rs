@@ -175,6 +175,14 @@ impl NatsPublisher {
                                         ts: iso8601_now(),
                                     }
                                 }
+                                CredentialEvent::ReauthRequired { account, .. } => {
+                                    CredentialEventPayload {
+                                        event_type: "reauth_required".to_owned(),
+                                        account,
+                                        error: None,
+                                        ts: iso8601_now(),
+                                    }
+                                }
                             };
                             if let Ok(json) = serde_json::to_vec(&payload) {
                                 if let Err(e) = self.client.publish(

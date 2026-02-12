@@ -47,6 +47,9 @@ pub struct AccountConfig {
     /// OAuth client ID.
     #[serde(default)]
     pub client_id: Option<String>,
+    /// OAuth device authorization endpoint URL.
+    #[serde(default)]
+    pub device_auth_url: Option<String>,
     /// Whether this is a static credential (API key, no refresh).
     #[serde(default)]
     pub r#static: bool,
@@ -124,6 +127,12 @@ pub enum CredentialEvent {
         account: String,
         error: String,
     },
+    /// A re-authentication flow was initiated (device code flow).
+    ReauthRequired {
+        account: String,
+        auth_url: String,
+        user_code: String,
+    },
 }
 
 /// OAuth token response from the provider.
@@ -143,6 +152,36 @@ struct TokenErrorResponse {
     error: String,
     #[serde(default)]
     error_description: Option<String>,
+}
+
+/// Response from the device authorization endpoint (RFC 8628).
+#[derive(Debug, Deserialize)]
+struct DeviceCodeResponse {
+    device_code: String,
+    user_code: String,
+    verification_uri: String,
+    #[serde(default)]
+    verification_uri_complete: Option<String>,
+    expires_in: u64,
+    #[serde(default = "default_poll_interval")]
+    interval: u64,
+}
+
+fn default_poll_interval() -> u64 {
+    5
+}
+
+/// Token response during device code polling.
+#[derive(Debug, Deserialize)]
+struct DeviceTokenResponse {
+    #[serde(default)]
+    access_token: Option<String>,
+    #[serde(default)]
+    refresh_token: Option<String>,
+    #[serde(default)]
+    expires_in: Option<u64>,
+    #[serde(default)]
+    error: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -572,6 +611,195 @@ impl CredentialBroker {
         });
 
         Ok(())
+    }
+
+    /// Initiate a device code re-authentication flow for an account (RFC 8628).
+    /// Returns (auth_url, user_code) on success.
+    pub async fn initiate_reauth(
+        self: &Arc<Self>,
+        account_name: &str,
+    ) -> Result<(String, String), String> {
+        let (device_auth_url, client_id) = {
+            let accounts = self.accounts.read().await;
+            let account = accounts
+                .get(account_name)
+                .ok_or_else(|| format!("unknown account: {account_name}"))?;
+            let device_url = account
+                .config
+                .device_auth_url
+                .clone()
+                .ok_or_else(|| "no device_auth_url configured".to_string())?;
+            let client_id = account
+                .config
+                .client_id
+                .clone()
+                .ok_or_else(|| "no client_id configured".to_string())?;
+            (device_url, client_id)
+        };
+
+        // Request device code from authorization server.
+        let resp = self
+            .http_client
+            .post(&device_auth_url)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(format!("client_id={}", urlencoded(&client_id)))
+            .send()
+            .await
+            .map_err(|e| format!("device auth request failed: {e}"))?;
+
+        if !resp.status().is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("device auth failed: {body}"));
+        }
+
+        let device: DeviceCodeResponse = resp
+            .json()
+            .await
+            .map_err(|e| format!("parse device response: {e}"))?;
+
+        let auth_url = device
+            .verification_uri_complete
+            .clone()
+            .unwrap_or_else(|| device.verification_uri.clone());
+        let user_code = device.user_code.clone();
+
+        // Broadcast reauth event.
+        let _ = self.event_tx.send(CredentialEvent::ReauthRequired {
+            account: account_name.to_owned(),
+            auth_url: auth_url.clone(),
+            user_code: user_code.clone(),
+        });
+
+        // Spawn background polling task.
+        let broker = Arc::clone(self);
+        let account = account_name.to_owned();
+        tokio::spawn(async move {
+            broker
+                .poll_device_code(
+                    &account,
+                    &device.device_code,
+                    device.interval,
+                    device.expires_in,
+                )
+                .await;
+        });
+
+        Ok((auth_url, user_code))
+    }
+
+    /// Poll the token endpoint for device code completion.
+    async fn poll_device_code(
+        &self,
+        account_name: &str,
+        device_code: &str,
+        interval: u64,
+        expires_in: u64,
+    ) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(expires_in);
+        let poll_interval = Duration::from_secs(interval);
+
+        let (token_url, client_id) = {
+            let accounts = self.accounts.read().await;
+            let Some(account) = accounts.get(account_name) else {
+                return;
+            };
+            let Some(ref url) = account.config.token_url else {
+                return;
+            };
+            let Some(ref cid) = account.config.client_id else {
+                return;
+            };
+            (url.clone(), cid.clone())
+        };
+
+        loop {
+            tokio::time::sleep(poll_interval).await;
+            if tokio::time::Instant::now() > deadline {
+                warn!(account = account_name, "device code flow expired");
+                return;
+            }
+
+            let body = format!(
+                "grant_type=urn:ietf:params:oauth:grant-type:device_code&client_id={}&device_code={}",
+                urlencoded(&client_id),
+                urlencoded(device_code),
+            );
+
+            let resp = match self
+                .http_client
+                .post(&token_url)
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .body(body)
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    debug!(account = account_name, "device poll error: {e}");
+                    continue;
+                }
+            };
+
+            let text = resp.text().await.unwrap_or_default();
+            let token: DeviceTokenResponse = match serde_json::from_str(&text) {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+
+            // Check for pending/slow_down errors.
+            if let Some(ref err) = token.error {
+                match err.as_str() {
+                    "authorization_pending" | "slow_down" => continue,
+                    "expired_token" => {
+                        warn!(account = account_name, "device code expired");
+                        return;
+                    }
+                    "access_denied" => {
+                        warn!(account = account_name, "device code denied by user");
+                        return;
+                    }
+                    other => {
+                        warn!(account = account_name, error = other, "device code poll error");
+                        return;
+                    }
+                }
+            }
+
+            // Success — we have tokens.
+            if let Some(access_token) = token.access_token {
+                let credentials = {
+                    let mut accounts = self.accounts.write().await;
+                    let Some(account) = accounts.get_mut(account_name) else {
+                        return;
+                    };
+                    account.access_token = access_token.clone();
+                    if let Some(new_refresh) = token.refresh_token {
+                        account.refresh_token = Some(new_refresh);
+                    }
+                    account.expires_at = token
+                        .expires_in
+                        .map(|s| Instant::now() + Duration::from_secs(s));
+                    account.status = AccountStatus::Healthy;
+
+                    let key = match account.provider.as_str() {
+                        "claude" | "anthropic" => "ANTHROPIC_API_KEY",
+                        "openai" | "codex" => "OPENAI_API_KEY",
+                        "google" | "gemini" => "GOOGLE_API_KEY",
+                        _ => "ANTHROPIC_API_KEY",
+                    };
+                    let mut creds = HashMap::new();
+                    creds.insert(key.to_owned(), access_token);
+                    creds
+                };
+
+                info!(account = account_name, "device code flow completed successfully");
+                let _ = self.event_tx.send(CredentialEvent::Refreshed {
+                    account: account_name.to_owned(),
+                    credentials,
+                });
+                return;
+            }
+        }
     }
 }
 

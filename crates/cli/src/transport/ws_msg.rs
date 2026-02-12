@@ -624,5 +624,12 @@ pub fn credential_event_to_msg(event: &crate::credential::CredentialEvent) -> Se
                 error: None,
             }
         }
+        crate::credential::CredentialEvent::ReauthRequired { account, .. } => {
+            ServerMessage::CredentialStatus {
+                account: account.clone(),
+                status: "reauth_required".to_owned(),
+                error: None,
+            }
+        }
     }
 }
