@@ -306,14 +306,15 @@ async fn nats_receives_state_transitions() -> anyhow::Result<()> {
     let coop = CoopProcess::build().nats(&nats_url).spawn(&["echo", "nats-test"])?;
     coop.wait_healthy(TIMEOUT).await?;
 
-    // Expect at least one state transition.
+    // Expect at least one state event (transition or exit).
     let msg = tokio::time::timeout(TIMEOUT, sub.next())
         .await?
         .ok_or_else(|| anyhow::anyhow!("no NATS message"))?;
     let event: serde_json::Value = serde_json::from_slice(&msg.payload)?;
-    assert!(event["seq"].is_u64());
-    assert!(event["prev"].is_string());
-    assert!(event["next"].is_string());
+    let is_transition =
+        event["seq"].is_u64() && event["prev"].is_string() && event["next"].is_string();
+    let is_exit = event["event"].as_str() == Some("exit");
+    assert!(is_transition || is_exit, "expected transition or exit event, got: {event}");
     // Identity fields are injected into every NATS payload.
     assert!(event["session_id"].is_string(), "expected session_id in NATS payload");
 

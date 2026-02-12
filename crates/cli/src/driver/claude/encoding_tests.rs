@@ -55,33 +55,21 @@ fn nudge_delay_scales_for_large_input() {
 
 #[test]
 fn compute_nudge_delay_short_message() {
-    let d = compute_nudge_delay(
-        Duration::from_millis(200),
-        Duration::from_millis(1),
-        100,
-    );
+    let d = compute_nudge_delay(Duration::from_millis(200), Duration::from_millis(1), 100);
     assert_eq!(d, Duration::from_millis(200));
 }
 
 #[test]
 fn compute_nudge_delay_medium_message() {
     // 512 bytes: 200ms + (512-256)*1ms = 456ms
-    let d = compute_nudge_delay(
-        Duration::from_millis(200),
-        Duration::from_millis(1),
-        512,
-    );
+    let d = compute_nudge_delay(Duration::from_millis(200), Duration::from_millis(1), 512);
     assert_eq!(d, Duration::from_millis(456));
 }
 
 #[test]
 fn compute_nudge_delay_large_message() {
     // 20000 bytes: 200ms + (20000-256)*1ms = 19944ms
-    let d = compute_nudge_delay(
-        Duration::from_millis(200),
-        Duration::from_millis(1),
-        20000,
-    );
+    let d = compute_nudge_delay(Duration::from_millis(200), Duration::from_millis(1), 20000);
     assert_eq!(d, Duration::from_millis(19944));
 }
 

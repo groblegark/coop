@@ -4,7 +4,7 @@
 //! Docker end-to-end tests exercising coop running as a real container.
 //!
 //! Gated behind `COOP_DOCKER_TESTS=1`. Requires `docker` in PATH and the
-//! `coop:test` image (built by `make docker-test-image`).
+//! `coop:test` image (built by `make docker-claudeless`).
 //!
 //! Run: `COOP_DOCKER_TESTS=1 cargo test --test docker_e2e -- --test-threads=1`
 
