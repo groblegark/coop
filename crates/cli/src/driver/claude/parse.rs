@@ -15,7 +15,11 @@ pub fn format_claude_cause(json: &Value, prefix: &str) -> String {
         return format!("{prefix}:error");
     }
 
-    if json.get("type").and_then(|v| v.as_str()) != Some("assistant") {
+    let entry_type = json.get("type").and_then(|v| v.as_str());
+    if entry_type != Some("assistant") {
+        if entry_type == Some("user") {
+            return format!("{prefix}:user");
+        }
         return format!("{prefix}:working");
     }
 
@@ -73,6 +77,27 @@ pub fn parse_claude_state(json: &Value) -> Option<AgentState> {
     // Error field takes priority
     if let Some(error) = json.get("error") {
         return Some(AgentState::Error { detail: error.as_str().unwrap_or("unknown").to_string() });
+    }
+
+    // Detect user-interrupt entries: Claude writes a `type: "user"` entry
+    // with "[Request interrupted by user]" when the user presses Escape.
+    // This is a definitive turn boundary — the agent is now idle.
+    if json.get("type").and_then(|v| v.as_str()) == Some("user") {
+        let is_interrupt = json
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_array())
+            .is_some_and(|blocks| {
+                blocks.iter().any(|b| {
+                    b.get("type").and_then(|v| v.as_str()) == Some("text")
+                        && b.get("text")
+                            .and_then(|v| v.as_str())
+                            .is_some_and(|t| t.contains("[Request interrupted by user]"))
+                })
+            });
+        if is_interrupt {
+            return Some(AgentState::Idle);
+        }
     }
 
     // Only assistant messages carry meaningful state transitions

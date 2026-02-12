@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-//! OAuth helper types.
-
 use serde::{Deserialize, Serialize};
 
 /// Standard OAuth2 token response.

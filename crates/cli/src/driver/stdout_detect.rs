@@ -15,7 +15,7 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::jsonl_stdout::JsonlParser;
-use crate::driver::{AgentState, Detector};
+use crate::driver::{AgentState, Detector, DetectorEmission};
 use crate::event::RawMessageEvent;
 
 /// Classifies a parsed JSON entry into an `(AgentState, cause)` pair.
@@ -41,7 +41,7 @@ pub struct StdoutDetector {
 impl Detector for StdoutDetector {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<(AgentState, String)>,
+        state_tx: mpsc::Sender<DetectorEmission>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -72,8 +72,8 @@ impl Detector for StdoutDetector {
                                             }
                                         }
                                     }
-                                    if let Some(pair) = classify(&json) {
-                                        let _ = state_tx.send(pair).await;
+                                    if let Some((state, cause)) = classify(&json) {
+                                        let _ = state_tx.send((state, cause, None)).await;
                                     }
                                 }
                             }

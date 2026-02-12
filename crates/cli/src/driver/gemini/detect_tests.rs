@@ -34,7 +34,7 @@ async fn stdout_detector_parses_gemini_stream_json() -> anyhow::Result<()> {
     let _ = handle.await;
 
     match state {
-        Ok(Some((AgentState::Working, _cause))) => {}
+        Ok(Some((AgentState::Working, _cause, _))) => {}
         other => anyhow::bail!("expected Working, got {other:?}"),
     }
     Ok(())
@@ -65,7 +65,7 @@ async fn stdout_detector_detects_result_as_idle() -> anyhow::Result<()> {
     let _ = handle.await;
 
     match state {
-        Ok(Some((AgentState::Idle, _cause))) => {}
+        Ok(Some((AgentState::Idle, _cause, _))) => {}
         other => anyhow::bail!("expected Idle, got {other:?}"),
     }
     Ok(())
@@ -108,7 +108,7 @@ async fn run_hook_detector(events: Vec<&str>) -> anyhow::Result<Vec<AgentState>>
 
     let mut states = Vec::new();
     let timeout = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        while let Some((state, _cause)) = state_rx.recv().await {
+        while let Some((state, _cause, _)) = state_rx.recv().await {
             states.push(state);
             if states.len() >= expected_count {
                 break;

@@ -204,6 +204,13 @@ pub struct NudgeStep {
     pub delay_after: Option<Duration>,
 }
 
+/// Emission from a detector: `(state, cause, tier_override)`.
+///
+/// The optional `tier_override` lets a detector emit at a different tier
+/// than its default for high-confidence signals (e.g. a Tier 2 log detector
+/// emitting at Tier 1 when it sees a definitive interrupt entry).
+pub type DetectorEmission = (AgentState, String, Option<u8>);
+
 /// A state detection source that monitors structured data and emits
 /// [`AgentState`] transitions.
 ///
@@ -211,7 +218,7 @@ pub struct NudgeStep {
 pub trait Detector: Send + 'static {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<(AgentState, String)>,
+        state_tx: mpsc::Sender<DetectorEmission>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 

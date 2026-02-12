@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::screen::ScreenSnapshot;
 
-use super::{AgentState, Detector};
+use super::{AgentState, Detector, DetectorEmission};
 
 /// User-provided JSON configuration for screen pattern matching.
 #[derive(Debug, Clone, Deserialize)]
@@ -124,7 +124,7 @@ impl ScreenParser {
 impl Detector for ScreenParser {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<(AgentState, String)>,
+        state_tx: mpsc::Sender<DetectorEmission>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -148,7 +148,7 @@ impl Detector for ScreenParser {
                             AgentState::Error { .. } => "screen:error",
                             _ => "screen:idle",
                         };
-                        let _ = state_tx.send((state.clone(), cause.to_owned())).await;
+                        let _ = state_tx.send((state.clone(), cause.to_owned(), None)).await;
                         last_state = new_state;
                     }
                 } else if last_state.is_some() {

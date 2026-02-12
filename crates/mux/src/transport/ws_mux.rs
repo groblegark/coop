@@ -283,10 +283,7 @@ async fn start_watching(state: &MuxState, session_id: &str) {
     let poller_cancel = CancellationToken::new();
     spawn_screen_poller(entry, &state.config, poller_cancel.clone());
 
-    watchers.insert(
-        session_id.to_owned(),
-        WatcherState { count: 1, feed_cancel, poller_cancel },
-    );
+    watchers.insert(session_id.to_owned(), WatcherState { count: 1, feed_cancel, poller_cancel });
 }
 
 /// Decrement watcher count for a session, stopping the event feed when 0.

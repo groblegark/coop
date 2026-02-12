@@ -16,7 +16,8 @@ use tokio_util::sync::CancellationToken;
 use crate::backend::Backend;
 use crate::config::GroomLevel;
 use crate::driver::{
-    AgentState, AgentType, Detector, ExitStatus, NudgeEncoder, NudgeStep, RespondEncoder,
+    AgentState, AgentType, Detector, DetectorEmission, ExitStatus, NudgeEncoder, NudgeStep,
+    RespondEncoder,
 };
 use crate::event::{
     InputEvent, OutputEvent, PromptOutcome, RawHookEvent, RawMessageEvent, TransitionEvent,
@@ -377,7 +378,7 @@ impl MockDetector {
 impl Detector for MockDetector {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<(AgentState, String)>,
+        state_tx: mpsc::Sender<DetectorEmission>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -385,7 +386,7 @@ impl Detector for MockDetector {
                 tokio::select! {
                     _ = shutdown.cancelled() => return,
                     _ = tokio::time::sleep(delay) => {
-                        if state_tx.send((state, String::new())).await.is_err() {
+                        if state_tx.send((state, String::new(), None)).await.is_err() {
                             return;
                         }
                     }

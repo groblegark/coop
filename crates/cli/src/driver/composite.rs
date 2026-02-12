@@ -44,14 +44,15 @@ impl CompositeDetector {
 
         // Spawn each detector with a forwarding task that tags with tier.
         for detector in self.tiers.drain(..) {
-            let tier = detector.tier();
+            let default_tier = detector.tier();
             let inner_tx = tag_tx.clone();
             let sd = shutdown.clone();
-            let (det_tx, mut det_rx) = mpsc::channel::<(AgentState, String)>(16);
+            let (det_tx, mut det_rx) = mpsc::channel(16);
 
             tokio::spawn(detector.run(det_tx, sd));
             tokio::spawn(async move {
-                while let Some((state, cause)) = det_rx.recv().await {
+                while let Some((state, cause, tier_override)) = det_rx.recv().await {
+                    let tier = tier_override.unwrap_or(default_tier);
                     if inner_tx.send((tier, state, cause)).await.is_err() {
                         break;
                     }

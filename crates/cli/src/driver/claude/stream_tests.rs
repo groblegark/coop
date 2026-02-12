@@ -50,7 +50,7 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
     // Wait for states to arrive
     let mut states = Vec::new();
     let timeout = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        while let Some((state, _cause)) = state_rx.recv().await {
+        while let Some((state, _cause, _)) = state_rx.recv().await {
             states.push(state.clone());
             if matches!(state, AgentState::Idle) {
                 break;
@@ -94,7 +94,7 @@ async fn log_detector_skips_non_assistant_lines() -> anyhow::Result<()> {
     shutdown.cancel();
     let _ = handle.await;
 
-    if let Ok(Some((state, _cause))) = timeout {
+    if let Ok(Some((state, _cause, _))) = timeout {
         assert!(matches!(state, AgentState::Working));
     }
     Ok(())
@@ -127,7 +127,7 @@ async fn stdout_detector_parses_jsonl_bytes() -> anyhow::Result<()> {
     let _ = handle.await;
 
     match state {
-        Ok(Some((AgentState::Working, _cause))) => {} // tool_use → Working
+        Ok(Some((AgentState::Working, _cause, _))) => {} // tool_use → Working
         other => anyhow::bail!("expected Working, got {other:?}"),
     }
     Ok(())
@@ -169,7 +169,7 @@ async fn run_hook_detector(events: Vec<&str>) -> anyhow::Result<Vec<AgentState>>
 
     let mut states = Vec::new();
     let timeout = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        while let Some((state, _cause)) = state_rx.recv().await {
+        while let Some((state, _cause, _)) = state_rx.recv().await {
             states.push(state);
             if states.len() >= events.len() {
                 break;
