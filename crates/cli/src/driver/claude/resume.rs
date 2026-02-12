@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use crate::driver::AgentState;
 
-use super::setup::claude_config_dir;
+use super::setup::{claude_config_dir, project_dir_name};
 
 /// Recovered state from a previous session log.
 #[derive(Debug, Clone)]
@@ -47,8 +47,10 @@ pub fn discover_session_log(workspace_hint: &str) -> anyhow::Result<Option<PathB
         return Ok(None);
     }
 
-    // Build candidate directories: look for a hash that matches the workspace hint,
-    // or scan all project directories.
+    // Build candidate directories: look for a project dir that matches the workspace hint.
+    // Normalize the hint using the same convention as Claude's project directory naming
+    // so raw paths (e.g. `/Users/me/myapp`) match directory names (`-Users-me-myapp`).
+    let normalized_hint = project_dir_name(Path::new(workspace_hint));
     let mut candidates: Vec<PathBuf> = Vec::new();
 
     if let Ok(entries) = std::fs::read_dir(&projects_dir) {
@@ -56,9 +58,7 @@ pub fn discover_session_log(workspace_hint: &str) -> anyhow::Result<Option<PathB
             let path = entry.path();
             if path.is_dir() {
                 let dir_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                // Match if the directory name contains the workspace hint
-                // (Claude uses a hash of the workspace path as directory name).
-                if dir_name.contains(workspace_hint) || workspace_hint.contains(&dir_name) {
+                if dir_name.contains(&normalized_hint) || normalized_hint.contains(&dir_name) {
                     candidates.push(path);
                 }
             }
