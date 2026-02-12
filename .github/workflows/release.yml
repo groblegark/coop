@@ -72,11 +72,12 @@ jobs:
         run: |
           cargo build --release --target ${{ matrix.target }}
           strip target/${{ matrix.target }}/release/coop 2>/dev/null || true
+          strip target/${{ matrix.target }}/release/coop-mux 2>/dev/null || true
 
       - name: Package
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf /tmp/${{ matrix.artifact }}.tar.gz coop
+          tar czf /tmp/${{ matrix.artifact }}.tar.gz coop coop-mux
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

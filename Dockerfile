@@ -15,7 +15,9 @@ RUN case "$TARGETARCH" in \
     esac \
     && cargo build --release --target "$RUST_TARGET" \
     && strip "target/$RUST_TARGET/release/coop" \
-    && cp "target/$RUST_TARGET/release/coop" /coop-bin
+    && strip "target/$RUST_TARGET/release/coop-mux" \
+    && cp "target/$RUST_TARGET/release/coop" /coop-bin \
+    && cp "target/$RUST_TARGET/release/coop-mux" /coop-mux-bin
 
 # ---------------------------------------------------------------------------
 # Base: common developer tools shared by all runtime stages
@@ -32,6 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ---------------------------------------------------------------------------
 FROM base AS empty
 COPY --from=builder /coop-bin /coop
+COPY --from=builder /coop-mux-bin /coop-mux
 ENTRYPOINT ["/coop"]
 
 # ---------------------------------------------------------------------------
@@ -50,6 +53,7 @@ RUN case "$TARGETARCH" in \
     && rm /tmp/claudeless.tar.gz \
     && chmod +x /usr/local/bin/claudeless
 COPY --from=builder /coop-bin /usr/local/bin/coop
+COPY --from=builder /coop-mux-bin /usr/local/bin/coop-mux
 COPY crates/cli/tests/scenarios/ /scenarios/
 ENTRYPOINT ["coop"]
 
@@ -61,6 +65,7 @@ FROM base AS claude
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/root/.local/bin:$PATH"
 COPY --from=builder /coop-bin /usr/local/bin/coop
+COPY --from=builder /coop-mux-bin /usr/local/bin/coop-mux
 ENTRYPOINT ["coop"]
 
 FROM base AS gemini
@@ -68,4 +73,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 RUN npm install -g @google/gemini-cli
 COPY --from=builder /coop-bin /usr/local/bin/coop
+COPY --from=builder /coop-mux-bin /usr/local/bin/coop-mux
 ENTRYPOINT ["coop"]
