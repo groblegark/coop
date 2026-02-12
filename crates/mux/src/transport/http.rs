@@ -98,8 +98,17 @@ pub async fn register_session(
         ws_bridge: tokio::sync::RwLock::new(None),
     });
 
-    s.sessions.write().await.insert(id.clone(), entry);
-    tracing::info!(session_id = %id, "session registered");
+    let is_new = {
+        let mut sessions = s.sessions.write().await;
+        let is_new = !sessions.contains_key(&id);
+        sessions.insert(id.clone(), entry);
+        is_new
+    };
+    if is_new {
+        tracing::info!(session_id = %id, "session registered");
+    } else {
+        tracing::debug!(session_id = %id, "session re-registered (heartbeat)");
+    }
 
     Json(RegisterResponse { id, registered: true }).into_response()
 }
