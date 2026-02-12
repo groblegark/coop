@@ -302,7 +302,7 @@ async fn handle_connection(
 
                 match msg {
                     Message::Text(text) => {
-                        let client_msg: ClientMessage = match serde_json::from_str(&text) {
+                        let envelope: ClientEnvelope = match serde_json::from_str(&text) {
                             Ok(m) => m,
                             Err(_) => {
                                 let err = ServerMessage::Error {
@@ -316,8 +316,13 @@ async fn handle_connection(
                             }
                         };
 
-                        if let Some(reply) = handle_client_message(&state, client_msg, &client_id, &mut authed).await {
-                            if send_json(&mut ws_tx, &reply).await.is_err() {
+                        if let Some(reply) = handle_client_message(&state, envelope.message, &client_id, &mut authed).await {
+                            if envelope.request_id.is_some() {
+                                let wrapped = ServerEnvelope { message: reply, request_id: envelope.request_id };
+                                if send_json(&mut ws_tx, &wrapped).await.is_err() {
+                                    break;
+                                }
+                            } else if send_json(&mut ws_tx, &reply).await.is_err() {
                                 break;
                             }
                         }
@@ -690,7 +695,7 @@ async fn handle_client_message(
 }
 
 /// Send a JSON-serialized message over the WebSocket.
-async fn send_json<S>(tx: &mut S, msg: &ServerMessage) -> Result<(), ()>
+async fn send_json<T: serde::Serialize, S>(tx: &mut S, msg: &T) -> Result<(), ()>
 where
     S: SinkExt<Message> + Unpin,
 {

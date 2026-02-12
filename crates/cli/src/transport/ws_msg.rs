@@ -462,6 +462,41 @@ pub enum ServerMessage {
     },
 }
 
+/// Envelope wrapping a [`ClientMessage`] with an optional correlation ID.
+///
+/// When `request_id` is present, the server echoes it back on the response
+/// message so the caller can match request → response pairs.
+///
+/// Wire format (via `#[serde(flatten)]`):
+/// ```json
+/// {"event": "replay:get", "offset": 0, "request_id": "abc"}
+/// ```
+#[derive(Debug, Clone, Deserialize)]
+pub struct ClientEnvelope {
+    #[serde(flatten)]
+    pub message: ClientMessage,
+    #[serde(default)]
+    pub request_id: Option<String>,
+}
+
+/// Envelope wrapping a [`ServerMessage`] with an optional correlation ID.
+///
+/// When built from a request that carried a `request_id`, the same ID is
+/// echoed in the response.  Streaming events omit it (serialization skips
+/// `None`).
+///
+/// Wire format:
+/// ```json
+/// {"event": "replay", "data": "...", "request_id": "abc"}
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerEnvelope {
+    #[serde(flatten)]
+    pub message: ServerMessage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+}
+
 /// WebSocket subscription flags parsed from `?subscribe=pty,screen,state,hooks,messages`.
 ///
 /// Defaults to no messages.

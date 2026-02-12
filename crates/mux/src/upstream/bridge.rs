@@ -1,97 +1,141 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-//! WebSocket bridge: single upstream WS connection fanned out to multiple downstream clients.
+//! Bidirectional WebSocket bridge: single upstream connection multiplexed to N downstream clients.
+//!
+//! Features:
+//! - **Per-client channels**: each downstream client gets a dedicated mpsc sender/receiver.
+//! - **Correlation routing**: outgoing requests are stamped with a `request_id`; responses are
+//!   routed back to the originating client only.
+//! - **Subscription filtering**: streaming events are forwarded only to clients whose flags match.
+//! - **Upstream write**: downstream messages are forwarded through the single upstream connection.
 
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use futures_util::StreamExt;
-use tokio::sync::broadcast;
+use futures_util::{SinkExt, StreamExt};
+use serde::Deserialize;
+use tokio::sync::{mpsc, RwLock};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
 use crate::state::SessionEntry;
 
-/// Upstream WS bridge for a single session.
+/// Identifies a downstream client within the bridge.
+pub type ClientId = u64;
+
+/// Subscription flags controlling which upstream events reach a downstream client.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SubscriptionFlags {
+    pub pty: bool,
+    pub screen: bool,
+    pub state: bool,
+}
+
+impl SubscriptionFlags {
+    /// Parse a comma-separated flags string (e.g. `"pty,state"`).
+    pub fn parse(s: &str) -> Self {
+        let mut flags = Self::default();
+        for token in s.split(',') {
+            match token.trim() {
+                "pty" | "output" => flags.pty = true,
+                "screen" => flags.screen = true,
+                "state" => flags.state = true,
+                _ => {}
+            }
+        }
+        flags
+    }
+
+    /// Return true if an upstream event with the given `"event"` tag should be forwarded.
+    fn matches_event(&self, event: Option<&str>) -> bool {
+        match event {
+            Some("pty" | "output") => self.pty,
+            Some("replay") => self.pty,
+            Some("screen") => self.screen,
+            Some("transition" | "exit" | "prompt:outcome" | "stop:outcome" | "start:outcome") => {
+                self.state
+            }
+            // Responses (have request_id) and unknown events always pass through.
+            _ => true,
+        }
+    }
+}
+
+/// Per-client bookkeeping within the bridge.
+struct ClientSlot {
+    tx: mpsc::UnboundedSender<Arc<str>>,
+    flags: SubscriptionFlags,
+}
+
+/// Bidirectional WebSocket bridge for a single upstream session.
 ///
-/// Maintains one WS connection to the upstream coop and broadcasts all received
-/// messages to downstream subscribers via a `broadcast::Sender`.
+/// One upstream WS connection is shared across all downstream clients.  The bridge handles:
+/// - Fan-out of streaming events filtered by per-client [`SubscriptionFlags`].
+/// - Stamping outgoing requests with correlation IDs and routing responses to originators.
 pub struct WsBridge {
-    pub tx: broadcast::Sender<String>,
+    /// Send downstream-originated messages upstream (client_id, raw JSON text).
+    upstream_tx: mpsc::UnboundedSender<(ClientId, String)>,
+    /// Per-client state. Guarded for add/remove from outside the run loop.
+    clients: Arc<RwLock<HashMap<ClientId, ClientSlot>>>,
+    next_id: AtomicU64,
     cancel: CancellationToken,
 }
 
 impl WsBridge {
-    /// Create and start a new WS bridge for the given session entry.
-    pub fn connect(entry: &Arc<SessionEntry>, subscribe: &str) -> Arc<Self> {
-        let (tx, _) = broadcast::channel(256);
+    /// Create and start a new bidirectional WS bridge for the given session.
+    ///
+    /// The bridge connects to upstream with `pty,state` subscriptions and filters
+    /// per-client on the downstream side.
+    pub fn connect(entry: &Arc<SessionEntry>) -> Arc<Self> {
         let cancel = entry.cancel.child_token();
+        let clients: Arc<RwLock<HashMap<ClientId, ClientSlot>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+        let (upstream_tx, upstream_rx) = mpsc::unbounded_channel();
 
-        let bridge = Arc::new(Self { tx: tx.clone(), cancel: cancel.clone() });
+        let bridge = Arc::new(Self {
+            upstream_tx,
+            clients: Arc::clone(&clients),
+            next_id: AtomicU64::new(1),
+            cancel: cancel.clone(),
+        });
 
+        // The upstream subscription must cover the union of all possible client flags.
+        let subscribe = "pty,state";
         let url = build_ws_url(&entry.url, entry.auth_token.as_deref(), subscribe);
         let entry_id = entry.id.clone();
 
-        tokio::spawn(async move {
-            let mut backoff_ms = 100u64;
-            let max_backoff_ms = 5000u64;
-
-            loop {
-                if cancel.is_cancelled() {
-                    break;
-                }
-
-                match tokio_tungstenite::connect_async(&url).await {
-                    Ok((ws_stream, _)) => {
-                        backoff_ms = 100; // reset on successful connect
-                        tracing::debug!(session_id = %entry_id, "upstream WS connected");
-
-                        let (_write, mut read) = ws_stream.split();
-
-                        loop {
-                            tokio::select! {
-                                _ = cancel.cancelled() => break,
-                                msg = read.next() => {
-                                    match msg {
-                                        Some(Ok(Message::Text(text))) => {
-                                            // Broadcast to all downstream subscribers.
-                                            // Ignore send errors (no subscribers).
-                                            let _ = tx.send(text.to_string());
-                                        }
-                                        Some(Ok(Message::Close(_))) | None => {
-                                            tracing::debug!(session_id = %entry_id, "upstream WS closed");
-                                            break;
-                                        }
-                                        Some(Err(e)) => {
-                                            tracing::debug!(session_id = %entry_id, err = %e, "upstream WS error");
-                                            break;
-                                        }
-                                        _ => {} // ping/pong/binary ignored
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::debug!(
-                            session_id = %entry_id,
-                            err = %e,
-                            backoff_ms,
-                            "upstream WS connect failed, retrying"
-                        );
-                    }
-                }
-
-                // Exponential backoff before reconnect.
-                tokio::select! {
-                    _ = cancel.cancelled() => break,
-                    _ = tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)) => {}
-                }
-                backoff_ms = (backoff_ms * 2).min(max_backoff_ms);
-            }
-        });
+        tokio::spawn(run_loop(url, entry_id, cancel, clients, upstream_rx));
 
         bridge
+    }
+
+    /// Register a new downstream client with the given subscription flags.
+    ///
+    /// Returns a `(ClientId, Receiver)` pair.  Messages matching the flags (and
+    /// correlation-routed responses) arrive on the receiver.
+    pub async fn add_client(
+        &self,
+        flags: SubscriptionFlags,
+    ) -> (ClientId, mpsc::UnboundedReceiver<Arc<str>>) {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = mpsc::unbounded_channel();
+        self.clients.write().await.insert(id, ClientSlot { tx, flags });
+        (id, rx)
+    }
+
+    /// Remove a downstream client.
+    pub async fn remove_client(&self, id: ClientId) {
+        self.clients.write().await.remove(&id);
+    }
+
+    /// Send a message from a downstream client through the upstream WS connection.
+    ///
+    /// The bridge stamps a `request_id` so the response can be correlation-routed
+    /// back to this client.
+    pub fn send_upstream(&self, client_id: ClientId, text: String) {
+        let _ = self.upstream_tx.send((client_id, text));
     }
 }
 
@@ -101,9 +145,156 @@ impl Drop for WsBridge {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Run loop
+// ---------------------------------------------------------------------------
+
+async fn run_loop(
+    url: String,
+    entry_id: String,
+    cancel: CancellationToken,
+    clients: Arc<RwLock<HashMap<ClientId, ClientSlot>>>,
+    mut downstream_rx: mpsc::UnboundedReceiver<(ClientId, String)>,
+) {
+    let mut backoff_ms = 100u64;
+    let max_backoff_ms = 5000u64;
+    let mut rid_counter: u64 = 0;
+    // Pending correlation IDs: request_id -> originating ClientId.
+    let mut pending: HashMap<String, ClientId> = HashMap::new();
+
+    loop {
+        if cancel.is_cancelled() {
+            break;
+        }
+
+        match tokio_tungstenite::connect_async(&url).await {
+            Ok((ws_stream, _)) => {
+                backoff_ms = 100;
+                tracing::debug!(session_id = %entry_id, "upstream WS connected");
+
+                let (mut write, mut read) = ws_stream.split();
+
+                loop {
+                    tokio::select! {
+                        _ = cancel.cancelled() => return,
+
+                        // Upstream -> route to clients
+                        msg = read.next() => {
+                            match msg {
+                                Some(Ok(Message::Text(text))) => {
+                                    let text = text.to_string();
+                                    let info = extract_route_info(&text);
+                                    let shared: Arc<str> = Arc::from(text.as_str());
+
+                                    if let Some(rid) = info.request_id {
+                                        // Response: route to originator only.
+                                        if let Some(cid) = pending.remove(rid) {
+                                            let guard = clients.read().await;
+                                            if let Some(slot) = guard.get(&cid) {
+                                                let _ = slot.tx.send(shared);
+                                            }
+                                        }
+                                    } else {
+                                        // Streaming event: fan out by subscription flags.
+                                        let guard = clients.read().await;
+                                        for slot in guard.values() {
+                                            if slot.flags.matches_event(info.event) {
+                                                let _ = slot.tx.send(Arc::clone(&shared));
+                                            }
+                                        }
+                                    }
+                                }
+                                Some(Ok(Message::Close(_))) | None => {
+                                    tracing::debug!(session_id = %entry_id, "upstream WS closed");
+                                    break;
+                                }
+                                Some(Err(e)) => {
+                                    tracing::debug!(session_id = %entry_id, err = %e, "upstream WS error");
+                                    break;
+                                }
+                                _ => {} // ping/pong/binary ignored
+                            }
+                        }
+
+                        // Downstream -> stamp request_id, forward upstream
+                        msg = downstream_rx.recv() => {
+                            match msg {
+                                Some((client_id, text)) => {
+                                    let stamped = stamp_request_id(&mut rid_counter, &text);
+                                    pending.insert(stamped.request_id.clone(), client_id);
+                                    if write.send(Message::Text(stamped.text.into())).await.is_err() {
+                                        tracing::debug!(session_id = %entry_id, "upstream WS write failed");
+                                        break;
+                                    }
+                                }
+                                None => return, // bridge dropped
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::debug!(
+                    session_id = %entry_id,
+                    err = %e,
+                    backoff_ms,
+                    "upstream WS connect failed, retrying"
+                );
+            }
+        }
+
+        // Exponential backoff before reconnect.
+        tokio::select! {
+            _ = cancel.cancelled() => break,
+            _ = tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)) => {}
+        }
+        backoff_ms = (backoff_ms * 2).min(max_backoff_ms);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Lightweight routing info extracted from a JSON message without full deserialization.
+#[derive(Deserialize, Default)]
+struct RouteInfo<'a> {
+    #[serde(default)]
+    event: Option<&'a str>,
+    #[serde(default)]
+    request_id: Option<&'a str>,
+}
+
+/// Extract the `event` and `request_id` fields from a JSON object.
+fn extract_route_info(json: &str) -> RouteInfo<'_> {
+    serde_json::from_str(json).unwrap_or_default()
+}
+
+/// Result of stamping a `request_id` onto an outgoing JSON message.
+struct StampedMessage {
+    text: String,
+    request_id: String,
+}
+
+/// Inject a unique `request_id` into a JSON object string.
+///
+/// Avoids a full JSON parse/reserialize — uses string splicing for the common
+/// case of well-formed `{...}` input.
+fn stamp_request_id(counter: &mut u64, json: &str) -> StampedMessage {
+    *counter += 1;
+    let rid = counter.to_string();
+    // Insert `"request_id":"N",` right after the opening `{`.
+    let text = if let Some(rest) = json.strip_prefix('{') {
+        format!("{{\"request_id\":\"{rid}\",{rest}")
+    } else {
+        // Fallback: wrap in an object (shouldn't happen with well-formed messages).
+        format!("{{\"request_id\":\"{rid}\",\"_raw\":{json}}}")
+    };
+    StampedMessage { text, request_id: rid }
+}
+
 /// Build the upstream WebSocket URL from an HTTP base URL.
 fn build_ws_url(base_url: &str, auth_token: Option<&str>, subscribe: &str) -> String {
-    // Convert http(s):// to ws(s)://
     let ws_base = if base_url.starts_with("https://") {
         base_url.replacen("https://", "wss://", 1)
     } else {

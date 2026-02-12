@@ -248,10 +248,10 @@ function expandSession(id) {
   info.term.options.scrollback = 10000;
   info.term.reset();
   setFocus(id);
-  // Fit to expanded container, then connect live WebSocket after layout settles
+  // Fit to expanded container, then connect live WebSocket
   requestAnimationFrame(() => {
     info.fitAddon.fit();
-    setTimeout(() => connectExpandedWs(id, info), 50);
+    connectExpandedWs(id, info);
   });
 }
 
@@ -269,15 +269,10 @@ function connectExpandedWs(id, info) {
     expandedWs.send(JSON.stringify({ event: 'resize', cols: info.term.cols, rows: info.term.rows }));
   };
 
-  // Refit after replay data settles to force WebGL re-render
-  let replayTimer = null;
-
   expandedWs.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
     if (msg.event === 'pty' || msg.event === 'replay') {
       info.term.write(b64decode(msg.data));
-      clearTimeout(replayTimer);
-      replayTimer = setTimeout(() => info.fitAddon.fit(), 200);
     } else if (msg.event === 'transition') {
       info.state = msg.next;
       const badge = info.el.querySelector('[data-badge]');
