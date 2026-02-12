@@ -6,6 +6,7 @@
 pub mod auth;
 pub mod http;
 pub mod ws;
+pub mod ws_mux;
 
 use std::sync::Arc;
 
@@ -34,6 +35,8 @@ pub fn build_router(state: Arc<MuxState>) -> Router {
         .route("/api/v1/sessions/{id}/input/keys", post(http::session_input_keys))
         // WebSocket
         .route("/ws/{session_id}", get(ws::ws_handler))
+        // Aggregated WebSocket
+        .route("/ws/mux", get(ws_mux::ws_mux_handler))
         // Middleware
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_layer))
         .layer(CorsLayer::permissive())

@@ -13,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::MuxError;
 use crate::state::{epoch_ms, MuxState, SessionEntry};
+use crate::upstream::aggregator_feed::spawn_aggregator_feed;
 use crate::upstream::client::UpstreamClient;
 use crate::upstream::poller::spawn_screen_poller;
 
@@ -102,6 +103,13 @@ pub async fn register_session(
     // Spawn screen + status poller.
     spawn_screen_poller(Arc::clone(&entry), &s.config);
 
+    // Spawn aggregator feed for /ws/mux.
+    spawn_aggregator_feed(
+        &entry,
+        s.aggregator.event_tx.clone(),
+        Arc::clone(&s.aggregator.cache),
+    );
+
     s.sessions.write().await.insert(id.clone(), entry);
     tracing::info!(session_id = %id, "session registered");
 
@@ -116,6 +124,11 @@ pub async fn deregister_session(
     let mut sessions = s.sessions.write().await;
     if let Some(entry) = sessions.remove(&id) {
         entry.cancel.cancel();
+        // Clean up aggregator cache and emit offline event.
+        s.aggregator.cache.write().await.remove(&id);
+        let _ = s.aggregator.event_tx.send(crate::state::MuxEvent::SessionOffline {
+            session: id.clone(),
+        });
         tracing::info!(session_id = %id, "session deregistered");
         Json(DeregisterResponse { id, removed: true }).into_response()
     } else {
