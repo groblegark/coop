@@ -98,11 +98,11 @@ struct Cli {
 #[derive(clap::Subcommand)]
 enum Commands {
     /// Attach an interactive terminal to a running coop server.
-    Attach(coop::attach::AttachArgs),
+    Attach(coop::command::attach::AttachArgs),
     /// Open the web terminal UI in a browser.
-    Open(coop::open::OpenArgs),
+    Open(coop::command::open::OpenArgs),
     /// Resolve a stop hook from inside the PTY.
-    Send(coop::send::SendArgs),
+    Send(coop::command::send::SendArgs),
 }
 
 #[tokio::main]
@@ -111,13 +111,13 @@ async fn main() {
 
     match cli.subcommand {
         Some(Commands::Attach(args)) => {
-            std::process::exit(coop::attach::run(args).await);
+            std::process::exit(coop::command::attach::run(args).await);
         }
         Some(Commands::Open(args)) => {
-            std::process::exit(coop::open::run(&args));
+            std::process::exit(coop::command::open::run(&args));
         }
         Some(Commands::Send(args)) => {
-            std::process::exit(coop::send::run(&args));
+            std::process::exit(coop::command::send::run(&args));
         }
         None => {
             let config = cli.config;
