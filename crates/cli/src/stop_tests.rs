@@ -89,12 +89,11 @@ fn generate_block_reason_default_no_schema() {
     assert_eq!(
         generate_block_reason(&config),
         concat!(
-            "Follow the instructions provided in the stop hook above, then:\n",
-            "1. If you are done, use the Bash tool:\n",
-            "    `coop send '{\"status\":\"done\",\"message\":\"<summary>\"}'`\n",
-            "2. If you are still working, use the Bash tool:\n",
-            "    `coop send '{\"status\":\"continue\",\"message\":\"<what remains>\"}'`\n",
-            "3. If you need clarification, use the AskUserQuestion tool.",
+            "Please confirm by running one of:\n",
+            "1. Work is complete\n",
+            "    `coop send '{\"status\":\"done\",\"message\":\"<message>\"}'`\n",
+            "2. Still working, not ready to stop\n",
+            "    `coop send '{\"status\":\"continue\",\"message\":\"<message>\"}'`",
         )
     );
 }
@@ -110,12 +109,11 @@ fn generate_block_reason_custom_prompt_no_schema() {
         generate_block_reason(&config),
         concat!(
             "Finish your work first.\n",
-            "Follow the instructions provided in the stop hook above, then:\n",
-            "1. If you are done, use the Bash tool:\n",
-            "    `coop send '{\"status\":\"done\",\"message\":\"<summary>\"}'`\n",
-            "2. If you are still working, use the Bash tool:\n",
-            "    `coop send '{\"status\":\"continue\",\"message\":\"<what remains>\"}'`\n",
-            "3. If you need clarification, use the AskUserQuestion tool.",
+            "Please confirm by running one of:\n",
+            "1. Work is complete\n",
+            "    `coop send '{\"status\":\"done\",\"message\":\"<message>\"}'`\n",
+            "2. Still working, not ready to stop\n",
+            "    `coop send '{\"status\":\"continue\",\"message\":\"<message>\"}'`",
         )
     );
 }
@@ -131,7 +129,11 @@ fn generate_block_reason_prompt_with_inline_json() {
         generate_block_reason(&config),
         concat!(
             "Send {\"result\":\"ok\"} when done.\n",
-            "When ready to stop, run: `coop send '<json>'`",
+            "Please confirm by running one of:\n",
+            "1. Work is complete\n",
+            "    `coop send '{\"status\":\"done\",\"message\":\"<message>\"}'`\n",
+            "2. Still working, not ready to stop\n",
+            "    `coop send '{\"status\":\"continue\",\"message\":\"<message>\"}'`",
         )
     );
 }
@@ -173,7 +175,7 @@ fn generate_block_reason_with_enum_schema_expands_commands() {
 
 #[test]
 fn generate_block_reason_enum_with_extra_fields() {
-    // BTreeMap iterates alphabetically: "notes" < "status"
+    // Required/enum fields come first in examples, then optional freeform.
     let mut fields = BTreeMap::new();
     fields.insert(
         "notes".to_owned(),
@@ -205,9 +207,9 @@ fn generate_block_reason_enum_with_extra_fields() {
         concat!(
             "Please confirm by running one of:\n",
             "1. Task completed successfully\n",
-            "    `coop send '{\"notes\":\"<notes>\",\"status\":\"success\"}'`\n",
+            "    `coop send '{\"status\":\"success\",\"notes\":\"<notes>\"}'`\n",
             "2. Task could not be completed\n",
-            "    `coop send '{\"notes\":\"<notes>\",\"status\":\"failure\"}'`",
+            "    `coop send '{\"status\":\"failure\",\"notes\":\"<notes>\"}'`",
         )
     );
 }
@@ -378,6 +380,49 @@ async fn stop_state_resolve_accepted() {
     assert!(state.signaled.load(std::sync::atomic::Ordering::Acquire));
     let stored = state.signal_body.read().await;
     assert!(stored.is_some());
+}
+
+#[tokio::test]
+async fn stop_state_resolve_auto_default_schema_rejects_bad_status() {
+    let config = StopConfig { mode: StopMode::Auto, prompt: None, schema: None };
+    let state = StopState::new(config, "http://test".to_owned());
+    let body = serde_json::json!({"status": "bogus"});
+    let result = state.resolve(body).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.contains("bogus"), "got: {err}");
+    assert!(!state.signaled.load(std::sync::atomic::Ordering::Acquire));
+}
+
+#[tokio::test]
+async fn stop_state_resolve_auto_default_schema_accepts_done() {
+    let config = StopConfig { mode: StopMode::Auto, prompt: None, schema: None };
+    let state = StopState::new(config, "http://test".to_owned());
+    let body = serde_json::json!({"status": "done", "message": "all good"});
+    let result = state.resolve(body).await;
+    assert!(result.is_ok());
+    assert!(state.signaled.load(std::sync::atomic::Ordering::Acquire));
+}
+
+#[tokio::test]
+async fn stop_state_resolve_auto_default_schema_accepts_continue() {
+    let config = StopConfig { mode: StopMode::Auto, prompt: None, schema: None };
+    let state = StopState::new(config, "http://test".to_owned());
+    let body = serde_json::json!({"status": "continue"});
+    let result = state.resolve(body).await;
+    assert!(result.is_ok());
+    assert!(state.signaled.load(std::sync::atomic::Ordering::Acquire));
+}
+
+#[tokio::test]
+async fn stop_state_resolve_auto_default_schema_rejects_missing_status() {
+    let config = StopConfig { mode: StopMode::Auto, prompt: None, schema: None };
+    let state = StopState::new(config, "http://test".to_owned());
+    let body = serde_json::json!({"message": "no status field"});
+    let result = state.resolve(body).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.contains("missing required field: status"), "got: {err}");
 }
 
 #[tokio::test]

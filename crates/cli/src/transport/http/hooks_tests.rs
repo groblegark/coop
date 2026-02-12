@@ -223,7 +223,7 @@ async fn signal_consumed_after_stop_check() -> anyhow::Result<()> {
     let server = axum_test::TestServer::new(app).anyhow()?;
 
     // Signal, then check stop — should allow.
-    server.post("/api/v1/stop/resolve").json(&serde_json::json!({"ok": true})).await;
+    server.post("/api/v1/stop/resolve").json(&serde_json::json!({"status": "done"})).await;
     let resp = server
         .post("/api/v1/hooks/stop")
         .json(&serde_json::json!({"event": "stop", "data": {"stop_hook_active": false}}))

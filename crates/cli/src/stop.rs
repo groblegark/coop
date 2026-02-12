@@ -74,6 +74,39 @@ pub struct StopSchemaField {
     pub description: Option<String>,
 }
 
+/// Returns the default schema used in Auto mode when no custom schema is configured.
+///
+/// Defines two fields:
+/// - `status` (required): enum `["done", "continue"]`
+/// - `message` (optional): freeform summary
+pub fn default_auto_schema() -> StopSchema {
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        "status".to_owned(),
+        StopSchemaField {
+            required: true,
+            r#enum: Some(vec!["done".to_owned(), "continue".to_owned()]),
+            descriptions: Some({
+                let mut d = BTreeMap::new();
+                d.insert("done".to_owned(), "Work is complete".to_owned());
+                d.insert("continue".to_owned(), "Still working, not ready to stop".to_owned());
+                d
+            }),
+            description: Some("Task outcome".to_owned()),
+        },
+    );
+    fields.insert(
+        "message".to_owned(),
+        StopSchemaField {
+            required: false,
+            r#enum: None,
+            descriptions: None,
+            description: Some("Summary of completed work or what remains".to_owned()),
+        },
+    );
+    StopSchema { fields }
+}
+
 /// A stop verdict event emitted to WebSocket/gRPC consumers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StopEvent {
@@ -161,12 +194,18 @@ impl StopState {
     /// Resolve a stop signal: validate the body against the schema (if any),
     /// store it, and set the signaled flag.
     ///
+    /// In Auto mode, validates against the configured schema or the default
+    /// schema when none is configured.
+    ///
     /// On validation failure, emits a `Rejected` event and returns `Err` with
     /// a descriptive message.
     pub async fn resolve(&self, body: serde_json::Value) -> Result<(), String> {
         let config = self.config.read().await;
         if let Some(ref schema) = config.schema {
             validate_signal(schema, &body)?;
+        } else if config.mode == StopMode::Auto {
+            let default = default_auto_schema();
+            validate_signal(&default, &body)?;
         }
         drop(config);
         *self.signal_body.write().await = Some(body);
@@ -221,17 +260,27 @@ pub fn generate_block_reason(config: &StopConfig) -> String {
 fn generate_auto_block_reason(config: &StopConfig) -> String {
     let mut parts = Vec::new();
 
+    // Use the configured schema, falling back to the default for Auto mode.
+    let default_schema;
+    let effective_schema = match config.schema.as_ref() {
+        Some(s) => s,
+        None => {
+            default_schema = default_auto_schema();
+            &default_schema
+        }
+    };
+
     // Find enum fields eligible for command expansion.
-    let primary_enum = config.schema.as_ref().and_then(|schema| {
+    let primary_enum = {
         let enum_fields: Vec<_> =
-            schema.fields.iter().filter(|(_, f)| f.r#enum.is_some()).collect();
+            effective_schema.fields.iter().filter(|(_, f)| f.r#enum.is_some()).collect();
         if enum_fields.len() == 1 {
             let (name, field) = enum_fields[0];
             Some((name.clone(), field.clone()))
         } else {
             None
         }
-    });
+    };
 
     if let Some((enum_name, enum_field)) = primary_enum {
         // Custom prompt (or default directive)
@@ -244,7 +293,7 @@ fn generate_auto_block_reason(config: &StopConfig) -> String {
         let values = enum_field.r#enum.as_deref().unwrap_or_default();
         let descs = enum_field.descriptions.as_ref();
         for (i, v) in values.iter().enumerate() {
-            let body = generate_example_body(config.schema.as_ref(), Some((&enum_name, v)));
+            let body = generate_example_body(Some(effective_schema), Some((&enum_name, v)));
             if let Some(vd) = descs.and_then(|d| d.get(v)) {
                 parts.push(format!("{}. {vd}", i + 1));
             } else {
@@ -253,36 +302,13 @@ fn generate_auto_block_reason(config: &StopConfig) -> String {
             parts.push(format!("    `coop send '{body}'`"));
         }
     } else {
-        // No enum to expand — custom prompt, schema example, or defaults.
+        // No enum to expand — custom prompt + schema example.
         if let Some(ref prompt) = config.prompt {
             parts.push(prompt.clone());
         }
 
-        let has_schema = config.schema.as_ref().map(|s| !s.fields.is_empty()).unwrap_or(false);
-        let prompt_has_json =
-            config.prompt.as_ref().map(|p| p.contains('{') && p.contains('}')).unwrap_or(false);
-
-        if has_schema {
-            // User defined a schema — show a single example from it.
-            let body = generate_example_body(config.schema.as_ref(), None);
-            parts.push(format!("When ready to stop, run: `coop send '{body}'`"));
-        } else if prompt_has_json {
-            // Prompt already contains inline JSON examples.
-            parts.push("When ready to stop, run: `coop send '<json>'`".to_owned());
-        } else {
-            // No schema, no inline JSON — provide sensible defaults.
-            parts.push("Follow the instructions provided in the stop hook above, then:".to_owned());
-            parts.push("1. If you are done, use the Bash tool:".to_owned());
-            parts.push(
-                "    `coop send '{\"status\":\"done\",\"message\":\"<summary>\"}'`".to_owned(),
-            );
-            parts.push("2. If you are still working, use the Bash tool:".to_owned());
-            parts.push(
-                "    `coop send '{\"status\":\"continue\",\"message\":\"<what remains>\"}'`"
-                    .to_owned(),
-            );
-            parts.push("3. If you need clarification, use the AskUserQuestion tool.".to_owned());
-        }
+        let body = generate_example_body(Some(effective_schema), None);
+        parts.push(format!("When ready to stop, run: `coop send '{body}'`"));
     }
 
     parts.join("\n")
@@ -332,8 +358,18 @@ fn generate_example_body(
         _ => return "{}".to_owned(),
     };
 
-    let mut obj = serde_json::Map::new();
-    for (name, field) in &schema.fields {
+    // Emit required/enum fields first so examples read naturally
+    // (e.g. `{"status":"done","message":"..."}` not `{"message":"...","status":"done"}`).
+    // We build the JSON string manually because serde_json::Map (BTreeMap-backed)
+    // re-sorts keys alphabetically, discarding insertion order.
+    let ordered = schema
+        .fields
+        .iter()
+        .filter(|(_, f)| f.required || f.r#enum.is_some())
+        .chain(schema.fields.iter().filter(|(_, f)| !f.required && f.r#enum.is_none()));
+
+    let mut pairs = Vec::new();
+    for (name, field) in ordered {
         let val = if let Some((override_name, override_val)) = enum_override {
             if name == override_name {
                 override_val.to_owned()
@@ -347,9 +383,12 @@ fn generate_example_body(
         } else {
             format!("<{name}>")
         };
-        obj.insert(name.clone(), Value::String(val));
+        // JSON-escape both name and value.
+        let k = serde_json::to_string(name).unwrap_or_else(|_| format!("\"{name}\""));
+        let v = serde_json::to_string(&val).unwrap_or_else(|_| format!("\"{val}\""));
+        pairs.push(format!("{k}:{v}"));
     }
-    serde_json::to_string(&Value::Object(obj)).unwrap_or_else(|_| "{}".to_owned())
+    format!("{{{}}}", pairs.join(","))
 }
 
 #[cfg(test)]
