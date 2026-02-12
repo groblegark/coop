@@ -7,4 +7,4 @@ pub mod client;
 pub mod feed;
 pub mod health;
 pub mod poller;
-pub mod ws_bridge;
+pub mod bridge;

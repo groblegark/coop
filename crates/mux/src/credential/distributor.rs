@@ -37,7 +37,7 @@ pub fn spawn_distributor(state: Arc<MuxState>, mut event_rx: broadcast::Receiver
     });
 }
 
-/// Push fresh credentials to all sessions that need this account's profile.
+/// Push fresh credentials to all registered sessions.
 async fn distribute_to_sessions(
     state: &MuxState,
     account: &str,
@@ -45,11 +45,6 @@ async fn distribute_to_sessions(
 ) {
     let sessions = state.sessions.read().await;
     for entry in sessions.values() {
-        // Check if this session wants this account's profile.
-        if !entry.profiles_needed.iter().any(|p| p == account) {
-            continue;
-        }
-
         let client = UpstreamClient::new(entry.url.clone(), entry.auth_token.clone());
 
         // Register as a profile.

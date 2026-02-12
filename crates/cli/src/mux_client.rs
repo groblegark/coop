@@ -22,8 +22,6 @@ pub struct MuxRegistration {
     pub coop_url: String,
     /// Auth token for this coop instance (passed to mux for upstream calls).
     pub coop_token: Option<String>,
-    /// Credential account names this session wants distributed as profiles.
-    pub profiles_needed: Vec<String>,
 }
 
 /// Spawn the mux registration client if `COOP_MUX_URL` is set.
@@ -41,19 +39,12 @@ pub async fn spawn_if_configured(
     };
     let coop_url = std::env::var("COOP_URL")
         .unwrap_or_else(|_| format!("http://127.0.0.1:{}", default_port.unwrap_or(0)));
-    let profiles_needed: Vec<String> = std::env::var("COOP_MUX_PROFILES")
-        .unwrap_or_default()
-        .split(',')
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty())
-        .collect();
     let reg = MuxRegistration {
         mux_url,
         mux_token: std::env::var("COOP_MUX_TOKEN").ok(),
         session_id: session_id.to_owned(),
         coop_url,
         coop_token: auth_token.map(str::to_owned),
-        profiles_needed,
     };
     tokio::spawn(async move {
         run(reg, shutdown).await;
@@ -139,7 +130,6 @@ async fn register(
         "url": config.coop_url,
         "auth_token": config.coop_token,
         "id": config.session_id,
-        "profiles_needed": config.profiles_needed,
     });
     let mut req = client.post(&url).json(&body);
     if let Some(ref token) = config.mux_token {

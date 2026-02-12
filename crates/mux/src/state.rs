@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::MuxConfig;
 use crate::credential::broker::CredentialBroker;
-use crate::upstream::ws_bridge::WsBridge;
+use crate::upstream::bridge::WsBridge;
 
 /// Events emitted by the mux for aggregation consumers.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -88,8 +88,6 @@ pub struct SessionEntry {
     pub health_failures: AtomicU32,
     pub cancel: CancellationToken,
     pub ws_bridge: RwLock<Option<Arc<WsBridge>>>,
-    /// Credential account names this session wants distributed as profiles.
-    pub profiles_needed: Vec<String>,
 }
 
 /// Cached screen snapshot from upstream.

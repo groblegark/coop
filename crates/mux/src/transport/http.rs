@@ -32,9 +32,6 @@ pub struct RegisterRequest {
     pub id: Option<String>,
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
-    /// Credential account names this session wants distributed as profiles.
-    #[serde(default)]
-    pub profiles_needed: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -99,7 +96,6 @@ pub async fn register_session(
         health_failures: std::sync::atomic::AtomicU32::new(0),
         cancel: cancel.clone(),
         ws_bridge: tokio::sync::RwLock::new(None),
-        profiles_needed: req.profiles_needed,
     });
 
     s.sessions.write().await.insert(id.clone(), entry);

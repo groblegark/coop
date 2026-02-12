@@ -16,8 +16,7 @@ Sessions register via `POST /api/v1/sessions`:
   "url": "http://localhost:8080",
   "auth_token": "bearer-token-for-this-coop",
   "id": "optional-session-id",
-  "metadata": {"label": "worker-1"},
-  "profiles_needed": ["claude-primary", "claude-secondary"]
+  "metadata": {"label": "worker-1"}
 }
 ```
 
@@ -135,8 +134,7 @@ back to `$XDG_STATE_HOME/coop/mux/` then `$HOME/.local/state/coop/mux/`).
    loaded from the state directory on startup
 2. **Refresh loop**: per-account background task refreshes tokens before expiry
    (exponential backoff on failure: 1s → 60s, 5 retries)
-3. **Distribution**: on refresh, credentials are pushed to sessions that
-   declared matching `profiles_needed` during registration
+3. **Distribution**: on refresh, credentials are pushed to all registered sessions
 4. **Persistence**: after each refresh, tokens are atomically saved to the
    state directory
 5. **Re-auth**: if refresh permanently fails, triggers device code flow
@@ -206,7 +204,6 @@ coop cred reauth [account]               # Trigger device code flow
 |----------|---------|
 | `COOP_MUX_URL` | Enable mux self-registration |
 | `COOP_MUX_TOKEN` | Auth token for mux API |
-| `COOP_MUX_PROFILES` | Comma-separated credential account names |
 
 
 ## 7. Relationship to Profiles

@@ -63,7 +63,6 @@ async fn insert_session(state: &MuxState, id: &str, url: &str) {
         health_failures: AtomicU32::new(0),
         cancel: CancellationToken::new(),
         ws_bridge: tokio::sync::RwLock::new(None),
-        profiles_needed: vec![],
     });
     state.sessions.write().await.insert(id.to_owned(), entry);
 }
