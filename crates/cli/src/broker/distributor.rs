@@ -28,6 +28,9 @@ const PUSH_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum retries per pod per distribution round.
 const MAX_RETRIES: u32 = 2;
 
+/// Delay before initial distribution on startup, giving pods time to register.
+const INITIAL_DISTRIBUTE_DELAY: Duration = Duration::from_secs(30);
+
 /// Result of pushing credentials to a single pod.
 #[derive(Debug, Clone, Serialize)]
 pub struct PushResult {
@@ -86,12 +89,27 @@ impl Distributor {
 
     /// Run the distribution loop — listens for credential events and pushes
     /// to all registered pods.
+    ///
+    /// On startup, waits for pods to register (initial delay) then distributes
+    /// all existing credentials. After that, listens for `Refreshed` events.
     pub async fn run(
         &self,
         mut credential_rx: broadcast::Receiver<CredentialEvent>,
         shutdown: CancellationToken,
     ) {
         info!("credential distributor started");
+
+        // Initial distribution: wait for pods to register, then push existing
+        // credentials so pods that started before this broker get fresh tokens.
+        tokio::select! {
+            _ = tokio::time::sleep(INITIAL_DISTRIBUTE_DELAY) => {
+                self.distribute_all_accounts().await;
+            }
+            _ = shutdown.cancelled() => {
+                debug!("credential distributor shutting down before initial distribute");
+                return;
+            }
+        }
 
         loop {
             let event = tokio::select! {
@@ -127,6 +145,42 @@ impl Distributor {
                     "distribution complete"
                 );
             }
+        }
+    }
+
+    /// Distribute all healthy account credentials to all healthy pods.
+    /// Used on startup to ensure pods get credentials even if no refresh
+    /// event has fired yet.
+    async fn distribute_all_accounts(&self) {
+        let all_creds = self.broker.all_credentials().await;
+        if all_creds.is_empty() {
+            debug!("no credentials to distribute on startup");
+            return;
+        }
+
+        let pods = self.registry.healthy_pods().await;
+        if pods.is_empty() {
+            debug!("no healthy pods for initial distribution");
+            return;
+        }
+
+        info!(
+            accounts = all_creds.len(),
+            pods = pods.len(),
+            "initial credential distribution to registered pods"
+        );
+
+        for (account_name, _) in &all_creds {
+            let results = self.distribute(account_name).await;
+            let success = results.iter().filter(|r| r.success).count();
+            let failed = results.iter().filter(|r| !r.success).count();
+            info!(
+                account = account_name.as_str(),
+                success,
+                failed,
+                total = results.len(),
+                "initial distribution complete"
+            );
         }
     }
 

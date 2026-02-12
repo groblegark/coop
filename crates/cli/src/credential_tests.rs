@@ -256,6 +256,9 @@ async fn do_refresh_success() {
     let (broker, mut rx) = CredentialBroker::new(&config);
     broker.seed("test", "old-access".into(), Some("old-refresh".into()), Some(10)).await;
 
+    // Drain the Refreshed event emitted by seed().
+    let _ = rx.try_recv();
+
     // Trigger refresh directly.
     broker.refresh_with_retries("test").await;
 
@@ -294,6 +297,9 @@ async fn do_refresh_invalid_grant_marks_revoked() {
     let config = test_config("test", &token_url);
     let (broker, mut rx) = CredentialBroker::new(&config);
     broker.seed("test", "old".into(), Some("dead-refresh".into()), Some(10)).await;
+
+    // Drain the Refreshed event emitted by seed().
+    let _ = rx.try_recv();
 
     broker.refresh_with_retries("test").await;
 

@@ -357,6 +357,9 @@ impl CredentialBroker {
     }
 
     /// Seed initial credentials for an account (e.g. from K8s secret mount).
+    ///
+    /// Broadcasts a [`CredentialEvent::Refreshed`] so the distributor pushes
+    /// to all registered pods immediately (not just on the next refresh cycle).
     pub async fn seed(
         &self,
         name: &str,
@@ -369,15 +372,32 @@ impl CredentialBroker {
             return false;
         };
 
-        account.access_token = access_token;
+        account.access_token = access_token.clone();
         account.refresh_token = refresh_token;
         account.expires_at = expires_in_secs.map(|s| Instant::now() + Duration::from_secs(s));
         account.status =
             if account.config.r#static { AccountStatus::Static } else { AccountStatus::Healthy };
 
+        // Build credentials map for distribution.
+        let key = match account.provider.as_str() {
+            "claude" | "anthropic" => "ANTHROPIC_API_KEY",
+            "openai" | "codex" => "OPENAI_API_KEY",
+            "google" | "gemini" => "GOOGLE_API_KEY",
+            _ => "ANTHROPIC_API_KEY",
+        };
+        let mut credentials = HashMap::new();
+        credentials.insert(key.to_owned(), access_token);
+
         info!(account = name, "credentials seeded");
         drop(accounts);
         self.persist().await;
+
+        // Broadcast so the distributor pushes to pods.
+        let _ = self.event_tx.send(CredentialEvent::Refreshed {
+            account: name.to_owned(),
+            credentials,
+        });
+
         true
     }
 
