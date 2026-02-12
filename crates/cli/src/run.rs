@@ -505,6 +505,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         input_activity: Arc::new(tokio::sync::Notify::new()),
         event_log: Arc::clone(&event_log),
         record: Arc::clone(&record_state),
+        session_dir: setup.as_ref().map(|s| s.session_dir.clone()),
     });
 
     // Enable recording if --record flag is set.

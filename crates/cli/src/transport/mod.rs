@@ -349,6 +349,7 @@ pub fn build_router(state: Arc<Store>) -> Router {
         .route("/api/v1/recording", get(http::get_recording).put(http::put_recording))
         .route("/api/v1/recording/catchup", get(http::catchup_recording))
         .route("/api/v1/recording/download", get(http::download_recording))
+        .route("/api/v1/upload", post(http::upload))
         .route("/api/v1/transcripts/{number}", get(http::get_transcript))
         .route("/ws", get(ws::ws_handler))
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_layer))

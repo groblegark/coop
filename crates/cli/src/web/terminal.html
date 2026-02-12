@@ -233,9 +233,24 @@
   #agent-state.st-setup           { border-color: #b8a0e8; color: #b8a0e8; }
   #agent-state.st-error           { border-color: #e06060; color: #e06060; }
   #agent-state.st-exited          { border-color: #888; color: #888; }
+
+  /* --- Drop overlay --- */
+  #drop-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(30, 30, 30, 0.85);
+    border: 3px dashed #7cb7ff;
+    display: none; align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+  #drop-overlay.visible { display: flex; pointer-events: auto; }
+  .drop-label {
+    font: 600 20px/1 Menlo, Monaco, monospace;
+    color: #7cb7ff; letter-spacing: 0.05em;
+  }
 </style>
 </head>
 <body>
+<div id="drop-overlay"><span class="drop-label">Drop file to upload</span></div>
 <div id="main">
   <div id="terminal"></div>
   <div id="resize-handle" class="hidden"></div>
@@ -1493,6 +1508,75 @@ hResizeHandle.addEventListener('mousedown', (e) => {
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
 });
+
+// --- Drag-and-drop file upload ---
+const dropOverlay = document.getElementById('drop-overlay');
+let dragCounter = 0;
+
+document.addEventListener('dragenter', (e) => {
+  e.preventDefault();
+  dragCounter++;
+  if (dragCounter === 1) dropOverlay.classList.add('visible');
+});
+
+document.addEventListener('dragleave', (e) => {
+  e.preventDefault();
+  dragCounter--;
+  if (dragCounter <= 0) {
+    dragCounter = 0;
+    dropOverlay.classList.remove('visible');
+  }
+});
+
+document.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+});
+
+document.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  dragCounter = 0;
+  dropOverlay.classList.remove('visible');
+
+  const files = e.dataTransfer.files;
+  if (!files.length) return;
+
+  const paths = [];
+  for (const file of files) {
+    try {
+      const data = await readFileAsBase64(file);
+      const res = await apiPost('/api/v1/upload', { filename: file.name, data });
+      if (res.ok && res.json?.path) {
+        paths.push(res.json.path);
+      } else {
+        const msg = res.json?.error?.message || res.text || 'unknown error';
+        term.write(`\r\n\x1b[31m[upload error: ${msg}]\x1b[0m\r\n`);
+      }
+    } catch (err) {
+      term.write(`\r\n\x1b[31m[upload error: ${err.message}]\x1b[0m\r\n`);
+    }
+  }
+
+  if (paths.length && ws) {
+    const text = paths.join(' ') + ' ';
+    const bytes = encoder.encode(text);
+    send(ws, { event: 'input:send:raw', data: b64encode(bytes) });
+  }
+  term.focus();
+});
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      // result is "data:<mime>;base64,<data>" — extract the base64 part.
+      const idx = reader.result.indexOf(',');
+      resolve(idx >= 0 ? reader.result.slice(idx + 1) : reader.result);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 connect();
 </script>

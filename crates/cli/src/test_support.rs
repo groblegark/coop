@@ -4,6 +4,7 @@
 //! Shared test infrastructure: builders, mocks, and assertion helpers.
 
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64};
 use std::sync::Arc;
@@ -57,6 +58,7 @@ pub struct StoreBuilder {
     start_config: Option<StartConfig>,
     transcript_state: Option<Arc<TranscriptState>>,
     groom: GroomLevel,
+    session_dir: Option<PathBuf>,
 }
 
 impl Default for StoreBuilder {
@@ -78,6 +80,7 @@ impl StoreBuilder {
             start_config: None,
             transcript_state: None,
             groom: GroomLevel::Manual,
+            session_dir: None,
         }
     }
 
@@ -128,6 +131,11 @@ impl StoreBuilder {
 
     pub fn groom(mut self, level: GroomLevel) -> Self {
         self.groom = level;
+        self
+    }
+
+    pub fn session_dir(mut self, path: PathBuf) -> Self {
+        self.session_dir = Some(path);
         self
     }
 
@@ -205,6 +213,7 @@ impl StoreBuilder {
             input_activity: Arc::new(tokio::sync::Notify::new()),
             event_log: Arc::new(EventLog::new(None)),
             record: Arc::new(crate::record::RecordingState::new(None, 80, 24)),
+            session_dir: self.session_dir,
         });
 
         StoreCtx { store, input_rx, switch_rx }
