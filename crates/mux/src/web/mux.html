@@ -218,7 +218,6 @@ function collapseSession(id) {
   info.el.classList.remove('expanded');
   // Restore preview mode
   info.term.options.fontSize = PREVIEW_FONT_SIZE;
-  info.term.options.cursorBlink = false;
   info.term.options.scrollback = 0;
   info.term.reset();
   // Next screen_batch will repopulate
@@ -230,7 +229,6 @@ function expandSession(id) {
   info.el.classList.add('expanded');
   // Switch to interactive mode
   info.term.options.fontSize = EXPANDED_FONT_SIZE;
-  info.term.options.cursorBlink = true;
   info.term.options.scrollback = 10000;
   info.term.reset();
   setFocus(id);
