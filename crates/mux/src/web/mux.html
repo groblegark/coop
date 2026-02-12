@@ -335,11 +335,18 @@ function connect() {
       for (const scr of msg.screens) {
         const info = sessions.get(scr.session);
         if (info) {
+          // Strip trailing empty lines so content anchors to bottom of tile
+          const lines = scr.lines.slice();
+          while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+            lines.pop();
+          }
+          if (lines.length === 0) lines.push('');
+
           info.sourceCols = scr.cols;
           info.sourceRows = scr.rows;
-          info.term.resize(scr.cols, scr.rows);
+          info.term.resize(scr.cols, lines.length);
           info.term.reset();
-          info.term.write(scr.lines.join('\r\n'));
+          info.term.write(lines.join('\r\n'));
         }
       }
     }
