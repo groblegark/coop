@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2026 Alfred Jean LLC
+
+use clap::Parser;
+
+/// Configuration for the coop-mux proxy.
+#[derive(Debug, Clone, Parser)]
+#[command(name = "coop-mux", version, about = "PTY multiplexing proxy for coop instances.")]
+pub struct MuxConfig {
+    /// Host to bind on.
+    #[arg(long, default_value = "127.0.0.1", env = "COOP_MUX_HOST")]
+    pub host: String,
+
+    /// Port to listen on.
+    #[arg(long, default_value_t = 9800, env = "COOP_MUX_PORT")]
+    pub port: u16,
+
+    /// Bearer token for downstream API auth. If unset, auth is disabled.
+    #[arg(long, env = "COOP_MUX_AUTH_TOKEN")]
+    pub auth_token: Option<String>,
+
+    /// Screen poll interval in milliseconds.
+    #[arg(long, default_value_t = 500, env = "COOP_MUX_SCREEN_POLL_MS")]
+    pub screen_poll_ms: u64,
+
+    /// Status poll interval in milliseconds.
+    #[arg(long, default_value_t = 2000, env = "COOP_MUX_STATUS_POLL_MS")]
+    pub status_poll_ms: u64,
+
+    /// Health check interval in milliseconds.
+    #[arg(long, default_value_t = 10000, env = "COOP_MUX_HEALTH_CHECK_MS")]
+    pub health_check_ms: u64,
+
+    /// Max consecutive health failures before evicting a session.
+    #[arg(long, default_value_t = 3, env = "COOP_MUX_MAX_HEALTH_FAILURES")]
+    pub max_health_failures: u32,
+}
+
+impl MuxConfig {
+    pub fn screen_poll_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.screen_poll_ms)
+    }
+
+    pub fn status_poll_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.status_poll_ms)
+    }
+
+    pub fn health_check_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.health_check_ms)
+    }
+}
