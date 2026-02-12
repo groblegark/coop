@@ -33,7 +33,7 @@ fn default_sessions() -> String {
     "all".to_owned()
 }
 fn default_subscribe() -> String {
-    "state,screen".to_owned()
+    "state,screen,credentials".to_owned()
 }
 
 /// Parsed subscription preferences.
@@ -42,6 +42,7 @@ struct MuxFlags {
     session_filter: Vec<String>,
     state: bool,
     screen: bool,
+    credentials: bool,
 }
 
 impl MuxFlags {
@@ -54,14 +55,16 @@ impl MuxFlags {
         };
         let mut state = false;
         let mut screen = false;
+        let mut credentials = false;
         for token in query.subscribe.split(',') {
             match token.trim() {
                 "state" => state = true,
                 "screen" => screen = true,
+                "credentials" => credentials = true,
                 _ => {}
             }
         }
-        Self { all_sessions, session_filter, state, screen }
+        Self { all_sessions, session_filter, state, screen, credentials }
     }
 
     fn wants_session(&self, session: &str) -> bool {
@@ -72,6 +75,9 @@ impl MuxFlags {
         match event {
             MuxEvent::State { session, .. } => self.state && self.wants_session(session),
             MuxEvent::Screen { session, .. } => self.screen && self.wants_session(session),
+            MuxEvent::Credential { session, .. } => {
+                self.credentials && self.wants_session(session)
+            }
             MuxEvent::SessionOnline { session, .. } | MuxEvent::SessionOffline { session, .. } => {
                 self.wants_session(session)
             }

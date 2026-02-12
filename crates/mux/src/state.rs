@@ -43,6 +43,14 @@ pub enum MuxEvent {
     State { session: String, prev: String, next: String, seq: u64 },
     /// A session's screen was updated.
     Screen { session: String, lines: Vec<String>, cols: u16, rows: u16 },
+    /// A session's credential status changed.
+    Credential {
+        session: String,
+        account: String,
+        status: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
     /// A session came online.
     SessionOnline { session: String, url: String },
     /// A session went offline.
@@ -56,6 +64,7 @@ pub struct SessionCache {
     pub screen_lines: Option<Vec<String>>,
     pub screen_cols: u16,
     pub screen_rows: u16,
+    pub credential_status: Option<String>,
 }
 
 /// Aggregator hub — fans out session events to `/ws/mux` clients.

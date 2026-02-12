@@ -147,8 +147,23 @@ async fn handle_message(
                 rows,
             });
         }
+        "credential:status" => {
+            let account = msg.get("account").and_then(|v| v.as_str()).unwrap_or("").to_owned();
+            let status = msg.get("status").and_then(|v| v.as_str()).unwrap_or("").to_owned();
+            let error = msg.get("error").and_then(|v| v.as_str()).map(String::from);
+
+            cache.write().await.entry(session_id.to_owned()).or_default().credential_status =
+                Some(status.clone());
+
+            let _ = event_tx.send(MuxEvent::Credential {
+                session: session_id.to_owned(),
+                account,
+                status,
+                error,
+            });
+        }
         _ => {
-            // Other event types are forwarded as-is for extensibility.
+            // Other event types ignored for now.
         }
     }
 }
@@ -161,7 +176,7 @@ fn build_ws_url(base_url: &str, auth_token: Option<&str>) -> String {
         base_url.replacen("http://", "ws://", 1)
     };
 
-    let mut url = format!("{ws_base}/ws?subscribe=screen,state");
+    let mut url = format!("{ws_base}/ws?subscribe=screen,state,credentials");
     if let Some(token) = auth_token {
         url.push_str(&format!("&token={token}"));
     }
