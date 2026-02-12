@@ -182,16 +182,28 @@ async fn handle_mux_connection(state: Arc<Store>, flags: MuxFlags, socket: WebSo
             msg = ws_rx.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        // Handle input routing: { "event": "input:send", "pod": "X", "text": "..." }
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-                            if json.get("event").and_then(|e| e.as_str()) == Some("input:send") {
-                                if let (Some(pod), Some(input_text)) = (
-                                    json.get("pod").and_then(|p| p.as_str()),
-                                    json.get("text").and_then(|t| t.as_str()),
-                                ) {
-                                    // Proxy input to the pod's coop HTTP API.
-                                    proxy_input_to_pod(&state, pod, input_text).await;
+                            match json.get("event").and_then(|e| e.as_str()) {
+                                // Handle input routing: { "event": "input:send", "pod": "X", "text": "..." }
+                                Some("input:send") => {
+                                    if let (Some(pod), Some(input_text)) = (
+                                        json.get("pod").and_then(|p| p.as_str()),
+                                        json.get("text").and_then(|t| t.as_str()),
+                                    ) {
+                                        proxy_input_to_pod(&state, pod, input_text).await;
+                                    }
                                 }
+                                // Handle resize: { "event": "input:resize", "pod": "X", "cols": N, "rows": N }
+                                Some("input:resize") => {
+                                    if let (Some(pod), Some(cols), Some(rows)) = (
+                                        json.get("pod").and_then(|p| p.as_str()),
+                                        json.get("cols").and_then(|c| c.as_u64()),
+                                        json.get("rows").and_then(|r| r.as_u64()),
+                                    ) {
+                                        proxy_resize_to_pod(&state, pod, cols as u16, rows as u16).await;
+                                    }
+                                }
+                                _ => {}
                             }
                         }
                     }
@@ -213,4 +225,15 @@ async fn proxy_input_to_pod(state: &Store, pod_name: &str, text: &str) {
     let client = reqwest::Client::new();
     let _ =
         client.post(&url).json(&serde_json::json!({ "text": text, "enter": true })).send().await;
+}
+
+/// Proxy a terminal resize to a specific pod via its coop HTTP API.
+async fn proxy_resize_to_pod(state: &Store, pod_name: &str, cols: u16, rows: u16) {
+    let Some(ref registry) = state.broker_registry else { return };
+    let pods = registry.list().await;
+    let Some(pod) = pods.iter().find(|p| p.name == pod_name) else { return };
+
+    let url = format!("{}/api/v1/resize", pod.coop_url);
+    let client = reqwest::Client::new();
+    let _ = client.post(&url).json(&serde_json::json!({ "cols": cols, "rows": rows })).send().await;
 }

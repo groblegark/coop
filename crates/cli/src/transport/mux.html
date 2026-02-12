@@ -150,10 +150,35 @@ const dot = document.getElementById('dot');
 const lbl = document.getElementById('label');
 const infoEl = document.getElementById('info');
 
-// Pod state: { name -> { tile, term, fitAddon, state, credStatus } }
+// Pod state: { name -> { tile, term, fitAddon, state, credStatus, lastCols, lastRows, resizeTimer } }
 const pods = new Map();
 let focusedPod = null;
 let expandedPod = null;
+
+// Debounced resize — sends resize event to pod if terminal dimensions changed.
+function syncPodResize(podName) {
+  const pod = pods.get(podName);
+  if (!pod) return;
+  const cols = pod.term.cols;
+  const rows = pod.term.rows;
+  if (cols === pod.lastCols && rows === pod.lastRows) return;
+  pod.lastCols = cols;
+  pod.lastRows = rows;
+  if (pod.resizeTimer) clearTimeout(pod.resizeTimer);
+  pod.resizeTimer = setTimeout(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ event: 'input:resize', pod: podName, cols, rows }));
+    }
+  }, 250);
+}
+
+// Fit a pod's terminal and sync its size to the remote.
+function fitAndSync(podName) {
+  const pod = pods.get(podName);
+  if (!pod) return;
+  pod.fitAddon.fit();
+  syncPodResize(podName);
+}
 
 function setStatus(state, text) {
   dot.className = `dot dot-${state}`;
@@ -239,7 +264,7 @@ function createPodTile(podName) {
     term.loadAddon(webgl);
   } catch (_) {}
 
-  requestAnimationFrame(() => fitAddon.fit());
+  requestAnimationFrame(() => fitAndSync(podName));
 
   // Enable input when focused
   term.onData((str) => {
@@ -252,6 +277,9 @@ function createPodTile(podName) {
     tile, term, fitAddon, badge, cred,
     state: 'starting',
     credStatus: 'ok',
+    lastCols: 0,
+    lastRows: 0,
+    resizeTimer: null,
   };
   pods.set(podName, podState);
   updateStats();
@@ -292,16 +320,17 @@ function toggleExpand(podName) {
     const pod = pods.get(podName);
     if (pod) {
       pod.tile.classList.remove('expanded');
-      requestAnimationFrame(() => pod.fitAddon.fit());
+      requestAnimationFrame(() => fitAndSync(podName));
     }
     expandedPod = null;
   } else {
     // Collapse previous
     if (expandedPod) {
-      const prev = pods.get(expandedPod);
+      const prevName = expandedPod;
+      const prev = pods.get(prevName);
       if (prev) {
         prev.tile.classList.remove('expanded');
-        requestAnimationFrame(() => prev.fitAddon.fit());
+        requestAnimationFrame(() => fitAndSync(prevName));
       }
     }
     // Expand new
@@ -310,7 +339,7 @@ function toggleExpand(podName) {
     if (pod) {
       pod.tile.classList.add('expanded');
       setFocus(podName);
-      requestAnimationFrame(() => pod.fitAddon.fit());
+      requestAnimationFrame(() => fitAndSync(podName));
     }
   }
 }
@@ -405,10 +434,10 @@ function connect() {
   ws.onerror = () => {};
 }
 
-// Refit all terminals on window resize
+// Refit all terminals on window resize and sync sizes to pods
 window.addEventListener('resize', () => {
-  for (const [, pod] of pods) {
-    pod.fitAddon.fit();
+  for (const [name] of pods) {
+    fitAndSync(name);
   }
 });
 
