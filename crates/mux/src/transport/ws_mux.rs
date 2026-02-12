@@ -208,14 +208,9 @@ async fn handle_mux_ws(state: Arc<MuxState>, socket: WebSocket) {
                 for session_id in &watched {
                     if let Some(entry) = sessions.get(session_id) {
                         if let Some(screen) = entry.cached_screen.read().await.as_ref() {
-                            // Truncate lines for thumbnail (first 10 lines, 80 chars each).
-                            let lines: Vec<String> = screen.lines.iter()
-                                .take(10)
-                                .map(|l| if l.len() > 80 { l[..80].to_owned() } else { l.clone() })
-                                .collect();
                             screens.push(ScreenThumbnail {
                                 session: session_id.clone(),
-                                lines,
+                                lines: screen.lines.clone(),
                                 cols: screen.cols,
                                 rows: screen.rows,
                                 seq: screen.seq,
@@ -361,3 +356,16 @@ where
     };
     tx.send(Message::Text(text.into())).await.map_err(|_| ())
 }
+
+/// Truncate a string to at most `max_chars` characters.
+fn truncate_line(line: &str, max_chars: usize) -> String {
+    if line.chars().count() > max_chars {
+        line.chars().take(max_chars).collect()
+    } else {
+        line.to_owned()
+    }
+}
+
+#[cfg(test)]
+#[path = "ws_mux_tests.rs"]
+mod tests;
