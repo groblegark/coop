@@ -239,6 +239,9 @@ pub struct CredentialBroker {
     event_tx: broadcast::Sender<CredentialEvent>,
     http_client: reqwest::Client,
     persist_path: Option<PathBuf>,
+    /// Tracks accounts with a pending login-reauth session to avoid
+    /// re-initiating while the human hasn't responded yet.
+    pending_reauth: RwLock<HashMap<String, LoginReauthSession>>,
 }
 
 impl CredentialBroker {
@@ -272,6 +275,7 @@ impl CredentialBroker {
             event_tx,
             http_client: reqwest::Client::new(),
             persist_path: config.persist_path.clone(),
+            pending_reauth: RwLock::new(HashMap::new()),
         });
 
         (broker, event_rx)
@@ -672,26 +676,38 @@ impl CredentialBroker {
                         error: msg,
                     });
 
-                    // Auto-trigger login-reauth if enabled.
+                    // Auto-trigger login-reauth if enabled and not already pending.
                     if auto_reauth {
-                        info!(
-                            account = name,
-                            "auto-triggering login-reauth after token revocation"
-                        );
-                        match self.initiate_login_reauth(name).await {
-                            Ok(session) => {
-                                info!(
-                                    account = name,
-                                    auth_url = %session.auth_url,
-                                    "login-reauth URL generated — awaiting human authorization"
-                                );
-                            }
-                            Err(e) => {
-                                warn!(
-                                    account = name,
-                                    error = %e,
-                                    "auto login-reauth failed"
-                                );
+                        let already_pending = self
+                            .pending_reauth
+                            .read()
+                            .await
+                            .contains_key(name);
+                        if already_pending {
+                            debug!(
+                                account = name,
+                                "login-reauth already pending, skipping re-initiation"
+                            );
+                        } else {
+                            info!(
+                                account = name,
+                                "auto-triggering login-reauth after token revocation"
+                            );
+                            match self.initiate_login_reauth(name).await {
+                                Ok(session) => {
+                                    info!(
+                                        account = name,
+                                        auth_url = %session.auth_url,
+                                        "login-reauth URL generated — awaiting human authorization"
+                                    );
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        account = name,
+                                        error = %e,
+                                        "auto login-reauth failed"
+                                    );
+                                }
                             }
                         }
                     }
@@ -943,7 +959,7 @@ impl CredentialBroker {
 
         // Build the full authorization URL.
         let auth_url = format!(
-            "{}?code=true&client_id={}&redirect_uri={}&scope={}&state={}",
+            "{}?response_type=code&client_id={}&redirect_uri={}&scope={}&state={}",
             authorize_url,
             urlencoded(&client_id),
             urlencoded(&redirect_uri),
@@ -963,13 +979,21 @@ impl CredentialBroker {
             user_code: String::new(), // no user_code in authorization code flow
         });
 
-        Ok(LoginReauthSession {
+        let session = LoginReauthSession {
             account: account_name.to_owned(),
             auth_url,
             state,
             redirect_uri,
             client_id,
-        })
+        };
+
+        // Track as pending so the refresh loop doesn't re-initiate.
+        self.pending_reauth
+            .write()
+            .await
+            .insert(account_name.to_owned(), session.clone());
+
+        Ok(session)
     }
 
     /// Complete an authorization code login-reauth flow by exchanging
@@ -1056,6 +1080,12 @@ impl CredentialBroker {
             creds.insert(key.to_owned(), token.access_token);
             creds
         };
+
+        // Clear pending reauth now that we have fresh tokens.
+        self.pending_reauth
+            .write()
+            .await
+            .remove(account_name);
 
         info!(account = account_name, "login-reauth completed successfully");
         let _ = self.event_tx.send(CredentialEvent::Refreshed {
