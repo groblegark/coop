@@ -3,7 +3,7 @@ import { apiGet, apiPost } from "@/hooks/useApiClient";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { useWebSocket, type ConnectionStatus } from "@/hooks/useWebSocket";
+import { useWebSocket, WsRpc, type ConnectionStatus } from "@/hooks/useWebSocket";
 import { useFileUpload } from "@/hooks/useFileUpload";
 import { AgentBadge } from "@/components/AgentBadge";
 import { DropOverlay } from "@/components/DropOverlay";
@@ -17,7 +17,7 @@ import {
   PREVIEW_FONT_SIZE,
   EXPANDED_FONT_SIZE,
 } from "@/lib/constants";
-import type { MuxWsMessage, MuxMetadata } from "@/lib/types";
+import type { MuxWsMessage, MuxMetadata, WsMessage, PromptContext, EventEntry } from "@/lib/types";
 import { SessionSidebar } from "./SessionSidebar";
 import { MuxProvider, useMux } from "./MuxContext";
 
@@ -28,6 +28,7 @@ export interface SessionInfo {
   url: string | null;
   state: string | null;
   metadata: MuxMetadata | null;
+  lastMessage: string | null;
   term: XTerm;
   fit: FitAddon;
   webgl: WebglAddon | null;
@@ -159,7 +160,19 @@ function AppInner() {
   expandedRef.current = expandedSession;
 
   const expandedWsRef = useRef<WebSocket | null>(null);
+  const expandedRpcRef = useRef<WsRpc | null>(null);
   const [expandedWsStatus, setExpandedWsStatus] = useState<ConnectionStatus>("disconnected");
+
+  // Inspector state for expanded view
+  const [inspectorVisible, setInspectorVisible] = useState(false);
+  const [inspectorWidth, setInspectorWidth] = useState(450);
+  const [expandedEvents, setExpandedEvents] = useState<EventEntry[]>([]);
+  const [expandedHealth, setExpandedHealth] = useState<unknown>(null);
+  const [expandedStatus, setExpandedStatus] = useState<unknown>(null);
+  const [expandedAgent, setExpandedAgent] = useState<unknown>(null);
+  const [expandedUsage, setExpandedUsage] = useState<unknown>(null);
+  const [expandedPrompt, setExpandedPrompt] = useState<PromptContext | null>(null);
+  const [expandedLastMessage, setExpandedLastMessage] = useState<string | null>(null);
 
   const [launchAvailable, setLaunchAvailable] = useState(false);
 
@@ -238,6 +251,7 @@ function AppInner() {
         url,
         state,
         metadata,
+        lastMessage: null,
         term,
         fit,
         webgl: null,
@@ -255,11 +269,23 @@ function AppInner() {
   const collapseSession = useCallback((id: string) => {
     const info = sessionsRef.current.get(id);
     if (!info) return;
+    if (expandedRpcRef.current) {
+      expandedRpcRef.current.dispose();
+      expandedRpcRef.current = null;
+    }
     if (expandedWsRef.current) {
       expandedWsRef.current.close();
       expandedWsRef.current = null;
     }
     setExpandedWsStatus("disconnected");
+    setInspectorVisible(false);
+    setExpandedEvents([]);
+    setExpandedHealth(null);
+    setExpandedStatus(null);
+    setExpandedAgent(null);
+    setExpandedUsage(null);
+    setExpandedPrompt(null);
+    setExpandedLastMessage(null);
     if (info.webgl) {
       info.webgl.dispose();
       info.webgl = null;
@@ -274,16 +300,71 @@ function AppInner() {
     }
   }, []);
 
+  // ── Append expanded event ──
+
+  const appendExpandedEvent = useCallback((msg: WsMessage) => {
+    setExpandedEvents((prev) => {
+      const next = [...prev];
+      const type = msg.event;
+      const ts = new Date().toTimeString().slice(0, 8);
+
+      if (type === "pty" || type === "replay") {
+        const len = "data" in msg && msg.data ? atob(msg.data).length : 0;
+        const last = next[next.length - 1];
+        if (last?.type === "pty") {
+          return [
+            ...next.slice(0, -1),
+            {
+              ...last,
+              ts,
+              detail: `${(last.count ?? 1) + 1}x ${(last.bytes ?? 0) + len}B`,
+              count: (last.count ?? 1) + 1,
+              bytes: (last.bytes ?? 0) + len,
+            },
+          ];
+        }
+        return [...next, { ts, type: "pty", detail: `1x ${len}B`, count: 1, bytes: len }].slice(-200);
+      }
+
+      if (type === "pong") {
+        const last = next[next.length - 1];
+        if (last?.type === "pong") {
+          return [
+            ...next.slice(0, -1),
+            { ...last, ts, detail: `${(last.count ?? 1) + 1}x`, count: (last.count ?? 1) + 1 },
+          ];
+        }
+        return [...next, { ts, type: "pong", detail: "1x", count: 1 }].slice(-200);
+      }
+
+      let detail = "";
+      if (msg.event === "transition") {
+        detail = `${msg.prev} -> ${msg.next}`;
+        if (msg.cause) detail += ` [${msg.cause}]`;
+      } else if (msg.event === "exit") {
+        detail = msg.signal != null ? `signal ${msg.signal}` : `code ${msg.code ?? "?"}`;
+      } else if (msg.event === "usage:update") {
+        detail = msg.cumulative
+          ? `in=${msg.cumulative.input_tokens} out=${msg.cumulative.output_tokens}`
+          : "";
+      }
+
+      return [...next, { ts, type: msg.event, detail }].slice(-200);
+    });
+  }, []);
+
   const connectExpandedWs = useCallback((id: string, info: SessionInfo) => {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const params = new URLSearchParams(location.search);
-    let url = `${proto}//${location.host}/ws/${id}?subscribe=pty,state`;
+    let url = `${proto}//${location.host}/ws/${id}?subscribe=pty,state,usage,hooks`;
     const token = params.get("token");
     if (token) url += `&token=${encodeURIComponent(token)}`;
 
     setExpandedWsStatus("connecting");
     const ws = new WebSocket(url);
     expandedWsRef.current = ws;
+    const rpc = new WsRpc(ws);
+    expandedRpcRef.current = rpc;
 
     ws.onopen = () => {
       setExpandedWsStatus("connected");
@@ -295,23 +376,50 @@ function AppInner() {
           rows: info.term.rows,
         }),
       );
+      // Initial agent poll
+      rpc.request({ event: "agent:get" }).then((res) => {
+        if (res.ok && res.json) {
+          const a = res.json as { state?: string; prompt?: PromptContext; last_message?: string };
+          if (a.state) {
+            info.state = a.state;
+            setSessions((prev) => new Map(prev));
+          }
+          setExpandedPrompt(a.prompt ?? null);
+          setExpandedLastMessage(a.last_message ?? null);
+        }
+      });
     };
 
     ws.onmessage = (evt) => {
-      const msg = JSON.parse(evt.data);
-      if (msg.event === "pty" || msg.event === "replay") {
-        info.term.write(b64decode(msg.data));
-      } else if (msg.event === "transition") {
-        info.state = msg.next;
-        setSessions((prev) => new Map(prev));
+      try {
+        const msg = JSON.parse(evt.data);
+        // Check if it's a response to a pending request
+        if (rpc.handleMessage(msg)) return;
+
+        appendExpandedEvent(msg as WsMessage);
+
+        if (msg.event === "pty" || msg.event === "replay") {
+          info.term.write(b64decode(msg.data));
+        } else if (msg.event === "transition") {
+          info.state = msg.next;
+          setSessions((prev) => new Map(prev));
+          setExpandedPrompt(msg.prompt ?? null);
+          setExpandedLastMessage(msg.last_message ?? null);
+        } else if (msg.event === "usage:update" && msg.cumulative) {
+          setExpandedUsage({ ...msg.cumulative, uptime_secs: "(live)" });
+        }
+      } catch {
+        // ignore parse errors
       }
     };
 
     ws.onclose = () => {
       expandedWsRef.current = null;
+      rpc.dispose();
+      expandedRpcRef.current = null;
       setExpandedWsStatus("disconnected");
     };
-  }, []);
+  }, [appendExpandedEvent]);
 
   const expandSession = useCallback(
     (id: string) => {
@@ -355,6 +463,37 @@ function AppInner() {
     },
     [collapseSession, expandSession],
   );
+
+  // ── Inspector polling for expanded view ──
+
+  useEffect(() => {
+    if (!expandedSession || !inspectorVisible) return;
+
+    let cancelled = false;
+    async function poll() {
+      if (cancelled || !expandedRpcRef.current) return;
+      const r = expandedRpcRef.current;
+      try {
+        const [h, st, ag, u] = await Promise.all([
+          r.request({ event: "health:get" }).catch(() => null),
+          r.request({ event: "status:get" }).catch(() => null),
+          r.request({ event: "agent:get" }).catch(() => null),
+          r.request({ event: "usage:get" }).catch(() => null),
+        ]);
+        if (cancelled) return;
+        if (h?.ok) setExpandedHealth(h.json);
+        if (st?.ok) setExpandedStatus(st.json);
+        if (ag?.ok) setExpandedAgent(ag.json);
+        if (u?.ok) setExpandedUsage(u.json);
+      } catch {
+        // ignore
+      }
+    }
+
+    poll();
+    const id = setInterval(poll, 2000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [expandedSession, inspectorVisible]);
 
   // ── Focus ──
 
@@ -400,10 +539,11 @@ function AppInner() {
         if (ids.length > 0 && muxSendRef.current) {
           muxSendRef.current({ event: "subscribe", sessions: ids });
         }
-      } else if (msg.event === "state") {
+      } else if (msg.event === "transition") {
         const info = sessionsRef.current.get(msg.session);
         if (info) {
           info.state = msg.next;
+          if (msg.last_message != null) info.lastMessage = msg.last_message;
           setSessions(new Map(sessionsRef.current));
         }
       } else if (msg.event === "session:online") {
@@ -533,6 +673,54 @@ function AppInner() {
   const { sidebarCollapsed, toggleSidebar } = useMux();
   const sidebarWidth = sidebarCollapsed ? 40 : 220;
 
+  // ── Inspector handlers ──
+
+  const expandedWsSend = useCallback((msg: unknown) => {
+    const ws = expandedWsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(msg));
+    }
+  }, []);
+
+  const expandedWsRequest = useCallback((msg: Record<string, unknown>) => {
+    const rpc = expandedRpcRef.current;
+    if (!rpc) {
+      return Promise.resolve({ ok: false, status: 0, json: null, text: "Not connected" } as const);
+    }
+    return rpc.request(msg);
+  }, []);
+
+  const handleToggleInspector = useCallback(() => {
+    setInspectorVisible((v) => !v);
+    const id = expandedRef.current;
+    if (id) sessionsRef.current.get(id)?.term.focus();
+  }, []);
+
+  const handleInspectorResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const onMove = (e: MouseEvent) => {
+      const right = window.innerWidth - e.clientX;
+      setInspectorWidth(Math.min(600, Math.max(300, right)));
+    };
+    const onUp = () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      const id = expandedRef.current;
+      if (id) sessionsRef.current.get(id)?.term.focus();
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, []);
+
+  const handleInspectorTabClick = useCallback(() => {
+    const id = expandedRef.current;
+    if (id) sessionsRef.current.get(id)?.term.focus();
+  }, []);
+
   // ── Keyboard shortcuts ──
 
   useEffect(() => {
@@ -586,71 +774,87 @@ function AppInner() {
       <DropOverlay active={dragActive} />
 
       {/* Main area: sidebar + content */}
-      <div className="flex min-h-0 flex-1">
-        <SessionSidebar
-          sessions={sessionArray}
-          expandedSession={expandedSession}
-          focusedSession={focusedSession}
-          onSelectSession={(id) => toggleExpand(id)}
-        />
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1">
+          <SessionSidebar
+            sessions={sessionArray}
+            expandedSession={expandedSession}
+            focusedSession={focusedSession}
+            onSelectSession={(id) => toggleExpand(id)}
+          />
 
-        {/* Grid */}
-        {sessionCount > 0 || launchAvailable ? (
-          <div className="grid flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(480px,1fr))] content-start gap-3 overflow-auto p-4">
-            {sessionArray
-              .filter((info) => info.id !== expandedSession)
-              .map((info) => (
-                <Tile
-                  key={info.id}
-                  info={info}
-                  focused={focusedSession === info.id}
-                  onToggleExpand={() => toggleExpand(info.id)}
-                />
-              ))}
-            {launchAvailable && <LaunchCard />}
-          </div>
-        ) : (
-          <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
-            <p>Waiting for connections&hellip;</p>
-          </div>
-        )}
+          {/* Grid */}
+          {sessionCount > 0 || launchAvailable ? (
+            <div className="grid flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(480px,1fr))] content-start gap-3 overflow-auto p-4">
+              {sessionArray
+                .filter((info) => info.id !== expandedSession)
+                .map((info) => (
+                  <Tile
+                    key={info.id}
+                    info={info}
+                    focused={focusedSession === info.id}
+                    onToggleExpand={() => toggleExpand(info.id)}
+                  />
+                ))}
+              {launchAvailable && <LaunchCard />}
+            </div>
+          ) : (
+            <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
+              <p>Waiting for connections&hellip;</p>
+            </div>
+          )}
+        </div>
+
+        {/* Expanded session overlay */}
+        {expandedSession && sessions.get(expandedSession) && (() => {
+          const info = sessions.get(expandedSession)!;
+          return (
+            <TerminalLayout
+              className="absolute inset-y-0 right-0 z-[100] transition-[left] duration-200"
+              style={{ left: sidebarWidth }}
+              title={sessionTitle(info)}
+              subtitle={sessionSubtitle(info)}
+              credAlert={info.credAlert}
+              headerRight={
+                <button
+                  className="border-none bg-transparent p-0.5 text-sm text-zinc-500 hover:text-zinc-300"
+                  title="Collapse"
+                  onClick={() => toggleExpand(expandedSession)}
+                >
+                  &#10530;
+                </button>
+              }
+              wsStatus={expandedWsStatus}
+              agentState={info.state}
+              statusLabel="[coopmux]"
+              inspectorVisible={inspectorVisible}
+              onToggleInspector={handleToggleInspector}
+              inspectorWidth={inspectorWidth}
+              onInspectorResize={handleInspectorResize}
+              health={expandedHealth}
+              status={expandedStatus}
+              agent={expandedAgent}
+              usage={expandedUsage}
+              events={expandedEvents}
+              prompt={expandedPrompt}
+              lastMessage={expandedLastMessage}
+              wsSend={expandedWsSend}
+              wsRequest={expandedWsRequest}
+              onInspectorTabClick={handleInspectorTabClick}
+            >
+              <Terminal
+                instance={info.term}
+                fitAddon={info.fit}
+                theme={THEME}
+                className="h-full min-w-0 flex-1 p-4"
+              />
+            </TerminalLayout>
+          );
+        })()}
+
+        {/* Page-level status bar */}
+        <StatusBar label="[coopmux]" wsStatus={muxWsStatus} />
       </div>
-
-      {/* Expanded session overlay */}
-      {expandedSession && sessions.get(expandedSession) && (() => {
-        const info = sessions.get(expandedSession)!;
-        return (
-          <TerminalLayout
-            className="fixed inset-y-0 right-0 z-[100] transition-[left] duration-200"
-            style={{ left: sidebarWidth }}
-            title={sessionTitle(info)}
-            subtitle={sessionSubtitle(info)}
-            credAlert={info.credAlert}
-            headerRight={
-              <button
-                className="border-none bg-transparent p-0.5 text-sm text-zinc-500 hover:text-zinc-300"
-                title="Collapse"
-                onClick={() => toggleExpand(expandedSession)}
-              >
-                &#10530;
-              </button>
-            }
-            wsStatus={expandedWsStatus}
-            agentState={info.state}
-            statusLabel="[coopmux]"
-          >
-            <Terminal
-              instance={info.term}
-              fitAddon={info.fit}
-              theme={THEME}
-              className="h-full min-w-0 flex-1 p-4"
-            />
-          </TerminalLayout>
-        );
-      })()}
-
-      {/* Page-level status bar */}
-      <StatusBar label="[coopmux]" wsStatus={muxWsStatus} />
     </div>
   );
 }
