@@ -8,11 +8,7 @@ RUN apt-get update && apt-get install -y protobuf-compiler musl-tools \
     && rustup target add aarch64-unknown-linux-musl
 ENV RUSTC_WRAPPER=""
 WORKDIR /src
-COPY Cargo.toml Cargo.lock ./
-COPY proto/ proto/
-COPY crates/cli/ crates/cli/
-COPY crates/mux/ crates/mux/
-COPY crates/web/dist/ crates/web/dist/
+COPY . .
 RUN case "$TARGETARCH" in \
       arm64) RUST_TARGET=aarch64-unknown-linux-musl ;; \
       *)     RUST_TARGET=x86_64-unknown-linux-musl ;; \

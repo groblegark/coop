@@ -1,36 +1,61 @@
-# Ignore everything by default
-*
+# Build artifacts
+target/
+**/node_modules/
 
-# Cargo workspace
-!Cargo.toml
-!Cargo.lock
+# Cargo config (sccache wrapper not available in container)
+.cargo/
 
-# Protobuf definitions (build.rs codegen)
-!proto
-!proto/**
+# Git / CI
+.git/
+.github/
+.gitignore
+.gitmessage
 
-# Rust source crates
-!crates
-crates/*
-!crates/cli
-!crates/cli/**
-!crates/mux
-!crates/mux/**
+# Documentation
+README.md
+CLAUDE.md
+CONTRIBUTING.md
+LICENSE
+docs/
 
-# Embedded web assets (include_str! in Rust)
-!crates/web
-crates/web/*
-!crates/web/dist
-!crates/web/dist/**
+# Build/lint config (unused by cargo build)
+Makefile
+Dockerfile
+deny.toml
+rustfmt.toml
+quench.toml
 
-# Deploy scripts (coopmux image)
-!deploy
-deploy/*
-!deploy/k8s-launch.sh
+# Project tooling
+.oj/
+.claude/
+scripts/
 
-# Re-exclude build artifacts and junk inside allowed dirs
-**/target
-**/node_modules
-**/.DS_Store
-**/*.swp
-**/*.swo
+# Web frontend source (dist/ is committed and embedded via include_str)
+crates/web/src/
+crates/web/bun.lock
+crates/web/biome.json
+crates/web/tsconfig.json
+crates/web/vite.config.*.ts
+crates/web/build.ts
+crates/web/package.json
+crates/web/.claude/
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Caches
+.quench/
+.wok/
+.v0/
+.v0.profile.rc
+
+# Coverage / debug
+*.profraw
+*.profdata
+coverage/
+tests/debug/
