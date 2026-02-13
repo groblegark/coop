@@ -18,7 +18,7 @@ pub enum CredCommand {
     List,
     /// Seed initial tokens for an account.
     Seed(SeedArgs),
-    /// Trigger device code re-authentication for an account.
+    /// Trigger OAuth re-authentication for an account.
     Reauth(ReauthArgs),
 }
 
@@ -177,12 +177,19 @@ fn cmd_reauth(
     let text = resp.text().unwrap_or_default();
 
     if status.is_success() {
-        // Try to extract device code info.
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
             if let Some(auth_url) = val.get("auth_url").and_then(|v| v.as_str()) {
-                let user_code = val.get("user_code").and_then(|v| v.as_str()).unwrap_or("?");
-                println!("Visit: {auth_url}");
-                println!("Code:  {user_code}");
+                println!("Open this URL to authenticate:");
+                println!("  {auth_url}");
+                // Try to open the URL in the default browser.
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = std::process::Command::new("open").arg(auth_url).spawn();
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    let _ = std::process::Command::new("xdg-open").arg(auth_url).spawn();
+                }
                 return 0;
             }
         }

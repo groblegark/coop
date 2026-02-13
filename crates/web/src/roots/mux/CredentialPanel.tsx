@@ -7,7 +7,6 @@ import { apiGet, apiPost } from "@/hooks/useApiClient";
 export interface CredentialAlert {
   event: string;
   auth_url?: string;
-  user_code?: string;
 }
 
 interface AccountStatus {
@@ -41,11 +40,10 @@ function formatExpiry(secs: number): string {
 }
 
 interface CredentialPanelProps {
-  alerts: Map<string, CredentialAlert>;
   onClose: () => void;
 }
 
-export function CredentialPanel({ alerts, onClose }: CredentialPanelProps) {
+export function CredentialPanel({ onClose }: CredentialPanelProps) {
   const [accounts, setAccounts] = useState<AccountStatus[]>([]);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -79,7 +77,19 @@ export function CredentialPanel({ alerts, onClose }: CredentialPanelProps) {
   const handleReauth = useCallback(
     async (account: string) => {
       setResult(null);
-      const res = await apiPost("/api/v1/credentials/reauth", { account });
+      const res = await apiPost("/api/v1/credentials/reauth", {
+        account,
+        origin: window.location.origin,
+      });
+      if (
+        res.ok &&
+        res.json &&
+        typeof res.json === "object" &&
+        "auth_url" in (res.json as Record<string, unknown>)
+      ) {
+        const authUrl = (res.json as Record<string, unknown>).auth_url as string;
+        window.open(authUrl, "_blank");
+      }
       setResult(showResult(res));
       fetchStatus();
     },
@@ -119,42 +129,11 @@ export function CredentialPanel({ alerts, onClose }: CredentialPanelProps) {
     }
   }, [formName, formProvider, formToken, fetchStatus]);
 
-  const activeReauths = [...alerts.entries()]
-    .filter(([, a]) => a.event === "credential:reauth:required" && a.user_code)
-    .map(([name, a]) => ({ name, auth_url: a.auth_url!, user_code: a.user_code! }));
-
   return (
     <div
       ref={panelRef}
       className="absolute right-0 top-full z-50 mt-1 w-80 rounded border border-[#21262d] bg-[#161b22] shadow-xl"
     >
-      {/* Device code alerts */}
-      {activeReauths.length > 0 && (
-        <Section label="Authorization Required">
-          {activeReauths.map((r) => (
-            <div key={r.name} className="mb-2 rounded bg-[#1c2128] p-2">
-              <div className="mb-1 text-[11px] font-mono text-zinc-300">{r.name}</div>
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] font-mono font-bold tracking-widest text-yellow-400">
-                  {r.user_code}
-                </span>
-                <ActionBtn onClick={() => navigator.clipboard.writeText(r.user_code)}>
-                  Copy
-                </ActionBtn>
-              </div>
-              <a
-                href={r.auth_url}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-1 block truncate text-[10px] text-blue-400 underline"
-              >
-                {r.auth_url}
-              </a>
-            </div>
-          ))}
-        </Section>
-      )}
-
       {/* Account list */}
       <Section
         label="Accounts"

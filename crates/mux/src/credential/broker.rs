@@ -9,12 +9,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{broadcast, RwLock};
 
-use crate::credential::device_code;
-use crate::credential::oauth::DeviceCodeResponse;
 use crate::credential::persist::{PersistedAccount, PersistedCredentials};
 use crate::credential::refresh::refresh_with_retries;
 use crate::credential::{
-    provider_default_env_key, AccountConfig, AccountStatus, CredentialConfig, CredentialEvent,
+    provider_default_auth_url, provider_default_client_id, provider_default_env_key,
+    provider_default_scopes, provider_default_token_url, AccountConfig, AccountStatus,
+    CredentialConfig, CredentialEvent,
 };
 
 /// Set of account names that were defined in the original static config file
@@ -30,11 +30,22 @@ struct AccountState {
     expires_at: u64, // epoch seconds
 }
 
+/// In-flight OAuth authorization code + PKCE flow.
+struct PendingAuth {
+    account: String,
+    code_verifier: String,
+    redirect_uri: String,
+    token_url: String,
+    client_id: String,
+}
+
 /// The credential broker manages token freshness for all configured accounts.
 pub struct CredentialBroker {
     accounts: RwLock<HashMap<String, AccountState>>,
     /// Account names from the original static config (for persistence filtering).
     static_names: StaticNames,
+    /// Pending OAuth authorization code flows, keyed by `state` parameter.
+    pending_auths: RwLock<HashMap<String, PendingAuth>>,
     event_tx: broadcast::Sender<CredentialEvent>,
     http: reqwest::Client,
 }
@@ -63,6 +74,7 @@ impl CredentialBroker {
         Arc::new(Self {
             accounts: RwLock::new(accounts),
             static_names,
+            pending_auths: RwLock::new(HashMap::new()),
             event_tx,
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(30))
@@ -243,93 +255,110 @@ impl CredentialBroker {
             .collect()
     }
 
-    /// Initiate the device code re-authentication flow for an account.
+    /// Initiate OAuth authorization code + PKCE flow for an account.
     ///
-    /// Returns the device code response with user code and verification URL.
-    /// Spawns a background task that polls for authorization completion and
-    /// seeds credentials on success.
+    /// Returns the authorization URL that the user should open in a browser.
+    /// After the user completes authorization, the OAuth callback should call
+    /// `complete_reauth` with the returned `code` and `state`.
     pub async fn initiate_reauth(
-        self: &Arc<Self>,
+        &self,
         account_name: &str,
-    ) -> anyhow::Result<DeviceCodeResponse> {
-        // Look up the account config from the runtime accounts map (supports dynamic accounts).
-        // Clone the needed strings so we can drop the read lock before the async call.
-        let (device_auth_url, client_id, token_url) = {
+        redirect_uri: &str,
+    ) -> anyhow::Result<ReauthResponse> {
+        use crate::credential::pkce;
+
+        let (auth_url, client_id, token_url, scope) = {
             let accounts = self.accounts.read().await;
             let acct_state = accounts
                 .get(account_name)
                 .ok_or_else(|| anyhow::anyhow!("unknown account: {account_name}"))?;
-            let acct_config = &acct_state.config;
+            let cfg = &acct_state.config;
 
-            let device_auth_url = acct_config.device_auth_url.clone().ok_or_else(|| {
-                anyhow::anyhow!("no device_auth_url configured for {account_name}")
-            })?;
-            let client_id = acct_config
+            let auth_url = cfg
+                .auth_url
+                .clone()
+                .or_else(|| provider_default_auth_url(&cfg.provider).map(String::from))
+                .ok_or_else(|| anyhow::anyhow!("no auth_url configured for {account_name}"))?;
+            let client_id = cfg
                 .client_id
                 .clone()
+                .or_else(|| provider_default_client_id(&cfg.provider).map(String::from))
                 .ok_or_else(|| anyhow::anyhow!("no client_id configured for {account_name}"))?;
-            let token_url = acct_config
+            let token_url = cfg
                 .token_url
                 .clone()
+                .or_else(|| provider_default_token_url(&cfg.provider).map(String::from))
                 .ok_or_else(|| anyhow::anyhow!("no token_url configured for {account_name}"))?;
-            (device_auth_url, client_id, token_url)
+            let scope = provider_default_scopes(&cfg.provider).to_owned();
+            (auth_url, client_id, token_url, scope)
         };
 
-        let resp = device_code::initiate_reauth(&self.http, &device_auth_url, &client_id).await?;
+        let code_verifier = pkce::generate_code_verifier();
+        let code_challenge = pkce::compute_code_challenge(&code_verifier);
+        let state = pkce::generate_state();
+
+        let full_auth_url = pkce::build_auth_url(
+            &auth_url,
+            &client_id,
+            redirect_uri,
+            &scope,
+            &code_challenge,
+            &state,
+        );
+
+        // Store pending auth for callback completion.
+        self.pending_auths.write().await.insert(
+            state.clone(),
+            PendingAuth {
+                account: account_name.to_owned(),
+                code_verifier,
+                redirect_uri: redirect_uri.to_owned(),
+                token_url,
+                client_id,
+            },
+        );
 
         // Emit ReauthRequired event.
         let _ = self.event_tx.send(CredentialEvent::ReauthRequired {
             account: account_name.to_owned(),
-            auth_url: resp.verification_uri.clone(),
-            user_code: resp.user_code.clone(),
+            auth_url: full_auth_url.clone(),
         });
 
-        // Spawn background poll task.
-        let broker = Arc::clone(self);
-        let name = account_name.to_owned();
-        let device_code = resp.device_code.clone();
-        let interval = resp.interval;
-        let expires_in = resp.expires_in;
-        let poll_token_url = token_url;
-        let poll_client_id = client_id;
+        Ok(ReauthResponse { account: account_name.to_owned(), auth_url: full_auth_url })
+    }
 
-        tokio::spawn(async move {
-            match device_code::poll_device_code(
-                &broker.http,
-                &poll_token_url,
-                &poll_client_id,
-                &device_code,
-                interval,
-                expires_in,
-            )
+    /// Complete an OAuth authorization code exchange.
+    ///
+    /// Called from the callback endpoint with the `code` and `state` returned
+    /// by the authorization server.
+    pub async fn complete_reauth(&self, state: &str, code: &str) -> anyhow::Result<()> {
+        let pending = self
+            .pending_auths
+            .write()
             .await
-            {
-                Ok(token) => {
-                    if let Err(e) = broker
-                        .seed(
-                            &name,
-                            token.access_token,
-                            token.refresh_token,
-                            Some(token.expires_in),
-                        )
-                        .await
-                    {
-                        tracing::warn!(account = %name, err = %e, "failed to seed after reauth");
-                    } else {
-                        tracing::info!(account = %name, "reauth completed, credentials seeded");
-                    }
-                }
-                Err(e) => {
-                    let _ = broker.event_tx.send(CredentialEvent::RefreshFailed {
-                        account: name.clone(),
-                        error: e.to_string(),
-                    });
-                    tracing::warn!(account = %name, err = %e, "device code polling failed");
-                }
-            }
-        });
+            .remove(state)
+            .ok_or_else(|| anyhow::anyhow!("unknown or expired auth state"))?;
 
-        Ok(resp)
+        let token = crate::credential::pkce::exchange_code(
+            &self.http,
+            &pending.token_url,
+            &pending.client_id,
+            code,
+            &pending.code_verifier,
+            &pending.redirect_uri,
+        )
+        .await?;
+
+        self.seed(
+            &pending.account,
+            token.access_token,
+            token.refresh_token,
+            Some(token.expires_in),
+        )
+        .await?;
+
+        tracing::info!(account = %pending.account, "reauth completed, credentials seeded");
+        Ok(())
     }
 
     /// Spawn refresh loops for all currently registered accounts.
@@ -356,7 +385,12 @@ impl CredentialBroker {
                 let Some(state) = accounts.get(account_name) else {
                     return;
                 };
-                let token_url = match state.config.token_url.as_deref() {
+                let token_url = match state
+                    .config
+                    .token_url
+                    .as_deref()
+                    .or_else(|| provider_default_token_url(&state.config.provider))
+                {
                     Some(u) => u.to_owned(),
                     None => {
                         // No token URL configured — wait and retry.
@@ -364,7 +398,14 @@ impl CredentialBroker {
                         continue;
                     }
                 };
-                let client_id = state.config.client_id.clone().unwrap_or_default();
+                let client_id = state
+                    .config
+                    .client_id
+                    .clone()
+                    .or_else(|| {
+                        provider_default_client_id(&state.config.provider).map(String::from)
+                    })
+                    .unwrap_or_default();
                 let refresh_token = match &state.refresh_token {
                     Some(rt) => rt.clone(),
                     None => {
@@ -482,6 +523,13 @@ pub struct AccountStatusInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_in_secs: Option<u64>,
     pub has_refresh_token: bool,
+}
+
+/// Response from initiating a reauth flow.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReauthResponse {
+    pub account: String,
+    pub auth_url: String,
 }
 
 fn epoch_secs() -> u64 {

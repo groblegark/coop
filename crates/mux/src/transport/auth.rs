@@ -71,9 +71,13 @@ pub async fn auth_layer(
 ) -> Response {
     let path = req.uri().path();
 
-    // Health and WS endpoints skip HTTP bearer auth.
+    // Health, WS, and OAuth callback endpoints skip HTTP bearer auth.
     // WS auth is handled via query param in the WS handler.
-    if path == "/api/v1/health" || path.starts_with("/ws/") {
+    // OAuth callback is initiated by the browser redirect (no bearer token).
+    if path == "/api/v1/health"
+        || path == "/api/v1/credentials/callback"
+        || path.starts_with("/ws/")
+    {
         return next.run(req).await;
     }
 

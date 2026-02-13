@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use axum::extract::State;
-use axum::response::IntoResponse;
+use axum::extract::{Query, State};
+use axum::response::{IntoResponse, Redirect};
 use axum::Json;
 use serde::Deserialize;
 
@@ -68,9 +68,13 @@ pub async fn credentials_seed(
 pub struct ReauthRequest {
     #[serde(default)]
     pub account: Option<String>,
+    /// The origin of the web UI (e.g. `http://localhost:9800`), used to
+    /// construct the OAuth callback redirect_uri.
+    #[serde(default)]
+    pub origin: Option<String>,
 }
 
-/// `POST /api/v1/credentials/reauth` — trigger device code flow for an account.
+/// `POST /api/v1/credentials/reauth` — trigger OAuth authorization code flow for an account.
 pub async fn credentials_reauth(
     State(s): State<Arc<MuxState>>,
     Json(req): Json<ReauthRequest>,
@@ -92,15 +96,47 @@ pub async fn credentials_reauth(
         },
     };
 
-    match broker.initiate_reauth(&account).await {
+    let origin =
+        req.origin.unwrap_or_else(|| format!("http://{}:{}", s.config.host, s.config.port));
+    let redirect_uri = format!("{origin}/api/v1/credentials/callback");
+
+    match broker.initiate_reauth(&account, &redirect_uri).await {
         Ok(resp) => Json(serde_json::json!({
-            "account": account,
-            "user_code": resp.user_code,
-            "auth_url": resp.verification_uri,
-            "expires_in": resp.expires_in,
+            "account": resp.account,
+            "auth_url": resp.auth_url,
         }))
         .into_response(),
         Err(e) => MuxError::BadRequest.to_http_response(e.to_string()).into_response(),
+    }
+}
+
+/// Query parameters for `GET /api/v1/credentials/callback`.
+#[derive(Debug, Deserialize)]
+pub struct CallbackQuery {
+    pub code: String,
+    pub state: String,
+}
+
+/// `GET /api/v1/credentials/callback` — OAuth authorization code callback.
+pub async fn credentials_callback(
+    State(s): State<Arc<MuxState>>,
+    Query(params): Query<CallbackQuery>,
+) -> impl IntoResponse {
+    let broker = match get_broker(&s) {
+        Ok(b) => b,
+        Err(resp) => return *resp,
+    };
+
+    match broker.complete_reauth(&params.state, &params.code).await {
+        Ok(()) => Redirect::to("/mux").into_response(),
+        Err(e) => {
+            let html = format!(
+                "<html><body><h2>Authentication failed</h2><p>{}</p>\
+                 <p><a href=\"/mux\">Return to dashboard</a></p></body></html>",
+                e
+            );
+            axum::response::Html(html).into_response()
+        }
     }
 }
 
@@ -116,7 +152,7 @@ pub struct AddAccountRequest {
     #[serde(default)]
     pub client_id: Option<String>,
     #[serde(default)]
-    pub device_auth_url: Option<String>,
+    pub auth_url: Option<String>,
     /// Optional API key to seed immediately.
     #[serde(default)]
     pub token: Option<String>,
@@ -142,7 +178,7 @@ pub async fn credentials_add_account(
         env_key: req.env_key,
         token_url: req.token_url,
         client_id: req.client_id,
-        device_auth_url: req.device_auth_url,
+        auth_url: req.auth_url,
     };
 
     match broker.add_account(config, req.token, req.refresh_token, req.expires_in).await {

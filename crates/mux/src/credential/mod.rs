@@ -7,10 +7,10 @@
 //! registered accounts and pushes fresh credentials to coop sessions as profiles.
 
 pub mod broker;
-pub mod device_code;
 pub mod distributor;
 pub mod oauth;
 pub mod persist;
+pub mod pkce;
 pub mod refresh;
 
 use std::collections::HashMap;
@@ -41,9 +41,9 @@ pub struct AccountConfig {
     /// OAuth client ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_id: Option<String>,
-    /// Device authorization URL for reauth flow.
+    /// OAuth authorization URL for reauth flow.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub device_auth_url: Option<String>,
+    pub auth_url: Option<String>,
 }
 
 /// Refresh margin in seconds (`COOP_MUX_REFRESH_MARGIN_SECS`, default 900).
@@ -77,9 +77,9 @@ pub enum CredentialEvent {
     /// A refresh attempt failed.
     #[serde(rename = "refresh:failed")]
     RefreshFailed { account: String, error: String },
-    /// User interaction required (device code flow).
+    /// User interaction required (OAuth authorization code flow).
     #[serde(rename = "reauth:required")]
-    ReauthRequired { account: String, auth_url: String, user_code: String },
+    ReauthRequired { account: String, auth_url: String },
 }
 
 /// Status of an account.
@@ -98,5 +98,37 @@ pub fn provider_default_env_key(provider: &str) -> &str {
         "openai" => "OPENAI_API_KEY",
         "gemini" | "google" => "GEMINI_API_KEY",
         _ => "API_KEY",
+    }
+}
+
+/// Resolve the default OAuth token URL for a provider.
+pub fn provider_default_token_url(provider: &str) -> Option<&'static str> {
+    match provider.to_lowercase().as_str() {
+        "claude" | "anthropic" => Some("https://claude.ai/oauth/token"),
+        _ => None,
+    }
+}
+
+/// Resolve the default OAuth client ID for a provider.
+pub fn provider_default_client_id(provider: &str) -> Option<&'static str> {
+    match provider.to_lowercase().as_str() {
+        "claude" | "anthropic" => Some("9d1c250a-e61b-44d9-88ed-5944d1962f5e"),
+        _ => None,
+    }
+}
+
+/// Resolve the default OAuth authorization URL for a provider.
+pub fn provider_default_auth_url(provider: &str) -> Option<&'static str> {
+    match provider.to_lowercase().as_str() {
+        "claude" | "anthropic" => Some("https://claude.ai/oauth/authorize"),
+        _ => None,
+    }
+}
+
+/// Resolve the default OAuth scopes for a provider.
+pub fn provider_default_scopes(provider: &str) -> &'static str {
+    match provider.to_lowercase().as_str() {
+        "claude" | "anthropic" => "user:inference",
+        _ => "",
     }
 }

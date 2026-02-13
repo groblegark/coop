@@ -110,9 +110,9 @@ fresh credentials to registered sessions as profiles.
       "name": "claude-primary",
       "provider": "claude",
       "env_key": "ANTHROPIC_API_KEY",
-      "token_url": "https://auth.example.com/token",
-      "client_id": "...",
-      "device_auth_url": "https://auth.example.com/device"
+      "token_url": "https://claude.ai/oauth/token",
+      "client_id": "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+      "auth_url": "https://claude.ai/oauth/authorize"
     }
   ]
 }
@@ -121,6 +121,12 @@ fresh credentials to registered sessions as profiles.
 | Field | Default | Purpose |
 |-------|---------|---------|
 | `env_key` | Provider default | Env var name for the credential |
+| `auth_url` | Provider default | OAuth authorization endpoint |
+| `token_url` | Provider default | OAuth token endpoint |
+| `client_id` | Provider default | OAuth client ID |
+
+For Claude accounts, `auth_url`, `token_url`, and `client_id` default
+to the known Claude OAuth endpoints and can be omitted.
 
 Provider defaults: `claude` → `ANTHROPIC_API_KEY`, `openai` → `OPENAI_API_KEY`,
 `gemini` → `GOOGLE_API_KEY`.
@@ -137,8 +143,8 @@ back to `$XDG_STATE_HOME/coop/mux/` then `$HOME/.local/state/coop/mux/`).
 3. **Distribution**: on refresh, credentials are pushed to all registered sessions
 4. **Persistence**: after each refresh, tokens are atomically saved to the
    state directory
-5. **Re-auth**: if refresh permanently fails, triggers device code flow
-   (RFC 8628) via `POST /api/v1/credentials/reauth`
+5. **Re-auth**: if refresh permanently fails, triggers OAuth authorization
+   code + PKCE flow via `POST /api/v1/credentials/reauth`
 
 ### Event Channels
 
@@ -165,7 +171,8 @@ polling `GET /api/v1/credentials/status`.
 |--------|------|---------|
 | `GET` | `/api/v1/credentials/status` | List accounts with status |
 | `POST` | `/api/v1/credentials/seed` | Inject initial tokens |
-| `POST` | `/api/v1/credentials/reauth` | Trigger device code flow |
+| `POST` | `/api/v1/credentials/reauth` | Initiate OAuth reauth flow |
+| `GET` | `/api/v1/credentials/callback` | OAuth authorization callback |
 
 All return 400 when credential broker is not configured.
 
@@ -177,7 +184,7 @@ Thin HTTP client for managing mux credentials. Requires `COOP_MUX_URL`.
 ```sh
 coop cred list                           # List accounts and status
 coop cred seed <account> --token <tok>   # Seed initial token
-coop cred reauth [account]               # Trigger device code flow
+coop cred reauth [account]               # Trigger OAuth reauth flow
 ```
 
 
