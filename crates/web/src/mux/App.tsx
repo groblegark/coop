@@ -10,6 +10,7 @@ import { DropOverlay } from "@/components/DropOverlay";
 import { StatusBar } from "@/components/StatusBar";
 import { TerminalLayout } from "@/components/TerminalLayout";
 import { Terminal } from "@/components/Terminal";
+import { TerminalPreview } from "@/components/TerminalPreview";
 import { b64decode, b64encode } from "@/lib/base64";
 import {
   MONO_FONT,
@@ -67,16 +68,6 @@ function Tile({
   focused: boolean;
   onToggleExpand: () => void;
 }) {
-  const handleReady = useCallback(() => {
-    // Re-render cached screen after open() to handle screen_batch that
-    // arrived before the terminal was mounted into the DOM.
-    if (info.lastScreenLines) {
-      info.term.resize(info.sourceCols, info.lastScreenLines.length);
-      info.term.reset();
-      info.term.write(info.lastScreenLines.join("\r\n"));
-    }
-  }, [info]);
-
   const title = useMemo(() => sessionTitle(info), [info.id, info.url, info.metadata]);
   const subtitle = useMemo(() => sessionSubtitle(info), [info.id, info.metadata]);
 
@@ -105,15 +96,11 @@ function Tile({
         </div>
       </div>
 
-      {/* Terminal */}
-      <div className="pointer-events-none relative flex-1 overflow-hidden">
-        <Terminal
-          instance={info.term}
-          theme={THEME}
-          className="absolute bottom-0 left-0"
-          onReady={handleReady}
-        />
-      </div>
+      <TerminalPreview
+        instance={info.term}
+        lastScreenLines={info.lastScreenLines}
+        sourceCols={info.sourceCols}
+      />
     </div>
   );
 }
@@ -430,7 +417,6 @@ function AppInner() {
       info.term.options.scrollback = 10000;
       info.term.reset();
       info.term.options.disableStdin = false;
-      info.term.focus();
       try {
         const webgl = new WebglAddon();
         webgl.onContextLoss(() => {
@@ -846,6 +832,7 @@ function AppInner() {
               <Terminal
                 instance={info.term}
                 fitAddon={info.fit}
+                onReady={() => info.term.focus()}
                 theme={THEME}
                 className="h-full min-w-0 flex-1 p-4"
               />
