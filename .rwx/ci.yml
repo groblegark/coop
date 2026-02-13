@@ -1,0 +1,89 @@
+on:
+  github:
+    push:
+      if: ${{ event.git.branch == 'main' }}
+      init:
+        commit-sha: ${{ event.git.sha }}
+      status-checks:
+        name: CI
+    pull_request:
+      init:
+        commit-sha: ${{ event.git.sha }}
+      status-checks:
+        - tasks: [fmt, clippy, test-linux, docker-build-empty]
+          name: CI
+  cli:
+    init:
+      commit-sha: ${{ event.git.sha }}
+
+base:
+  image: ubuntu:24.04
+  config: rwx/base 1.0.0
+
+tasks:
+  # ── System deps ────────────────────────────────────────────────────────
+  - key: system-deps
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y protobuf-compiler tmux curl pkg-config libssl-dev
+
+  # ── Clone ──────────────────────────────────────────────────────────────
+  - key: code
+    use: system-deps
+    call: git/clone 2.0.3
+    with:
+      repository: https://github.com/groblegark/coop.git
+      ref: ${{ init.commit-sha }}
+
+  # ── Rust toolchain ────────────────────────────────────────────────────
+  - key: rust
+    use: code
+    run: |
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+      . "$HOME/.cargo/env"
+      rustup component add rustfmt clippy
+      echo "$HOME/.cargo/bin" | tee -a $RWX_ENV/PATH
+      # Disable sccache wrapper (set by rwx/base) — we use RWX content caching instead
+      echo "" | tee $RWX_ENV/RUSTC_WRAPPER
+
+  # ── Cargo fetch (cached by Cargo.lock) ────────────────────────────────
+  - key: cargo-deps
+    use: rust
+    run: cargo fetch
+
+  # ── Format check (parallel) ──────────────────────────────────────────
+  - key: fmt
+    use: cargo-deps
+    run: cargo fmt --all -- --check
+
+  # ── Clippy (parallel with fmt) ────────────────────────────────────────
+  - key: clippy
+    use: cargo-deps
+    run: cargo clippy --all -- -D warnings
+
+  # ── Audit (parallel) ─────────────────────────────────────────────────
+  - key: audit
+    use: cargo-deps
+    run: |
+      cargo install cargo-audit
+      cargo audit
+
+  # ── Deny (parallel) ──────────────────────────────────────────────────
+  - key: deny
+    use: cargo-deps
+    run: |
+      cargo install cargo-deny
+      cargo deny check licenses bans sources
+
+  # ── Tests ─────────────────────────────────────────────────────────────
+  - key: test-linux
+    use: [cargo-deps, clippy]
+    run: cargo test --all
+
+  # ── Docker smoke test (parallel with tests) ──────────────────────────
+  - key: docker-build-empty
+    use: code
+    docker: true
+    run: |
+      docker build --target empty -t coop:empty .
+      docker run --rm coop:empty --help
