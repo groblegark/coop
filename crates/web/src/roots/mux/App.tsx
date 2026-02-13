@@ -280,12 +280,9 @@ function AppInner() {
       } catch {
         // canvas fallback
       }
-      requestAnimationFrame(() => {
-        info.fit.fit();
-        connectExpandedWs(id, info);
-      });
+      // fit + WS connect deferred to onReady (after Terminal mounts xterm in overlay)
     },
-    [connectExpandedWs],
+    [],
   );
 
   const toggleExpand = useCallback(
@@ -628,7 +625,11 @@ function AppInner() {
               <Terminal
                 instance={info.term}
                 fitAddon={info.fit}
-                onReady={() => info.term.focus()}
+                onReady={() => {
+                  info.fit.fit();
+                  info.term.focus();
+                  connectExpandedWs(info.id, info);
+                }}
                 theme={THEME}
                 className="h-full min-w-0 flex-1 py-4 pl-4"
               />
