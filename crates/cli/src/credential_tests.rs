@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 use axum::routing::post;
 use axum::Router;
@@ -354,4 +352,129 @@ async fn empty_config_produces_empty_broker() {
     let (broker, _rx) = CredentialBroker::new(&config);
     assert!(broker.status().await.is_empty());
     assert!(broker.all_credentials().await.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Claude credential extraction tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_flat_credentials() {
+    let json = r#"{
+        "accessToken": "sk-ant-oat01-test-access",
+        "refreshToken": "sk-ant-ort01-test-refresh",
+        "expiresAt": 9999999999999
+    }"#;
+    let creds = parse_claude_credentials(json).expect("should parse");
+    assert_eq!(creds.access_token, "sk-ant-oat01-test-access");
+    assert_eq!(creds.refresh_token.as_deref(), Some("sk-ant-ort01-test-refresh"));
+    assert!(creds.expires_in_secs > 0, "far-future expiry should have positive TTL");
+}
+
+#[test]
+fn parse_nested_credentials() {
+    let json = r#"{
+        "claudeAiOauth": {
+            "accessToken": "sk-ant-oat01-nested",
+            "refreshToken": "sk-ant-ort01-nested",
+            "expiresAt": 9999999999999,
+            "subscriptionType": "max"
+        }
+    }"#;
+    let creds = parse_claude_credentials(json).expect("should parse");
+    assert_eq!(creds.access_token, "sk-ant-oat01-nested");
+    assert_eq!(creds.refresh_token.as_deref(), Some("sk-ant-ort01-nested"));
+}
+
+#[test]
+fn parse_expired_credentials() {
+    let json = r#"{"accessToken": "sk-expired", "expiresAt": 1000}"#;
+    let creds = parse_claude_credentials(json).expect("should parse");
+    assert_eq!(creds.access_token, "sk-expired");
+    assert_eq!(creds.expires_in_secs, 0);
+}
+
+#[test]
+fn parse_no_refresh_token() {
+    let json = r#"{"accessToken": "sk-no-refresh"}"#;
+    let creds = parse_claude_credentials(json).expect("should parse");
+    assert_eq!(creds.access_token, "sk-no-refresh");
+    assert!(creds.refresh_token.is_none());
+    assert_eq!(creds.expires_in_secs, 0);
+}
+
+#[test]
+fn parse_empty_access_token_fails() {
+    let json = r#"{"accessToken": ""}"#;
+    assert!(parse_claude_credentials(json).is_err());
+}
+
+#[test]
+fn parse_missing_access_token_fails() {
+    let json = r#"{"refreshToken": "has-refresh-but-no-access"}"#;
+    assert!(parse_claude_credentials(json).is_err());
+}
+
+#[test]
+fn parse_invalid_json_fails() {
+    assert!(parse_claude_credentials("not json").is_err());
+}
+
+#[test]
+fn extract_from_nonexistent_dir_fails() {
+    let dir = std::path::Path::new("/tmp/coop-test-nonexistent-dir-xyz");
+    assert!(extract_claude_credentials(Some(dir)).is_err());
+}
+
+#[test]
+fn extract_from_temp_dir() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let cred_path = dir.path().join(".credentials.json");
+    std::fs::write(
+        &cred_path,
+        r#"{"accessToken":"sk-tmp-test","refreshToken":"sk-tmp-refresh","expiresAt":9999999999999}"#,
+    )?;
+
+    let creds = extract_claude_credentials(Some(dir.path()))?;
+    assert_eq!(creds.access_token, "sk-tmp-test");
+    assert_eq!(creds.refresh_token.as_deref(), Some("sk-tmp-refresh"));
+    assert!(creds.expires_in_secs > 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn seed_from_claude_config_integrates() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let cred_path = dir.path().join(".credentials.json");
+    std::fs::write(
+        &cred_path,
+        r#"{"accessToken":"sk-from-config","refreshToken":"sk-refresh-config","expiresAt":9999999999999}"#,
+    )?;
+
+    let config = test_config("test", "http://localhost/token");
+    let (broker, _rx) = CredentialBroker::new(&config);
+
+    let creds = broker.seed_from_claude_config("test", Some(dir.path())).await?;
+    assert_eq!(creds.access_token, "sk-from-config");
+
+    let status = broker.status().await;
+    assert_eq!(status[0].status, AccountStatus::Healthy);
+
+    let broker_creds = broker.credentials_for("test").await.expect("creds");
+    assert_eq!(broker_creds.get("ANTHROPIC_API_KEY"), Some(&"sk-from-config".to_owned()));
+    Ok(())
+}
+
+#[tokio::test]
+async fn seed_from_claude_config_unknown_account_fails() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let cred_path = dir.path().join(".credentials.json");
+    std::fs::write(&cred_path, r#"{"accessToken":"sk-test"}"#)?;
+
+    let config = test_config("real-account", "http://localhost/token");
+    let (broker, _rx) = CredentialBroker::new(&config);
+
+    let result = broker.seed_from_claude_config("nonexistent", Some(dir.path())).await;
+    assert!(result.is_err());
+    Ok(())
 }

@@ -401,6 +401,37 @@ impl CredentialBroker {
         true
     }
 
+    /// Extract credentials from a Claude config directory and seed an account.
+    ///
+    /// This is the bridge between "claude login completed" and "broker has tokens".
+    /// Reads `$config_dir/.credentials.json`, parses the tokens, and calls [`seed`].
+    ///
+    /// Returns the extracted credentials on success.
+    pub async fn seed_from_claude_config(
+        &self,
+        account_name: &str,
+        config_dir: Option<&std::path::Path>,
+    ) -> anyhow::Result<ExtractedCredentials> {
+        let creds = extract_claude_credentials(config_dir)?;
+        let seeded = self
+            .seed(
+                account_name,
+                creds.access_token.clone(),
+                creds.refresh_token.clone(),
+                Some(creds.expires_in_secs),
+            )
+            .await;
+        if !seeded {
+            anyhow::bail!("account {account_name:?} not found in broker config");
+        }
+        info!(
+            account = account_name,
+            expires_in = creds.expires_in_secs,
+            "seeded broker from Claude config"
+        );
+        Ok(creds)
+    }
+
     /// Return a snapshot of all account statuses.
     pub async fn status(&self) -> Vec<AccountStatusInfo> {
         let accounts = self.accounts.read().await;
@@ -919,6 +950,98 @@ impl CredentialBroker {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Claude credential file extraction
+// ---------------------------------------------------------------------------
+
+/// Tokens extracted from a Claude credential file.
+#[derive(Debug, Clone)]
+pub struct ExtractedCredentials {
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    /// Seconds until the token expires (0 if already expired or unknown).
+    pub expires_in_secs: u64,
+}
+
+/// Extract OAuth credentials from Claude Code's credential storage.
+///
+/// Claude stores credentials in one of two formats:
+///
+/// **Flat** (Linux / K8s pods — file at `$CLAUDE_CONFIG_DIR/.credentials.json`):
+/// ```json
+/// {"accessToken": "sk-...", "refreshToken": "sk-...", "expiresAt": 1770982078349}
+/// ```
+///
+/// **Nested** (macOS Keychain dump — `claudeAiOauth` wrapper):
+/// ```json
+/// {"claudeAiOauth": {"accessToken": "sk-...", "refreshToken": "sk-...", "expiresAt": 1770982078349}}
+/// ```
+///
+/// Both formats use `expiresAt` as milliseconds since Unix epoch.
+pub fn extract_claude_credentials(
+    config_dir: Option<&std::path::Path>,
+) -> anyhow::Result<ExtractedCredentials> {
+    let dir = match config_dir {
+        Some(d) => d.to_path_buf(),
+        None => crate::driver::claude::setup::claude_config_dir(),
+    };
+    let cred_path = dir.join(".credentials.json");
+
+    let data = std::fs::read_to_string(&cred_path).map_err(|e| {
+        anyhow::anyhow!("cannot read credential file {}: {e}", cred_path.display())
+    })?;
+
+    parse_claude_credentials(&data)
+}
+
+/// Parse Claude credentials from a JSON string.
+///
+/// Handles both flat and nested (`claudeAiOauth`) formats.
+pub fn parse_claude_credentials(json: &str) -> anyhow::Result<ExtractedCredentials> {
+    let root: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| anyhow::anyhow!("invalid JSON: {e}"))?;
+
+    // Try nested format first, then flat.
+    let obj = if let Some(nested) = root.get("claudeAiOauth") {
+        nested
+    } else {
+        &root
+    };
+
+    let access_token = obj
+        .get("accessToken")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing or empty accessToken"))?
+        .to_owned();
+
+    let refresh_token = obj
+        .get("refreshToken")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_owned());
+
+    // expiresAt is milliseconds since epoch.
+    let expires_in_secs = if let Some(expires_at_ms) = obj.get("expiresAt").and_then(|v| v.as_u64())
+    {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        expires_at_ms.saturating_sub(now_ms) / 1000
+    } else {
+        0
+    };
+
+    info!(
+        expires_in_secs,
+        has_refresh = refresh_token.is_some(),
+        "extracted Claude credentials"
+    );
+
+    Ok(ExtractedCredentials { access_token, refresh_token, expires_in_secs })
 }
 
 /// Minimal URL-encode for form values (percent-encode non-unreserved chars).
