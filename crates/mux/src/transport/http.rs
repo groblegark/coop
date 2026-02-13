@@ -331,6 +331,20 @@ pub async fn launch_session(State(s): State<Arc<MuxState>>) -> impl IntoResponse
     if let Some(token) = &s.config.auth_token {
         cmd.env("COOP_MUX_TOKEN", token);
     }
+    // Inject healthy account credentials so the agent CLI has them at startup.
+    if let Some(ref broker) = s.credential_broker {
+        let status_list = broker.status_list().await;
+        for acct in &status_list {
+            if acct.status != crate::credential::AccountStatus::Healthy {
+                continue;
+            }
+            if let Some(credentials) = broker.get_credentials(&acct.name).await {
+                for (key, value) in &credentials {
+                    cmd.env(key, value);
+                }
+            }
+        }
+    }
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::inherit());
     cmd.stderr(std::process::Stdio::inherit());
