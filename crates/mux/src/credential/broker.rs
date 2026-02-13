@@ -120,8 +120,8 @@ impl CredentialBroker {
         }
     }
 
-    /// Seed initial tokens for an account (from API call).
-    pub async fn seed(
+    /// Set tokens for an account (from API call or CLI).
+    pub async fn set_token(
         &self,
         account: &str,
         access_token: String,
@@ -345,7 +345,7 @@ impl CredentialBroker {
             {
                 Ok(token) => {
                     if let Err(e) = broker
-                        .seed(
+                        .set_token(
                             &poll_account,
                             token.access_token,
                             token.refresh_token,
@@ -472,7 +472,7 @@ impl CredentialBroker {
         )
         .await?;
 
-        self.seed(
+        self.set_token(
             &pending.account,
             token.access_token,
             token.refresh_token,

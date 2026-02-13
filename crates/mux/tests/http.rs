@@ -154,7 +154,7 @@ async fn credentials_status_without_broker_returns_400() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn credentials_seed_and_status() -> anyhow::Result<()> {
+async fn credentials_set_and_status() -> anyhow::Result<()> {
     let accounts = vec![AccountConfig {
         name: "test-acct".into(),
         provider: "claude".into(),
@@ -168,19 +168,19 @@ async fn credentials_seed_and_status() -> anyhow::Result<()> {
     let state = test_state_with_broker(accounts);
     let server = test_server(Arc::clone(&state));
 
-    // Seed tokens.
-    let seed_resp = server
-        .post("/api/v1/credentials/seed")
+    // Set tokens.
+    let set_resp = server
+        .post("/api/v1/credentials/set")
         .json(&serde_json::json!({
             "account": "test-acct",
             "token": "sk-test-token",
             "expires_in": 3600
         }))
         .await;
-    seed_resp.assert_status_ok();
+    set_resp.assert_status_ok();
 
-    let body: serde_json::Value = seed_resp.json();
-    assert_eq!(body["seeded"], true);
+    let body: serde_json::Value = set_resp.json();
+    assert_eq!(body["ok"], true);
 
     // Check status.
     let status_resp = server.get("/api/v1/credentials/status").await;
@@ -207,7 +207,7 @@ async fn credentials_add_account_then_status() -> anyhow::Result<()> {
 
     // Add account via API (same as web UI form).
     let add_resp = server
-        .post("/api/v1/credentials/accounts")
+        .post("/api/v1/credentials/new")
         .json(&serde_json::json!({
             "name": "my-account",
             "provider": "claude"
@@ -238,7 +238,7 @@ async fn credentials_status_not_blocked_by_refresh_loop() -> anyhow::Result<()> 
     // Add account with no token — spawns a refresh loop that sleeps in the
     // "no refresh token" branch.
     let add_resp = server
-        .post("/api/v1/credentials/accounts")
+        .post("/api/v1/credentials/new")
         .json(&serde_json::json!({
             "name": "no-token-acct",
             "provider": "claude"

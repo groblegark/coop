@@ -21,6 +21,7 @@ import {
 	rootDir,
 	waitForHealth,
 } from "./lib/setup";
+import { loadEnvFile, resolveCredential } from "./lib/credentials";
 
 const CLUSTER_NAME = "coop-dev";
 const NAMESPACE = "coop";
@@ -169,6 +170,28 @@ onExit(() => pfProc.kill());
 await Bun.sleep(1000);
 
 await waitForHealth(port, { maxAttempts: 30, delayMs: 500 });
+
+// -- Auto-seed local credential -----------------------------------------------
+
+await loadEnvFile();
+try {
+	const cred = await resolveCredential();
+	const envKey =
+		cred.type === "oauth_token"
+			? "CLAUDE_CODE_OAUTH_TOKEN"
+			: "ANTHROPIC_API_KEY";
+	const token = cred.type === "oauth_token" ? cred.token : cred.key;
+	const muxUrl = `http://localhost:${port}`;
+
+	await $`coop cred new "Local (macOS)" --provider claude --env-key ${envKey} --token ${token} --no-reauth`
+		.env({ ...process.env, COOP_MUX_URL: muxUrl })
+		.quiet();
+	console.log(`Seeded local credential (${cred.type})`);
+} catch (err) {
+	console.log(
+		`Note: no local credential found, skipping auto-seed (${err instanceof Error ? err.message : err})`,
+	);
+}
 
 // -- Check for credentials secret ---------------------------------------------
 

@@ -37,9 +37,9 @@ pub async fn credentials_status(State(s): State<Arc<MuxState>>) -> impl IntoResp
     Json(list).into_response()
 }
 
-/// Request body for `POST /api/v1/credentials/seed`.
+/// Request body for `POST /api/v1/credentials/set`.
 #[derive(Debug, Deserialize)]
-pub struct SeedRequest {
+pub struct SetRequest {
     pub account: String,
     pub token: String,
     #[serde(default)]
@@ -48,17 +48,17 @@ pub struct SeedRequest {
     pub expires_in: Option<u64>,
 }
 
-/// `POST /api/v1/credentials/seed` — inject initial tokens for an account.
-pub async fn credentials_seed(
+/// `POST /api/v1/credentials/set` — set tokens for an existing account.
+pub async fn credentials_set(
     State(s): State<Arc<MuxState>>,
-    Json(req): Json<SeedRequest>,
+    Json(req): Json<SetRequest>,
 ) -> impl IntoResponse {
     let broker = match get_broker(&s) {
         Ok(b) => b,
         Err(resp) => return *resp,
     };
-    match broker.seed(&req.account, req.token, req.refresh_token, req.expires_in).await {
-        Ok(()) => Json(serde_json::json!({ "seeded": true })).into_response(),
+    match broker.set_token(&req.account, req.token, req.refresh_token, req.expires_in).await {
+        Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
         Err(e) => MuxError::BadRequest.to_http_response(e.to_string()).into_response(),
     }
 }
@@ -104,9 +104,9 @@ pub async fn credentials_reauth(
     }
 }
 
-/// Request body for `POST /api/v1/credentials/accounts`.
+/// Request body for `POST /api/v1/credentials/new`.
 #[derive(Debug, Deserialize)]
-pub struct AddAccountRequest {
+pub struct NewAccountRequest {
     pub name: String,
     pub provider: String,
     #[serde(default)]
@@ -120,7 +120,7 @@ pub struct AddAccountRequest {
     /// OAuth device authorization endpoint (RFC 8628).
     #[serde(default)]
     pub device_auth_url: Option<String>,
-    /// Optional API key to seed immediately.
+    /// Optional token to set immediately.
     #[serde(default)]
     pub token: Option<String>,
     #[serde(default)]
@@ -132,10 +132,10 @@ pub struct AddAccountRequest {
     pub reauth: bool,
 }
 
-/// `POST /api/v1/credentials/accounts` — add a new account dynamically.
-pub async fn credentials_add_account(
+/// `POST /api/v1/credentials/new` — create a new credential account.
+pub async fn credentials_new(
     State(s): State<Arc<MuxState>>,
-    Json(req): Json<AddAccountRequest>,
+    Json(req): Json<NewAccountRequest>,
 ) -> impl IntoResponse {
     let broker = match get_broker(&s) {
         Ok(b) => b,

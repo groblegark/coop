@@ -84,10 +84,10 @@ fn build_router_inner(
         .route("/mux", mux_route)
         // Credential management
         .route("/api/v1/credentials/status", get(http_cred::credentials_status))
-        .route("/api/v1/credentials/seed", post(http_cred::credentials_seed))
+        .route("/api/v1/credentials/new", post(http_cred::credentials_new))
+        .route("/api/v1/credentials/set", post(http_cred::credentials_set))
         .route("/api/v1/credentials/reauth", post(http_cred::credentials_reauth))
         .route("/api/v1/credentials/exchange", post(http_cred::credentials_exchange))
-        .route("/api/v1/credentials/accounts", post(http_cred::credentials_add_account))
         .route("/api/v1/credentials/distribute", post(http_cred::credentials_distribute))
         // Middleware
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_layer))

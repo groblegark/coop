@@ -172,7 +172,7 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
       body.token = formToken.trim();
     }
 
-    const res = await apiPost("/api/v1/credentials/accounts", body);
+    const res = await apiPost("/api/v1/credentials/new", body);
     setResult(showResult(res));
     setFormSubmitting(false);
 

@@ -16,14 +16,40 @@ pub struct CredArgs {
 pub enum CredCommand {
     /// List all credential accounts and their status.
     List,
-    /// Seed initial tokens for an account.
-    Seed(SeedArgs),
+    /// Create a new credential account.
+    New(NewArgs),
+    /// Set tokens for an existing account.
+    Set(SetArgs),
     /// Trigger OAuth re-authentication for an account.
     Reauth(ReauthArgs),
 }
 
 #[derive(Debug, clap::Args)]
-pub struct SeedArgs {
+pub struct NewArgs {
+    /// Account name.
+    pub name: String,
+    /// Provider identifier (e.g. "claude", "openai").
+    #[arg(long)]
+    pub provider: String,
+    /// Env var name for the credential (falls back to provider default).
+    #[arg(long)]
+    pub env_key: Option<String>,
+    /// Access token to set immediately.
+    #[arg(long)]
+    pub token: Option<String>,
+    /// Refresh token (optional).
+    #[arg(long)]
+    pub refresh_token: Option<String>,
+    /// Token TTL in seconds (optional).
+    #[arg(long)]
+    pub expires_in: Option<u64>,
+    /// Disable OAuth reauth/refresh for this account.
+    #[arg(long)]
+    pub no_reauth: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct SetArgs {
     /// Account name.
     pub account: String,
     /// Access token.
@@ -61,7 +87,8 @@ pub fn run(args: &CredArgs) -> i32 {
 
     match &args.command {
         CredCommand::List => cmd_list(&client, &mux_url, mux_token.as_deref()),
-        CredCommand::Seed(seed) => cmd_seed(&client, &mux_url, mux_token.as_deref(), seed),
+        CredCommand::New(new_args) => cmd_new(&client, &mux_url, mux_token.as_deref(), new_args),
+        CredCommand::Set(set_args) => cmd_set(&client, &mux_url, mux_token.as_deref(), set_args),
         CredCommand::Reauth(reauth) => cmd_reauth(&client, &mux_url, mux_token.as_deref(), reauth),
     }
 }
@@ -120,13 +147,50 @@ fn cmd_list(client: &reqwest::blocking::Client, mux_url: &str, token: Option<&st
     }
 }
 
-fn cmd_seed(
+fn cmd_new(
     client: &reqwest::blocking::Client,
     mux_url: &str,
     token: Option<&str>,
-    args: &SeedArgs,
+    args: &NewArgs,
 ) -> i32 {
-    let url = format!("{mux_url}/api/v1/credentials/seed");
+    let url = format!("{mux_url}/api/v1/credentials/new");
+    let body = serde_json::json!({
+        "name": args.name,
+        "provider": args.provider,
+        "env_key": args.env_key,
+        "token": args.token,
+        "refresh_token": args.refresh_token,
+        "expires_in": args.expires_in,
+        "reauth": !args.no_reauth,
+    });
+
+    let resp = match apply_auth(client.post(&url), token).json(&body).send() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return 1;
+        }
+    };
+
+    let status = resp.status();
+    let text = resp.text().unwrap_or_default();
+
+    if status.is_success() {
+        println!("Created account '{}'.", args.name);
+        0
+    } else {
+        eprintln!("error ({status}): {text}");
+        1
+    }
+}
+
+fn cmd_set(
+    client: &reqwest::blocking::Client,
+    mux_url: &str,
+    token: Option<&str>,
+    args: &SetArgs,
+) -> i32 {
+    let url = format!("{mux_url}/api/v1/credentials/set");
     let body = serde_json::json!({
         "account": args.account,
         "token": args.token,
@@ -146,7 +210,7 @@ fn cmd_seed(
     let text = resp.text().unwrap_or_default();
 
     if status.is_success() {
-        println!("Seeded account '{}'.", args.account);
+        println!("Set token for account '{}'.", args.account);
         0
     } else {
         eprintln!("error ({status}): {text}");
