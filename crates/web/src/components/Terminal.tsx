@@ -83,14 +83,22 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       const el = containerRef.current;
       if (!el || mountedRef.current) return;
 
-      instance.open(el);
+      // xterm.js v5's open() returns early when the terminal was already
+      // opened (this.element exists).  When the same instance is reused in
+      // a new React container (e.g. tile → expanded overlay), we must
+      // manually re-attach the existing DOM element instead of calling
+      // open() again.
+      if (instance.element) {
+        el.appendChild(instance.element);
+        instance.refresh(0, instance.rows - 1);
+      } else {
+        instance.open(el);
+      }
       mountedRef.current = true;
       onReadyRef.current?.();
 
       // Always observe resizes; the ref-based callback is a no-op when
-      // no FitAddon is provided (preview mode).  This avoids tearing
-      // down / re-opening the terminal when fitAddon toggles on
-      // expand/collapse — xterm.js doesn't handle repeated open() well.
+      // no FitAddon is provided (preview mode).
       const observer = new ResizeObserver(() => {
         requestAnimationFrame(() => fitAddonRef.current?.fit());
       });
@@ -99,8 +107,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       return () => {
         observer.disconnect();
         mountedRef.current = false;
-        // Clear container DOM for React strict-mode remount, but do NOT
-        // dispose — the instance is owned externally.
+        // Detach xterm's DOM from this container so it can be re-attached
+        // elsewhere.  Do NOT dispose — the instance is owned externally.
         while (el.firstChild) el.removeChild(el.firstChild);
       };
     }, [instance]);
