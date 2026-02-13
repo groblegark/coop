@@ -164,6 +164,20 @@ impl PreparedSession {
                     env_vars.push((k.clone(), v.clone()));
                 }
             }
+
+            // 5a. Write credentials file for Claude OAuth tokens.
+            // Claude Code reads OAuth tokens from ~/.claude/.credentials.json
+            // rather than the CLAUDE_CODE_OAUTH_TOKEN env var, so we must
+            // write the file before spawning the new backend.
+            if agent_enum == AgentType::Claude {
+                if let Some(token) = creds.get("CLAUDE_CODE_OAUTH_TOKEN") {
+                    if !token.is_empty() {
+                        if let Err(e) = claude_setup::write_credentials_file(token) {
+                            error!("failed to write OAuth credentials file: {e}");
+                        }
+                    }
+                }
+            }
         }
 
         // 5b. Merge pending env vars (set via PUT /api/v1/env/:key).
@@ -409,6 +423,19 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             terminal.snapshot_fn(),
         )));
         driver.detectors.sort_by_key(|d| d.tier());
+    }
+
+    // 5a. Write credentials file if CLAUDE_CODE_OAUTH_TOKEN env var is set.
+    // Claude Code reads OAuth tokens from ~/.claude/.credentials.json rather
+    // than the env var, so we bridge the gap on initial startup too.
+    if agent_enum == AgentType::Claude {
+        if let Ok(token) = std::env::var("CLAUDE_CODE_OAUTH_TOKEN") {
+            if !token.is_empty() {
+                if let Err(e) = claude_setup::write_credentials_file(&token) {
+                    error!("failed to write OAuth credentials file on startup: {e}");
+                }
+            }
+        }
     }
 
     // 6. Spawn backend AFTER driver is built (FIFO must exist before child starts).
