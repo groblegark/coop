@@ -23,9 +23,9 @@ pub fn compute_code_challenge(verifier: &str) -> String {
     URL_SAFE_NO_PAD.encode(hash)
 }
 
-/// Generate a random state parameter.
+/// Generate a random state parameter (32 bytes → 43 chars, matching Claude Code).
 pub fn generate_state() -> String {
-    let mut bytes = [0u8; 16];
+    let mut bytes = [0u8; 32];
     rand::rng().fill(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
 }
@@ -58,7 +58,7 @@ pub fn build_auth_url(
     )
 }
 
-/// Exchange an authorization code for tokens.
+/// Exchange an authorization code for tokens (JSON body, matching Claude Code).
 pub async fn exchange_code(
     client: &reqwest::Client,
     token_url: &str,
@@ -67,15 +67,18 @@ pub async fn exchange_code(
     code_verifier: &str,
     redirect_uri: &str,
 ) -> anyhow::Result<TokenResponse> {
+    let json_body = serde_json::json!({
+        "grant_type": "authorization_code",
+        "client_id": client_id,
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "code_verifier": code_verifier,
+    });
+
     let resp = client
         .post(token_url)
-        .form(&[
-            ("grant_type", "authorization_code"),
-            ("client_id", client_id),
-            ("code", code),
-            ("code_verifier", code_verifier),
-            ("redirect_uri", redirect_uri),
-        ])
+        .header("Content-Type", "application/json")
+        .body(json_body.to_string())
         .send()
         .await?;
 

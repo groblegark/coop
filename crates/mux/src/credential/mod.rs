@@ -163,7 +163,7 @@ pub fn provider_default_redirect_uri(provider: &str) -> Option<&'static str> {
 pub fn provider_default_scopes(provider: &str) -> &'static str {
     match provider.to_lowercase().as_str() {
         "claude" | "anthropic" => {
-            "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers"
+            "user:profile user:inference user:sessions:claude_code user:mcp_servers"
         }
         _ => "",
     }
