@@ -4,6 +4,7 @@
 use std::path::Path;
 
 use serde_json::json;
+use serial_test::serial;
 
 use super::{project_dir_name, write_credentials_file};
 
@@ -167,6 +168,7 @@ fn prepare_session_with_mcp_writes_config() -> anyhow::Result<()> {
 }
 
 #[test]
+#[serial(claude_config_dir)]
 fn write_credentials_creates_new_file() -> anyhow::Result<()> {
     let tmp = tempfile::tempdir()?;
     // Point CLAUDE_CONFIG_DIR to temp dir so we don't touch real config.
@@ -186,6 +188,7 @@ fn write_credentials_creates_new_file() -> anyhow::Result<()> {
 }
 
 #[test]
+#[serial(claude_config_dir)]
 fn write_credentials_preserves_existing_fields() -> anyhow::Result<()> {
     let tmp = tempfile::tempdir()?;
     std::env::set_var("CLAUDE_CONFIG_DIR", tmp.path());

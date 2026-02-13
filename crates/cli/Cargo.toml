@@ -53,6 +53,7 @@ tonic-prost-build.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 reqwest.workspace = true
+serial_test.workspace = true
 yare.workspace = true
 axum-test.workspace = true
 

@@ -44,6 +44,7 @@ tonic-prost-build = "0.14"
 # dev dependencies
 axum-test = "18"
 proptest = "1"
+serial_test = "3"
 yare = "3"
 
 [workspace.package]
