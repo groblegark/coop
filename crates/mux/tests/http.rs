@@ -193,6 +193,78 @@ async fn credentials_seed_and_status() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn credentials_add_account_then_status() -> anyhow::Result<()> {
+    // Start with an EMPTY broker (no pre-configured accounts).
+    let state = test_state_with_broker(vec![]);
+    let server = test_server(Arc::clone(&state));
+
+    // Verify status is initially empty.
+    let status_resp = server.get("/api/v1/credentials/status").await;
+    status_resp.assert_status_ok();
+    let list: Vec<serde_json::Value> = status_resp.json();
+    assert_eq!(list.len(), 0);
+
+    // Add account via API (same as web UI form).
+    let add_resp = server
+        .post("/api/v1/credentials/accounts")
+        .json(&serde_json::json!({
+            "name": "my-account",
+            "provider": "claude"
+        }))
+        .await;
+    add_resp.assert_status_ok();
+    let body: serde_json::Value = add_resp.json();
+    assert_eq!(body["added"], true);
+
+    // Status should now contain the new account.
+    let status_resp = server.get("/api/v1/credentials/status").await;
+    status_resp.assert_status_ok();
+    let list: Vec<serde_json::Value> = status_resp.json();
+    assert_eq!(list.len(), 1, "expected 1 account, got: {list:?}");
+    assert_eq!(list[0]["name"], "my-account");
+    assert_eq!(list[0]["provider"], "claude");
+    assert_eq!(list[0]["status"], "expired");
+    Ok(())
+}
+
+/// Regression test: the refresh loop previously held an `RwLock` write guard
+/// across a 60-second `tokio::time::sleep`, blocking all `status_list()` reads.
+#[tokio::test]
+async fn credentials_status_not_blocked_by_refresh_loop() -> anyhow::Result<()> {
+    let state = test_state_with_broker(vec![]);
+    let server = test_server(Arc::clone(&state));
+
+    // Add account with no token — spawns a refresh loop that sleeps in the
+    // "no refresh token" branch.
+    let add_resp = server
+        .post("/api/v1/credentials/accounts")
+        .json(&serde_json::json!({
+            "name": "no-token-acct",
+            "provider": "claude"
+        }))
+        .await;
+    add_resp.assert_status_ok();
+
+    // Give the refresh loop a chance to start and enter its sleep.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // Status must respond promptly — not blocked for 60s by the refresh loop.
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        server.get("/api/v1/credentials/status"),
+    )
+    .await;
+    assert!(result.is_ok(), "status endpoint blocked by refresh loop lock");
+
+    let resp = result?;
+    resp.assert_status_ok();
+    let list: Vec<serde_json::Value> = resp.json();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["name"], "no-token-acct");
+    Ok(())
+}
+
+#[tokio::test]
 async fn credentials_reauth_without_broker_returns_400() -> anyhow::Result<()> {
     let state = test_state();
     let server = test_server(state);

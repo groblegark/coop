@@ -519,7 +519,8 @@ impl CredentialBroker {
                 {
                     Some(u) => u.to_owned(),
                     None => {
-                        // No token URL configured — wait and retry.
+                        // No token URL configured — drop lock before sleeping.
+                        drop(accounts);
                         tokio::time::sleep(Duration::from_secs(60)).await;
                         continue;
                     }
@@ -535,11 +536,13 @@ impl CredentialBroker {
                 let refresh_token = match &state.refresh_token {
                     Some(rt) => rt.clone(),
                     None => {
-                        // No refresh token — mark expired and wait.
+                        // No refresh token — mark expired, drop lock, then wait.
                         drop(accounts);
-                        let mut accounts = self.accounts.write().await;
-                        if let Some(s) = accounts.get_mut(account_name) {
-                            s.status = AccountStatus::Expired;
+                        {
+                            let mut accounts = self.accounts.write().await;
+                            if let Some(s) = accounts.get_mut(account_name) {
+                                s.status = AccountStatus::Expired;
+                            }
                         }
                         tokio::time::sleep(Duration::from_secs(60)).await;
                         continue;
