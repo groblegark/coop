@@ -6,8 +6,10 @@
 # Called by coopmux when POST /api/v1/sessions/launch fires.
 #
 # Expected env (set by coopmux launch handler):
-#   COOP_MUX_URL   - mux URL (ignored; we use Service DNS instead)
-#   COOP_MUX_TOKEN - auth token for session registration
+#   COOP_MUX_URL              - mux URL (ignored; we use Service DNS instead)
+#   COOP_MUX_TOKEN            - auth token for session registration
+#   ANTHROPIC_API_KEY         - credential from broker (if healthy)
+#   CLAUDE_CODE_OAUTH_TOKEN   - credential from broker (if healthy)
 #
 # Expected env (set in coopmux pod spec):
 #   POD_NAMESPACE        - namespace (downward API)
@@ -22,6 +24,37 @@ NAMESPACE="${POD_NAMESPACE:-coop}"
 IMAGE="${COOP_SESSION_IMAGE:-coop:claude}"
 MUX_URL="http://coopmux.${NAMESPACE}.svc.cluster.local:9800"
 MUX_TOKEN="${COOP_MUX_TOKEN:-}"
+
+# Build credential env entries. Prefer values injected by the mux broker;
+# fall back to the k8s secret if no broker value is available.
+CRED_ENV=""
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  CRED_ENV="${CRED_ENV}
+        - name: ANTHROPIC_API_KEY
+          value: \"${ANTHROPIC_API_KEY}\""
+else
+  CRED_ENV="${CRED_ENV}
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: anthropic-credentials
+              key: api-key
+              optional: true"
+fi
+
+if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+  CRED_ENV="${CRED_ENV}
+        - name: CLAUDE_CODE_OAUTH_TOKEN
+          value: \"${CLAUDE_CODE_OAUTH_TOKEN}\""
+else
+  CRED_ENV="${CRED_ENV}
+        - name: CLAUDE_CODE_OAUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: anthropic-credentials
+              key: oauth-token
+              optional: true"
+fi
 
 kubectl apply -n "$NAMESPACE" -f - <<EOF
 apiVersion: v1
@@ -59,19 +92,7 @@ spec:
         - name: POD_IP
           valueFrom:
             fieldRef:
-              fieldPath: status.podIP
-        - name: ANTHROPIC_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: anthropic-credentials
-              key: api-key
-              optional: true
-        - name: CLAUDE_CODE_OAUTH_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: anthropic-credentials
-              key: oauth-token
-              optional: true
+              fieldPath: status.podIP${CRED_ENV}
       ports:
         - containerPort: 8080
       livenessProbe:

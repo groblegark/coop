@@ -178,8 +178,7 @@ try {
 	console.log(
 		"\nNote: No 'anthropic-credentials' secret found in the coop namespace.",
 	);
-	console.log("Session pods will need ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN.");
-	console.log("Create one with:");
+	console.log("Credentials can be provided via the mux Credential Panel or a k8s secret:");
 	console.log(
 		`  kubectl create secret generic anthropic-credentials -n ${NAMESPACE} \\`,
 	);

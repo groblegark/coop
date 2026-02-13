@@ -3,8 +3,9 @@
 
 //! Credential brokering: OAuth token refresh and distribution.
 //!
-//! Activated by `--credential-config <path>`. Manages token freshness for
-//! registered accounts and pushes fresh credentials to coop sessions as profiles.
+//! Always initialized. Optionally pre-populated from `--credential-config <path>`.
+//! Manages token freshness for registered accounts and pushes fresh credentials
+//! to coop sessions as profiles. Accounts can also be added dynamically at runtime.
 
 pub mod broker;
 pub mod device_code;
