@@ -80,11 +80,8 @@ function Tile({
 
   return (
     <div
-      className={`flex flex-col overflow-hidden rounded-lg border bg-[#1e1e1e] transition-[border-color] duration-150 h-[280px] ${focused ? "border-blue-500" : "border-[#21262d]"} cursor-pointer`}
-      onClick={(e) => {
-        if ((e.target as HTMLElement).closest("[data-expand]")) return;
-        onToggleExpand();
-      }}
+      className={`flex flex-col overflow-hidden rounded-lg border bg-[#1e1e1e] transition-[border-color,background-color] duration-150 h-[280px] ${focused ? "border-blue-500" : "border-[#21262d] hover:border-[#444c56]"} cursor-pointer hover:bg-[#242424]`}
+      onClick={onToggleExpand}
     >
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[#21262d] px-3 py-1.5">
@@ -103,17 +100,6 @@ function Tile({
             </span>
           )}
           <AgentBadge state={info.state} />
-          <button
-            data-expand
-            className="border-none bg-transparent p-0.5 text-sm text-zinc-500 hover:text-zinc-300"
-            title="Expand"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleExpand();
-            }}
-          >
-            &#10530;
-          </button>
         </div>
       </div>
 
