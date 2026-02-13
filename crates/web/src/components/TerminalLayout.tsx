@@ -1,9 +1,6 @@
 import { useState, useCallback, type ReactNode } from "react";
-import type { PromptContext, EventEntry } from "@/lib/types";
-import type { WsRequest } from "@/hooks/useWebSocket";
 import { AgentBadge } from "./AgentBadge";
 import { StatusBar } from "./StatusBar";
-import { InspectorSidebar } from "./inspector/InspectorSidebar";
 
 export interface TerminalLayoutProps {
   /** Title displayed in the header bar */
@@ -15,19 +12,9 @@ export interface TerminalLayoutProps {
   /** Show a credential alert badge in the header */
   credAlert?: boolean;
 
-  /** Inspector data props (when provided, inspector toggle is available) */
-  events?: EventEntry[];
-  prompt?: PromptContext | null;
-  lastMessage?: string | null;
-  wsSend?: (msg: unknown) => void;
-  wsRequest?: WsRequest;
-
-  /** Called when inspector interactions need terminal refocus */
-  onTerminalFocus?: () => void;
-
   /** WebSocket connection status */
   wsStatus: "connecting" | "connected" | "disconnected";
-  /** Agent state for the status bar badge */
+  /** Agent state for the header badge */
   agentState?: string | null;
   /** PTY byte offset for the status bar */
   ptyOffset?: number;
@@ -35,6 +22,11 @@ export interface TerminalLayoutProps {
   host?: string;
   /** Label shown at far left of the status bar */
   statusLabel?: string;
+
+  /** Inspector sidebar content. Rendered in a resizable panel when visible. */
+  inspector?: ReactNode;
+  /** Called after sidebar interactions (toggle, resize) for e.g. terminal refocus */
+  onInteraction?: () => void;
 
   /** Terminal content (rendered as the main area) */
   children: ReactNode;
@@ -49,57 +41,48 @@ export function TerminalLayout({
   subtitle,
   headerRight,
   credAlert,
-  events,
-  prompt,
-  lastMessage,
-  wsSend,
-  wsRequest,
-  onTerminalFocus,
   wsStatus,
   agentState,
   ptyOffset,
   host,
   statusLabel,
+  inspector,
+  onInteraction,
   children,
   className,
   style,
 }: TerminalLayoutProps) {
-  const hasInspector = !!(wsSend && wsRequest && events);
+  // ── Sidebar state (owned here) ──
 
-  // Inspector visibility and width — owned here
-  const [inspectorVisible, setInspectorVisible] = useState(false);
-  const [inspectorWidth, setInspectorWidth] = useState(450);
+  const [sidebarVisible, setSidebarVisible] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(450);
 
-  const handleToggleInspector = useCallback(() => {
-    setInspectorVisible((v) => !v);
-    onTerminalFocus?.();
-  }, [onTerminalFocus]);
+  const handleToggle = useCallback(() => {
+    setSidebarVisible((v) => !v);
+    onInteraction?.();
+  }, [onInteraction]);
 
-  const handleResizeMouseDown = useCallback(
+  const handleResize = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       const onMove = (ev: MouseEvent) => {
         const right = window.innerWidth - ev.clientX;
-        setInspectorWidth(Math.min(600, Math.max(300, right)));
+        setSidebarWidth(Math.min(600, Math.max(300, right)));
       };
       const onUp = () => {
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
-        onTerminalFocus?.();
+        onInteraction?.();
       };
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     },
-    [onTerminalFocus],
+    [onInteraction],
   );
-
-  const handleTabClick = useCallback(() => {
-    onTerminalFocus?.();
-  }, [onTerminalFocus]);
 
   return (
     <div
@@ -134,27 +117,20 @@ export function TerminalLayout({
         {children}
 
         {/* Resize handle */}
-        {inspectorVisible && hasInspector && (
+        {sidebarVisible && inspector && (
           <div
             className="w-[5px] shrink-0 cursor-col-resize transition-colors hover:bg-blue-400"
-            onMouseDown={handleResizeMouseDown}
+            onMouseDown={handleResize}
           />
         )}
 
         {/* Inspector sidebar */}
-        {inspectorVisible && hasInspector && (
+        {sidebarVisible && inspector && (
           <div
             className="flex shrink-0 flex-col overflow-hidden border-l border-[#333] bg-[#181818] font-mono text-xs text-zinc-400"
-            style={{ width: inspectorWidth }}
+            style={{ width: sidebarWidth }}
           >
-            <InspectorSidebar
-              events={events!}
-              prompt={prompt ?? null}
-              lastMessage={lastMessage ?? null}
-              wsSend={wsSend!}
-              wsRequest={wsRequest!}
-              onTabClick={handleTabClick}
-            />
+            {inspector}
           </div>
         )}
       </div>
@@ -165,8 +141,8 @@ export function TerminalLayout({
         wsStatus={wsStatus}
         ptyOffset={ptyOffset}
         host={host}
-        onToggleInspector={hasInspector ? handleToggleInspector : undefined}
-        inspectorVisible={inspectorVisible}
+        onToggleInspector={inspector ? handleToggle : undefined}
+        inspectorVisible={sidebarVisible}
       />
     </div>
   );

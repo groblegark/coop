@@ -8,6 +8,7 @@ import { useFileUpload } from "@/hooks/useFileUpload";
 import { DropOverlay } from "@/components/DropOverlay";
 import { StatusBar } from "@/components/StatusBar";
 import { TerminalLayout } from "@/components/TerminalLayout";
+import { InspectorSidebar, type WsEventListener } from "@/components/inspector/InspectorSidebar";
 import { Terminal } from "@/components/Terminal";
 import { b64decode, b64encode } from "@/lib/base64";
 import {
@@ -16,7 +17,7 @@ import {
   PREVIEW_FONT_SIZE,
   EXPANDED_FONT_SIZE,
 } from "@/lib/constants";
-import type { MuxWsMessage, MuxMetadata, WsMessage, PromptContext, EventEntry } from "@/lib/types";
+import type { MuxWsMessage, MuxMetadata, WsMessage, PromptContext } from "@/lib/types";
 import { SessionSidebar } from "./SessionSidebar";
 import { MuxProvider, useMux } from "./MuxContext";
 import { Tile, LaunchCard, sessionTitle, sessionSubtitle } from "@/components/Tile";
@@ -61,10 +62,17 @@ function AppInner() {
   const expandedRpcRef = useRef<WsRpc | null>(null);
   const [expandedWsStatus, setExpandedWsStatus] = useState<ConnectionStatus>("disconnected");
 
-  // Inspector data for expanded view (events/prompt/lastMessage from the WS stream)
-  const [expandedEvents, setExpandedEvents] = useState<EventEntry[]>([]);
+  // Prompt/lastMessage for expanded inspector (from WS stream)
   const [expandedPrompt, setExpandedPrompt] = useState<PromptContext | null>(null);
   const [expandedLastMessage, setExpandedLastMessage] = useState<string | null>(null);
+
+  // WS event subscription for expanded session inspector
+  const expandedWsListenersRef = useRef(new Set<WsEventListener>());
+
+  const subscribeExpandedWsEvents = useCallback((listener: WsEventListener) => {
+    expandedWsListenersRef.current.add(listener);
+    return () => { expandedWsListenersRef.current.delete(listener); };
+  }, []);
 
   const [launchAvailable, setLaunchAvailable] = useState(false);
 
@@ -170,7 +178,6 @@ function AppInner() {
       expandedWsRef.current = null;
     }
     setExpandedWsStatus("disconnected");
-    setExpandedEvents([]);
     setExpandedPrompt(null);
     setExpandedLastMessage(null);
     if (info.webgl) {
@@ -185,59 +192,6 @@ function AppInner() {
       info.term.resize(info.sourceCols, info.lastScreenLines.length);
       info.term.write(info.lastScreenLines.join("\r\n"));
     }
-  }, []);
-
-  // ── Append expanded event ──
-
-  const appendExpandedEvent = useCallback((msg: WsMessage) => {
-    setExpandedEvents((prev) => {
-      const next = [...prev];
-      const type = msg.event;
-      const ts = new Date().toTimeString().slice(0, 8);
-
-      if (type === "pty" || type === "replay") {
-        const len = "data" in msg && msg.data ? atob(msg.data).length : 0;
-        const last = next[next.length - 1];
-        if (last?.type === "pty") {
-          return [
-            ...next.slice(0, -1),
-            {
-              ...last,
-              ts,
-              detail: `${(last.count ?? 1) + 1}x ${(last.bytes ?? 0) + len}B`,
-              count: (last.count ?? 1) + 1,
-              bytes: (last.bytes ?? 0) + len,
-            },
-          ];
-        }
-        return [...next, { ts, type: "pty", detail: `1x ${len}B`, count: 1, bytes: len }].slice(-200);
-      }
-
-      if (type === "pong") {
-        const last = next[next.length - 1];
-        if (last?.type === "pong") {
-          return [
-            ...next.slice(0, -1),
-            { ...last, ts, detail: `${(last.count ?? 1) + 1}x`, count: (last.count ?? 1) + 1 },
-          ];
-        }
-        return [...next, { ts, type: "pong", detail: "1x", count: 1 }].slice(-200);
-      }
-
-      let detail = "";
-      if (msg.event === "transition") {
-        detail = `${msg.prev} -> ${msg.next}`;
-        if (msg.cause) detail += ` [${msg.cause}]`;
-      } else if (msg.event === "exit") {
-        detail = msg.signal != null ? `signal ${msg.signal}` : `code ${msg.code ?? "?"}`;
-      } else if (msg.event === "usage:update") {
-        detail = msg.cumulative
-          ? `in=${msg.cumulative.input_tokens} out=${msg.cumulative.output_tokens}`
-          : "";
-      }
-
-      return [...next, { ts, type: msg.event, detail }].slice(-200);
-    });
   }, []);
 
   const connectExpandedWs = useCallback((id: string, info: SessionInfo) => {
@@ -283,7 +237,8 @@ function AppInner() {
         // Check if it's a response to a pending request
         if (rpc.handleMessage(msg)) return;
 
-        appendExpandedEvent(msg as WsMessage);
+        // Notify subscribers (inspector events + usage)
+        for (const fn of expandedWsListenersRef.current) fn(msg as WsMessage);
 
         if (msg.event === "pty" || msg.event === "replay") {
           info.term.write(b64decode(msg.data));
@@ -304,7 +259,7 @@ function AppInner() {
       expandedRpcRef.current = null;
       setExpandedWsStatus("disconnected");
     };
-  }, [appendExpandedEvent]);
+  }, []);
 
   const expandSession = useCallback(
     (id: string) => {
@@ -658,12 +613,17 @@ function AppInner() {
               wsStatus={expandedWsStatus}
               agentState={info.state}
               statusLabel="[coopmux]"
-              events={expandedEvents}
-              prompt={expandedPrompt}
-              lastMessage={expandedLastMessage}
-              wsSend={expandedWsSend}
-              wsRequest={expandedWsRequest}
-              onTerminalFocus={handleTerminalFocus}
+              onInteraction={handleTerminalFocus}
+              inspector={
+                <InspectorSidebar
+                  subscribeWsEvents={subscribeExpandedWsEvents}
+                  prompt={expandedPrompt}
+                  lastMessage={expandedLastMessage}
+                  wsSend={expandedWsSend}
+                  wsRequest={expandedWsRequest}
+                  onTabClick={handleTerminalFocus}
+                />
+              }
             >
               <Terminal
                 instance={info.term}

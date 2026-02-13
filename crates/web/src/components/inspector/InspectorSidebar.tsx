@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import type { PromptContext, EventEntry } from "@/lib/types";
+import type { PromptContext, EventEntry, WsMessage } from "@/lib/types";
 import type { WsRequest } from "@/hooks/useWebSocket";
 import { StatePanel } from "./StatePanel";
 import { ActionsPanel } from "./ActionsPanel";
@@ -7,8 +7,11 @@ import { ConfigPanel } from "./ConfigPanel";
 
 type InspectorTab = "state" | "actions" | "config";
 
+export type WsEventListener = (msg: WsMessage) => void;
+
 export interface InspectorSidebarProps {
-  events: EventEntry[];
+  /** Subscribe to raw WS events for the event log + live usage. Returns unsubscribe fn. */
+  subscribeWsEvents: (listener: WsEventListener) => () => void;
   prompt: PromptContext | null;
   lastMessage: string | null;
   wsSend: (msg: unknown) => void;
@@ -17,7 +20,7 @@ export interface InspectorSidebarProps {
 }
 
 export function InspectorSidebar({
-  events,
+  subscribeWsEvents,
   prompt,
   lastMessage,
   wsSend,
@@ -26,7 +29,8 @@ export function InspectorSidebar({
 }: InspectorSidebarProps) {
   const [activeTab, setActiveTab] = useState<InspectorTab>("state");
 
-  // Poll API tables while mounted
+  // ── API polling (owned here, not in parent) ──
+
   const [health, setHealth] = useState<unknown>(null);
   const [status, setStatus] = useState<unknown>(null);
   const [agent, setAgent] = useState<unknown>(null);
@@ -34,7 +38,7 @@ export function InspectorSidebar({
 
   useEffect(() => {
     let cancelled = false;
-    async function poll() {
+    const poll = async () => {
       if (cancelled) return;
       try {
         const [h, st, ag, u] = await Promise.all([
@@ -51,11 +55,29 @@ export function InspectorSidebar({
       } catch {
         // ignore
       }
-    }
+    };
     poll();
     const id = setInterval(poll, 2000);
-    return () => { cancelled = true; clearInterval(id); };
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, [wsRequest]);
+
+  // ── Event log (owned here, fed via WS subscription) ──
+
+  const [events, setEvents] = useState<EventEntry[]>([]);
+
+  useEffect(() => {
+    return subscribeWsEvents((msg) => {
+      // Live usage updates
+      if (msg.event === "usage:update" && msg.cumulative) {
+        setUsage({ ...msg.cumulative, uptime_secs: "(live)" });
+      }
+      // Append to event log
+      appendEvent(msg, setEvents);
+    });
+  }, [subscribeWsEvents]);
 
   return (
     <>
@@ -100,4 +122,106 @@ export function InspectorSidebar({
       {activeTab === "config" && <ConfigPanel wsRequest={wsRequest} />}
     </>
   );
+}
+
+// ── Event log accumulator ──
+
+function appendEvent(
+  msg: WsMessage,
+  setEvents: React.Dispatch<React.SetStateAction<EventEntry[]>>,
+) {
+  setEvents((prev) => {
+    const next = [...prev];
+    const type = msg.event;
+    const ts = new Date().toTimeString().slice(0, 8);
+
+    // Collapse pty/replay
+    if (type === "pty" || type === "replay") {
+      const len = "data" in msg && msg.data ? atob(msg.data).length : 0;
+      const last = next[next.length - 1];
+      if (last?.type === "pty") {
+        return [
+          ...next.slice(0, -1),
+          {
+            ...last,
+            ts,
+            detail: `${(last.count ?? 1) + 1}x ${(last.bytes ?? 0) + len}B thru ${("offset" in msg ? msg.offset : 0) + len}`,
+            count: (last.count ?? 1) + 1,
+            bytes: (last.bytes ?? 0) + len,
+          },
+        ];
+      }
+      return [
+        ...next,
+        {
+          ts,
+          type: "pty",
+          detail: `1x ${len}B thru ${("offset" in msg ? msg.offset : 0) + len}`,
+          count: 1,
+          bytes: len,
+        },
+      ].slice(-200);
+    }
+
+    // Collapse pong
+    if (type === "pong") {
+      const last = next[next.length - 1];
+      if (last?.type === "pong") {
+        return [
+          ...next.slice(0, -1),
+          {
+            ...last,
+            ts,
+            detail: `${(last.count ?? 1) + 1}x`,
+            count: (last.count ?? 1) + 1,
+          },
+        ];
+      }
+      return [...next, { ts, type: "pong", detail: "1x", count: 1 }].slice(
+        -200,
+      );
+    }
+
+    // Other events
+    let detail = "";
+    if (msg.event === "transition") {
+      detail = `${msg.prev} -> ${msg.next}`;
+      if (msg.cause) detail += ` [${msg.cause}]`;
+      if (msg.error_detail)
+        detail += ` (${msg.error_category || "error"})`;
+    } else if (msg.event === "exit") {
+      detail =
+        msg.signal != null
+          ? `signal ${msg.signal}`
+          : `code ${msg.code ?? "?"}`;
+    } else if (msg.event === "error") {
+      detail = `${msg.code}: ${msg.message}`;
+    } else if (msg.event === "resize") {
+      detail = `${msg.cols}x${msg.rows}`;
+    } else if (msg.event === "stop:outcome") {
+      detail = msg.type || "";
+    } else if (msg.event === "start:outcome") {
+      detail = msg.source || "";
+      if (msg.session_id) detail += ` session=${msg.session_id}`;
+      if (msg.injected) detail += " (injected)";
+    } else if (msg.event === "prompt:outcome") {
+      detail = `${msg.source}: ${msg.type || "?"}`;
+      if (msg.subtype) detail += `(${msg.subtype})`;
+      if (msg.option != null) detail += ` opt=${msg.option}`;
+    } else if (msg.event === "session:switched") {
+      detail = msg.scheduled ? "scheduled" : "immediate";
+    } else if (msg.event === "usage:update") {
+      detail = msg.cumulative
+        ? `in=${msg.cumulative.input_tokens} out=${msg.cumulative.output_tokens} $${msg.cumulative.total_cost_usd?.toFixed(4) ?? "?"} seq=${msg.seq}`
+        : `seq=${msg.seq}`;
+    } else if (msg.event === "hook:raw") {
+      const d = msg.data || {};
+      const parts = [d.event || "?"];
+      if (d.tool_name) parts.push(d.tool_name);
+      if (d.notification_type) parts.push(d.notification_type);
+      detail = parts.join(" ");
+    }
+
+    return [...next, { ts, type: msg.event, detail }].slice(-200);
+  });
 }
