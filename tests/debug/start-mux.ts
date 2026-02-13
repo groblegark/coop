@@ -13,6 +13,7 @@ import { parseArgs } from "node:util";
 import {
 	buildAll,
 	buildMux,
+	buildWeb,
 	coopBin,
 	coopmuxBin,
 	onExit,
@@ -37,6 +38,7 @@ const launch = values.launch ?? undefined;
 // -- Build ------------------------------------------------------------------
 
 if (!values["no-build"]) {
+	await buildWeb();
 	if (launch) {
 		await buildAll();
 	} else {

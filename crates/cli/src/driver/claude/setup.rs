@@ -201,6 +201,53 @@ fn inject_coop_permissions(config: &mut serde_json::Value) {
     }
 }
 
+/// Write (or update) Claude's `.credentials.json` with an OAuth access token.
+///
+/// If the file already exists, merges the new token into the existing
+/// `claudeAiOauth` object, preserving fields like `refreshToken` and `scopes`.
+/// If the file does not exist, creates a minimal credential structure.
+///
+/// This bridges the gap between environment-variable-based credential delivery
+/// (used by orchestrators via session/switch) and Claude Code's file-based
+/// credential reading.
+pub fn write_credentials_file(access_token: &str) -> anyhow::Result<PathBuf> {
+    let config_dir = claude_config_dir();
+    std::fs::create_dir_all(&config_dir)?;
+    let cred_path = config_dir.join(".credentials.json");
+
+    let mut creds: serde_json::Value = if cred_path.exists() {
+        let contents = std::fs::read_to_string(&cred_path)?;
+        serde_json::from_str(&contents).unwrap_or_else(|_| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    // Ensure claudeAiOauth object exists.
+    let oauth = creds
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("credentials file is not a JSON object"))?
+        .entry("claudeAiOauth")
+        .or_insert_with(|| {
+            serde_json::json!({
+                "accessToken": "",
+                "refreshToken": null,
+                "expiresAt": null,
+                "scopes": ["user:inference"],
+                "subscriptionType": null,
+                "rateLimitTier": null
+            })
+        });
+
+    // Update the access token.
+    if let Some(obj) = oauth.as_object_mut() {
+        obj.insert("accessToken".to_owned(), serde_json::Value::String(access_token.to_owned()));
+    }
+
+    std::fs::write(&cred_path, serde_json::to_string_pretty(&creds)?)?;
+    tracing::info!("wrote OAuth credentials to {}", cred_path.display());
+    Ok(cred_path)
+}
+
 /// Return Claude's config directory.
 ///
 /// Respects `CLAUDE_CONFIG_DIR` if set, otherwise defaults to `$HOME/.claude`.

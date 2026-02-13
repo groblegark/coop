@@ -162,6 +162,20 @@ impl PreparedSession {
                     env_vars.push((k.clone(), v.clone()));
                 }
             }
+
+            // 5a. Write credentials file for Claude OAuth tokens.
+            // Claude Code reads OAuth tokens from ~/.claude/.credentials.json
+            // rather than the CLAUDE_CODE_OAUTH_TOKEN env var, so we must
+            // write the file before spawning the new backend.
+            if agent_enum == AgentType::Claude {
+                if let Some(token) = creds.get("CLAUDE_CODE_OAUTH_TOKEN") {
+                    if !token.is_empty() {
+                        if let Err(e) = claude_setup::write_credentials_file(token) {
+                            error!("failed to write OAuth credentials file: {e}");
+                        }
+                    }
+                }
+            }
         }
 
         // 6. Build driver (detectors only — encoders already on SessionSettings).
@@ -275,7 +289,7 @@ pub fn init_tracing(config: &Config) {
 ///
 /// Returns a [`PreparedSession`] whose [`AppState`] is accessible before
 /// calling [`PreparedSession::run`] to enter the session loop.
-pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
+pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
     init_tracing(&config);
 
     let shutdown = CancellationToken::new();
@@ -394,6 +408,19 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
             terminal.snapshot_fn(),
         )));
         driver.detectors.sort_by_key(|d| d.tier());
+    }
+
+    // 5a. Write credentials file if CLAUDE_CODE_OAUTH_TOKEN env var is set.
+    // Claude Code reads OAuth tokens from ~/.claude/.credentials.json rather
+    // than the env var, so we bridge the gap on initial startup too.
+    if agent_enum == AgentType::Claude {
+        if let Ok(token) = std::env::var("CLAUDE_CODE_OAUTH_TOKEN") {
+            if !token.is_empty() {
+                if let Err(e) = claude_setup::write_credentials_file(&token) {
+                    error!("failed to write OAuth credentials file on startup: {e}");
+                }
+            }
+        }
     }
 
     // 6. Spawn backend AFTER driver is built (FIFO must exist before child starts).
@@ -580,6 +607,11 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     // Spawn HTTP server
     if let Some(port) = config.port {
+        // Resolve port 0 → random available port so downstream consumers
+        // (mux registration, COOP_URL) see the real port.
+        let port = if port == 0 { resolve_random_port(&config.host).await? } else { port };
+        config.port = Some(port);
+
         #[cfg(debug_assertions)]
         let router = build_router_hot(Arc::clone(&store), config.hot);
         #[cfg(not(debug_assertions))]
@@ -742,6 +774,23 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     drop(setup);
 
     Ok(PreparedSession { store, session: Some(session), config, consumer_input_rx, switch_rx })
+}
+
+/// Pick a random port in the ephemeral range and verify it's bindable.
+/// Retries up to 10 times if the chosen port is already in use.
+async fn resolve_random_port(host: &str) -> anyhow::Result<u16> {
+    use rand::Rng;
+    let mut rng = rand::rng();
+    for _ in 0..10 {
+        let port: u16 = rng.random_range(10000..=65000);
+        let addr = format!("{host}:{port}");
+        match TcpListener::bind(&addr).await {
+            Ok(_listener) => return Ok(port),
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    anyhow::bail!("failed to find an available random port after 10 attempts");
 }
 
 #[cfg(test)]

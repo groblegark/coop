@@ -24,6 +24,11 @@ export function coopmuxBin(): string {
 	return join(rootDir(), "target/debug/coopmux");
 }
 
+export async function buildWeb(): Promise<void> {
+	console.log("Building web assets…");
+	await $`bun run build`.cwd(join(rootDir(), "crates/web"));
+}
+
 export async function buildCoop(): Promise<void> {
 	console.log("Building coop…");
 	await $`cargo build -p coop --manifest-path ${rootDir()}/Cargo.toml`;

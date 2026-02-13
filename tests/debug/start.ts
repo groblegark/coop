@@ -12,6 +12,7 @@
 import { parseArgs } from "node:util";
 import {
 	buildCoop,
+	buildWeb,
 	coopBin,
 	findAvailablePort,
 	onExit,
@@ -35,6 +36,7 @@ const port = await findAvailablePort(Number(values.port));
 const cmd = positionals.length ? positionals : ["/bin/bash"];
 
 if (!values["no-build"]) {
+	await buildWeb();
 	await buildCoop();
 }
 
