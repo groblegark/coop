@@ -9,7 +9,8 @@ use axum::http::StatusCode;
 use tokio_util::sync::CancellationToken;
 
 use coop_mux::config::MuxConfig;
-use coop_mux::state::{MuxEvent, MuxState};
+use coop_mux::events::MuxEvent;
+use coop_mux::state::MuxState;
 use coop_mux::transport::build_router;
 
 /// Build a test server with default config (no auth).
@@ -22,6 +23,9 @@ fn test_state() -> Arc<MuxState> {
         status_poll_ms: 60000,
         health_check_ms: 60000,
         max_health_failures: 3,
+        credential_config: None,
+        #[cfg(debug_assertions)]
+        hot: false,
     };
     Arc::new(MuxState::new(config, CancellationToken::new()))
 }
@@ -102,7 +106,7 @@ async fn mux_dashboard_serves_html() {
     let resp = server.get("/mux").await;
     resp.assert_status(StatusCode::OK);
     let body = resp.text();
-    assert!(body.contains("Coop Multiplexer"));
+    assert!(body.contains("coopmux dashboard"));
     assert!(body.contains("xterm"));
 }
 
