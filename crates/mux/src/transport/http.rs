@@ -301,6 +301,8 @@ pub async fn launch_session(State(s): State<Arc<MuxState>>) -> impl IntoResponse
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::inherit());
     cmd.stderr(std::process::Stdio::inherit());
+    // Detach into a new process group so launched sessions survive mux restart.
+    cmd.process_group(0);
 
     match cmd.spawn() {
         Ok(_child) => Json(LaunchResponse { launched: true }).into_response(),
