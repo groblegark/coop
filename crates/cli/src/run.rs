@@ -581,18 +581,6 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         });
     }
 
-    // Spawn mux self-registration client if COOP_MUX_URL is set.
-    {
-        let sid = store.session_id.read().await.clone();
-        crate::mux_client::spawn_if_configured(
-            &sid,
-            config.port,
-            config.auth_token.as_deref(),
-            shutdown.clone(),
-        )
-        .await;
-    }
-
     // Spawn HTTP server
     if let Some(port) = config.port {
         #[cfg(debug_assertions)]
@@ -684,6 +672,20 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
                 error!("health server error: {e}");
             }
         });
+    }
+
+    // Spawn mux self-registration client if COOP_MUX_URL is set.
+    // Placed after all server binds so we never register a session that isn't
+    // reachable, and never orphan a registration if a bind fails.
+    {
+        let sid = store.session_id.read().await.clone();
+        crate::mux_client::spawn_if_configured(
+            &sid,
+            config.port,
+            config.auth_token.as_deref(),
+            shutdown.clone(),
+        )
+        .await;
     }
 
     // Spawn signal handler

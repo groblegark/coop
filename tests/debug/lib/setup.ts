@@ -159,17 +159,16 @@ export function onExit(fn: CleanupFn): void {
 	}
 }
 
-/** Check if a port is available by trying to listen on it. */
+/** Check if a port is available by trying to fetch from it. */
 async function isPortAvailable(port: number): Promise<boolean> {
-	const { createServer } = await import("node:net");
-	return new Promise((resolve) => {
-		const server = createServer();
-		server.once("error", () => resolve(false));
-		server.once("listening", () => {
-			server.close(() => resolve(true));
+	try {
+		await fetch(`http://localhost:${port}/`, {
+			signal: AbortSignal.timeout(200),
 		});
-		server.listen(port, "127.0.0.1");
-	});
+		return false; // something responded
+	} catch {
+		return true; // nothing listening
+	}
 }
 
 /** Find an available port starting from the given port, trying up to maxAttempts consecutive ports. */
