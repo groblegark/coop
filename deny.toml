@@ -9,6 +9,9 @@ targets = [
 
 [advisories]
 version = 2
+# rustls-pemfile is unmaintained but only pulled transitively via async-nats;
+# waiting for async-nats to drop it upstream.
+ignore = ["RUSTSEC-2025-0134"]
 
 [licenses]
 version = 2
@@ -41,18 +44,33 @@ allow = [
 # Our own crates use BUSL-1.1
 exceptions = [
     { allow = ["BUSL-1.1"], crate = "coop" },
+    { allow = ["BUSL-1.1"], crate = "coop-mux" },
     { allow = ["BUSL-1.1"], crate = "coop-specs" },
 ]
 
 [bans]
 multiple-versions = "deny"
 wildcards = "deny"
+# coop-specs is an internal integration-test crate using a path dep on coop
+allow-wildcard-paths = true
 
 skip = [
     # hashbrown 0.15 pulled by petgraph (via prost-build), while 0.16 is used by indexmap
     { crate = "hashbrown@0.15" },
     # getrandom 0.3 pulled by rand/uuid, while 0.4 is used by tempfile
     { crate = "getrandom@0.3" },
+    # async-nats 0.46 pins old versions; upstream hasn't updated yet
+    { crate = "core-foundation@0.9" },
+    { crate = "getrandom@0.2" },
+    { crate = "openssl-probe@0.1" },
+    { crate = "rand@0.8" },
+    { crate = "rand_chacha@0.3" },
+    { crate = "rand_core@0.6" },
+    { crate = "rustls-native-certs@0.7" },
+    { crate = "rustls-webpki@0.102" },
+    { crate = "security-framework@2" },
+    { crate = "thiserror@1" },
+    { crate = "thiserror-impl@1" },
 ]
 
 [sources]
