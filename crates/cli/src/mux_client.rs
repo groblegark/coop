@@ -104,7 +104,9 @@ pub async fn run(config: MuxRegistration, shutdown: CancellationToken) {
 
     // Heartbeat loop: re-register periodically (runs forever, regardless of
     // initial registration success — allows late-started mux to pick up sessions).
-    let heartbeat = std::time::Duration::from_secs(60);
+    // Use a shorter interval locally so sessions reappear quickly after mux restart.
+    let heartbeat_secs = if std::env::var("KUBERNETES_SERVICE_HOST").is_ok() { 60 } else { 15 };
+    let heartbeat = std::time::Duration::from_secs(heartbeat_secs);
     loop {
         tokio::select! {
             _ = tokio::time::sleep(heartbeat) => {
