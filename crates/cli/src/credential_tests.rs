@@ -577,6 +577,19 @@ async fn initiate_login_reauth_unknown_account_fails() {
 }
 
 #[tokio::test]
+async fn initiate_login_reauth_deduplicates() {
+    let config = login_reauth_config("test", "http://localhost/token");
+    let (broker, _rx) = CredentialBroker::new(&config);
+
+    let session1 = broker.initiate_login_reauth("test").await.expect("first should succeed");
+    let session2 = broker.initiate_login_reauth("test").await.expect("second should return existing");
+
+    // Second call returns the same session (same state, same auth_url).
+    assert_eq!(session1.state, session2.state);
+    assert_eq!(session1.auth_url, session2.auth_url);
+}
+
+#[tokio::test]
 async fn complete_login_reauth_exchanges_code() {
     let success_body = serde_json::json!({
         "access_token": "sk-ant-from-code-exchange",

@@ -9,7 +9,7 @@
 //!
 //! Static credentials (API keys) are stored but not refreshed.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -242,6 +242,9 @@ pub struct CredentialBroker {
     /// Tracks accounts with a pending login-reauth session to avoid
     /// re-initiating while the human hasn't responded yet.
     pending_reauth: RwLock<HashMap<String, LoginReauthSession>>,
+    /// Tracks accounts with a pending device-code reauth to avoid
+    /// re-initiating while polling is still active.
+    pending_device_reauth: RwLock<HashSet<String>>,
 }
 
 impl CredentialBroker {
@@ -276,6 +279,7 @@ impl CredentialBroker {
             http_client: reqwest::Client::new(),
             persist_path: config.persist_path.clone(),
             pending_reauth: RwLock::new(HashMap::new()),
+            pending_device_reauth: RwLock::new(HashSet::new()),
         });
 
         (broker, event_rx)
@@ -849,6 +853,13 @@ impl CredentialBroker {
         self: &Arc<Self>,
         account_name: &str,
     ) -> Result<(String, String), String> {
+        // Reject if a device-code reauth is already in progress.
+        if self.pending_device_reauth.read().await.contains(account_name) {
+            return Err(format!(
+                "device-code reauth already pending for {account_name}"
+            ));
+        }
+
         let (device_auth_url, client_id) = {
             let accounts = self.accounts.read().await;
             let account = accounts
@@ -898,6 +909,12 @@ impl CredentialBroker {
             user_code: user_code.clone(),
         });
 
+        // Track as pending before spawning the polling task.
+        self.pending_device_reauth
+            .write()
+            .await
+            .insert(account_name.to_owned());
+
         // Spawn background polling task.
         let broker = Arc::clone(self);
         let account = account_name.to_owned();
@@ -905,6 +922,8 @@ impl CredentialBroker {
             broker
                 .poll_device_code(&account, &device.device_code, device.interval, device.expires_in)
                 .await;
+            // Clear pending state when polling completes (success or failure).
+            broker.pending_device_reauth.write().await.remove(&account);
         });
 
         Ok((auth_url, user_code))
@@ -929,6 +948,15 @@ impl CredentialBroker {
         &self,
         account_name: &str,
     ) -> Result<LoginReauthSession, String> {
+        // Return existing pending session if one is already in progress.
+        if let Some(session) = self.pending_reauth.read().await.get(account_name) {
+            info!(
+                account = account_name,
+                "login-reauth already pending, returning existing session"
+            );
+            return Ok(session.clone());
+        }
+
         let (authorize_url, redirect_uri, client_id) = {
             let accounts = self.accounts.read().await;
             let account = accounts
