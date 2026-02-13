@@ -29,6 +29,11 @@ export async function buildCoop(): Promise<void> {
 	await $`cargo build -p coop --manifest-path ${rootDir()}/Cargo.toml`;
 }
 
+export async function buildMux(): Promise<void> {
+	console.log("Building coopmux…");
+	await $`cargo build -p coop-mux --manifest-path ${rootDir()}/Cargo.toml`;
+}
+
 export async function buildAll(): Promise<void> {
 	console.log("Building coop + coopmux…");
 	await $`cargo build -p coop -p coop-mux --manifest-path ${rootDir()}/Cargo.toml`;

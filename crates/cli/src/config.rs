@@ -343,13 +343,15 @@ impl Config {
     /// When `--agent` is not set, infers the type from the basename of `command[0]`.
     pub fn agent_enum(&self) -> anyhow::Result<AgentType> {
         if let Some(ref agent) = self.agent {
-            return match agent.to_lowercase().as_str() {
-                "claude" => Ok(AgentType::Claude),
-                "codex" => Ok(AgentType::Codex),
-                "gemini" => Ok(AgentType::Gemini),
-                "unknown" => Ok(AgentType::Unknown),
-                other => anyhow::bail!("invalid agent type: {other}"),
-            };
+            if !agent.is_empty() {
+                return match agent.to_lowercase().as_str() {
+                    "claude" => Ok(AgentType::Claude),
+                    "codex" => Ok(AgentType::Codex),
+                    "gemini" => Ok(AgentType::Gemini),
+                    "unknown" => Ok(AgentType::Unknown),
+                    other => anyhow::bail!("invalid agent type: {other}"),
+                };
+            }
         }
 
         // Auto-detect from command basename

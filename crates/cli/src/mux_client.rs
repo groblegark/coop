@@ -3,13 +3,14 @@
 
 //! Mux self-registration client.
 //!
-//! When `COOP_MUX_URL` is set, coop automatically registers itself with the
-//! mux server on startup, re-registers periodically as a heartbeat, and
-//! deregisters on shutdown.
+//! Coop automatically registers itself with the mux server on startup,
+//! re-registers periodically as a heartbeat, and deregisters on shutdown.
+//! By default it connects to `http://127.0.0.1:9800` (coopmux's default port).
+//! Override with `COOP_MUX_URL` or set `COOP_MUX_URL=""` to disable.
 
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// Configuration for the mux registration client.
 pub struct MuxRegistration {
@@ -25,18 +26,21 @@ pub struct MuxRegistration {
     pub coop_token: Option<String>,
 }
 
-/// Spawn the mux registration client if `COOP_MUX_URL` is set.
+/// Spawn the mux registration client.
 ///
 /// Reads configuration from environment variables and spawns a background task.
-/// Returns immediately if `COOP_MUX_URL` is not set.
+/// Falls back to the default mux URL (`http://127.0.0.1:9800`) when
+/// `COOP_MUX_URL` is not set. Set `COOP_MUX_URL=""` to disable registration.
 pub async fn spawn_if_configured(
     session_id: &str,
     default_port: Option<u16>,
     auth_token: Option<&str>,
     shutdown: CancellationToken,
 ) {
-    let Ok(mux_url) = std::env::var("COOP_MUX_URL") else {
-        return;
+    let mux_url = match std::env::var("COOP_MUX_URL") {
+        Ok(v) if v.is_empty() => return, // explicit disable
+        Ok(v) => v,
+        Err(_) => "http://127.0.0.1:9800".to_owned(), // default coopmux port
     };
     let coop_url = std::env::var("COOP_URL")
         .unwrap_or_else(|_| format!("http://127.0.0.1:{}", default_port.unwrap_or(0)));
@@ -65,7 +69,7 @@ pub async fn run(config: MuxRegistration, shutdown: CancellationToken) {
 
     let base = config.mux_url.trim_end_matches('/').to_owned();
 
-    // Register with retries.
+    // Register with retries (quiet — mux may not be running yet).
     let mut registered = false;
     for attempt in 0..5u32 {
         if shutdown.is_cancelled() {
@@ -79,11 +83,11 @@ pub async fn run(config: MuxRegistration, shutdown: CancellationToken) {
             }
             Err(e) => {
                 let delay = std::time::Duration::from_millis(500 * 2u64.pow(attempt));
-                warn!(
+                debug!(
                     mux = %base,
                     attempt = attempt + 1,
                     err = %e,
-                    "mux registration failed, retrying in {:?}",
+                    "mux registration attempt failed, retrying in {:?}",
                     delay,
                 );
                 tokio::select! {
@@ -95,17 +99,25 @@ pub async fn run(config: MuxRegistration, shutdown: CancellationToken) {
     }
 
     if !registered {
-        warn!(mux = %base, "mux registration failed after 5 attempts, giving up");
-        return;
+        info!(mux = %base, "mux not available, will retry periodically");
     }
 
-    // Heartbeat loop: re-register every 60s.
+    // Heartbeat loop: re-register periodically (runs forever, regardless of
+    // initial registration success — allows late-started mux to pick up sessions).
     let heartbeat = std::time::Duration::from_secs(60);
     loop {
         tokio::select! {
             _ = tokio::time::sleep(heartbeat) => {
-                if let Err(e) = register(&client, &base, &config).await {
-                    warn!(mux = %base, err = %e, "mux heartbeat re-registration failed");
+                match register(&client, &base, &config).await {
+                    Ok(()) => {
+                        if !registered {
+                            info!(mux = %base, session = %config.session_id, "registered with mux");
+                            registered = true;
+                        }
+                    }
+                    Err(e) => {
+                        debug!(mux = %base, err = %e, "mux re-registration failed");
+                    }
                 }
             }
             _ = shutdown.cancelled() => break,

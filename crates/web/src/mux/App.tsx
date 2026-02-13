@@ -560,7 +560,7 @@ export function App() {
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
-          <p>No sessions registered</p>
+          <p>Waiting for connections…</p>
         </div>
       )}
     </div>

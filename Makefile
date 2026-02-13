@@ -60,10 +60,9 @@ try-claudeless:
 try-gemini:
 	@COOP_AGENT=gemini bun tests/debug/start.ts -- gemini
 
-# Launch coopmux + N coop/claude sessions with mux dashboard
-# Usage: make try-mux SESSIONS=5
+# Launch coopmux dashboard (sessions connect automatically)
 try-mux:
-	@bun tests/debug/start-mux.ts --sessions $(or $(SESSIONS),3)
+	@bun tests/debug/start-mux.ts
 
 # Build Docker claudeless image (for testing)
 docker-claudeless:
