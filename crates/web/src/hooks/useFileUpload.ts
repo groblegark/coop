@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { readFileAsBase64 } from "@/lib/base64";
 import { apiPost } from "@/hooks/useApiClient";
 
@@ -17,7 +17,7 @@ export function useFileUpload({
   onError,
 }: UseFileUploadOptions) {
   const [dragActive, setDragActive] = useState(false);
-  const dragCounterRef = { current: 0 };
+  const dragCounterRef = useRef(0);
 
   const getPath = useCallback(() => {
     return typeof uploadPath === "function" ? uploadPath() : uploadPath;
