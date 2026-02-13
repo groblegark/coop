@@ -40,7 +40,7 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
         "response=$(printf '%s' \"$event\" | curl -sf -X POST ",
         "-H 'Content-Type: application/json' ",
         "-d @- \"$COOP_URL/api/v1/hooks/stop\" 2>/dev/null); ",
-        "[ -n \"$response\" ] && printf '%s' \"$response\""
+        "if [ -n \"$response\" ]; then printf '%s' \"$response\"; fi"
     );
 
     json!({
