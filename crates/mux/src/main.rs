@@ -1,24 +1,87 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use tracing::error;
 
 use coop_mux::config::MuxConfig;
 
+#[derive(Parser)]
+#[command(name = "coopmux", version, about = "PTY multiplexing proxy for coop instances.")]
+struct Cli {
+    #[command(flatten)]
+    config: MuxConfig,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Open the mux dashboard in a browser.
+    Open(OpenArgs),
+}
+
+#[derive(clap::Args)]
+struct OpenArgs {
+    /// Mux server URL. Defaults to COOP_MUX_URL or http://{host}:{port}.
+    #[arg(env = "COOP_MUX_URL")]
+    url: Option<String>,
+}
+
 #[tokio::main]
 async fn main() {
-    let config = MuxConfig::parse();
+    let cli = Cli::parse();
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    match cli.command {
+        Some(Commands::Open(args)) => {
+            std::process::exit(open_dashboard(&cli.config, &args));
+        }
+        None => {
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+                )
+                .init();
 
-    if let Err(e) = coop_mux::run(config).await {
-        error!("fatal: {e:#}");
-        std::process::exit(1);
+            if let Err(e) = coop_mux::run(cli.config).await {
+                error!("fatal: {e:#}");
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+fn open_dashboard(config: &MuxConfig, args: &OpenArgs) -> i32 {
+    let base = if let Some(ref url) = args.url {
+        url.trim_end_matches('/').to_owned()
+    } else {
+        format!("http://{}:{}", config.host, config.port)
+    };
+
+    let mut url = format!("{base}/mux");
+    if let Some(ref token) = config.auth_token {
+        url.push_str(&format!("?token={token}"));
+    }
+
+    let cmd = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(target_os = "windows") {
+        "start"
+    } else {
+        "xdg-open"
+    };
+
+    match std::process::Command::new(cmd).arg(&url).spawn() {
+        Ok(_) => {
+            eprintln!("Opening {url}");
+            0
+        }
+        Err(e) => {
+            eprintln!("Failed to open browser: {e}");
+            eprintln!("Open manually: {url}");
+            1
+        }
     }
 }

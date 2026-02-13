@@ -10,7 +10,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message;
 
 use coop::transport::grpc::proto;
-use coop_specs::CoopProcess;
+use coop_specs::{free_port, CoopProcess};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -258,5 +258,66 @@ async fn health_port_rejects_other_routes() -> anyhow::Result<()> {
         .await?;
     assert_eq!(resp.status().as_u16(), 404);
 
+    Ok(())
+}
+
+// -- NATS -----------------------------------------------------------------
+
+use std::process::{Child, Command, Stdio};
+
+/// Start nats-server on a free port, returning the child and the port.
+/// Returns None if nats-server is not installed.
+fn try_start_nats() -> Option<(Child, u16)> {
+    let port = free_port().ok()?;
+    let child = Command::new("nats-server")
+        .args(["-p", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    Some((child, port))
+}
+
+#[tokio::test]
+async fn nats_receives_state_transitions() -> anyhow::Result<()> {
+    use futures_util::StreamExt;
+
+    // Skip if nats-server not available.
+    let Some((mut nats_proc, nats_port)) = try_start_nats() else { return Ok(()) };
+    let nats_url = format!("nats://127.0.0.1:{nats_port}");
+
+    // Wait for nats-server to accept connections.
+    let client = {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if tokio::time::Instant::now() > deadline {
+                let _ = nats_proc.kill();
+                anyhow::bail!("nats-server did not become ready");
+            }
+            match async_nats::connect(&nats_url).await {
+                Ok(c) => break c,
+                Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        }
+    };
+    let mut sub = client.subscribe("coop.events.state").await?;
+
+    // Spawn coop wrapping a short-lived command.
+    let coop = CoopProcess::build().nats(&nats_url).spawn(&["echo", "nats-test"])?;
+    coop.wait_healthy(TIMEOUT).await?;
+
+    // Expect at least one state event (transition or exit).
+    let msg = tokio::time::timeout(TIMEOUT, sub.next())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("no NATS message"))?;
+    let event: serde_json::Value = serde_json::from_slice(&msg.payload)?;
+    let is_transition =
+        event["seq"].is_u64() && event["prev"].is_string() && event["next"].is_string();
+    let is_exit = event["event"].as_str() == Some("exit");
+    assert!(is_transition || is_exit, "expected transition or exit event, got: {event}");
+    // Identity fields are injected into every NATS payload.
+    assert!(event["session_id"].is_string(), "expected session_id in NATS payload");
+
+    let _ = nats_proc.kill();
     Ok(())
 }

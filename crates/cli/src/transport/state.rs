@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -83,6 +84,8 @@ pub struct Store {
     pub multiplexer: Option<Arc<crate::broker::mux::Multiplexer>>,
     /// Session recording state. Always present (defaults to disabled).
     pub record: Arc<RecordingState>,
+    /// Session directory for file uploads. `None` in attach mode.
+    pub session_dir: Option<PathBuf>,
 }
 
 /// Terminal I/O: screen, ring buffer, child process.

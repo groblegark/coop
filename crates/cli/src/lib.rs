@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-pub mod attach;
+pub mod backend;
 pub mod broker;
+pub mod command;
 pub mod config;
 pub mod cred;
 pub mod credential;
@@ -10,14 +11,12 @@ pub mod driver;
 pub mod error;
 pub mod event;
 pub mod event_log;
-pub mod open;
+pub mod mux_client;
 pub mod profile;
-pub mod pty;
 pub mod record;
 pub mod ring;
 pub mod run;
 pub mod screen;
-pub mod send;
 pub mod session;
 pub mod start;
 pub mod stop;

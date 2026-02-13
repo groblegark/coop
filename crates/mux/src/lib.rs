@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-//! Coop-mux: PTY multiplexing proxy for coop instances.
+//! Coopmux: PTY multiplexing proxy for coop instances.
 
 pub mod config;
+pub mod credential;
 pub mod error;
 pub mod events;
 pub mod state;
@@ -13,11 +14,16 @@ pub mod upstream;
 use std::sync::Arc;
 
 use tokio::net::TcpListener;
+use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::MuxConfig;
+use crate::credential::broker::CredentialBroker;
 use crate::state::MuxState;
+#[cfg(not(debug_assertions))]
 use crate::transport::build_router;
+#[cfg(debug_assertions)]
+use crate::transport::build_router_hot;
 use crate::upstream::health::spawn_health_checker;
 
 /// Run the mux server until shutdown.
@@ -25,15 +31,68 @@ pub async fn run(config: MuxConfig) -> anyhow::Result<()> {
     let addr = format!("{}:{}", config.host, config.port);
     let shutdown = CancellationToken::new();
 
-    let state = Arc::new(MuxState::new(config, shutdown.clone()));
-    let router = build_router(Arc::clone(&state));
+    let mut state = MuxState::new(config.clone(), shutdown.clone());
 
-    let listener = TcpListener::bind(&addr).await?;
-    tracing::info!("coop-mux listening on {addr}");
+    // Optionally initialize credential broker.
+    if let Some(ref cred_path) = config.credential_config {
+        let contents = std::fs::read_to_string(cred_path)?;
+        let cred_config: crate::credential::CredentialConfig = serde_json::from_str(&contents)?;
+        let (event_tx, event_rx) = broadcast::channel(64);
+        let cred_bridge_rx = event_tx.subscribe();
+        let broker = CredentialBroker::new(cred_config, event_tx);
 
-    spawn_health_checker(Arc::clone(&state));
+        // Load persisted credentials if available.
+        let persist_path = crate::credential::state_dir().join("credentials.json");
+        if persist_path.exists() {
+            match crate::credential::persist::load(&persist_path) {
+                Ok(persisted) => broker.load_persisted(&persisted).await,
+                Err(e) => tracing::warn!(err = %e, "failed to load persisted credentials"),
+            }
+        }
 
-    axum::serve(listener, router).with_graceful_shutdown(shutdown.cancelled_owned()).await?;
+        state.credential_broker = Some(Arc::clone(&broker));
+
+        // Spawn refresh loops and distributor after building state.
+        let state = Arc::new(state);
+        broker.spawn_refresh_loops();
+        crate::credential::distributor::spawn_distributor(Arc::clone(&state), event_rx);
+
+        // Bridge credential events into the MuxEvent broadcast channel.
+        {
+            let mux_event_tx = state.feed.event_tx.clone();
+            tokio::spawn(async move {
+                let mut rx = cred_bridge_rx;
+                loop {
+                    match rx.recv().await {
+                        Ok(e) => {
+                            let _ = mux_event_tx.send(crate::state::MuxEvent::from_credential(&e));
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+
+        tracing::info!("coopmux listening on {addr} (credentials enabled)");
+        spawn_health_checker(Arc::clone(&state));
+        #[cfg(debug_assertions)]
+        let router = build_router_hot(state, config.hot);
+        #[cfg(not(debug_assertions))]
+        let router = build_router(state);
+        let listener = TcpListener::bind(&addr).await?;
+        axum::serve(listener, router).with_graceful_shutdown(shutdown.cancelled_owned()).await?;
+    } else {
+        let state = Arc::new(state);
+        tracing::info!("coopmux listening on {addr}");
+        spawn_health_checker(Arc::clone(&state));
+        #[cfg(debug_assertions)]
+        let router = build_router_hot(state, config.hot);
+        #[cfg(not(debug_assertions))]
+        let router = build_router(state);
+        let listener = TcpListener::bind(&addr).await?;
+        axum::serve(listener, router).with_graceful_shutdown(shutdown.cancelled_owned()).await?;
+    }
 
     Ok(())
 }

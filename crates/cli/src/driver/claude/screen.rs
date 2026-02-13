@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, trace};
 
 use crate::config::Config;
-use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
+use crate::driver::{AgentState, Detector, DetectorEmission, PromptContext, PromptKind};
 use crate::screen::ScreenSnapshot;
 
 /// Tier 5 detector: classifies Claude's rendered terminal screen.
@@ -36,7 +36,7 @@ impl ClaudeScreenDetector {
 impl Detector for ClaudeScreenDetector {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<(AgentState, String)>,
+        state_tx: mpsc::Sender<DetectorEmission>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -67,7 +67,7 @@ impl Detector for ClaudeScreenDetector {
                 if let Some((ref state, ref cause)) = classified {
                     if last_state.as_ref() != Some(state) {
                         debug!(cause, state = state.as_str(), "screen detected");
-                        let _ = state_tx.send((state.clone(), cause.clone())).await;
+                        let _ = state_tx.send((state.clone(), cause.clone(), None)).await;
                         last_state = Some(state.clone());
                     }
                 } else if last_state.is_some() {

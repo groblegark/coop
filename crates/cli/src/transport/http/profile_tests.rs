@@ -35,19 +35,16 @@ async fn list_profiles_returns_registered() -> anyhow::Result<()> {
     // Pre-register profiles directly.
     store
         .profile
-        .register(
-            vec![
-                crate::profile::ProfileEntry {
-                    name: "alice".to_owned(),
-                    credentials: [("API_KEY".to_owned(), "key-a".to_owned())].into(),
-                },
-                crate::profile::ProfileEntry {
-                    name: "bob".to_owned(),
-                    credentials: [("API_KEY".to_owned(), "key-b".to_owned())].into(),
-                },
-            ],
-            None,
-        )
+        .register(vec![
+            crate::profile::ProfileEntry {
+                name: "alice".to_owned(),
+                credentials: [("API_KEY".to_owned(), "key-a".to_owned())].into(),
+            },
+            crate::profile::ProfileEntry {
+                name: "bob".to_owned(),
+                credentials: [("API_KEY".to_owned(), "key-b".to_owned())].into(),
+            },
+        ])
         .await;
 
     let app = build_router(store);
@@ -60,5 +57,42 @@ async fn list_profiles_returns_registered() -> anyhow::Result<()> {
     assert_eq!(body["active_profile"], "alice");
     assert_eq!(body["profiles"][0]["status"], "active");
     assert_eq!(body["profiles"][1]["status"], "available");
+    assert_eq!(body["mode"], "auto");
+    Ok(())
+}
+
+/// GET/PUT /api/v1/session/profiles/mode manages rotation mode.
+#[tokio::test]
+async fn profile_mode_get_put() -> anyhow::Result<()> {
+    let StoreCtx { store, .. } = StoreBuilder::new().build();
+    let app = build_router(store);
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    // Default mode is auto.
+    let resp = server.get("/api/v1/session/profiles/mode").await;
+    resp.assert_status(StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_str(&resp.text())?;
+    assert_eq!(body["mode"], "auto");
+
+    // Set to manual.
+    let resp = server
+        .put("/api/v1/session/profiles/mode")
+        .json(&serde_json::json!({ "mode": "manual" }))
+        .await;
+    resp.assert_status(StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_str(&resp.text())?;
+    assert_eq!(body["mode"], "manual");
+
+    // Verify it persisted.
+    let resp = server.get("/api/v1/session/profiles/mode").await;
+    let body: serde_json::Value = serde_json::from_str(&resp.text())?;
+    assert_eq!(body["mode"], "manual");
+
+    // Invalid mode returns error.
+    let resp = server
+        .put("/api/v1/session/profiles/mode")
+        .json(&serde_json::json!({ "mode": "invalid" }))
+        .await;
+    resp.assert_status(StatusCode::BAD_REQUEST);
     Ok(())
 }

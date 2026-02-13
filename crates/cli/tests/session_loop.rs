@@ -10,10 +10,10 @@ use axum::http::StatusCode;
 use bytes::Bytes;
 use tokio_util::sync::CancellationToken;
 
+use coop::backend::spawn::NativePty;
 use coop::config::Config;
 use coop::driver::AgentState;
 use coop::event::InputEvent;
-use coop::pty::spawn::NativePty;
 use coop::session::{Session, SessionConfig};
 use coop::test_support::{StoreBuilder, StoreCtx};
 use coop::transport::build_router;

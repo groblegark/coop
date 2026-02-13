@@ -13,8 +13,7 @@ use serde::Deserialize;
 
 use crate::state::{MuxState, SessionEntry};
 use crate::transport::auth;
-use crate::upstream::client::UpstreamClient;
-use crate::upstream::ws_bridge::WsBridge;
+use crate::upstream::bridge::{SubscriptionFlags, WsBridge};
 
 /// Query parameters for downstream WS upgrade.
 #[derive(Debug, Clone, Deserialize)]
@@ -67,38 +66,32 @@ pub async fn ws_handler(
 
 /// Per-connection WebSocket handler.
 async fn handle_ws(socket: WebSocket, entry: Arc<SessionEntry>, subscribe: String) {
-    // Get or create the WS bridge for this session.
-    let bridge = get_or_create_bridge(&entry, &subscribe).await;
-
-    let mut rx = bridge.tx.subscribe();
+    let bridge = get_or_create_bridge(&entry).await;
+    let flags = SubscriptionFlags::parse(&subscribe);
+    let (client_id, mut client_rx) = bridge.add_client(flags).await;
     let (mut ws_tx, mut ws_rx) = socket.split();
 
     loop {
         tokio::select! {
             _ = entry.cancel.cancelled() => break,
 
-            // Forward upstream messages to downstream client.
-            msg = rx.recv() => {
+            // Bridge -> downstream client
+            msg = client_rx.recv() => {
                 match msg {
-                    Ok(text) => {
-                        if ws_tx.send(Message::Text(text.into())).await.is_err() {
+                    Some(text) => {
+                        if ws_tx.send(Message::Text(text.to_string().into())).await.is_err() {
                             break;
                         }
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::debug!(lagged = n, "downstream WS client lagged, skipping");
-                        continue;
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    None => break,
                 }
             }
 
-            // Handle messages from downstream client.
+            // Downstream client -> bridge (upstream)
             msg = ws_rx.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        // Try to parse as input command and proxy via HTTP.
-                        handle_client_input(&entry, &text).await;
+                        bridge.send_upstream(client_id, text.to_string());
                     }
                     Some(Ok(Message::Close(_))) | None => break,
                     Some(Err(_)) => break,
@@ -107,10 +100,12 @@ async fn handle_ws(socket: WebSocket, entry: Arc<SessionEntry>, subscribe: Strin
             }
         }
     }
+
+    bridge.remove_client(client_id).await;
 }
 
 /// Get the existing WS bridge or create a new one.
-async fn get_or_create_bridge(entry: &Arc<SessionEntry>, subscribe: &str) -> Arc<WsBridge> {
+async fn get_or_create_bridge(entry: &Arc<SessionEntry>) -> Arc<WsBridge> {
     {
         let guard = entry.ws_bridge.read().await;
         if let Some(ref bridge) = *guard {
@@ -124,36 +119,7 @@ async fn get_or_create_bridge(entry: &Arc<SessionEntry>, subscribe: &str) -> Arc
         return Arc::clone(bridge);
     }
 
-    let bridge = WsBridge::connect(entry, subscribe);
+    let bridge = WsBridge::connect(entry);
     *guard = Some(Arc::clone(&bridge));
     bridge
-}
-
-/// Handle a text message from a downstream WS client.
-///
-/// Input messages are proxied to upstream via HTTP POST (not through the shared
-/// upstream WS). This avoids input multiplexing complexity.
-async fn handle_client_input(entry: &SessionEntry, text: &str) {
-    // Parse the message to determine what kind of input it is.
-    let Ok(msg) = serde_json::from_str::<serde_json::Value>(text) else {
-        return;
-    };
-
-    let event = msg.get("event").and_then(|v| v.as_str()).unwrap_or_default();
-    let client = UpstreamClient::new(entry.url.clone(), entry.auth_token.clone());
-
-    let result = match event {
-        "input:send" => client.post_json("/api/v1/input", &msg).await,
-        "input:send:raw" => client.post_json("/api/v1/input/raw", &msg).await,
-        "keys:send" => client.post_json("/api/v1/input/keys", &msg).await,
-        "nudge" => client.post_json("/api/v1/agent/nudge", &msg).await,
-        "respond" => client.post_json("/api/v1/agent/respond", &msg).await,
-        "signal:send" => client.post_json("/api/v1/signal", &msg).await,
-        "resize" => client.post_json("/api/v1/resize", &msg).await,
-        _ => return, // Unknown event type — ignore.
-    };
-
-    if let Err(e) = result {
-        tracing::debug!(session_id = %entry.id, event, err = %e, "WS input proxy failed");
-    }
 }

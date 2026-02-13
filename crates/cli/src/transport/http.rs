@@ -14,6 +14,7 @@ mod record;
 mod screen;
 mod switch;
 mod transcript;
+mod upload;
 mod usage;
 
 pub use agent::*;
@@ -27,6 +28,7 @@ pub use record::*;
 pub use screen::*;
 pub use switch::*;
 pub use transcript::*;
+pub use upload::*;
 pub use usage::*;
 
 use std::sync::Arc;

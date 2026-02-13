@@ -50,18 +50,16 @@ crates/cli/               # Single crate (binary + lib)
 │   ├── main.rs            # CLI, startup
 │   ├── lib.rs             # Library root (re-exports modules)
 │   ├── run.rs             # prepare() + run() session entrypoint
-│   ├── attach.rs          # Attach to existing tmux/screen sessions
 │   ├── config.rs          # SessionSettings, duration knobs
-│   ├── send.rs            # Input delivery (InputGate, nudge, respond)
 │   ├── start.rs           # Start hook state (context injection)
 │   ├── stop.rs            # Stop hook state (gating)
 │   ├── error.rs           # ErrorCode enum
 │   ├── event.rs           # OutputEvent, TransitionEvent, InputEvent, HookEvent
 │   ├── screen.rs          # Screen, ScreenSnapshot
 │   ├── ring.rs            # RingBuffer
-│   ├── pty/
+│   ├── backend/
 │   │   ├── mod.rs         # Backend trait
-│   │   ├── adapter.rs     # TmuxAdapter for --attach mode
+│   │   ├── adapter.rs     # TmuxBackend for --attach mode
 │   │   ├── nbio.rs        # Non-blocking I/O helpers (PtyFd, AsyncFd)
 │   │   └── spawn.rs       # NativePty backend (forkpty + exec)
 │   ├── transport/

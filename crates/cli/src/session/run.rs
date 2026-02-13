@@ -12,10 +12,10 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
+use crate::backend::BackendInput;
 use crate::config::Config;
 use crate::driver::{AgentState, CompositeDetector, DetectedState, ExitStatus, OptionParser};
 use crate::event::{InputEvent, OutputEvent};
-use crate::pty::BackendInput;
 use crate::switch::SwitchRequest;
 use crate::transport::Store;
 

@@ -99,6 +99,7 @@ async fn handle_connection(
     let mut usage_rx = state.usage.usage_tx.subscribe();
     let mut cred_rx = state.credentials.as_ref().map(|b| b.subscribe());
     let mut record_rx = state.record.record_tx.subscribe();
+    let mut profile_rx = state.profile.profile_tx.subscribe();
     let mut authed = !needs_auth;
 
     // Send initial state: either replay from event log or current-state snapshot.
@@ -299,6 +300,18 @@ async fn handle_connection(
                     }
                 }
             }
+            event = profile_rx.recv() => {
+                let event = match event {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                if flags.profiles {
+                    let msg = profile_event_to_msg(&event);
+                    if send_json(&mut ws_tx, &msg).await.is_err() {
+                        break;
+                    }
+                }
+            }
             msg = ws_rx.next() => {
                 let msg = match msg {
                     Some(Ok(m)) => m,
@@ -307,7 +320,7 @@ async fn handle_connection(
 
                 match msg {
                     Message::Text(text) => {
-                        let client_msg: ClientMessage = match serde_json::from_str(&text) {
+                        let envelope: ClientEnvelope = match serde_json::from_str(&text) {
                             Ok(m) => m,
                             Err(_) => {
                                 let err = ServerMessage::Error {
@@ -321,8 +334,13 @@ async fn handle_connection(
                             }
                         };
 
-                        if let Some(reply) = handle_client_message(&state, client_msg, &client_id, &mut authed).await {
-                            if send_json(&mut ws_tx, &reply).await.is_err() {
+                        if let Some(reply) = handle_client_message(&state, envelope.message, &client_id, &mut authed).await {
+                            if envelope.request_id.is_some() {
+                                let wrapped = ServerEnvelope { message: reply, request_id: envelope.request_id };
+                                if send_json(&mut ws_tx, &wrapped).await.is_err() {
+                                    break;
+                                }
+                            } else if send_json(&mut ws_tx, &reply).await.is_err() {
                                 break;
                             }
                         }
@@ -589,19 +607,38 @@ async fn handle_client_message(
         }
 
         // Profiles
-        ClientMessage::RegisterProfiles { profiles, config } => {
+        ClientMessage::RegisterProfiles { profiles } => {
             require_auth!(authed);
             let count = profiles.len();
-            state.profile.register(profiles, config).await;
+            state.profile.register(profiles).await;
             Some(ServerMessage::ProfilesRegistered { count })
         }
 
         ClientMessage::ListProfiles {} => {
             require_auth!(authed);
             let profiles = state.profile.list().await;
-            let config = state.profile.config().await;
+            let mode = state.profile.mode().as_str().to_owned();
             let active_profile = state.profile.active_name().await;
-            Some(ServerMessage::ProfileList { profiles, config, active_profile })
+            Some(ServerMessage::ProfileList { profiles, mode, active_profile })
+        }
+
+        ClientMessage::GetProfileMode {} => {
+            require_auth!(authed);
+            let mode = state.profile.mode().as_str().to_owned();
+            Some(ServerMessage::ProfileMode { mode })
+        }
+
+        ClientMessage::SetProfileMode { mode } => {
+            require_auth!(authed);
+            match mode.parse::<crate::profile::ProfileMode>() {
+                Ok(m) => {
+                    state.profile.set_mode(m);
+                    Some(ServerMessage::ProfileMode { mode: m.as_str().to_owned() })
+                }
+                Err(_) => {
+                    Some(ws_error(ErrorCode::BadRequest, "invalid mode: expected auto or manual"))
+                }
+            }
         }
 
         // Session switch
@@ -676,7 +713,7 @@ async fn handle_client_message(
 }
 
 /// Send a JSON-serialized message over the WebSocket.
-async fn send_json<S>(tx: &mut S, msg: &ServerMessage) -> Result<(), ()>
+async fn send_json<T: serde::Serialize, S>(tx: &mut S, msg: &T) -> Result<(), ()>
 where
     S: SinkExt<Message> + Unpin,
 {

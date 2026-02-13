@@ -106,6 +106,12 @@ service Coop {
   rpc RegisterProfiles(RegisterProfilesRequest) returns (RegisterProfilesResponse);
   // List all registered profiles with status.
   rpc ListProfiles(ListProfilesRequest) returns (ListProfilesResponse);
+  // Get the current profile rotation mode.
+  rpc GetProfileMode(GetProfileModeRequest) returns (ProfileModeResponse);
+  // Set the profile rotation mode.
+  rpc SetProfileMode(SetProfileModeRequest) returns (ProfileModeResponse);
+  // Stream profile lifecycle events in real time.
+  rpc StreamProfileEvents(StreamProfileEventsRequest) returns (stream ProfileEvent);
 
   // Session management
 
@@ -641,16 +647,6 @@ message ProfileEntry {
   map<string, string> credentials = 2;
 }
 
-// Rotation policy configuration.
-message ProfileConfig {
-  // Whether to automatically rotate on rate limit errors.
-  bool rotate_on_rate_limit = 1;
-  // Cooldown duration in seconds before a rate-limited profile is available.
-  uint64 cooldown_secs = 2;
-  // Maximum rotation switches per hour (anti-flap).
-  uint32 max_switches_per_hour = 3;
-}
-
 // Status information for a single profile.
 message ProfileInfo {
   // Profile name.
@@ -664,8 +660,6 @@ message ProfileInfo {
 message RegisterProfilesRequest {
   // Named credential profiles to register. First entry becomes active.
   repeated ProfileEntry profiles = 1;
-  // Optional rotation policy. Uses defaults if omitted.
-  optional ProfileConfig config = 2;
 }
 message RegisterProfilesResponse {
   // Number of profiles registered.
@@ -676,10 +670,35 @@ message ListProfilesRequest {}
 message ListProfilesResponse {
   // All registered profiles with current status.
   repeated ProfileInfo profiles = 1;
-  // Current rotation policy.
-  ProfileConfig config = 2;
+  // Current rotation mode: "auto" or "manual".
+  string mode = 2;
   // Name of the currently active profile, if any.
   optional string active_profile = 3;
+}
+
+message GetProfileModeRequest {}
+message SetProfileModeRequest {
+  // "auto" or "manual".
+  string mode = 1;
+}
+message ProfileModeResponse {
+  // Current mode: "auto" or "manual".
+  string mode = 1;
+}
+
+message StreamProfileEventsRequest {}
+// Profile lifecycle event (switch, exhaustion, rotation exhaustion).
+message ProfileEvent {
+  // Event type: "profile:switched", "profile:exhausted", "profile:rotation:exhausted".
+  string event_type = 1;
+  // Previous active profile (profile:switched).
+  optional string from = 2;
+  // New active profile (profile:switched).
+  optional string to = 3;
+  // Profile name (profile:exhausted).
+  optional string profile = 4;
+  // Seconds until retry (profile:rotation:exhausted).
+  optional uint64 retry_after_secs = 5;
 }
 
 

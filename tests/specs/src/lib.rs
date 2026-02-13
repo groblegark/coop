@@ -58,11 +58,12 @@ pub struct CoopBuilder {
     grpc: bool,
     health: bool,
     socket: bool,
+    nats_url: Option<String>,
 }
 
 impl Default for CoopBuilder {
     fn default() -> Self {
-        Self { tcp: true, grpc: false, health: false, socket: false }
+        Self { tcp: true, grpc: false, health: false, socket: false, nats_url: None }
     }
 }
 
@@ -88,6 +89,12 @@ impl CoopBuilder {
     /// Enable the Unix socket transport (`--socket`).
     pub fn socket(mut self) -> Self {
         self.socket = true;
+        self
+    }
+
+    /// Enable NATS publishing (`--nats-url`).
+    pub fn nats(mut self, url: &str) -> Self {
+        self.nats_url = Some(url.to_owned());
         self
     }
 
@@ -121,6 +128,9 @@ impl CoopBuilder {
         }
         if let Some(ref p) = socket_path {
             args.extend(["--socket".into(), p.to_string_lossy().into_owned()]);
+        }
+        if let Some(ref url) = self.nats_url {
+            args.extend(["--nats-url".into(), url.clone()]);
         }
 
         args.extend([

@@ -11,7 +11,8 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use super::convert::{
-    prompt_to_proto, screen_snapshot_to_proto, screen_snapshot_to_response, transition_to_proto,
+    profile_event_to_proto, prompt_to_proto, screen_snapshot_to_proto, screen_snapshot_to_response,
+    transition_to_proto,
 };
 use super::{proto, spawn_broadcast_stream, CoopGrpc, GrpcStream};
 use crate::error::ErrorCode;
@@ -647,13 +648,8 @@ impl proto::coop_server::Coop for CoopGrpc {
             .into_iter()
             .map(|p| crate::profile::ProfileEntry { name: p.name, credentials: p.credentials })
             .collect();
-        let config = req.config.map(|c| crate::profile::ProfileConfig {
-            rotate_on_rate_limit: c.rotate_on_rate_limit,
-            cooldown_secs: c.cooldown_secs,
-            max_switches_per_hour: c.max_switches_per_hour,
-        });
         let count = entries.len();
-        self.state.profile.register(entries, config).await;
+        self.state.profile.register(entries).await;
         Ok(Response::new(proto::RegisterProfilesResponse { registered: count as u32 }))
     }
 
@@ -662,7 +658,7 @@ impl proto::coop_server::Coop for CoopGrpc {
         _request: Request<proto::ListProfilesRequest>,
     ) -> Result<Response<proto::ListProfilesResponse>, Status> {
         let profiles = self.state.profile.list().await;
-        let config = self.state.profile.config().await;
+        let mode = self.state.profile.mode().as_str().to_owned();
         let active_profile = self.state.profile.active_name().await;
         Ok(Response::new(proto::ListProfilesResponse {
             profiles: profiles
@@ -673,13 +669,42 @@ impl proto::coop_server::Coop for CoopGrpc {
                     cooldown_remaining_secs: p.cooldown_remaining_secs,
                 })
                 .collect(),
-            config: Some(proto::ProfileConfig {
-                rotate_on_rate_limit: config.rotate_on_rate_limit,
-                cooldown_secs: config.cooldown_secs,
-                max_switches_per_hour: config.max_switches_per_hour,
-            }),
+            mode,
             active_profile,
         }))
+    }
+
+    async fn get_profile_mode(
+        &self,
+        _request: Request<proto::GetProfileModeRequest>,
+    ) -> Result<Response<proto::ProfileModeResponse>, Status> {
+        let mode = self.state.profile.mode().as_str().to_owned();
+        Ok(Response::new(proto::ProfileModeResponse { mode }))
+    }
+
+    async fn set_profile_mode(
+        &self,
+        request: Request<proto::SetProfileModeRequest>,
+    ) -> Result<Response<proto::ProfileModeResponse>, Status> {
+        let req = request.into_inner();
+        let mode: crate::profile::ProfileMode = req
+            .mode
+            .parse()
+            .map_err(|_| Status::invalid_argument("invalid mode: expected auto or manual"))?;
+        self.state.profile.set_mode(mode);
+        Ok(Response::new(proto::ProfileModeResponse { mode: mode.as_str().to_owned() }))
+    }
+
+    type StreamProfileEventsStream = GrpcStream<proto::ProfileEvent>;
+
+    async fn stream_profile_events(
+        &self,
+        _request: Request<proto::StreamProfileEventsRequest>,
+    ) -> Result<Response<Self::StreamProfileEventsStream>, Status> {
+        let profile_rx = self.state.profile.profile_tx.subscribe();
+        let stream =
+            spawn_broadcast_stream(profile_rx, |event| Some(profile_event_to_proto(&event)));
+        Ok(Response::new(stream))
     }
 
     // -- Session management ---------------------------------------------------

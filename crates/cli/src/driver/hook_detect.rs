@@ -13,7 +13,7 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::hook_recv::HookReceiver;
-use crate::driver::{AgentState, Detector, HookEvent};
+use crate::driver::{AgentState, Detector, DetectorEmission, HookEvent};
 use crate::event::RawHookEvent;
 
 /// Tier 1 detector that maps hook events to agent states via a
@@ -34,7 +34,7 @@ where
 {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<(AgentState, String)>,
+        state_tx: mpsc::Sender<DetectorEmission>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -50,8 +50,8 @@ where
                                 if let Some(ref tx) = raw_hook_tx {
                                     let _ = tx.send(RawHookEvent { json: raw_json });
                                 }
-                                if let Some(pair) = map_event(hook_event) {
-                                    let _ = state_tx.send(pair).await;
+                                if let Some((state, cause)) = map_event(hook_event) {
+                                    let _ = state_tx.send((state, cause, None)).await;
                                 }
                             }
                             None => break,

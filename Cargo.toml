@@ -8,6 +8,7 @@ members = [
 
 [workspace.dependencies]
 anyhow = "1"
+async-nats = "0.40"
 axum = { version = "0.8", features = ["ws"] }
 base64 = "0.22"
 bytes = "1"
@@ -30,9 +31,8 @@ regex = "1"
 tokio-stream = { version = "0.1", features = ["sync", "net"] }
 tonic = "0.14"
 tonic-prost = "0.14"
-async-nats = "0.39"
 futures-util = "0.3"
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+reqwest = { version = "0.13", default-features = false, features = ["form", "json", "rustls"] }
 tempfile = "3"
 tokio-tungstenite = "0.28"
 uuid = { version = "1", features = ["v4"] }

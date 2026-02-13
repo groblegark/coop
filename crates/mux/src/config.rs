@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use clap::Parser;
-
-/// Configuration for the coop-mux proxy.
-#[derive(Debug, Clone, Parser)]
-#[command(name = "coop-mux", version, about = "PTY multiplexing proxy for coop instances.")]
+/// Configuration for the coopmux proxy.
+#[derive(Debug, Clone, clap::Args)]
 pub struct MuxConfig {
     /// Host to bind on.
     #[arg(long, default_value = "127.0.0.1", env = "COOP_MUX_HOST")]
@@ -34,6 +31,15 @@ pub struct MuxConfig {
     /// Max consecutive health failures before evicting a session.
     #[arg(long, default_value_t = 3, env = "COOP_MUX_MAX_HEALTH_FAILURES")]
     pub max_health_failures: u32,
+
+    /// Path to credential configuration JSON file.
+    #[arg(long, env = "COOP_MUX_CREDENTIAL_CONFIG")]
+    pub credential_config: Option<std::path::PathBuf>,
+
+    /// Serve web assets from disk instead of embedded (for live reload during dev).
+    #[cfg(debug_assertions)]
+    #[arg(long, hide = true, env = "COOP_HOT")]
+    pub hot: bool,
 }
 
 impl MuxConfig {

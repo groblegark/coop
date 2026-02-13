@@ -144,6 +144,24 @@ returns `SWITCH_IN_PROGRESS` (409).
 
 Named credential profiles enable automatic rotation on rate-limit errors.
 
+### Mode
+
+Profile rotation is a process-wide concern controlled by `--profile` (env:
+`COOP_PROFILE`). Two modes:
+
+| Mode | Behavior |
+|------|----------|
+| `auto` (default) | Rotate to the next available profile on rate-limit errors |
+| `manual` | Profiles are registered but never auto-rotated; orchestrator switches explicitly |
+
+The mode can be toggled at runtime:
+
+| Transport | Get | Set |
+|-----------|-----|-----|
+| HTTP | `GET /api/v1/session/profiles/mode` | `PUT /api/v1/session/profiles/mode` ← `{"mode":"auto\|manual"}` |
+| WS | `profiles:mode` | `profiles:mode:set` ← `{"mode":"..."}` |
+| gRPC | `GetProfileMode` | `SetProfileMode` |
+
 ### Registration
 
 `POST /api/v1/session/profiles`:
@@ -153,12 +171,7 @@ Named credential profiles enable automatic rotation on rate-limit errors.
   "profiles": [
     {"name": "primary", "credentials": {"ANTHROPIC_API_KEY": "sk-1"}},
     {"name": "secondary", "credentials": {"ANTHROPIC_API_KEY": "sk-2"}}
-  ],
-  "config": {
-    "rotate_on_rate_limit": true,
-    "cooldown_secs": 300,
-    "max_switches_per_hour": 20
-  }
+  ]
 }
 ```
 
@@ -166,17 +179,21 @@ The first profile starts as `active`.
 
 ### Rotation Trigger
 
-When coop detects a `rate_limited` error:
+When coop detects a `rate_limited` error (and mode is `auto`):
 
 1. Mark the active profile as `rate_limited` with a cooldown timer
 2. Promote any expired cooldowns back to `available`
 3. Pick the next `available` profile (round-robin from after the current one)
 4. Trigger a forced credential switch
 
-### Anti-Flap
+### Safety Nets
 
-- `max_switches_per_hour` (default 20): caps rotation frequency over a sliding window
-- Cooldown (default 300s) prevents re-using a recently rate-limited profile
+Env var-tunable safety mechanisms prevent excessive switching:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `COOP_ROTATE_COOLDOWN_SECS` | `300` | How long a rate-limited profile stays unavailable |
+| `COOP_ROTATE_MAX_PER_HOUR` | `20` | Maximum switches per hour (anti-flap cap) |
 
 ### Exhaustion and Parking
 
@@ -266,7 +283,6 @@ All durations can be overridden via environment variables (milliseconds):
 | `COOP_NUDGE_TIMEOUT_MS` | `4000` | Wait for `working` after nudge delivery |
 | `COOP_INPUT_DELAY_MS` | `200` | Base delay between message and Enter |
 | `COOP_INPUT_DELAY_PER_BYTE_MS` | `1` | Extra delay per byte beyond 256 |
-| `COOP_INPUT_DELAY_MAX_MS` | `5000` | Maximum input delay |
 | `COOP_GROOM_DISMISS_DELAY_MS` | `500` | Delay before auto-dismissing prompts |
 | `COOP_SCREEN_DEBOUNCE_MS` | `50` | Screen update broadcast interval |
 | `COOP_SCREEN_POLL_MS` | `3000` | Screen detector poll interval |

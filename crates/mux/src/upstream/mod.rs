@@ -4,7 +4,8 @@
 //! Upstream coop communication: HTTP client, pollers, and WebSocket bridge.
 
 pub mod aggregator_feed;
+pub mod bridge;
 pub mod client;
+pub mod feed;
 pub mod health;
 pub mod poller;
-pub mod ws_bridge;

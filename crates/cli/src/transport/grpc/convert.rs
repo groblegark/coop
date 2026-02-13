@@ -63,6 +63,35 @@ pub fn prompt_to_proto(p: &PromptContext) -> proto::PromptContext {
     }
 }
 
+/// Convert a domain [`crate::event::ProfileEvent`] to proto [`proto::ProfileEvent`].
+pub fn profile_event_to_proto(e: &crate::event::ProfileEvent) -> proto::ProfileEvent {
+    match e {
+        crate::event::ProfileEvent::ProfileSwitched { from, to } => proto::ProfileEvent {
+            event_type: "profile:switched".to_owned(),
+            from: from.clone(),
+            to: Some(to.clone()),
+            profile: None,
+            retry_after_secs: None,
+        },
+        crate::event::ProfileEvent::ProfileExhausted { profile } => proto::ProfileEvent {
+            event_type: "profile:exhausted".to_owned(),
+            from: None,
+            to: None,
+            profile: Some(profile.clone()),
+            retry_after_secs: None,
+        },
+        crate::event::ProfileEvent::ProfileRotationExhausted { retry_after_secs } => {
+            proto::ProfileEvent {
+                event_type: "profile:rotation:exhausted".to_owned(),
+                from: None,
+                to: None,
+                profile: None,
+                retry_after_secs: Some(*retry_after_secs),
+            }
+        }
+    }
+}
+
 /// Convert a domain [`TransitionEvent`] to proto [`proto::TransitionEvent`].
 pub fn transition_to_proto(e: &TransitionEvent) -> proto::TransitionEvent {
     let (error_detail, error_category) = extract_error_fields(&e.next);

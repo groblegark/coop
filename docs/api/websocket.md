@@ -47,6 +47,7 @@ Set via the `subscribe` query parameter on the upgrade URL (comma-separated flag
 | `hooks` | `hook:raw` messages with raw hook FIFO JSON |
 | `messages` | `message:raw` messages with raw agent JSONL |
 | `transcripts` | `transcript:saved` messages with transcript save events |
+| `profiles` | `profile:switched`, `profile:exhausted`, `profile:rotation:exhausted` messages |
 
 Default (no `subscribe` param) = no push events (request-reply only).
 
@@ -293,6 +294,56 @@ Transcript save event. Sent when `transcripts` is subscribed.
 | `timestamp` | string | Timestamp when the snapshot was taken |
 | `line_count` | int | Number of lines in the transcript |
 | `seq` | int | Monotonic sequence number |
+
+
+### `profile:switched`
+
+Active profile changed. Sent when `profiles` is subscribed.
+
+```json
+{
+  "event": "profile:switched",
+  "from": "profile-a",
+  "to": "profile-b"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `from` | string or null | Previous profile name (null on first activation) |
+| `to` | string | New active profile name |
+
+
+### `profile:exhausted`
+
+A single profile became rate-limited. Sent when `profiles` is subscribed.
+
+```json
+{
+  "event": "profile:exhausted",
+  "profile": "profile-a"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `profile` | string | Name of the exhausted profile |
+
+
+### `profile:rotation:exhausted`
+
+All profiles are on cooldown. Sent when `profiles` is subscribed.
+
+```json
+{
+  "event": "profile:rotation:exhausted",
+  "retry_after_secs": 300
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `retry_after_secs` | int | Seconds until the earliest profile becomes available again |
 
 
 ### `health`

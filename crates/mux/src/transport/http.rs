@@ -15,7 +15,6 @@ use crate::error::MuxError;
 use crate::state::{epoch_ms, MuxState, SessionEntry};
 use crate::upstream::aggregator_feed::spawn_aggregator_feed;
 use crate::upstream::client::UpstreamClient;
-use crate::upstream::poller::spawn_screen_poller;
 
 // -- Request/Response types ---------------------------------------------------
 
@@ -100,18 +99,23 @@ pub async fn register_session(
         ws_bridge: tokio::sync::RwLock::new(None),
     });
 
-    // Spawn screen + status poller.
-    spawn_screen_poller(Arc::clone(&entry), &s.config);
-
-    // Spawn aggregator feed for /ws/mux.
-    spawn_aggregator_feed(
-        &entry,
-        s.aggregator.event_tx.clone(),
-        Arc::clone(&s.aggregator.cache),
-    );
-
-    s.sessions.write().await.insert(id.clone(), entry);
-    tracing::info!(session_id = %id, "session registered");
+    let is_new = {
+        let mut sessions = s.sessions.write().await;
+        let is_new = !sessions.contains_key(&id);
+        sessions.insert(id.clone(), Arc::clone(&entry));
+        is_new
+    };
+    if is_new {
+        // Spawn aggregator feed for /ws/mux.
+        spawn_aggregator_feed(
+            &entry,
+            s.aggregator.event_tx.clone(),
+            Arc::clone(&s.aggregator.cache),
+        );
+        tracing::info!(session_id = %id, "session registered");
+    } else {
+        tracing::debug!(session_id = %id, "session re-registered (heartbeat)");
+    }
 
     Json(RegisterResponse { id, registered: true }).into_response()
 }
@@ -126,9 +130,19 @@ pub async fn deregister_session(
         entry.cancel.cancel();
         // Clean up aggregator cache and emit offline event.
         s.aggregator.cache.write().await.remove(&id);
-        let _ = s.aggregator.event_tx.send(crate::state::MuxEvent::SessionOffline {
+        let _ = s.aggregator.event_tx.send(crate::events::MuxEvent::SessionOffline {
             session: id.clone(),
         });
+        // Emit SessionOffline on feed and clean up any active feed/poller watchers.
+        let _ =
+            s.feed.event_tx.send(crate::state::MuxEvent::SessionOffline { session: id.clone() });
+        {
+            let mut watchers = s.feed.watchers.write().await;
+            if let Some(ws) = watchers.remove(&id) {
+                ws.feed_cancel.cancel();
+                ws.poller_cancel.cancel();
+            }
+        }
         tracing::info!(session_id = %id, "session deregistered");
         Json(DeregisterResponse { id, removed: true }).into_response()
     } else {
@@ -246,6 +260,15 @@ pub async fn session_input_keys(
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     proxy_post(&s, &id, "/api/v1/input/keys", body).await
+}
+
+/// `POST /api/v1/sessions/{id}/upload` — proxy file upload to upstream.
+pub async fn session_upload(
+    State(s): State<Arc<MuxState>>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    proxy_post(&s, &id, "/api/v1/upload", body).await
 }
 
 /// Generic POST proxy to upstream coop.

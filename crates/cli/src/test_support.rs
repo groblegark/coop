@@ -4,6 +4,7 @@
 //! Shared test infrastructure: builders, mocks, and assertion helpers.
 
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64};
 use std::sync::Arc;
@@ -13,16 +14,17 @@ use bytes::Bytes;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
+use crate::backend::Backend;
 use crate::config::GroomLevel;
 use crate::driver::{
-    AgentState, AgentType, Detector, ExitStatus, NudgeEncoder, NudgeStep, RespondEncoder,
+    AgentState, AgentType, Detector, DetectorEmission, ExitStatus, NudgeEncoder, NudgeStep,
+    RespondEncoder,
 };
 use crate::event::{
     InputEvent, OutputEvent, PromptOutcome, RawHookEvent, RawMessageEvent, TransitionEvent,
 };
 use crate::event_log::EventLog;
 use crate::profile::ProfileState;
-use crate::pty::Backend;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
 use crate::start::{StartConfig, StartState};
@@ -56,6 +58,7 @@ pub struct StoreBuilder {
     start_config: Option<StartConfig>,
     transcript_state: Option<Arc<TranscriptState>>,
     groom: GroomLevel,
+    session_dir: Option<PathBuf>,
 }
 
 impl Default for StoreBuilder {
@@ -77,6 +80,7 @@ impl StoreBuilder {
             start_config: None,
             transcript_state: None,
             groom: GroomLevel::Manual,
+            session_dir: None,
         }
     }
 
@@ -127,6 +131,11 @@ impl StoreBuilder {
 
     pub fn groom(mut self, level: GroomLevel) -> Self {
         self.groom = level;
+        self
+    }
+
+    pub fn session_dir(mut self, path: PathBuf) -> Self {
+        self.session_dir = Some(path);
         self
     }
 
@@ -208,6 +217,7 @@ impl StoreBuilder {
             broker_registry: None,
             multiplexer: None,
             record: Arc::new(crate::record::RecordingState::new(None, 80, 24)),
+            session_dir: self.session_dir,
         });
 
         StoreCtx { store, input_rx, switch_rx }
@@ -268,7 +278,7 @@ impl Backend for MockPty {
     fn run(
         &mut self,
         output_tx: mpsc::Sender<Bytes>,
-        mut input_rx: mpsc::Receiver<crate::pty::BackendInput>,
+        mut input_rx: mpsc::Receiver<crate::backend::BackendInput>,
         _resize_rx: mpsc::Receiver<(u16, u16)>,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<ExitStatus>> + Send + '_>> {
         let output = std::mem::take(&mut self.output);
@@ -289,10 +299,10 @@ impl Backend for MockPty {
             if drain_input {
                 while let Some(msg) = input_rx.recv().await {
                     match msg {
-                        crate::pty::BackendInput::Write(data) => {
+                        crate::backend::BackendInput::Write(data) => {
                             captured_input.lock().push(data);
                         }
-                        crate::pty::BackendInput::Drain(tx) => {
+                        crate::backend::BackendInput::Drain(tx) => {
                             let _ = tx.send(());
                         }
                     }
@@ -367,13 +377,18 @@ macro_rules! assert_err_contains {
 /// A configurable detector for testing [`CompositeDetector`] tier resolution.
 ///
 /// Emits a sequence of `(delay, state)` pairs, then waits for shutdown.
+/// Each emission can optionally include a tier override.
 pub struct MockDetector {
     tier_val: u8,
-    states: Vec<(Duration, AgentState)>,
+    states: Vec<(Duration, AgentState, Option<u8>)>,
 }
 
 impl MockDetector {
     pub fn new(tier: u8, states: Vec<(Duration, AgentState)>) -> Self {
+        Self { tier_val: tier, states: states.into_iter().map(|(d, s)| (d, s, None)).collect() }
+    }
+
+    pub fn with_overrides(tier: u8, states: Vec<(Duration, AgentState, Option<u8>)>) -> Self {
         Self { tier_val: tier, states }
     }
 }
@@ -381,15 +396,15 @@ impl MockDetector {
 impl Detector for MockDetector {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<(AgentState, String)>,
+        state_tx: mpsc::Sender<DetectorEmission>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
-            for (delay, state) in self.states {
+            for (delay, state, tier_override) in self.states {
                 tokio::select! {
                     _ = shutdown.cancelled() => return,
                     _ = tokio::time::sleep(delay) => {
-                        if state_tx.send((state, String::new())).await.is_err() {
+                        if state_tx.send((state, String::new(), tier_override)).await.is_err() {
                             return;
                         }
                     }

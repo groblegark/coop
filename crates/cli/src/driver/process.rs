@@ -11,7 +11,7 @@ use nix::unistd::Pid;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::{AgentState, Detector, ExitStatus};
+use super::{AgentState, Detector, DetectorEmission, ExitStatus};
 
 /// Checks whether a process with the given PID is alive.
 pub fn is_process_alive(pid: u32) -> bool {
@@ -46,7 +46,7 @@ impl ProcessMonitor {
 impl Detector for ProcessMonitor {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<(AgentState, String)>,
+        state_tx: mpsc::Sender<DetectorEmission>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -66,8 +66,9 @@ impl Detector for ProcessMonitor {
 
                 // Emit Working on rising edge (inactive → active).
                 if active && !was_active {
-                    let _ =
-                        state_tx.send((AgentState::Working, "process:activity".to_owned())).await;
+                    let _ = state_tx
+                        .send((AgentState::Working, "process:activity".to_owned(), None))
+                        .await;
                 }
                 was_active = active;
 
@@ -79,6 +80,7 @@ impl Detector for ProcessMonitor {
                                     status: ExitStatus { code: None, signal: None },
                                 },
                                 "process:exit".to_owned(),
+                                None,
                             ))
                             .await;
                         break;

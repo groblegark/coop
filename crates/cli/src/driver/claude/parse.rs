@@ -15,7 +15,11 @@ pub fn format_claude_cause(json: &Value, prefix: &str) -> String {
         return format!("{prefix}:error");
     }
 
-    if json.get("type").and_then(|v| v.as_str()) != Some("assistant") {
+    let entry_type = json.get("type").and_then(|v| v.as_str());
+    if entry_type != Some("assistant") {
+        if entry_type == Some("user") {
+            return format!("{prefix}:user");
+        }
         return format!("{prefix}:working");
     }
 
@@ -75,9 +79,39 @@ pub fn parse_claude_state(json: &Value) -> Option<AgentState> {
         return Some(AgentState::Error { detail: error.as_str().unwrap_or("unknown").to_string() });
     }
 
-    // Only assistant messages carry meaningful state transitions
-    if json.get("type").and_then(|v| v.as_str()) != Some("assistant") {
-        return Some(AgentState::Working);
+    let entry_type = json.get("type").and_then(|v| v.as_str());
+
+    // Detect user interrupts: Escape during response writes text containing
+    // "[Request interrupted by user]"; rejecting a tool use writes an entry
+    // with `toolUseResult: "User rejected tool use"`. Both are turn
+    // boundaries — the agent is idle. Other user messages → working.
+    if entry_type == Some("user") {
+        let is_interrupt = json
+            .get("toolUseResult")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| s == "User rejected tool use")
+            || json
+                .get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_array())
+                .is_some_and(|blocks| {
+                    blocks.iter().any(|b| {
+                        b.get("type").and_then(|v| v.as_str()) == Some("text")
+                            && b.get("text")
+                                .and_then(|v| v.as_str())
+                                .is_some_and(|t| t.contains("[Request interrupted by user]"))
+                    })
+                });
+        return if is_interrupt { Some(AgentState::Idle) } else { Some(AgentState::Working) };
+    }
+
+    // Only assistant messages carry meaningful state transitions.
+    // Other types (progress, system, file-history-snapshot, etc.) are
+    // session metadata — not agent state signals. Emitting Working for
+    // these would let Tier 2 spuriously escalate over a Tier 1 Idle
+    // (e.g. a stop_hook_summary arriving after the Stop hook FIFO event).
+    if entry_type != Some("assistant") {
+        return None;
     }
 
     let content = json.get("message")?.get("content")?.as_array()?;

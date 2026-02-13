@@ -1,0 +1,34 @@
+{
+  "name": "@coop/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run build.ts",
+    "dev:terminal": "vite --config vite.config.terminal.ts",
+    "dev:mux": "vite --config vite.config.mux.ts"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.10.0",
+    "@xterm/addon-webgl": "0.18.0",
+    "@xterm/xterm": "5.5.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.563.0",
+    "radix-ui": "^1.4.3",
+    "react": "^19",
+    "react-dom": "^19",
+    "tailwind-merge": "^3.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4",
+    "shadcn": "^3.8.4",
+    "tailwindcss": "^4",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "^5.7",
+    "vite": "^6",
+    "vite-plugin-singlefile": "^2"
+  }
+}

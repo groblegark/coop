@@ -15,6 +15,7 @@ import {
 	coopBin,
 	onExit,
 	openBrowser,
+	openBrowserUrl,
 	waitForHealth,
 } from "./lib/setup";
 
@@ -44,7 +45,7 @@ if (!(await Bun.file(bin).exists())) {
 
 console.log(`Starting coop on port ${port}: ${cmd.join(" ")}`);
 const proc = Bun.spawn(
-	[bin, "--port", String(port), "--log-format", "text", "--", ...cmd],
+	[bin, "--port", String(port), "--log-format", "text", "--hot", "--", ...cmd],
 	{
 		stdout: "inherit",
 		stderr: "inherit",
@@ -56,7 +57,16 @@ onExit(() => proc.kill());
 await waitForHealth(port, { proc });
 
 if (!values["no-open"]) {
-	await openBrowser(port);
+	const muxUrl = "http://127.0.0.1:9800";
+	const muxRunning = await fetch(`${muxUrl}/api/v1/health`)
+		.then((r) => r.ok)
+		.catch(() => false);
+	if (muxRunning) {
+		console.log(`Mux running — open ${muxUrl}/mux`);
+		await openBrowserUrl(`${muxUrl}/mux`);
+	} else {
+		await openBrowser(port);
+	}
 }
 
 const exitCode = await proc.exited;

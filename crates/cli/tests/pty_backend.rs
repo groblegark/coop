@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use bytes::Bytes;
-use coop::pty::spawn::NativePty;
-use coop::pty::{Backend, BackendInput};
+use coop::backend::spawn::NativePty;
+use coop::backend::{Backend, BackendInput};
 use coop::ring::RingBuffer;
 use coop::screen::Screen;
 use tokio::sync::mpsc;

@@ -5,15 +5,23 @@
 
 use std::sync::Arc;
 
+use tokio_util::sync::CancellationToken;
+
 use crate::config::MuxConfig;
 use crate::state::{epoch_ms, CachedScreen, CachedStatus, SessionEntry};
 use crate::upstream::client::UpstreamClient;
 
-/// Spawn a background task that polls screen and status for a session.
-pub fn spawn_screen_poller(entry: Arc<SessionEntry>, config: &MuxConfig) {
+/// Spawn background tasks that poll screen and status for a session.
+///
+/// The `cancel` token is used to stop the pollers independently of the
+/// session entry's own cancel token (which controls registration lifetime).
+pub fn spawn_screen_poller(
+    entry: Arc<SessionEntry>,
+    config: &MuxConfig,
+    cancel: CancellationToken,
+) {
     let screen_interval = config.screen_poll_interval();
     let status_interval = config.status_poll_interval();
-    let cancel = entry.cancel.clone();
 
     // Screen poller
     {

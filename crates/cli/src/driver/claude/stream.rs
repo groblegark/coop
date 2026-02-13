@@ -15,7 +15,7 @@ use crate::driver::hook_detect::HookDetector;
 use crate::driver::hook_recv::HookReceiver;
 use crate::driver::log_watch::LogWatcher;
 use crate::driver::HookEvent;
-use crate::driver::{AgentState, Detector, PromptContext, PromptKind};
+use crate::driver::{AgentState, Detector, DetectorEmission, PromptContext, PromptKind};
 use crate::event::{RawHookEvent, RawMessageEvent};
 use crate::usage::UsageState;
 
@@ -101,7 +101,7 @@ pub struct LogDetector {
 impl Detector for LogDetector {
     fn run(
         self: Box<Self>,
-        state_tx: mpsc::Sender<(AgentState, String)>,
+        state_tx: mpsc::Sender<DetectorEmission>,
         shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(async move {
@@ -142,7 +142,15 @@ impl Detector for LogDetector {
                                         }
                                         if let Some(state) = parse_claude_state(&json) {
                                             let cause = format_claude_cause(&json, "log");
-                                            let _ = state_tx.send((state, cause)).await;
+                                            // Interrupt-detected idle is a high-confidence
+                                            // signal — emit at Tier 1 so it can override
+                                            // the hook detector's stale Working state.
+                                            let tier_override = if cause == "log:user" {
+                                                Some(1)
+                                            } else {
+                                                None
+                                            };
+                                            let _ = state_tx.send((state, cause, tier_override)).await;
                                         }
                                         if let Some(ref u) = usage {
                                             if let Some(delta) = crate::usage::extract_usage_delta(&json) {

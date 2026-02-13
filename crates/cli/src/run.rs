@@ -15,6 +15,9 @@ use tracing::{error, info};
 
 use tracing_subscriber::EnvFilter;
 
+use crate::backend::adapter::{AdapterSpec, TmuxBackend};
+use crate::backend::spawn::NativePty;
+use crate::backend::Backend;
 use crate::broker::distributor::Distributor;
 use crate::broker::registry::PodRegistry;
 use crate::config::{self, Config, GroomLevel};
@@ -30,9 +33,6 @@ use crate::driver::{
 use crate::event::InputEvent;
 use crate::event_log::EventLog;
 use crate::profile::ProfileState;
-use crate::pty::adapter::{AttachSpec, TmuxBackend};
-use crate::pty::spawn::NativePty;
-use crate::pty::Backend;
 use crate::record::RecordingState;
 use crate::ring::RingBuffer;
 use crate::screen::Screen;
@@ -41,11 +41,15 @@ use crate::start::StartState;
 use crate::stop::StopState;
 use crate::switch::{SwitchRequest, SwitchState};
 use crate::transcript::TranscriptState;
+#[cfg(not(debug_assertions))]
+use crate::transport::build_router;
+#[cfg(debug_assertions)]
+use crate::transport::build_router_hot;
 use crate::transport::grpc::CoopGrpc;
 use crate::transport::state::{
     DetectionInfo, DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels,
 };
-use crate::transport::{build_health_router, build_router, Store};
+use crate::transport::{build_health_router, Store};
 use crate::usage::UsageState;
 
 /// Result of a completed session.
@@ -441,12 +445,12 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
     // 6. Spawn backend AFTER driver is built (FIFO must exist before child starts).
     let extra_env = setup.as_ref().map(|s| s.env_vars.as_slice()).unwrap_or(&[]);
     let backend: Box<dyn Backend> = if let Some(ref attach_spec) = config.attach {
-        let spec: AttachSpec = attach_spec.parse()?;
+        let spec: AdapterSpec = attach_spec.parse()?;
         match spec {
-            AttachSpec::Tmux { session } => {
+            AdapterSpec::Tmux { session } => {
                 Box::new(TmuxBackend::new(session)?.with_poll_interval(config.tmux_poll()))
             }
-            AttachSpec::Screen { session: _ } => {
+            AdapterSpec::Screen { session: _ } => {
                 anyhow::bail!("screen attach is not yet implemented");
             }
         }
@@ -492,6 +496,10 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     let profile_state = Arc::new(ProfileState::new());
+    // Apply --profile mode from CLI/env.
+    if let Ok(mode) = config.profile.parse::<crate::profile::ProfileMode>() {
+        profile_state.set_mode(mode);
+    }
 
     // Credential broker (Epic 16): create if configured.
     let (credential_broker, credential_event_rx) = match credential_config.as_ref() {
@@ -568,6 +576,7 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         broker_registry: broker_registry.clone(),
         multiplexer: multiplexer.clone(),
         record: Arc::clone(&record_state),
+        session_dir: setup.as_ref().map(|s| s.session_dir.clone()),
     });
 
     // Enable recording if --record flag is set.
@@ -655,8 +664,44 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
         shutdown.clone(),
     );
 
+    // Spawn NATS publisher if configured.
+    if let Some(ref nats_url) = config.nats_url {
+        let nats_auth = crate::transport::nats::NatsAuth {
+            token: config.nats_token.clone(),
+            user: config.nats_user.clone(),
+            password: config.nats_password.clone(),
+            creds_path: config.nats_creds.as_deref().map(Into::into),
+        };
+        let publisher = crate::transport::nats::NatsPublisher::connect(
+            nats_url,
+            &config.nats_prefix,
+            nats_auth,
+        )
+        .await?;
+        let store_ref = Arc::clone(&store);
+        let sd = shutdown.clone();
+        tokio::spawn(async move {
+            publisher.run(&store_ref, sd).await;
+        });
+    }
+
+    // Spawn mux self-registration client if COOP_MUX_URL is set.
+    {
+        let sid = store.session_id.read().await.clone();
+        crate::mux_client::spawn_if_configured(
+            &sid,
+            config.port,
+            config.auth_token.as_deref(),
+            shutdown.clone(),
+        )
+        .await;
+    }
+
     // Spawn HTTP server
     if let Some(port) = config.port {
+        #[cfg(debug_assertions)]
+        let router = build_router_hot(Arc::clone(&store), config.hot);
+        #[cfg(not(debug_assertions))]
         let router = build_router(Arc::clone(&store));
         let addr = format!("{}:{}", config.host, port);
         let listener = TcpListener::bind(&addr).await?;
@@ -681,6 +726,9 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     // Spawn Unix socket server
     if let Some(ref socket_path) = config.socket {
+        #[cfg(debug_assertions)]
+        let router = build_router_hot(Arc::clone(&store), config.hot);
+        #[cfg(not(debug_assertions))]
         let router = build_router(Arc::clone(&store));
         let path = socket_path.clone();
         // Remove stale socket

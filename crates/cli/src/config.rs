@@ -128,22 +128,33 @@ pub struct Config {
     #[arg(long, env = "COOP_RECORD")]
     pub record: bool,
 
-    /// Groom level: auto, manual, pristine.
-    #[arg(long, env = "COOP_GROOM", default_value = "auto")]
-    pub groom: String,
-
-    /// NATS server URL for event bus integration (e.g. "nats://127.0.0.1:4222").
-    /// Enables NATS-based Tier 1 detection and event publishing.
+    /// NATS server URL (e.g. nats://localhost:4222). Enables NATS publishing when set.
     #[arg(long, env = "COOP_NATS_URL")]
     pub nats_url: Option<String>,
 
-    /// Auth token for NATS connection. Falls back to BD_DAEMON_TOKEN env.
+    /// NATS subject prefix for published events.
+    #[arg(long, env = "COOP_NATS_PREFIX", default_value = "coop.events")]
+    pub nats_prefix: String,
+
+    /// NATS auth token.
     #[arg(long, env = "COOP_NATS_TOKEN")]
     pub nats_token: Option<String>,
 
-    /// Subject prefix for published events (default: "coop.events").
-    #[arg(long, env = "COOP_NATS_PREFIX", default_value = "coop.events")]
-    pub nats_prefix: String,
+    /// NATS username (used with --nats-password).
+    #[arg(long, env = "COOP_NATS_USER")]
+    pub nats_user: Option<String>,
+
+    /// NATS password (used with --nats-user).
+    #[arg(long, env = "COOP_NATS_PASSWORD")]
+    pub nats_password: Option<String>,
+
+    /// Path to NATS credentials file (.creds) for JWT/NKey auth.
+    #[arg(long, env = "COOP_NATS_CREDS")]
+    pub nats_creds: Option<std::path::PathBuf>,
+
+    /// Groom level: auto, manual, pristine.
+    #[arg(long, env = "COOP_GROOM", default_value = "auto")]
+    pub groom: String,
 
     /// Disable NATS event publishing (receive-only mode).
     #[arg(long, env = "COOP_NATS_PUBLISH_DISABLE")]
@@ -161,6 +172,15 @@ pub struct Config {
     /// Pod name to register with the broker (defaults to HOSTNAME).
     #[arg(long, env = "COOP_BROKER_POD_NAME")]
     pub broker_pod_name: Option<String>,
+
+    /// Serve web assets from disk instead of embedded (for live reload during dev).
+    #[cfg(debug_assertions)]
+    #[arg(long, hide = true, env = "COOP_HOT")]
+    pub hot: bool,
+
+    /// Profile rotation mode: auto or manual.
+    #[arg(long, env = "COOP_PROFILE", default_value = "auto")]
+    pub profile: String,
 
     // -- Duration overrides (skip from CLI; set in Config::test()) --------
     /// Drain timeout in ms (0 = disabled, immediate kill on shutdown).
@@ -184,8 +204,6 @@ pub struct Config {
     pub input_delay_ms: Option<u64>,
     #[clap(skip)]
     pub input_delay_per_byte_ms: Option<u64>,
-    #[clap(skip)]
-    pub input_delay_max_ms: Option<u64>,
     #[clap(skip)]
     pub nudge_timeout_ms: Option<u64>,
     #[clap(skip)]
@@ -282,7 +300,6 @@ impl Config {
         "COOP_INPUT_DELAY_PER_BYTE_MS",
         1
     );
-    duration_field!(input_delay_max, input_delay_max_ms, "COOP_INPUT_DELAY_MAX_MS", 5_000);
     duration_field!(nudge_timeout, nudge_timeout_ms, "COOP_NUDGE_TIMEOUT_MS", 4_000);
     duration_field!(idle_timeout, idle_timeout_ms, "COOP_IDLE_TIMEOUT_MS", 0);
     duration_field!(drain_timeout, drain_timeout_ms, "COOP_DRAIN_TIMEOUT_MS", 20_000);
@@ -314,14 +331,20 @@ impl Config {
             log_level: "debug".into(),
             resume: None,
             record: false,
-            groom: "manual".into(),
             nats_url: None,
-            nats_token: None,
             nats_prefix: "coop.events".into(),
+            nats_token: None,
+            nats_user: None,
+            nats_password: None,
+            nats_creds: None,
+            groom: "manual".into(),
             nats_publish_disable: false,
             broker_url: None,
             broker_token: None,
             broker_pod_name: None,
+            #[cfg(debug_assertions)]
+            hot: false,
+            profile: "auto".into(),
             command: vec!["echo".into()],
             drain_timeout_ms: Some(100),
             shutdown_timeout_ms: Some(100),
@@ -333,7 +356,6 @@ impl Config {
             reap_poll_ms: Some(10),
             input_delay_ms: Some(10),
             input_delay_per_byte_ms: Some(0),
-            input_delay_max_ms: Some(50),
             nudge_timeout_ms: Some(100),
             idle_timeout_ms: Some(0),
             groom_dismiss_delay_ms: Some(50),
@@ -350,13 +372,15 @@ impl Config {
     /// When `--agent` is not set, infers the type from the basename of `command[0]`.
     pub fn agent_enum(&self) -> anyhow::Result<AgentType> {
         if let Some(ref agent) = self.agent {
-            return match agent.to_lowercase().as_str() {
-                "claude" => Ok(AgentType::Claude),
-                "codex" => Ok(AgentType::Codex),
-                "gemini" => Ok(AgentType::Gemini),
-                "unknown" => Ok(AgentType::Unknown),
-                other => anyhow::bail!("invalid agent type: {other}"),
-            };
+            if !agent.is_empty() {
+                return match agent.to_lowercase().as_str() {
+                    "claude" => Ok(AgentType::Claude),
+                    "codex" => Ok(AgentType::Codex),
+                    "gemini" => Ok(AgentType::Gemini),
+                    "unknown" => Ok(AgentType::Unknown),
+                    other => anyhow::bail!("invalid agent type: {other}"),
+                };
+            }
         }
 
         // Auto-detect from command basename

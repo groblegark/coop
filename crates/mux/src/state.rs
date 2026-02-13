@@ -6,14 +6,90 @@ use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use std::time::Instant;
 
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::MuxConfig;
-use crate::upstream::ws_bridge::WsBridge;
+use crate::credential::broker::CredentialBroker;
+use crate::credential::CredentialEvent;
+use crate::events::Aggregator;
+use crate::upstream::bridge::WsBridge;
 
-// Re-export shared event types so existing `use crate::state::MuxEvent` still works.
-pub use crate::events::{Aggregator, MuxEvent, SessionCache};
+/// Events emitted by the mux for aggregation consumers.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum MuxEvent {
+    /// An agent state transition from an upstream session.
+    State { session: String, prev: String, next: String, seq: u64 },
+    /// An upstream session came online (feed connected).
+    #[serde(rename = "session:online")]
+    SessionOnline { session: String, url: String, metadata: serde_json::Value },
+    /// An upstream session went offline (deregistered or feed disconnected).
+    #[serde(rename = "session:offline")]
+    SessionOffline { session: String },
+    /// Credentials refreshed successfully for an account.
+    #[serde(rename = "credential:refreshed")]
+    CredentialRefreshed { account: String },
+    /// A credential refresh attempt failed.
+    #[serde(rename = "credential:refresh:failed")]
+    CredentialRefreshFailed { account: String, error: String },
+    /// User interaction required for credential reauthorization.
+    #[serde(rename = "credential:reauth:required")]
+    CredentialReauthRequired { account: String, auth_url: String, user_code: String },
+}
+
+impl MuxEvent {
+    /// Convert a [`CredentialEvent`] into a `MuxEvent`, stripping secrets
+    /// (access tokens from `Refreshed` are not included).
+    pub fn from_credential(event: &CredentialEvent) -> Self {
+        match event {
+            CredentialEvent::Refreshed { account, .. } => {
+                Self::CredentialRefreshed { account: account.clone() }
+            }
+            CredentialEvent::RefreshFailed { account, error } => {
+                Self::CredentialRefreshFailed { account: account.clone(), error: error.clone() }
+            }
+            CredentialEvent::ReauthRequired { account, auth_url, user_code } => {
+                Self::CredentialReauthRequired {
+                    account: account.clone(),
+                    auth_url: auth_url.clone(),
+                    user_code: user_code.clone(),
+                }
+            }
+        }
+    }
+}
+
+/// Per-session event feed and watcher tracking.
+pub struct SessionFeed {
+    /// Broadcast channel for mux events (state transitions, online/offline).
+    pub event_tx: broadcast::Sender<MuxEvent>,
+    /// Per-session watcher count. Feed + poller start when >0, stop when 0.
+    pub watchers: RwLock<HashMap<String, WatcherState>>,
+}
+
+/// Tracks per-session watcher count and feed/poller cancellation.
+pub struct WatcherState {
+    pub count: usize,
+    /// Cancel token for the event feed task.
+    pub feed_cancel: CancellationToken,
+    /// Cancel token for screen + status pollers.
+    pub poller_cancel: CancellationToken,
+}
+
+impl Default for SessionFeed {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SessionFeed {
+    pub fn new() -> Self {
+        let (event_tx, _) = broadcast::channel(256);
+        Self { event_tx, watchers: RwLock::new(HashMap::new()) }
+    }
+}
+
 
 /// Shared mux state.
 pub struct MuxState {
@@ -22,6 +98,8 @@ pub struct MuxState {
     pub shutdown: CancellationToken,
     /// Aggregated event channel for `/ws/mux` clients.
     pub aggregator: Aggregator,
+    pub feed: SessionFeed,
+    pub credential_broker: Option<Arc<CredentialBroker>>,
 }
 
 impl MuxState {
@@ -31,6 +109,8 @@ impl MuxState {
             config,
             shutdown,
             aggregator: Aggregator::new(),
+            feed: SessionFeed::new(),
+            credential_broker: None,
         }
     }
 }

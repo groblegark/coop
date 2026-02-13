@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::driver::{AgentState, PromptContext};
 use crate::error::ErrorCode;
 use crate::event::TransitionEvent;
-use crate::profile::{ProfileConfig, ProfileEntry, ProfileInfo};
+use crate::profile::{ProfileEntry, ProfileInfo};
 use crate::screen::{CursorPosition, ScreenSnapshot};
 use crate::start::StartEvent;
 use crate::stop::StopEvent;
@@ -131,11 +131,15 @@ pub enum ClientMessage {
     #[serde(rename = "profiles:register")]
     RegisterProfiles {
         profiles: Vec<ProfileEntry>,
-        #[serde(default)]
-        config: Option<ProfileConfig>,
     },
     #[serde(rename = "profiles:list")]
     ListProfiles {},
+    #[serde(rename = "profiles:mode")]
+    GetProfileMode {},
+    #[serde(rename = "profiles:mode:set")]
+    SetProfileMode {
+        mode: String,
+    },
 
     // Session switch
     #[serde(rename = "session:switch")]
@@ -416,8 +420,27 @@ pub enum ServerMessage {
     #[serde(rename = "profiles")]
     ProfileList {
         profiles: Vec<ProfileInfo>,
-        config: ProfileConfig,
+        mode: String,
         active_profile: Option<String>,
+    },
+    #[serde(rename = "profiles:mode")]
+    ProfileMode {
+        mode: String,
+    },
+
+    // Profile lifecycle
+    #[serde(rename = "profile:switched")]
+    ProfileSwitched {
+        from: Option<String>,
+        to: String,
+    },
+    #[serde(rename = "profile:exhausted")]
+    ProfileExhausted {
+        profile: String,
+    },
+    #[serde(rename = "profile:rotation:exhausted")]
+    ProfileRotationExhausted {
+        retry_after_secs: u64,
     },
 
     // Session switch
@@ -454,6 +477,41 @@ pub enum ServerMessage {
     },
 }
 
+/// Envelope wrapping a [`ClientMessage`] with an optional correlation ID.
+///
+/// When `request_id` is present, the server echoes it back on the response
+/// message so the caller can match request → response pairs.
+///
+/// Wire format (via `#[serde(flatten)]`):
+/// ```json
+/// {"event": "replay:get", "offset": 0, "request_id": "abc"}
+/// ```
+#[derive(Debug, Clone, Deserialize)]
+pub struct ClientEnvelope {
+    #[serde(flatten)]
+    pub message: ClientMessage,
+    #[serde(default)]
+    pub request_id: Option<String>,
+}
+
+/// Envelope wrapping a [`ServerMessage`] with an optional correlation ID.
+///
+/// When built from a request that carried a `request_id`, the same ID is
+/// echoed in the response.  Streaming events omit it (serialization skips
+/// `None`).
+///
+/// Wire format:
+/// ```json
+/// {"event": "replay", "data": "...", "request_id": "abc"}
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerEnvelope {
+    #[serde(flatten)]
+    pub message: ServerMessage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+}
+
 /// WebSocket subscription flags parsed from `?subscribe=pty,screen,state,hooks,messages`.
 ///
 /// Defaults to no messages.
@@ -469,6 +527,7 @@ pub struct SubscriptionFlags {
     pub usage: bool,
     pub credentials: bool,
     pub recording: bool,
+    pub profiles: bool,
 }
 
 impl SubscriptionFlags {
@@ -487,6 +546,7 @@ impl SubscriptionFlags {
                 "usage" => flags.usage = true,
                 "credentials" => flags.credentials = true,
                 "recording" => flags.recording = true,
+                "profiles" => flags.profiles = true,
                 _ => {}
             }
         }
@@ -635,6 +695,22 @@ pub fn transition_entry_to_msg(entry: &crate::event_log::TransitionEntry) -> Ser
 /// Convert a [`HookEntry`] (from event log catchup) to a `ServerMessage`.
 pub fn hook_entry_to_msg(entry: &crate::event_log::HookEntry) -> ServerMessage {
     ServerMessage::HookRaw { data: entry.json.clone() }
+}
+
+/// Convert a `ProfileEvent` to a `ServerMessage`.
+pub fn profile_event_to_msg(event: &crate::event::ProfileEvent) -> ServerMessage {
+    use crate::event::ProfileEvent;
+    match event {
+        ProfileEvent::ProfileSwitched { from, to } => {
+            ServerMessage::ProfileSwitched { from: from.clone(), to: to.clone() }
+        }
+        ProfileEvent::ProfileExhausted { profile } => {
+            ServerMessage::ProfileExhausted { profile: profile.clone() }
+        }
+        ProfileEvent::ProfileRotationExhausted { retry_after_secs } => {
+            ServerMessage::ProfileRotationExhausted { retry_after_secs: *retry_after_secs }
+        }
+    }
 }
 
 /// Convert a `StartEvent` to a `ServerMessage`.
