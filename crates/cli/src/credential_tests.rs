@@ -550,7 +550,7 @@ async fn initiate_login_reauth_returns_auth_url() {
     assert!(session.auth_url.contains("response_type=code"));
     assert!(session.auth_url.contains("client_id=9d1c250a"));
     assert!(session.auth_url.contains("redirect_uri="));
-    assert!(session.auth_url.contains("scope=user%3Asessions"));
+    assert!(session.auth_url.contains("scope=user%3Aprofile"));
     assert!(session.auth_url.contains("code_challenge="));
     assert!(session.auth_url.contains("code_challenge_method=S256"));
     assert!(!session.state.is_empty());

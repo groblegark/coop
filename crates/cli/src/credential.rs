@@ -939,8 +939,9 @@ impl CredentialBroker {
     /// Default redirect URI (Claude's own code callback page).
     const DEFAULT_REDIRECT_URI: &'static str =
         "https://platform.claude.com/oauth/code/callback";
-    /// Default OAuth scope.
-    const DEFAULT_SCOPE: &'static str = "user:sessions";
+    /// Default OAuth scopes (space-separated). Must match what Claude's OAuth server accepts.
+    const DEFAULT_SCOPE: &'static str =
+        "user:profile user:inference user:sessions:claude_code user:mcp_servers";
 
     /// Initiate an authorization code login-reauth flow for an account.
     ///
@@ -1067,20 +1068,20 @@ impl CredentialBroker {
                 .ok_or_else(|| "no token_url configured".to_string())?
         };
 
-        // Exchange authorization code for tokens (includes PKCE code_verifier).
-        let form_body = format!(
-            "grant_type=authorization_code&client_id={}&code={}&redirect_uri={}&code_verifier={}",
-            urlencoded(client_id),
-            urlencoded(code),
-            urlencoded(redirect_uri),
-            urlencoded(&code_verifier),
-        );
+        // Exchange authorization code for tokens (JSON body, includes PKCE code_verifier).
+        let json_body = serde_json::json!({
+            "grant_type": "authorization_code",
+            "client_id": client_id,
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "code_verifier": code_verifier,
+        });
 
         let resp = self
             .http_client
             .post(&token_url)
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(form_body)
+            .header("Content-Type", "application/json")
+            .body(json_body.to_string())
             .send()
             .await
             .map_err(|e| format!("token exchange failed: {e}"))?;
