@@ -547,6 +547,7 @@ async fn initiate_login_reauth_returns_auth_url() {
     let session = broker.initiate_login_reauth("test").await.expect("should succeed");
     assert_eq!(session.account, "test");
     assert!(session.auth_url.starts_with("https://claude.ai/oauth/authorize?"));
+    assert!(session.auth_url.contains("code=true"));
     assert!(session.auth_url.contains("response_type=code"));
     assert!(session.auth_url.contains("client_id=9d1c250a"));
     assert!(session.auth_url.contains("redirect_uri="));

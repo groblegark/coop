@@ -994,14 +994,15 @@ impl CredentialBroker {
         let code_challenge = compute_code_challenge(&code_verifier);
 
         // Build the full authorization URL.
+        // Parameters match Claude Code CLI: code=true must be present alongside response_type=code.
         let auth_url = format!(
-            "{}?response_type=code&client_id={}&redirect_uri={}&scope={}&state={}&code_challenge={}&code_challenge_method=S256",
+            "{}?code=true&client_id={}&response_type=code&redirect_uri={}&scope={}&code_challenge={}&code_challenge_method=S256&state={}",
             authorize_url,
             urlencoded(&client_id),
             urlencoded(&redirect_uri),
             urlencoded(Self::DEFAULT_SCOPE),
-            urlencoded(&state),
             urlencoded(&code_challenge),
+            urlencoded(&state),
         );
 
         info!(
