@@ -10,6 +10,7 @@
 //   bun tests/debug/start-mux.ts --launch 'coop -- claude'    # with launch command
 
 import { parseArgs } from "node:util";
+import { $ } from "bun";
 import {
 	buildAll,
 	buildMux,
@@ -20,6 +21,7 @@ import {
 	openBrowserUrl,
 	waitForHealth,
 } from "./lib/setup";
+import { loadEnvFile, resolveCredential } from "./lib/credentials";
 
 const { values } = parseArgs({
 	args: Bun.argv.slice(2),
@@ -39,11 +41,7 @@ const launch = values.launch ?? undefined;
 
 if (!values["no-build"]) {
 	await buildWeb();
-	if (launch) {
-		await buildAll();
-	} else {
-		await buildMux();
-	}
+	await buildAll();
 }
 
 const muxBin = coopmuxBin();
@@ -73,9 +71,30 @@ onExit(() => muxProc.kill());
 
 await waitForHealth(muxPort, { proc: muxProc });
 
-// -- Open dashboard ---------------------------------------------------------
+// -- Auto-seed local credential ---------------------------------------------
 
 const muxUrl = `http://127.0.0.1:${muxPort}`;
+
+await loadEnvFile();
+try {
+	const cred = await resolveCredential();
+	const envKey =
+		cred.type === "oauth_token"
+			? "CLAUDE_CODE_OAUTH_TOKEN"
+			: "ANTHROPIC_API_KEY";
+	const token = cred.type === "oauth_token" ? cred.token : cred.key;
+	const coop = coopBin();
+	await $`${coop} cred new "Local (macOS)" --provider claude --env-key ${envKey} --token ${token} --no-reauth`
+		.env({ ...process.env, COOP_MUX_URL: muxUrl })
+		.quiet();
+	console.log(`Seeded local credential (${cred.type})`);
+} catch (err) {
+	console.log(
+		`Note: no local credential found, skipping auto-seed (${err instanceof Error ? err.message : err})`,
+	);
+}
+
+// -- Open dashboard ---------------------------------------------------------
 
 if (!values["no-open"]) {
 	await openBrowserUrl(`${muxUrl}/mux`);

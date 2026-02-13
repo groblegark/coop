@@ -14,7 +14,9 @@
 import { parseArgs } from "node:util";
 import { $ } from "bun";
 import {
+	buildCoop,
 	buildDocker,
+	coopBin,
 	findAvailablePort,
 	onExit,
 	openBrowserUrl,
@@ -130,6 +132,7 @@ async function loadImage(tag: string): Promise<void> {
 // -- Build & load images ------------------------------------------------------
 
 if (!values["no-build"]) {
+	await buildCoop();
 	await buildDocker("coopmux", "coop:coopmux");
 	await buildDocker("claude", "coop:claude");
 }
@@ -183,7 +186,8 @@ try {
 	const token = cred.type === "oauth_token" ? cred.token : cred.key;
 	const muxUrl = `http://localhost:${port}`;
 
-	await $`coop cred new "Local (macOS)" --provider claude --env-key ${envKey} --token ${token} --no-reauth`
+	const coop = coopBin();
+	await $`${coop} cred new "Local (macOS)" --provider claude --env-key ${envKey} --token ${token} --no-reauth`
 		.env({ ...process.env, COOP_MUX_URL: muxUrl })
 		.quiet();
 	console.log(`Seeded local credential (${cred.type})`);
