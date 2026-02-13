@@ -57,7 +57,7 @@ enum MuxServerMessage {
     /// Session list on connect.
     Sessions { sessions: Vec<SessionSnapshot> },
     /// An event from a watched session (serialized directly as its own tagged JSON).
-    Event(MuxEvent),
+    Event(Box<MuxEvent>),
     /// Periodic screen thumbnail batch.
     ScreenBatch { screens: Vec<ScreenThumbnail> },
     /// Error.
@@ -193,7 +193,7 @@ async fn handle_mux_ws(state: Arc<MuxState>, socket: WebSocket) {
                     MuxEvent::Transition { session, .. } => watched.contains(session),
                 };
                 if should_forward {
-                    let msg = MuxServerMessage::Event(event);
+                    let msg = MuxServerMessage::Event(Box::new(event));
                     if send_json(&mut ws_tx, &msg).await.is_err() {
                         break;
                     }

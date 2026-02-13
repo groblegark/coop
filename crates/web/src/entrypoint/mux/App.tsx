@@ -1,16 +1,14 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { apiGet, apiPost } from "@/hooks/useApiClient";
+import { apiGet } from "@/hooks/useApiClient";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { useWebSocket, WsRpc, type ConnectionStatus } from "@/hooks/useWebSocket";
 import { useFileUpload } from "@/hooks/useFileUpload";
-import { AgentBadge } from "@/components/AgentBadge";
 import { DropOverlay } from "@/components/DropOverlay";
 import { StatusBar } from "@/components/StatusBar";
 import { TerminalLayout } from "@/components/TerminalLayout";
 import { Terminal } from "@/components/Terminal";
-import { TerminalPreview } from "@/components/TerminalPreview";
 import { b64decode, b64encode } from "@/lib/base64";
 import {
   MONO_FONT,
@@ -21,6 +19,7 @@ import {
 import type { MuxWsMessage, MuxMetadata, WsMessage, PromptContext, EventEntry } from "@/lib/types";
 import { SessionSidebar } from "./SessionSidebar";
 import { MuxProvider, useMux } from "./MuxContext";
+import { Tile, LaunchCard, sessionTitle, sessionSubtitle } from "./Tile";
 
 // ── Session state ──
 
@@ -40,93 +39,6 @@ export interface SessionInfo {
 }
 
 const encoder = new TextEncoder();
-
-// ── Tile Component ──
-
-function sessionTitle(info: SessionInfo): string {
-  if (info.metadata?.k8s?.pod) return info.metadata.k8s.pod;
-  if (info.url) {
-    try { return new URL(info.url).host; } catch { /* fallback */ }
-  }
-  return info.id.substring(0, 12);
-}
-
-function sessionSubtitle(info: SessionInfo): string {
-  const shortId = info.id.substring(0, 8);
-  if (info.metadata?.k8s?.namespace) {
-    return `${info.metadata.k8s.namespace} \u00b7 ${shortId}`;
-  }
-  return shortId;
-}
-
-function Tile({
-  info,
-  focused,
-  onToggleExpand,
-}: {
-  info: SessionInfo;
-  focused: boolean;
-  onToggleExpand: () => void;
-}) {
-  const title = useMemo(() => sessionTitle(info), [info.id, info.url, info.metadata]);
-  const subtitle = useMemo(() => sessionSubtitle(info), [info.id, info.metadata]);
-
-  return (
-    <div
-      className={`flex flex-col overflow-hidden rounded-lg border bg-[#1e1e1e] transition-[border-color,background-color] duration-150 h-[280px] ${focused ? "border-blue-500" : "border-[#21262d] hover:border-[#444c56]"} cursor-pointer select-none hover:bg-[#242424]`}
-      onClick={onToggleExpand}
-    >
-      {/* Header */}
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[#21262d] px-3 py-1.5">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-mono text-[13px] font-semibold">
-            {title}
-          </span>
-          <span className="truncate text-[11px] text-zinc-500">
-            {subtitle}
-          </span>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {info.credAlert && (
-            <span className="text-xs text-red-400" title="Credential issue">
-              &#9888; auth
-            </span>
-          )}
-          <AgentBadge state={info.state} />
-        </div>
-      </div>
-
-      <TerminalPreview
-        instance={info.term}
-        lastScreenLines={info.lastScreenLines}
-        sourceCols={info.sourceCols}
-      />
-    </div>
-  );
-}
-
-// ── Launch Card ──
-
-function LaunchCard() {
-  const [status, setStatus] = useState<"idle" | "launching">("idle");
-
-  const handleLaunch = useCallback(async () => {
-    setStatus("launching");
-    await apiPost("/api/v1/sessions/launch");
-    setTimeout(() => setStatus("idle"), 2000);
-  }, []);
-
-  return (
-    <button
-      className="flex h-[280px] cursor-pointer items-center justify-center rounded-lg border border-dashed border-[#21262d] text-zinc-500 transition-colors hover:border-[#444c56] hover:text-blue-400 disabled:opacity-50"
-      onClick={handleLaunch}
-      disabled={status === "launching"}
-      title="Launch new session"
-    >
-      <span className="text-3xl">{status === "launching" ? "\u2026" : "+"}</span>
-    </button>
-  );
-}
 
 // ── App ──
 
