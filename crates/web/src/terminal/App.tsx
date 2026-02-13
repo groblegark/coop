@@ -6,19 +6,14 @@ import {
 } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { Terminal, type TerminalHandle } from "@/components/Terminal";
-import { AgentBadge } from "@/components/AgentBadge";
+import { TerminalLayout } from "@/components/TerminalLayout";
 import { DropOverlay } from "@/components/DropOverlay";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useFileUpload } from "@/hooks/useFileUpload";
-import { apiGet, apiPost, apiPut } from "@/hooks/useApiClient";
-import { b64decode, b64encode, textToB64 } from "@/lib/base64";
-import { THEME, TERMINAL_FONT_SIZE, KEY_DEFS } from "@/lib/constants";
-import type {
-  WsMessage,
-  PromptContext,
-  ApiResult,
-  UsageCumulative,
-} from "@/lib/types";
+import { apiGet } from "@/hooks/useApiClient";
+import { b64decode, b64encode } from "@/lib/base64";
+import { THEME, TERMINAL_FONT_SIZE } from "@/lib/constants";
+import type { WsMessage, PromptContext } from "@/lib/types";
 import { StatePanel } from "./StatePanel";
 import { ActionsPanel } from "./ActionsPanel";
 import { ConfigPanel } from "./ConfigPanel";
@@ -308,13 +303,71 @@ export function App() {
     [],
   );
 
-  return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#1e1e1e]">
-      <DropOverlay active={dragActive} />
+  const handleToggleInspector = useCallback(() => {
+    setSidebarVisible((v) => !v);
+    termRef.current?.terminal?.focus();
+  }, []);
 
-      {/* Main area */}
-      <div className="flex min-h-0 flex-1">
-        {/* Terminal */}
+  // ── Inspector sidebar content ──
+
+  const inspectorContent = (
+    <>
+      {/* Tab bar */}
+      <div className="flex shrink-0 border-b border-[#333] bg-[#151515]">
+        {(["state", "actions", "config"] as const).map((tab) => (
+          <button
+            key={tab}
+            className={`flex-1 border-b-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+              activeTab === tab
+                ? "border-blue-400 text-zinc-300"
+                : "border-transparent text-zinc-600 hover:text-zinc-400"
+            }`}
+            onClick={() => {
+              setActiveTab(tab);
+              termRef.current?.terminal?.focus();
+            }}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      {/* Panels */}
+      {activeTab === "state" && (
+        <StatePanel
+          health={health}
+          status={status}
+          agent={agent}
+          usage={usage}
+          events={events}
+        />
+      )}
+      {activeTab === "actions" && (
+        <ActionsPanel
+          prompt={prompt}
+          lastMessage={lastMessage}
+          wsSend={send}
+        />
+      )}
+      {activeTab === "config" && <ConfigPanel />}
+    </>
+  );
+
+  return (
+    <>
+      <DropOverlay active={dragActive} />
+      <TerminalLayout
+        className="h-screen"
+        title={location.host}
+        wsStatus={wsStatus}
+        agentState={agentState}
+        ptyOffset={ptyOffset}
+        inspectorVisible={sidebarVisible}
+        onToggleInspector={handleToggleInspector}
+        inspectorWidth={sidebarWidth}
+        onInspectorResize={handleResizeMouseDown}
+        inspectorContent={inspectorContent}
+      >
         <Terminal
           ref={termRef}
           fontSize={TERMINAL_FONT_SIZE}
@@ -324,105 +377,8 @@ export function App() {
           onBinary={onTermBinary}
           onResize={onTermResize}
         />
-
-        {/* Resize handle */}
-        {sidebarVisible && (
-          <div
-            className="w-[5px] shrink-0 cursor-col-resize transition-colors hover:bg-blue-400"
-            onMouseDown={handleResizeMouseDown}
-          />
-        )}
-
-        {/* Sidebar */}
-        {sidebarVisible && (
-          <div
-            className="flex shrink-0 flex-col overflow-hidden border-l border-[#333] bg-[#181818] font-mono text-xs text-zinc-400"
-            style={{ width: sidebarWidth }}
-          >
-            {/* Tab bar */}
-            <div className="flex shrink-0 border-b border-[#333] bg-[#151515]">
-              {(["state", "actions", "config"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  className={`flex-1 border-b-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide transition-colors ${
-                    activeTab === tab
-                      ? "border-blue-400 text-zinc-300"
-                      : "border-transparent text-zinc-600 hover:text-zinc-400"
-                  }`}
-                  onClick={() => {
-                    setActiveTab(tab);
-                    termRef.current?.terminal?.focus();
-                  }}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-
-            {/* Panels */}
-            {activeTab === "state" && (
-              <StatePanel
-                health={health}
-                status={status}
-                agent={agent}
-                usage={usage}
-                events={events}
-              />
-            )}
-            {activeTab === "actions" && (
-              <ActionsPanel
-                prompt={prompt}
-                lastMessage={lastMessage}
-                wsSend={send}
-              />
-            )}
-            {activeTab === "config" && <ConfigPanel />}
-          </div>
-        )}
-      </div>
-
-      {/* Status bar */}
-      <div className="flex h-8 shrink-0 items-center justify-between border-t border-[#333] bg-[#1a1a1a] px-3 font-mono text-[13px] text-zinc-300">
-        <span className="flex items-center gap-2.5">
-          <span className="font-bold tracking-wide text-teal-400">
-            [coop]
-          </span>
-          {agentState && <AgentBadge state={agentState} />}
-          <span className="flex items-center">
-            <span
-              className={`mr-1.5 inline-block h-2 w-2 rounded-full ${
-                wsStatus === "connected"
-                  ? "bg-green-500"
-                  : wsStatus === "connecting"
-                    ? "bg-amber-500"
-                    : "bg-red-500"
-              }`}
-            />
-            <span>
-              {wsStatus === "connected"
-                ? `Connected — ${location.host}`
-                : wsStatus === "connecting"
-                  ? "Connecting…"
-                  : "Disconnected"}
-            </span>
-          </span>
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="text-xs text-zinc-600">
-            {ptyOffset > 0 && `offset: ${ptyOffset}`}
-          </span>
-          <button
-            className="rounded border border-zinc-600 px-2.5 py-0.5 font-mono text-[11px] text-zinc-200 hover:border-zinc-400 hover:text-white"
-            onClick={() => {
-              setSidebarVisible((v) => !v);
-              termRef.current?.terminal?.focus();
-            }}
-          >
-            {sidebarVisible ? "Hide" : "Inspector"}
-          </button>
-        </span>
-      </div>
-    </div>
+      </TerminalLayout>
+    </>
   );
 }
 

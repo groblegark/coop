@@ -3,10 +3,12 @@ import { apiGet, apiPost } from "@/hooks/useApiClient";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { useWebSocket } from "@/hooks/useWebSocket";
+import { useWebSocket, type ConnectionStatus } from "@/hooks/useWebSocket";
 import { useFileUpload } from "@/hooks/useFileUpload";
 import { AgentBadge } from "@/components/AgentBadge";
 import { DropOverlay } from "@/components/DropOverlay";
+import { StatusBar } from "@/components/StatusBar";
+import { TerminalLayout } from "@/components/TerminalLayout";
 import { Terminal } from "@/components/Terminal";
 import { b64decode, b64encode } from "@/lib/base64";
 import {
@@ -41,12 +43,14 @@ function Tile({
   info,
   focused,
   expanded,
+  expandedWsStatus,
   onFocus,
   onToggleExpand,
 }: {
   info: SessionInfo;
   focused: boolean;
   expanded: boolean;
+  expandedWsStatus: ConnectionStatus;
   onFocus: () => void;
   onToggleExpand: () => void;
 }) {
@@ -75,16 +79,47 @@ function Tile({
     return shortId;
   }, [info.id, info.metadata]);
 
+  if (expanded) {
+    return (
+      <TerminalLayout
+        className="fixed inset-0 z-[100]"
+        title={title}
+        subtitle={subtitle}
+        credAlert={info.credAlert}
+        headerRight={
+          <button
+            data-expand
+            className="border-none bg-transparent p-0.5 text-sm text-zinc-500 hover:text-zinc-300"
+            title="Collapse"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleExpand();
+            }}
+          >
+            &#10530;
+          </button>
+        }
+        wsStatus={expandedWsStatus}
+        agentState={info.state}
+        statusLabel="[coopmux]"
+      >
+        <Terminal
+          instance={info.term}
+          fitAddon={info.fit}
+          theme={THEME}
+          className="h-full min-w-0 flex-1 p-4"
+          onReady={handleReady}
+        />
+      </TerminalLayout>
+    );
+  }
+
   return (
     <div
-      className={`flex flex-col overflow-hidden rounded-lg border bg-[#1e1e1e] transition-[border-color] duration-150 ${
-        expanded
-          ? "fixed inset-0 z-[100] h-auto rounded-none border-none"
-          : "h-[280px]"
-      } ${focused && !expanded ? "border-blue-500" : "border-[#21262d]"}`}
+      className={`flex flex-col overflow-hidden rounded-lg border bg-[#1e1e1e] transition-[border-color] duration-150 h-[280px] ${focused ? "border-blue-500" : "border-[#21262d]"} cursor-pointer`}
       onClick={(e) => {
         if ((e.target as HTMLElement).closest("[data-expand]")) return;
-        onFocus();
+        onToggleExpand();
       }}
     >
       {/* Header */}
@@ -122,9 +157,8 @@ function Tile({
       <div className="relative flex-1 overflow-hidden">
         <Terminal
           instance={info.term}
-          fitAddon={expanded ? info.fit : undefined}
           theme={THEME}
-          className={expanded ? "h-full p-4" : "absolute bottom-0 left-0"}
+          className="absolute bottom-0 left-0"
           onReady={handleReady}
         />
       </div>
@@ -151,7 +185,7 @@ function LaunchCard() {
         disabled={status === "launching"}
         title="Launch new session"
       >
-        {status === "launching" ? "…" : "+"}
+        {status === "launching" ? "\u2026" : "+"}
       </button>
     </div>
   );
@@ -175,6 +209,7 @@ export function App() {
   expandedRef.current = expandedSession;
 
   const expandedWsRef = useRef<WebSocket | null>(null);
+  const [expandedWsStatus, setExpandedWsStatus] = useState<ConnectionStatus>("disconnected");
 
   const [launchAvailable, setLaunchAvailable] = useState(false);
 
@@ -274,6 +309,7 @@ export function App() {
       expandedWsRef.current.close();
       expandedWsRef.current = null;
     }
+    setExpandedWsStatus("disconnected");
     if (info.webgl) {
       info.webgl.dispose();
       info.webgl = null;
@@ -295,10 +331,12 @@ export function App() {
     const token = params.get("token");
     if (token) url += `&token=${encodeURIComponent(token)}`;
 
+    setExpandedWsStatus("connecting");
     const ws = new WebSocket(url);
     expandedWsRef.current = ws;
 
     ws.onopen = () => {
+      setExpandedWsStatus("connected");
       ws.send(JSON.stringify({ event: "replay:get", offset: 0 }));
       ws.send(
         JSON.stringify({
@@ -321,6 +359,7 @@ export function App() {
 
     ws.onclose = () => {
       expandedWsRef.current = null;
+      setExpandedWsStatus("disconnected");
     };
   }, []);
 
@@ -484,7 +523,7 @@ export function App() {
     [createSession],
   );
 
-  const { send: muxSend } = useWebSocket({
+  const { send: muxSend, status: muxWsStatus } = useWebSocket({
     path: "/ws/mux",
     onMessage: onMuxMessage,
   });
@@ -584,6 +623,7 @@ export function App() {
               info={info}
               focused={focusedSession === info.id}
               expanded={expandedSession === info.id}
+              expandedWsStatus={expandedWsStatus}
               onFocus={() => focusSession(info.id)}
               onToggleExpand={() => toggleExpand(info.id)}
             />
@@ -592,9 +632,12 @@ export function App() {
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
-          <p>Waiting for connections…</p>
+          <p>Waiting for connections&hellip;</p>
         </div>
       )}
+
+      {/* Page-level status bar */}
+      <StatusBar label="[coopmux]" wsStatus={muxWsStatus} />
     </div>
   );
 }
