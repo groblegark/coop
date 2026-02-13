@@ -19,7 +19,29 @@ use crate::upstream::bridge::WsBridge;
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum MuxEvent {
     /// An agent state transition from an upstream session.
-    State { session: String, prev: String, next: String, seq: u64 },
+    ///
+    /// Fields mirror the upstream single-session `Transition` WebSocket message,
+    /// plus `session` to identify which upstream session it came from.
+    Transition {
+        session: String,
+        prev: String,
+        next: String,
+        seq: u64,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        cause: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        last_message: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        prompt: Option<serde_json::Value>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_detail: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_category: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parked_reason: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        resume_at_epoch_ms: Option<u64>,
+    },
     /// An upstream session came online (feed connected).
     #[serde(rename = "session:online")]
     SessionOnline { session: String, url: String, metadata: serde_json::Value },

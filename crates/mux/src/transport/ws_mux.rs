@@ -190,7 +190,7 @@ async fn handle_mux_ws(state: Arc<MuxState>, socket: WebSocket) {
                     | MuxEvent::CredentialReauthRequired { .. }
                     | MuxEvent::SessionOnline { .. }
                     | MuxEvent::SessionOffline { .. } => true,
-                    MuxEvent::State { session, .. } => watched.contains(session),
+                    MuxEvent::Transition { session, .. } => watched.contains(session),
                 };
                 if should_forward {
                     let msg = MuxServerMessage::Event(event);

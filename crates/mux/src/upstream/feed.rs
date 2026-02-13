@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 //! Per-session event feed: connects to upstream `/ws?subscribe=state`,
-//! parses state transitions → `MuxEvent::State`. Emits SessionOnline/SessionOffline.
+//! parses transitions → `MuxEvent::Transition`. Emits SessionOnline/SessionOffline.
 //! Reconnects with exponential backoff. Started/stopped on demand.
 
 use std::sync::Arc;
@@ -91,21 +91,49 @@ pub fn spawn_event_feed(
     });
 }
 
-/// Parse an upstream state transition message into a `MuxEvent::State`.
-fn parse_state_transition(session_id: &str, text: &str) -> Option<MuxEvent> {
-    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+/// Upstream transition JSON shape (subset we care about).
+#[derive(serde::Deserialize)]
+struct UpstreamTransition {
+    event: String,
+    prev: String,
+    next: String,
+    seq: u64,
+    #[serde(default)]
+    cause: String,
+    #[serde(default)]
+    last_message: Option<String>,
+    #[serde(default)]
+    prompt: Option<serde_json::Value>,
+    #[serde(default)]
+    error_detail: Option<String>,
+    #[serde(default)]
+    error_category: Option<String>,
+    #[serde(default)]
+    parked_reason: Option<String>,
+    #[serde(default)]
+    resume_at_epoch_ms: Option<u64>,
+}
 
-    // Upstream sends `{"event":"transition","prev":"...","next":"...","seq":N,...}`
-    let event_type = value.get("event")?.as_str()?;
-    if event_type != "transition" {
+/// Parse an upstream state transition message into a `MuxEvent::Transition`.
+fn parse_state_transition(session_id: &str, text: &str) -> Option<MuxEvent> {
+    let t: UpstreamTransition = serde_json::from_str(text).ok()?;
+    if t.event != "transition" {
         return None;
     }
 
-    let prev = value.get("prev")?.as_str()?.to_owned();
-    let next = value.get("next")?.as_str()?.to_owned();
-    let seq = value.get("seq")?.as_u64()?;
-
-    Some(MuxEvent::State { session: session_id.to_owned(), prev, next, seq })
+    Some(MuxEvent::Transition {
+        session: session_id.to_owned(),
+        prev: t.prev,
+        next: t.next,
+        seq: t.seq,
+        cause: t.cause,
+        last_message: t.last_message,
+        prompt: t.prompt,
+        error_detail: t.error_detail,
+        error_category: t.error_category,
+        parked_reason: t.parked_reason,
+        resume_at_epoch_ms: t.resume_at_epoch_ms,
+    })
 }
 
 /// Build a WebSocket URL from an HTTP base URL.

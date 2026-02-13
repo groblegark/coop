@@ -103,6 +103,11 @@ export function SessionSidebar({
                 <div className="text-[10px] uppercase text-zinc-500">
                   {info.state || "unknown"}
                 </div>
+                {info.lastMessage && (
+                  <div className="mt-0.5 line-clamp-2 text-[10px] leading-tight text-zinc-500">
+                    {info.lastMessage}
+                  </div>
+                )}
               </div>
             </button>
           );

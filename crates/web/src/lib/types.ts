@@ -65,17 +65,16 @@ export interface HookData {
 // WebSocket messages (mux multi-session)
 export type MuxWsMessage =
   | { event: "sessions"; sessions: MuxSession[] }
-  | { event: "state"; session: string; next: string }
+  | { event: "transition"; session: string; prev: string; next: string; seq: number; cause?: string; last_message?: string; prompt?: PromptContext; error_detail?: string; error_category?: string; parked_reason?: string; resume_at_epoch_ms?: number }
   | { event: "session:online"; session: string; url: string; metadata?: MuxMetadata }
   | { event: "session:offline"; session: string }
   | { event: "screen_batch"; screens: MuxScreen[] }
   | { event: "credential:refreshed"; account: string }
   | { event: "credential:refresh:failed"; account: string }
   | { event: "credential:reauth:required"; account: string }
-  // Expanded session messages
+  // Expanded session messages (forwarded from per-session ws)
   | { event: "pty"; data: string }
-  | { event: "replay"; data: string }
-  | { event: "transition"; session?: string; next: string };
+  | { event: "replay"; data: string };
 
 export interface MuxSession {
   id: string;
@@ -101,4 +100,12 @@ export interface ApiResult {
   status: number;
   json: unknown;
   text: string;
+}
+
+export interface EventEntry {
+  ts: string;
+  type: string;
+  detail: string;
+  count?: number;
+  bytes?: number;
 }
