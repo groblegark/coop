@@ -20,6 +20,8 @@ fn test_config(name: &str, token_url: &str) -> CredentialConfig {
             client_id: Some("test-client".to_owned()),
             r#static: false,
             device_auth_url: None,
+            authorize_url: None,
+            redirect_uri: None,
             refresh_margin_secs: 5,
         }],
         persist_path: None,
@@ -34,6 +36,8 @@ fn static_config(name: &str) -> CredentialConfig {
             token_url: None,
             client_id: None,
             device_auth_url: None,
+            authorize_url: None,
+            redirect_uri: None,
             r#static: true,
             refresh_margin_secs: 0,
         }],
@@ -51,6 +55,8 @@ async fn new_creates_accounts_from_config() {
                 token_url: Some("http://localhost/token".to_owned()),
                 client_id: Some("client-1".to_owned()),
                 device_auth_url: None,
+                authorize_url: None,
+                redirect_uri: None,
                 r#static: false,
                 refresh_margin_secs: 900,
             },
@@ -60,6 +66,8 @@ async fn new_creates_accounts_from_config() {
                 token_url: None,
                 client_id: None,
                 device_auth_url: None,
+                authorize_url: None,
+                redirect_uri: None,
                 r#static: true,
                 refresh_margin_secs: 0,
             },
@@ -133,6 +141,8 @@ async fn credentials_for_maps_provider_to_env_key() {
                 token_url: None,
                 client_id: None,
                 device_auth_url: None,
+                authorize_url: None,
+                redirect_uri: None,
                 r#static: true,
                 refresh_margin_secs: 0,
             },
@@ -142,6 +152,8 @@ async fn credentials_for_maps_provider_to_env_key() {
                 token_url: None,
                 client_id: None,
                 device_auth_url: None,
+                authorize_url: None,
+                redirect_uri: None,
                 r#static: true,
                 refresh_margin_secs: 0,
             },
@@ -170,6 +182,8 @@ async fn all_credentials_excludes_revoked() {
                 token_url: None,
                 client_id: None,
                 device_auth_url: None,
+                authorize_url: None,
+                redirect_uri: None,
                 r#static: true,
                 refresh_margin_secs: 0,
             },
@@ -179,6 +193,8 @@ async fn all_credentials_excludes_revoked() {
                 token_url: None,
                 client_id: None,
                 device_auth_url: None,
+                authorize_url: None,
+                redirect_uri: None,
                 r#static: false,
                 refresh_margin_secs: 0,
             },
@@ -477,4 +493,124 @@ async fn seed_from_claude_config_unknown_account_fails() -> anyhow::Result<()> {
     let result = broker.seed_from_claude_config("nonexistent", Some(dir.path())).await;
     assert!(result.is_err());
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Login-reauth (authorization code flow) tests
+// ---------------------------------------------------------------------------
+
+fn login_reauth_config(name: &str, token_url: &str) -> CredentialConfig {
+    CredentialConfig {
+        accounts: vec![AccountConfig {
+            name: name.to_owned(),
+            provider: "claude".to_owned(),
+            token_url: Some(token_url.to_owned()),
+            client_id: Some("9d1c250a-e61b-44d9-88ed-5944d1962f5e".to_owned()),
+            device_auth_url: None,
+            authorize_url: Some("https://claude.ai/oauth/authorize".to_owned()),
+            redirect_uri: Some("https://platform.claude.com/oauth/code/callback".to_owned()),
+            r#static: false,
+            refresh_margin_secs: 5,
+        }],
+        persist_path: None,
+    }
+}
+
+#[tokio::test]
+async fn initiate_login_reauth_returns_auth_url() {
+    let config = login_reauth_config("test", "http://localhost/token");
+    let (broker, _rx) = CredentialBroker::new(&config);
+
+    let session = broker.initiate_login_reauth("test").await.expect("should succeed");
+    assert_eq!(session.account, "test");
+    assert!(session.auth_url.starts_with("https://claude.ai/oauth/authorize?"));
+    assert!(session.auth_url.contains("code=true"));
+    assert!(session.auth_url.contains("client_id=9d1c250a"));
+    assert!(session.auth_url.contains("redirect_uri="));
+    assert!(session.auth_url.contains("scope=user%3Asessions"));
+    assert!(!session.state.is_empty());
+    assert_eq!(session.redirect_uri, "https://platform.claude.com/oauth/code/callback");
+    assert_eq!(session.client_id, "9d1c250a-e61b-44d9-88ed-5944d1962f5e");
+}
+
+#[tokio::test]
+async fn initiate_login_reauth_uses_defaults_without_config() {
+    // Config without explicit authorize_url/redirect_uri falls back to defaults.
+    let config = test_config("test", "http://localhost/token");
+    let (broker, _rx) = CredentialBroker::new(&config);
+
+    let session = broker.initiate_login_reauth("test").await.expect("should succeed");
+    assert!(session.auth_url.starts_with("https://claude.ai/oauth/authorize?"));
+    assert_eq!(session.redirect_uri, "https://platform.claude.com/oauth/code/callback");
+}
+
+#[tokio::test]
+async fn initiate_login_reauth_unknown_account_fails() {
+    let config = test_config("test", "http://localhost/token");
+    let (broker, _rx) = CredentialBroker::new(&config);
+
+    let result = broker.initiate_login_reauth("nonexistent").await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn complete_login_reauth_exchanges_code() {
+    let success_body = serde_json::json!({
+        "access_token": "sk-ant-from-code-exchange",
+        "refresh_token": "sk-ant-refresh-from-code",
+        "expires_in": 7200
+    })
+    .to_string();
+
+    let (addr, call_count) = mock_token_server(vec![(200, success_body)]).await;
+    let token_url = format!("http://{addr}/token");
+
+    let config = login_reauth_config("test", &token_url);
+    let (broker, _rx) = CredentialBroker::new(&config);
+
+    broker
+        .complete_login_reauth(
+            "test",
+            "auth-code-123",
+            "https://platform.claude.com/oauth/code/callback",
+            "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+        )
+        .await
+        .expect("should succeed");
+
+    assert_eq!(call_count.load(Ordering::Relaxed), 1);
+
+    let status = broker.status().await;
+    assert_eq!(status[0].status, AccountStatus::Healthy);
+
+    let creds = broker.credentials_for("test").await.expect("creds");
+    assert_eq!(creds.get("ANTHROPIC_API_KEY"), Some(&"sk-ant-from-code-exchange".to_owned()));
+}
+
+#[tokio::test]
+async fn complete_login_reauth_invalid_code_fails() {
+    let error_body = serde_json::json!({
+        "error": "invalid_grant",
+        "error_description": "authorization code expired"
+    })
+    .to_string();
+
+    let (addr, _) = mock_token_server(vec![(400, error_body)]).await;
+    let token_url = format!("http://{addr}/token");
+
+    let config = login_reauth_config("test", &token_url);
+    let (broker, _rx) = CredentialBroker::new(&config);
+
+    let result = broker
+        .complete_login_reauth(
+            "test",
+            "expired-code",
+            "https://platform.claude.com/oauth/code/callback",
+            "client-id",
+        )
+        .await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.contains("invalid_grant"), "error should mention invalid_grant: {err}");
 }

@@ -33,6 +33,14 @@ pub enum CredCommand {
         /// Account name (omit to re-auth first revoked account)
         account: Option<String>,
     },
+    /// Re-authenticate via authorization code flow (browser-based login)
+    LoginReauth {
+        /// Account name (omit to re-auth first revoked account)
+        account: Option<String>,
+        /// Don't open the browser automatically
+        #[arg(long)]
+        no_browser: bool,
+    },
     /// Add a new credential via local OAuth device code flow
     Add {
         /// Account name (e.g. "personal", "work", "team-max")
@@ -264,11 +272,135 @@ pub async fn run(args: CredArgs) -> i32 {
             }
         }
 
+        CredCommand::LoginReauth { account, no_browser } => {
+            run_login_reauth(&client, url, account.as_deref(), no_browser).await
+        }
+
         CredCommand::Add { name, provider, token_url, device_url, client_id, no_browser } => {
             run_add(&client, url, &name, &provider, &token_url, &device_url, &client_id, no_browser)
                 .await
         }
     }
+}
+
+/// Login-reauth session response from the broker.
+#[derive(Deserialize)]
+struct LoginReauthSessionResponse {
+    account: String,
+    auth_url: String,
+    #[allow(dead_code)]
+    state: String,
+    redirect_uri: String,
+    client_id: String,
+}
+
+/// Run the login-reauth flow (authorization code via browser).
+async fn run_login_reauth(
+    client: &reqwest::Client,
+    broker_url: &str,
+    account: Option<&str>,
+    no_browser: bool,
+) -> i32 {
+    // Step 1: Initiate login-reauth on the broker.
+    let body = match account {
+        Some(name) => serde_json::json!({ "account": name }),
+        None => serde_json::json!({}),
+    };
+
+    let resp = match client
+        .post(format!("{broker_url}/api/v1/credentials/login-reauth"))
+        .json(&body)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error: request failed: {e}");
+            return 1;
+        }
+    };
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        eprintln!("error: server returned {status}: {body}");
+        return 1;
+    }
+
+    let session: LoginReauthSessionResponse = match resp.json().await {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: invalid response: {e}");
+            return 1;
+        }
+    };
+
+    println!("Login re-authentication for \"{}\"", session.account);
+    println!();
+    println!("Open this URL in your browser to authorize:\n");
+    println!("  {}\n", session.auth_url);
+
+    if !no_browser {
+        open_browser(&session.auth_url);
+    }
+
+    // Step 2: Prompt for the authorization code.
+    print!("Paste authorization code here: ");
+    let _ = std::io::stdout().flush();
+
+    let mut code = String::new();
+    if std::io::stdin().read_line(&mut code).is_err() {
+        eprintln!("error: failed to read code from stdin");
+        return 1;
+    }
+    let code = code.trim();
+    if code.is_empty() {
+        eprintln!("error: empty authorization code");
+        return 1;
+    }
+
+    // Step 3: Submit the code to the broker for token exchange.
+    let complete_body = serde_json::json!({
+        "account": session.account,
+        "code": code,
+        "redirect_uri": session.redirect_uri,
+        "client_id": session.client_id,
+    });
+
+    print!("Exchanging code for tokens...");
+    let _ = std::io::stdout().flush();
+
+    let resp = match client
+        .post(format!("{broker_url}/api/v1/credentials/login-reauth/complete"))
+        .json(&complete_body)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            println!();
+            eprintln!("error: token exchange request failed: {e}");
+            return 1;
+        }
+    };
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        println!();
+        eprintln!("error: token exchange failed ({status}): {body}");
+        return 1;
+    }
+
+    println!(" \u{2713}");
+
+    // Show updated status.
+    if let Ok(status) = fetch_status(client, broker_url).await {
+        println!();
+        print_table(&status.accounts, false);
+    }
+
+    0
 }
 
 /// Run the local device code flow and seed credentials to the broker.

@@ -392,6 +392,8 @@ fn build_router_inner(
         .route("/api/v1/credentials/status", get(http::credentials_status))
         .route("/api/v1/credentials/seed", post(http::credentials_seed))
         .route("/api/v1/credentials/reauth", post(http::credentials_reauth))
+        .route("/api/v1/credentials/login-reauth", post(http::credentials_login_reauth))
+        .route("/api/v1/credentials/login-reauth/complete", post(http::credentials_login_reauth_complete))
         .route("/api/v1/broker/pods", get(http::broker_pods))
         .route("/api/v1/broker/register", post(http::broker_register))
         .route("/api/v1/broker/deregister", post(http::broker_deregister))

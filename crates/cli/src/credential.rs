@@ -51,6 +51,13 @@ pub struct AccountConfig {
     /// OAuth device authorization endpoint URL.
     #[serde(default)]
     pub device_auth_url: Option<String>,
+    /// OAuth authorization endpoint URL (for authorization code flow).
+    #[serde(default)]
+    pub authorize_url: Option<String>,
+    /// OAuth redirect URI (for authorization code flow).
+    /// Defaults to `https://platform.claude.com/oauth/code/callback`.
+    #[serde(default)]
+    pub redirect_uri: Option<String>,
     /// Whether this is a static credential (API key, no refresh).
     #[serde(default)]
     pub r#static: bool,
@@ -146,8 +153,23 @@ pub enum CredentialEvent {
     },
     /// An account refresh failed after retries.
     RefreshFailed { account: String, error: String },
-    /// A re-authentication flow was initiated (device code flow).
+    /// A re-authentication flow was initiated (device code or login-reauth).
     ReauthRequired { account: String, auth_url: String, user_code: String },
+}
+
+/// Session state for a login-reauth authorization code flow.
+#[derive(Debug, Clone, Serialize)]
+pub struct LoginReauthSession {
+    /// Account name this session is for.
+    pub account: String,
+    /// Full authorization URL the human must open in a browser.
+    pub auth_url: String,
+    /// Random state parameter for CSRF protection.
+    pub state: String,
+    /// Redirect URI used in the authorization request.
+    pub redirect_uri: String,
+    /// OAuth client ID used in the authorization request.
+    pub client_id: String,
 }
 
 /// OAuth token response from the provider.
@@ -836,6 +858,179 @@ impl CredentialBroker {
         Ok((auth_url, user_code))
     }
 
+    // ── Authorization code flow (login-reauth) ──────────────────────────
+
+    /// Default OAuth authorization endpoint for Claude.
+    const DEFAULT_AUTHORIZE_URL: &'static str = "https://claude.ai/oauth/authorize";
+    /// Default redirect URI (Claude's own code callback page).
+    const DEFAULT_REDIRECT_URI: &'static str =
+        "https://platform.claude.com/oauth/code/callback";
+    /// Default OAuth scope.
+    const DEFAULT_SCOPE: &'static str = "user:sessions";
+
+    /// Initiate an authorization code login-reauth flow for an account.
+    ///
+    /// Returns the authorization URL the human must open in a browser.
+    /// After the human authorizes, they receive a code which must be
+    /// submitted via [`complete_login_reauth`].
+    pub async fn initiate_login_reauth(
+        &self,
+        account_name: &str,
+    ) -> Result<LoginReauthSession, String> {
+        let (authorize_url, redirect_uri, client_id) = {
+            let accounts = self.accounts.read().await;
+            let account = accounts
+                .get(account_name)
+                .ok_or_else(|| format!("unknown account: {account_name}"))?;
+
+            let authorize_url = account
+                .config
+                .authorize_url
+                .clone()
+                .unwrap_or_else(|| Self::DEFAULT_AUTHORIZE_URL.to_owned());
+            let redirect_uri = account
+                .config
+                .redirect_uri
+                .clone()
+                .unwrap_or_else(|| Self::DEFAULT_REDIRECT_URI.to_owned());
+            let client_id = account
+                .config
+                .client_id
+                .clone()
+                .ok_or_else(|| "no client_id configured".to_string())?;
+
+            (authorize_url, redirect_uri, client_id)
+        };
+
+        // Generate a random state parameter for CSRF protection.
+        let state = generate_state();
+
+        // Build the full authorization URL.
+        let auth_url = format!(
+            "{}?code=true&client_id={}&redirect_uri={}&scope={}&state={}",
+            authorize_url,
+            urlencoded(&client_id),
+            urlencoded(&redirect_uri),
+            urlencoded(Self::DEFAULT_SCOPE),
+            urlencoded(&state),
+        );
+
+        info!(
+            account = account_name,
+            "login-reauth initiated, authorization URL generated"
+        );
+
+        // Broadcast reauth event so listeners (Slack bot, etc.) can relay the URL.
+        let _ = self.event_tx.send(CredentialEvent::ReauthRequired {
+            account: account_name.to_owned(),
+            auth_url: auth_url.clone(),
+            user_code: String::new(), // no user_code in authorization code flow
+        });
+
+        Ok(LoginReauthSession {
+            account: account_name.to_owned(),
+            auth_url,
+            state,
+            redirect_uri,
+            client_id,
+        })
+    }
+
+    /// Complete an authorization code login-reauth flow by exchanging
+    /// the authorization code for tokens.
+    ///
+    /// The `code` is the value the human received after authorizing in the
+    /// browser. The `state` should match the one from [`initiate_login_reauth`]
+    /// (caller is responsible for verification).
+    pub async fn complete_login_reauth(
+        &self,
+        account_name: &str,
+        code: &str,
+        redirect_uri: &str,
+        client_id: &str,
+    ) -> Result<(), String> {
+        let token_url = {
+            let accounts = self.accounts.read().await;
+            let account = accounts
+                .get(account_name)
+                .ok_or_else(|| format!("unknown account: {account_name}"))?;
+            account
+                .config
+                .token_url
+                .clone()
+                .ok_or_else(|| "no token_url configured".to_string())?
+        };
+
+        // Exchange authorization code for tokens.
+        let form_body = format!(
+            "grant_type=authorization_code&client_id={}&code={}&redirect_uri={}",
+            urlencoded(client_id),
+            urlencoded(code),
+            urlencoded(redirect_uri),
+        );
+
+        let resp = self
+            .http_client
+            .post(&token_url)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(form_body)
+            .send()
+            .await
+            .map_err(|e| format!("token exchange failed: {e}"))?;
+
+        let status = resp.status();
+        let body = resp.text().await.map_err(|e| format!("read body: {e}"))?;
+
+        if !status.is_success() {
+            if let Ok(err) = serde_json::from_str::<TokenErrorResponse>(&body) {
+                return Err(format!(
+                    "token exchange error: {} {}",
+                    err.error,
+                    err.error_description.unwrap_or_default()
+                ));
+            }
+            return Err(format!("token exchange HTTP {status}: {body}"));
+        }
+
+        let token: TokenResponse = serde_json::from_str(&body)
+            .map_err(|e| format!("parse token response: {e}"))?;
+
+        // Update account state.
+        let credentials = {
+            let mut accounts = self.accounts.write().await;
+            let account = accounts
+                .get_mut(account_name)
+                .ok_or_else(|| format!("account {account_name} removed during reauth"))?;
+
+            account.access_token = token.access_token.clone();
+            if let Some(new_refresh) = token.refresh_token {
+                account.refresh_token = Some(new_refresh);
+            }
+            account.expires_at =
+                token.expires_in.map(|s| Instant::now() + Duration::from_secs(s));
+            account.status = AccountStatus::Healthy;
+
+            let key = match account.provider.as_str() {
+                "claude" | "anthropic" => "ANTHROPIC_API_KEY",
+                "openai" | "codex" => "OPENAI_API_KEY",
+                "google" | "gemini" => "GOOGLE_API_KEY",
+                _ => "ANTHROPIC_API_KEY",
+            };
+            let mut creds = HashMap::new();
+            creds.insert(key.to_owned(), token.access_token);
+            creds
+        };
+
+        info!(account = account_name, "login-reauth completed successfully");
+        let _ = self.event_tx.send(CredentialEvent::Refreshed {
+            account: account_name.to_owned(),
+            credentials,
+        });
+        self.persist().await;
+
+        Ok(())
+    }
+
     /// Poll the token endpoint for device code completion.
     async fn poll_device_code(
         &self,
@@ -1042,6 +1237,27 @@ pub fn parse_claude_credentials(json: &str) -> anyhow::Result<ExtractedCredentia
     );
 
     Ok(ExtractedCredentials { access_token, refresh_token, expires_in_secs })
+}
+
+/// Generate a random state parameter for OAuth CSRF protection (4 bytes, base64url).
+fn generate_state() -> String {
+    use std::time::SystemTime;
+    // Simple pseudo-random: combine process ID, thread ID, and nanosecond timestamp.
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
+    let pid = std::process::id() as u64;
+    // Mix bits for reasonable uniqueness (not cryptographic, just CSRF-adequate).
+    let mixed = seed.wrapping_mul(6364136223846793005).wrapping_add(pid);
+    let bytes = mixed.to_le_bytes();
+    // Base64url-encode first 6 bytes (produces 8 chars).
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::with_capacity(8);
+    for &b in &bytes[..6] {
+        out.push(CHARS[(b & 0x3F) as usize] as char);
+    }
+    out
 }
 
 /// Minimal URL-encode for form values (percent-encode non-unreserved chars).

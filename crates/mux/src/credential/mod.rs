@@ -44,6 +44,12 @@ pub struct AccountConfig {
     /// Device authorization URL for reauth flow.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_auth_url: Option<String>,
+    /// OAuth authorization endpoint URL (for authorization code flow).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorize_url: Option<String>,
+    /// OAuth redirect URI (for authorization code flow).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirect_uri: Option<String>,
 }
 
 /// Refresh margin in seconds (`COOP_MUX_REFRESH_MARGIN_SECS`, default 900).
