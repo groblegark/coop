@@ -127,6 +127,8 @@ Use conventional commit format: `type(scope): description`
 
 Types: feat, fix, chore, docs, test, refactor
 
+- `crates/web/dist/terminal.html` and `crates/web/dist/mux.html` are always rebuilt together — commit both even if only one page changed.
+
 ## Landing the Plane
 
 Before completing work:
