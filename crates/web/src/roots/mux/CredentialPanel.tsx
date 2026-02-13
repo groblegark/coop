@@ -7,6 +7,7 @@ import { apiGet, apiPost } from "@/hooks/useApiClient";
 export interface CredentialAlert {
   event: string;
   auth_url?: string;
+  user_code?: string;
 }
 
 interface AccountStatus {
@@ -41,9 +42,10 @@ function formatExpiry(secs: number): string {
 
 interface CredentialPanelProps {
   onClose: () => void;
+  alerts?: Map<string, CredentialAlert>;
 }
 
-export function CredentialPanel({ onClose }: CredentialPanelProps) {
+export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
   const [accounts, setAccounts] = useState<AccountStatus[]>([]);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -81,14 +83,21 @@ export function CredentialPanel({ onClose }: CredentialPanelProps) {
         account,
         origin: window.location.origin,
       });
-      if (
-        res.ok &&
-        res.json &&
-        typeof res.json === "object" &&
-        "auth_url" in (res.json as Record<string, unknown>)
-      ) {
-        const authUrl = (res.json as Record<string, unknown>).auth_url as string;
-        window.open(authUrl, "_blank");
+      if (res.ok && res.json && typeof res.json === "object") {
+        const data = res.json as Record<string, unknown>;
+        const authUrl = data.auth_url as string | undefined;
+        const userCode = data.user_code as string | undefined;
+
+        if (userCode) {
+          // Device code flow — show code for user to enter.
+          setResult({ ok: true, text: `Enter code: ${userCode}` });
+          fetchStatus();
+          return;
+        }
+        if (authUrl) {
+          // PKCE flow — open authorization URL in browser.
+          window.open(authUrl, "_blank");
+        }
       }
       setResult(showResult(res));
       fetchStatus();
@@ -134,6 +143,44 @@ export function CredentialPanel({ onClose }: CredentialPanelProps) {
       ref={panelRef}
       className="absolute right-0 top-full z-50 mt-1 w-80 rounded border border-[#21262d] bg-[#161b22] shadow-xl"
     >
+      {/* Device code alerts */}
+      {alerts && [...alerts.entries()].some(([, a]) => a.user_code) && (
+        <Section label="Authorization Required">
+          {[...alerts.entries()]
+            .filter(([, a]) => a.user_code)
+            .map(([account, alert]) => (
+              <div
+                key={account}
+                className="mb-1.5 rounded border border-yellow-700/50 bg-yellow-500/10 px-2 py-1.5"
+              >
+                <div className="text-[11px] text-yellow-300">{account}</div>
+                <div className="mt-1 flex items-center gap-2">
+                  <code className="rounded bg-[#0d1117] px-2 py-0.5 text-sm font-bold text-yellow-200">
+                    {alert.user_code}
+                  </code>
+                  <button
+                    type="button"
+                    className="text-[10px] text-zinc-400 hover:text-zinc-200"
+                    onClick={() => navigator.clipboard.writeText(alert.user_code ?? "")}
+                  >
+                    Copy
+                  </button>
+                </div>
+                {alert.auth_url && (
+                  <a
+                    href={alert.auth_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 block truncate text-[10px] text-blue-400 hover:text-blue-300"
+                  >
+                    {alert.auth_url}
+                  </a>
+                )}
+              </div>
+            ))}
+        </Section>
+      )}
+
       {/* Account list */}
       <Section
         label="Accounts"

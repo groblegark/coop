@@ -93,7 +93,7 @@ export type MuxWsMessage =
   | { event: "screen_batch"; screens: MuxScreen[] }
   | { event: "credential:refreshed"; account: string }
   | { event: "credential:refresh:failed"; account: string }
-  | { event: "credential:reauth:required"; account: string; auth_url?: string }
+  | { event: "credential:reauth:required"; account: string; auth_url?: string; user_code?: string }
   // Expanded session messages (forwarded from per-session ws)
   | { event: "pty"; data: string }
   | { event: "replay"; data: string };

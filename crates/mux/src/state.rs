@@ -56,7 +56,12 @@ pub enum MuxEvent {
     CredentialRefreshFailed { account: String, error: String },
     /// User interaction required for credential reauthorization.
     #[serde(rename = "credential:reauth:required")]
-    CredentialReauthRequired { account: String, auth_url: String },
+    CredentialReauthRequired {
+        account: String,
+        auth_url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        user_code: Option<String>,
+    },
 }
 
 impl MuxEvent {
@@ -70,10 +75,11 @@ impl MuxEvent {
             CredentialEvent::RefreshFailed { account, error } => {
                 Self::CredentialRefreshFailed { account: account.clone(), error: error.clone() }
             }
-            CredentialEvent::ReauthRequired { account, auth_url } => {
+            CredentialEvent::ReauthRequired { account, auth_url, user_code } => {
                 Self::CredentialReauthRequired {
                     account: account.clone(),
                     auth_url: auth_url.clone(),
+                    user_code: user_code.clone(),
                 }
             }
         }

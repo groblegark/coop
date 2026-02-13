@@ -255,12 +255,133 @@ impl CredentialBroker {
             .collect()
     }
 
-    /// Initiate OAuth authorization code + PKCE flow for an account.
+    /// Initiate OAuth reauth flow for an account.
     ///
-    /// Returns the authorization URL that the user should open in a browser.
-    /// After the user completes authorization, the OAuth callback should call
-    /// `complete_reauth` with the returned `code` and `state`.
+    /// If the account has `device_auth_url` set, uses device code flow (RFC 8628).
+    /// Otherwise uses authorization code + PKCE, which requires a `redirect_uri`.
     pub async fn initiate_reauth(
+        self: &Arc<Self>,
+        account_name: &str,
+        redirect_uri: Option<&str>,
+    ) -> anyhow::Result<ReauthResponse> {
+        let has_device_auth = {
+            let accounts = self.accounts.read().await;
+            let acct_state = accounts
+                .get(account_name)
+                .ok_or_else(|| anyhow::anyhow!("unknown account: {account_name}"))?;
+            acct_state.config.device_auth_url.is_some()
+        };
+
+        if has_device_auth {
+            self.initiate_device_code_reauth(account_name).await
+        } else {
+            let uri = redirect_uri
+                .ok_or_else(|| anyhow::anyhow!("redirect_uri required for PKCE flow"))?;
+            self.initiate_pkce_reauth(account_name, uri).await
+        }
+    }
+
+    /// Initiate device code flow (RFC 8628).
+    ///
+    /// Emits `ReauthRequired` with `user_code`, then spawns a background task
+    /// that polls the token endpoint and auto-seeds on success.
+    async fn initiate_device_code_reauth(
+        self: &Arc<Self>,
+        account_name: &str,
+    ) -> anyhow::Result<ReauthResponse> {
+        let (device_auth_url, client_id, token_url, scope) = {
+            let accounts = self.accounts.read().await;
+            let acct_state = accounts
+                .get(account_name)
+                .ok_or_else(|| anyhow::anyhow!("unknown account: {account_name}"))?;
+            let cfg = &acct_state.config;
+
+            let device_auth_url = cfg
+                .device_auth_url
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("no device_auth_url for {account_name}"))?;
+            let client_id = cfg
+                .client_id
+                .clone()
+                .or_else(|| provider_default_client_id(&cfg.provider).map(String::from))
+                .ok_or_else(|| anyhow::anyhow!("no client_id configured for {account_name}"))?;
+            let token_url = cfg
+                .token_url
+                .clone()
+                .or_else(|| provider_default_token_url(&cfg.provider).map(String::from))
+                .ok_or_else(|| anyhow::anyhow!("no token_url configured for {account_name}"))?;
+            let scope = provider_default_scopes(&cfg.provider).to_owned();
+            (device_auth_url, client_id, token_url, scope)
+        };
+
+        let device = crate::credential::device_code::initiate_device_auth(
+            &self.http,
+            &device_auth_url,
+            &client_id,
+            &scope,
+        )
+        .await?;
+
+        let verification_uri = device.verification_uri.clone();
+        let user_code = device.user_code.clone();
+
+        // Emit ReauthRequired with user_code for display.
+        let _ = self.event_tx.send(CredentialEvent::ReauthRequired {
+            account: account_name.to_owned(),
+            auth_url: verification_uri.clone(),
+            user_code: Some(user_code.clone()),
+        });
+
+        // Spawn background poll task.
+        let broker = Arc::clone(self);
+        let poll_account = account_name.to_owned();
+        let poll_client_id = client_id;
+        let poll_token_url = token_url;
+        tokio::spawn(async move {
+            match crate::credential::device_code::poll_device_code(
+                &broker.http,
+                &poll_token_url,
+                &poll_client_id,
+                &device.device_code,
+                device.interval,
+                device.expires_in,
+            )
+            .await
+            {
+                Ok(token) => {
+                    if let Err(e) = broker
+                        .seed(
+                            &poll_account,
+                            token.access_token,
+                            token.refresh_token,
+                            Some(token.expires_in),
+                        )
+                        .await
+                    {
+                        tracing::warn!(account = %poll_account, err = %e, "failed to seed after device code auth");
+                    } else {
+                        tracing::info!(account = %poll_account, "device code auth completed, credentials seeded");
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(account = %poll_account, err = %e, "device code polling failed");
+                    let _ = broker.event_tx.send(CredentialEvent::RefreshFailed {
+                        account: poll_account,
+                        error: e.to_string(),
+                    });
+                }
+            }
+        });
+
+        Ok(ReauthResponse {
+            account: account_name.to_owned(),
+            auth_url: verification_uri,
+            user_code: Some(user_code),
+        })
+    }
+
+    /// Initiate authorization code + PKCE flow.
+    async fn initiate_pkce_reauth(
         &self,
         account_name: &str,
         redirect_uri: &str,
@@ -322,9 +443,14 @@ impl CredentialBroker {
         let _ = self.event_tx.send(CredentialEvent::ReauthRequired {
             account: account_name.to_owned(),
             auth_url: full_auth_url.clone(),
+            user_code: None,
         });
 
-        Ok(ReauthResponse { account: account_name.to_owned(), auth_url: full_auth_url })
+        Ok(ReauthResponse {
+            account: account_name.to_owned(),
+            auth_url: full_auth_url,
+            user_code: None,
+        })
     }
 
     /// Complete an OAuth authorization code exchange.
@@ -377,7 +503,7 @@ impl CredentialBroker {
     }
 
     /// Refresh loop for a single account.
-    async fn refresh_loop(&self, account_name: &str) {
+    async fn refresh_loop(self: &Arc<Self>, account_name: &str) {
         let margin = crate::credential::refresh_margin_secs();
         loop {
             let (token_url, client_id, refresh_token, expires_at) = {
@@ -465,17 +591,36 @@ impl CredentialBroker {
                     tracing::info!(account = %account_name, "credentials refreshed");
                 }
                 Err(e) => {
-                    let mut accounts = self.accounts.write().await;
-                    if let Some(s) = accounts.get_mut(account_name) {
-                        s.status = AccountStatus::Expired;
-                    }
+                    let err_str = e.to_string();
+                    let has_device_auth = {
+                        let mut accounts = self.accounts.write().await;
+                        if let Some(s) = accounts.get_mut(account_name) {
+                            s.status = AccountStatus::Expired;
+                        }
+                        accounts
+                            .get(account_name)
+                            .and_then(|s| s.config.device_auth_url.as_ref())
+                            .is_some()
+                    };
+
                     let _ = self.event_tx.send(CredentialEvent::RefreshFailed {
                         account: account_name.to_owned(),
-                        error: e.to_string(),
+                        error: err_str.clone(),
                     });
-                    tracing::warn!(account = %account_name, err = %e, "credential refresh failed");
-                    // Retry in 60 seconds.
-                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    tracing::warn!(account = %account_name, err = %err_str, "credential refresh failed");
+
+                    if err_str.contains("invalid_grant") && has_device_auth {
+                        // Auto-start device code reauth for headless environments.
+                        tracing::info!(account = %account_name, "invalid_grant detected, initiating device code reauth");
+                        if let Err(re) = self.initiate_reauth(account_name, None).await {
+                            tracing::warn!(account = %account_name, err = %re, "auto-reauth failed");
+                        }
+                        // Give user time to complete device code authorization.
+                        tokio::time::sleep(Duration::from_secs(300)).await;
+                    } else {
+                        // Retry in 60 seconds.
+                        tokio::time::sleep(Duration::from_secs(60)).await;
+                    }
                 }
             }
         }
@@ -530,6 +675,8 @@ pub struct AccountStatusInfo {
 pub struct ReauthResponse {
     pub account: String,
     pub auth_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_code: Option<String>,
 }
 
 fn epoch_secs() -> u64 {

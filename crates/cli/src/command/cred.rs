@@ -178,17 +178,37 @@ fn cmd_reauth(
 
     if status.is_success() {
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
-            if let Some(auth_url) = val.get("auth_url").and_then(|v| v.as_str()) {
+            let auth_url = val.get("auth_url").and_then(|v| v.as_str());
+            let user_code = val.get("user_code").and_then(|v| v.as_str());
+
+            if let Some(code) = user_code {
+                // Device code flow — show the code and verification URL.
+                if let Some(url) = auth_url {
+                    println!("Enter this code: {code}");
+                    println!("  {url}");
+                    #[cfg(target_os = "macos")]
+                    {
+                        let _ = std::process::Command::new("open").arg(url).spawn();
+                    }
+                    #[cfg(target_os = "linux")]
+                    {
+                        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+                    }
+                } else {
+                    println!("Enter this code: {code}");
+                }
+                return 0;
+            } else if let Some(url) = auth_url {
+                // PKCE flow — open authorization URL.
                 println!("Open this URL to authenticate:");
-                println!("  {auth_url}");
-                // Try to open the URL in the default browser.
+                println!("  {url}");
                 #[cfg(target_os = "macos")]
                 {
-                    let _ = std::process::Command::new("open").arg(auth_url).spawn();
+                    let _ = std::process::Command::new("open").arg(url).spawn();
                 }
                 #[cfg(target_os = "linux")]
                 {
-                    let _ = std::process::Command::new("xdg-open").arg(auth_url).spawn();
+                    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
                 }
                 return 0;
             }

@@ -100,10 +100,11 @@ pub async fn credentials_reauth(
         req.origin.unwrap_or_else(|| format!("http://{}:{}", s.config.host, s.config.port));
     let redirect_uri = format!("{origin}/api/v1/credentials/callback");
 
-    match broker.initiate_reauth(&account, &redirect_uri).await {
+    match broker.initiate_reauth(&account, Some(&redirect_uri)).await {
         Ok(resp) => Json(serde_json::json!({
             "account": resp.account,
             "auth_url": resp.auth_url,
+            "user_code": resp.user_code,
         }))
         .into_response(),
         Err(e) => MuxError::BadRequest.to_http_response(e.to_string()).into_response(),
@@ -153,6 +154,9 @@ pub struct AddAccountRequest {
     pub client_id: Option<String>,
     #[serde(default)]
     pub auth_url: Option<String>,
+    /// OAuth device authorization endpoint (RFC 8628).
+    #[serde(default)]
+    pub device_auth_url: Option<String>,
     /// Optional API key to seed immediately.
     #[serde(default)]
     pub token: Option<String>,
@@ -179,6 +183,7 @@ pub async fn credentials_add_account(
         token_url: req.token_url,
         client_id: req.client_id,
         auth_url: req.auth_url,
+        device_auth_url: req.device_auth_url,
     };
 
     match broker.add_account(config, req.token, req.refresh_token, req.expires_in).await {

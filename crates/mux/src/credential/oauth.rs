@@ -14,3 +14,19 @@ pub struct TokenResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_type: Option<String>,
 }
+
+/// OAuth 2.0 Device Authorization Response (RFC 8628).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceCodeResponse {
+    pub device_code: String,
+    pub user_code: String,
+    pub verification_uri: String,
+    #[serde(default)]
+    pub expires_in: u64,
+    #[serde(default = "default_interval")]
+    pub interval: u64,
+}
+
+fn default_interval() -> u64 {
+    5
+}

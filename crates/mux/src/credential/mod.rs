@@ -7,6 +7,7 @@
 //! registered accounts and pushes fresh credentials to coop sessions as profiles.
 
 pub mod broker;
+pub mod device_code;
 pub mod distributor;
 pub mod oauth;
 pub mod persist;
@@ -44,6 +45,10 @@ pub struct AccountConfig {
     /// OAuth authorization URL for reauth flow.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth_url: Option<String>,
+    /// OAuth device authorization endpoint (RFC 8628). When set, the broker
+    /// uses device code flow instead of auth code + PKCE.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_auth_url: Option<String>,
 }
 
 /// Refresh margin in seconds (`COOP_MUX_REFRESH_MARGIN_SECS`, default 900).
@@ -77,9 +82,14 @@ pub enum CredentialEvent {
     /// A refresh attempt failed.
     #[serde(rename = "refresh:failed")]
     RefreshFailed { account: String, error: String },
-    /// User interaction required (OAuth authorization code flow).
+    /// User interaction required (OAuth reauth flow).
     #[serde(rename = "reauth:required")]
-    ReauthRequired { account: String, auth_url: String },
+    ReauthRequired {
+        account: String,
+        auth_url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        user_code: Option<String>,
+    },
 }
 
 /// Status of an account.

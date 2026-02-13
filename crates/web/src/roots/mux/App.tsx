@@ -339,8 +339,9 @@ function AppInner() {
           } else {
             const alert: CredentialAlert = { event: msg.event };
             if (msg.event === "credential:reauth:required") {
-              const reauth = msg as { auth_url?: string };
+              const reauth = msg as { auth_url?: string; user_code?: string };
               alert.auth_url = reauth.auth_url;
+              alert.user_code = reauth.user_code;
             }
             next.set(msg.account, alert);
           }
@@ -515,7 +516,9 @@ function AppInner() {
               ? `${alertCount} Credential Alert${alertCount !== 1 ? "s" : ""}`
               : "Credentials"}
           </button>
-          {credPanelOpen && <CredentialPanel onClose={() => setCredPanelOpen(false)} />}
+          {credPanelOpen && (
+            <CredentialPanel onClose={() => setCredPanelOpen(false)} alerts={credentialAlerts} />
+          )}
         </div>
       </header>
 

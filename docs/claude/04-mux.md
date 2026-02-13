@@ -112,7 +112,8 @@ fresh credentials to registered sessions as profiles.
       "env_key": "ANTHROPIC_API_KEY",
       "token_url": "https://claude.ai/oauth/token",
       "client_id": "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
-      "auth_url": "https://claude.ai/oauth/authorize"
+      "auth_url": "https://claude.ai/oauth/authorize",
+      "device_auth_url": null
     }
   ]
 }
@@ -124,9 +125,15 @@ fresh credentials to registered sessions as profiles.
 | `auth_url` | Provider default | OAuth authorization endpoint |
 | `token_url` | Provider default | OAuth token endpoint |
 | `client_id` | Provider default | OAuth client ID |
+| `device_auth_url` | None | OAuth device authorization endpoint (RFC 8628) |
 
 For Claude accounts, `auth_url`, `token_url`, and `client_id` default
 to the known Claude OAuth endpoints and can be omitted.
+
+When `device_auth_url` is set, the broker uses device code flow instead
+of authorization code + PKCE. The user is shown a short code to enter at
+the verification URL. A background poll task auto-seeds credentials on
+completion.
 
 Provider defaults: `claude` → `ANTHROPIC_API_KEY`, `openai` → `OPENAI_API_KEY`,
 `gemini` → `GOOGLE_API_KEY`.
@@ -143,8 +150,11 @@ back to `$XDG_STATE_HOME/coop/mux/` then `$HOME/.local/state/coop/mux/`).
 3. **Distribution**: on refresh, credentials are pushed to all registered sessions
 4. **Persistence**: after each refresh, tokens are atomically saved to the
    state directory
-5. **Re-auth**: if refresh permanently fails, triggers OAuth authorization
-   code + PKCE flow via `POST /api/v1/credentials/reauth`
+5. **Re-auth**: if refresh permanently fails, triggers reauth via
+   `POST /api/v1/credentials/reauth`. Uses device code flow (RFC 8628) when
+   `device_auth_url` is configured, otherwise authorization code + PKCE.
+   On `invalid_grant` errors, accounts with `device_auth_url` auto-initiate
+   device code reauth.
 
 ### Event Channels
 
