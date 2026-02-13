@@ -36,6 +36,10 @@ use super::{extract_assistant_text, format_claude_cause, parse_claude_state};
         json!({ "type": "user", "message": { "content": [{ "type": "text", "text": "[Request interrupted by user]" }] } }),
         Some(AgentState::Idle)
     },
+    user_rejected_tool = {
+        json!({ "type": "user", "toolUseResult": "User rejected tool use", "message": { "content": [{ "type": "tool_result", "content": "The user doesn't want to proceed with this tool use.", "is_error": true, "tool_use_id": "toolu_123" }] } }),
+        Some(AgentState::Idle)
+    },
     assistant_tool_use = {
         json!({ "type": "assistant", "message": { "content": [{ "type": "tool_use", "name": "Bash", "input": { "command": "ls" } }] } }),
         Some(AgentState::Working)

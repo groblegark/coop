@@ -81,23 +81,27 @@ pub fn parse_claude_state(json: &Value) -> Option<AgentState> {
 
     let entry_type = json.get("type").and_then(|v| v.as_str());
 
-    // Detect user-interrupt entries: Claude writes a `type: "user"` entry
-    // with "[Request interrupted by user]" when the user presses Escape.
-    // This is a definitive turn boundary — the agent is now idle.
-    // Non-interrupt user messages mean the agent will start working.
+    // Detect user interrupts: Escape during response writes text containing
+    // "[Request interrupted by user]"; rejecting a tool use writes an entry
+    // with `toolUseResult: "User rejected tool use"`. Both are turn
+    // boundaries — the agent is idle. Other user messages → working.
     if entry_type == Some("user") {
         let is_interrupt = json
-            .get("message")
-            .and_then(|m| m.get("content"))
-            .and_then(|c| c.as_array())
-            .is_some_and(|blocks| {
-                blocks.iter().any(|b| {
-                    b.get("type").and_then(|v| v.as_str()) == Some("text")
-                        && b.get("text")
-                            .and_then(|v| v.as_str())
-                            .is_some_and(|t| t.contains("[Request interrupted by user]"))
-                })
-            });
+            .get("toolUseResult")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| s == "User rejected tool use")
+            || json
+                .get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_array())
+                .is_some_and(|blocks| {
+                    blocks.iter().any(|b| {
+                        b.get("type").and_then(|v| v.as_str()) == Some("text")
+                            && b.get("text")
+                                .and_then(|v| v.as_str())
+                                .is_some_and(|t| t.contains("[Request interrupted by user]"))
+                    })
+                });
         return if is_interrupt { Some(AgentState::Idle) } else { Some(AgentState::Working) };
     }
 
