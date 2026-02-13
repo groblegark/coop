@@ -49,7 +49,6 @@ use crate::transport::state::{
 use crate::transport::{build_health_router, Store};
 use crate::usage::UsageState;
 
-/// Result of a completed session.
 pub struct RunResult {
     pub status: crate::driver::ExitStatus,
     pub store: Arc<Store>,
@@ -57,17 +56,15 @@ pub struct RunResult {
 
 /// A fully-prepared session ready to run.
 ///
-/// Returned by [`prepare`] so callers (e.g. integration tests) can access
-/// [`Store`] — including broadcast channels and the shutdown token — before
-/// the blocking session loop starts.
+/// Returned by [`prepare`] so callers can access [`Store`]
+/// including broadcast channels and the shutdown token.
 pub struct PreparedSession {
     pub store: Arc<Store>,
     /// `Option` because `Session::run` takes ownership; after each run we
     /// build a new Session for the next switch iteration.
     session: Option<Session>,
     config: Config,
-    /// Receivers that survive across switch iterations. `Session::run()`
-    /// borrows these via `&mut` rather than consuming them.
+    /// Receivers that survive across switch iterations.
     consumer_input_rx: mpsc::Receiver<InputEvent>,
     switch_rx: mpsc::Receiver<SwitchRequest>,
 }
