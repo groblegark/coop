@@ -45,6 +45,14 @@ impl LogWatcher {
             Err(e) => return Err(e.into()),
         };
 
+        // Detect file truncation (e.g. after `/clear`): if the file shrank
+        // below our tracked offset, reset to re-read from the beginning.
+        if let Ok(meta) = file.metadata() {
+            if meta.len() < self.offset {
+                self.offset = 0;
+            }
+        }
+
         let mut reader = BufReader::new(file);
         reader.seek(SeekFrom::Start(self.offset))?;
 
