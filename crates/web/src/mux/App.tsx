@@ -73,7 +73,7 @@ function Tile({
 
   return (
     <div
-      className={`flex flex-col overflow-hidden rounded-lg border bg-[#1e1e1e] transition-[border-color,background-color] duration-150 h-[280px] ${focused ? "border-blue-500" : "border-[#21262d] hover:border-[#444c56]"} cursor-pointer hover:bg-[#242424]`}
+      className={`flex flex-col overflow-hidden rounded-lg border bg-[#1e1e1e] transition-[border-color,background-color] duration-150 h-[280px] ${focused ? "border-blue-500" : "border-[#21262d] hover:border-[#444c56]"} cursor-pointer select-none hover:bg-[#242424]`}
       onClick={onToggleExpand}
     >
       {/* Header */}
