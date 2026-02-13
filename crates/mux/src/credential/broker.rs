@@ -258,11 +258,11 @@ impl CredentialBroker {
     /// Initiate OAuth reauth flow for an account.
     ///
     /// If the account has `device_auth_url` set, uses device code flow (RFC 8628).
-    /// Otherwise uses authorization code + PKCE, which requires a `redirect_uri`.
+    /// Otherwise uses authorization code + PKCE. The `redirect_uri` is optional —
+    /// providers with a registered platform redirect (e.g. Claude) don't need one.
     pub async fn initiate_reauth(
         self: &Arc<Self>,
         account_name: &str,
-        redirect_uri: Option<&str>,
     ) -> anyhow::Result<ReauthResponse> {
         let has_device_auth = {
             let accounts = self.accounts.read().await;
@@ -275,9 +275,7 @@ impl CredentialBroker {
         if has_device_auth {
             self.initiate_device_code_reauth(account_name).await
         } else {
-            let uri = redirect_uri
-                .ok_or_else(|| anyhow::anyhow!("redirect_uri required for PKCE flow"))?;
-            self.initiate_pkce_reauth(account_name, uri).await
+            self.initiate_pkce_reauth(account_name).await
         }
     }
 
@@ -377,18 +375,16 @@ impl CredentialBroker {
             account: account_name.to_owned(),
             auth_url: verification_uri,
             user_code: Some(user_code),
+            state: None,
         })
     }
 
     /// Initiate authorization code + PKCE flow.
-    async fn initiate_pkce_reauth(
-        &self,
-        account_name: &str,
-        redirect_uri: &str,
-    ) -> anyhow::Result<ReauthResponse> {
+    async fn initiate_pkce_reauth(&self, account_name: &str) -> anyhow::Result<ReauthResponse> {
         use crate::credential::pkce;
+        use crate::credential::provider_default_redirect_uri;
 
-        let (auth_url, client_id, token_url, scope) = {
+        let (auth_url, client_id, token_url, scope, redirect_uri) = {
             let accounts = self.accounts.read().await;
             let acct_state = accounts
                 .get(account_name)
@@ -411,7 +407,10 @@ impl CredentialBroker {
                 .or_else(|| provider_default_token_url(&cfg.provider).map(String::from))
                 .ok_or_else(|| anyhow::anyhow!("no token_url configured for {account_name}"))?;
             let scope = provider_default_scopes(&cfg.provider).to_owned();
-            (auth_url, client_id, token_url, scope)
+            let redirect_uri = provider_default_redirect_uri(&cfg.provider)
+                .map(String::from)
+                .ok_or_else(|| anyhow::anyhow!("no redirect_uri configured for {account_name}"))?;
+            (auth_url, client_id, token_url, scope, redirect_uri)
         };
 
         let code_verifier = pkce::generate_code_verifier();
@@ -421,19 +420,19 @@ impl CredentialBroker {
         let full_auth_url = pkce::build_auth_url(
             &auth_url,
             &client_id,
-            redirect_uri,
+            &redirect_uri,
             &scope,
             &code_challenge,
             &state,
         );
 
-        // Store pending auth for callback completion.
+        // Store pending auth for code exchange.
         self.pending_auths.write().await.insert(
             state.clone(),
             PendingAuth {
                 account: account_name.to_owned(),
                 code_verifier,
-                redirect_uri: redirect_uri.to_owned(),
+                redirect_uri,
                 token_url,
                 client_id,
             },
@@ -450,6 +449,7 @@ impl CredentialBroker {
             account: account_name.to_owned(),
             auth_url: full_auth_url,
             user_code: None,
+            state: Some(state),
         })
     }
 
@@ -615,7 +615,7 @@ impl CredentialBroker {
                     if err_str.contains("invalid_grant") && has_device_auth {
                         // Auto-start device code reauth for headless environments.
                         tracing::info!(account = %account_name, "invalid_grant detected, initiating device code reauth");
-                        if let Err(re) = self.initiate_reauth(account_name, None).await {
+                        if let Err(re) = self.initiate_reauth(account_name).await {
                             tracing::warn!(account = %account_name, err = %re, "auto-reauth failed");
                         }
                         // Give user time to complete device code authorization.
@@ -680,6 +680,10 @@ pub struct ReauthResponse {
     pub auth_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_code: Option<String>,
+    /// PKCE `state` parameter — returned so the UI can submit the authorization
+    /// code via the exchange endpoint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
 }
 
 fn epoch_secs() -> u64 {

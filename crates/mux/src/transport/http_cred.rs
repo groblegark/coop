@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Query, State};
-use axum::response::{IntoResponse, Redirect};
+use axum::extract::State;
+use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 
@@ -68,10 +68,6 @@ pub async fn credentials_seed(
 pub struct ReauthRequest {
     #[serde(default)]
     pub account: Option<String>,
-    /// The origin of the web UI (e.g. `http://localhost:9800`), used to
-    /// construct the OAuth callback redirect_uri.
-    #[serde(default)]
-    pub origin: Option<String>,
 }
 
 /// `POST /api/v1/credentials/reauth` — trigger OAuth authorization code flow for an account.
@@ -96,48 +92,15 @@ pub async fn credentials_reauth(
         },
     };
 
-    let origin =
-        req.origin.unwrap_or_else(|| format!("http://{}:{}", s.config.host, s.config.port));
-    let redirect_uri = format!("{origin}/api/v1/credentials/callback");
-
-    match broker.initiate_reauth(&account, Some(&redirect_uri)).await {
+    match broker.initiate_reauth(&account).await {
         Ok(resp) => Json(serde_json::json!({
             "account": resp.account,
             "auth_url": resp.auth_url,
             "user_code": resp.user_code,
+            "state": resp.state,
         }))
         .into_response(),
         Err(e) => MuxError::BadRequest.to_http_response(e.to_string()).into_response(),
-    }
-}
-
-/// Query parameters for `GET /api/v1/credentials/callback`.
-#[derive(Debug, Deserialize)]
-pub struct CallbackQuery {
-    pub code: String,
-    pub state: String,
-}
-
-/// `GET /api/v1/credentials/callback` — OAuth authorization code callback.
-pub async fn credentials_callback(
-    State(s): State<Arc<MuxState>>,
-    Query(params): Query<CallbackQuery>,
-) -> impl IntoResponse {
-    let broker = match get_broker(&s) {
-        Ok(b) => b,
-        Err(resp) => return *resp,
-    };
-
-    match broker.complete_reauth(&params.state, &params.code).await {
-        Ok(()) => Redirect::to("/mux").into_response(),
-        Err(e) => {
-            let html = format!(
-                "<html><body><h2>Authentication failed</h2><p>{}</p>\
-                 <p><a href=\"/mux\">Return to dashboard</a></p></body></html>",
-                e
-            );
-            axum::response::Html(html).into_response()
-        }
     }
 }
 
@@ -227,4 +190,27 @@ pub async fn credentials_distribute(
     )
     .await;
     Json(serde_json::json!({ "distributed": true, "account": req.account })).into_response()
+}
+
+/// Request body for `POST /api/v1/credentials/exchange`.
+#[derive(Debug, Deserialize)]
+pub struct ExchangeRequest {
+    pub state: String,
+    pub code: String,
+}
+
+/// `POST /api/v1/credentials/exchange` — exchange an authorization code (pasted by the user) for tokens.
+pub async fn credentials_exchange(
+    State(s): State<Arc<MuxState>>,
+    Json(req): Json<ExchangeRequest>,
+) -> impl IntoResponse {
+    let broker = match get_broker(&s) {
+        Ok(b) => b,
+        Err(resp) => return *resp,
+    };
+
+    match broker.complete_reauth(&req.state, &req.code).await {
+        Ok(()) => Json(serde_json::json!({ "completed": true })).into_response(),
+        Err(e) => MuxError::BadRequest.to_http_response(e.to_string()).into_response(),
+    }
 }

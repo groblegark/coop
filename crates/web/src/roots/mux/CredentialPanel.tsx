@@ -49,6 +49,10 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
   const [accounts, setAccounts] = useState<AccountStatus[]>([]);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [pendingExchange, setPendingExchange] = useState<{ account: string; state: string } | null>(
+    null,
+  );
+  const [exchangeCode, setExchangeCode] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Fetch account status on mount and periodically.
@@ -79,14 +83,14 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
   const handleReauth = useCallback(
     async (account: string) => {
       setResult(null);
-      const res = await apiPost("/api/v1/credentials/reauth", {
-        account,
-        origin: window.location.origin,
-      });
+      setPendingExchange(null);
+      setExchangeCode("");
+      const res = await apiPost("/api/v1/credentials/reauth", { account });
       if (res.ok && res.json && typeof res.json === "object") {
         const data = res.json as Record<string, unknown>;
         const authUrl = data.auth_url as string | undefined;
         const userCode = data.user_code as string | undefined;
+        const state = data.state as string | undefined;
 
         if (userCode) {
           // Device code flow — show code for user to enter.
@@ -97,13 +101,36 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
         if (authUrl) {
           // PKCE flow — open authorization URL in browser.
           window.open(authUrl, "_blank");
+          if (state) {
+            // Platform redirect — user will paste the code back.
+            setPendingExchange({ account, state });
+          }
         }
       }
-      setResult(showResult(res));
+      if (!pendingExchange) {
+        setResult(showResult(res));
+      }
       fetchStatus();
     },
-    [fetchStatus],
+    [fetchStatus, pendingExchange],
   );
+
+  const handleExchange = useCallback(async () => {
+    if (!pendingExchange || !exchangeCode.trim()) return;
+    setResult(null);
+    const res = await apiPost("/api/v1/credentials/exchange", {
+      state: pendingExchange.state,
+      code: exchangeCode.trim(),
+    });
+    if (res.ok) {
+      setPendingExchange(null);
+      setExchangeCode("");
+      setResult({ ok: true, text: "Authorization complete" });
+    } else {
+      setResult(showResult(res));
+    }
+    fetchStatus();
+  }, [pendingExchange, exchangeCode, fetchStatus]);
 
   const handleDistribute = useCallback(async (account: string) => {
     setResult(null);
@@ -178,6 +205,29 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
                 )}
               </div>
             ))}
+        </Section>
+      )}
+
+      {/* Paste authorization code (PKCE with platform redirect) */}
+      {pendingExchange && (
+        <Section label="Paste Authorization Code">
+          <div className="rounded border border-blue-700/50 bg-blue-500/10 px-2 py-1.5">
+            <div className="text-[11px] text-blue-300 mb-1">{pendingExchange.account}</div>
+            <div className="flex gap-1.5">
+              <input
+                className="flex-1 rounded border border-[#2a2a2a] bg-[#0d1117] px-2 py-1 text-[11px] font-mono text-zinc-300 placeholder-zinc-600 outline-none focus:border-zinc-500"
+                placeholder="Paste code here"
+                value={exchangeCode}
+                onChange={(e) => setExchangeCode(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleExchange();
+                }}
+              />
+              <ActionBtn variant="success" onClick={handleExchange}>
+                Submit
+              </ActionBtn>
+            </div>
+          </div>
         </Section>
       )}
 

@@ -86,7 +86,7 @@ fn build_router_inner(
         .route("/api/v1/credentials/status", get(http_cred::credentials_status))
         .route("/api/v1/credentials/seed", post(http_cred::credentials_seed))
         .route("/api/v1/credentials/reauth", post(http_cred::credentials_reauth))
-        .route("/api/v1/credentials/callback", get(http_cred::credentials_callback))
+        .route("/api/v1/credentials/exchange", post(http_cred::credentials_exchange))
         .route("/api/v1/credentials/accounts", post(http_cred::credentials_add_account))
         .route("/api/v1/credentials/distribute", post(http_cred::credentials_distribute))
         // Middleware

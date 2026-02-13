@@ -138,6 +138,18 @@ pub fn provider_default_auth_url(provider: &str) -> Option<&'static str> {
     }
 }
 
+/// Resolve the default OAuth redirect URI for a provider.
+///
+/// Some providers (e.g. Claude) register a platform-hosted redirect URI that
+/// displays the authorization code for the user to copy, rather than
+/// redirecting back to a local server.
+pub fn provider_default_redirect_uri(provider: &str) -> Option<&'static str> {
+    match provider.to_lowercase().as_str() {
+        "claude" | "anthropic" => Some("https://platform.claude.com/oauth/code/callback"),
+        _ => None,
+    }
+}
+
 /// Resolve the default OAuth scopes for a provider.
 pub fn provider_default_scopes(provider: &str) -> &'static str {
     match provider.to_lowercase().as_str() {

@@ -182,7 +182,7 @@ polling `GET /api/v1/credentials/status`.
 | `GET` | `/api/v1/credentials/status` | List accounts with status |
 | `POST` | `/api/v1/credentials/seed` | Inject initial tokens |
 | `POST` | `/api/v1/credentials/reauth` | Initiate OAuth reauth flow |
-| `GET` | `/api/v1/credentials/callback` | OAuth authorization callback |
+| `POST` | `/api/v1/credentials/exchange` | Exchange authorization code for tokens |
 
 All return 400 when credential broker is not configured.
 
