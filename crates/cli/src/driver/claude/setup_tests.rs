@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde_json::json;
 
-use super::project_dir_name;
+use super::{project_dir_name, write_credentials_file};
 
 #[test]
 fn project_dir_name_keeps_leading_dash() {
@@ -163,5 +163,57 @@ fn prepare_session_with_mcp_writes_config() -> anyhow::Result<()> {
     let content = std::fs::read_to_string(mcp_path)?;
     let parsed: serde_json::Value = serde_json::from_str(&content)?;
     assert_eq!(parsed["mcpServers"]["my-server"]["command"], "node");
+    Ok(())
+}
+
+#[test]
+fn write_credentials_creates_new_file() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    // Point CLAUDE_CONFIG_DIR to temp dir so we don't touch real config.
+    std::env::set_var("CLAUDE_CONFIG_DIR", tmp.path());
+
+    let path = write_credentials_file("sk-ant-test-token")?;
+    assert!(path.exists());
+
+    let content = std::fs::read_to_string(&path)?;
+    let parsed: serde_json::Value = serde_json::from_str(&content)?;
+    assert_eq!(parsed["claudeAiOauth"]["accessToken"], "sk-ant-test-token");
+    assert!(parsed["claudeAiOauth"]["refreshToken"].is_null());
+    assert_eq!(parsed["claudeAiOauth"]["scopes"][0], "user:inference");
+
+    std::env::remove_var("CLAUDE_CONFIG_DIR");
+    Ok(())
+}
+
+#[test]
+fn write_credentials_preserves_existing_fields() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    std::env::set_var("CLAUDE_CONFIG_DIR", tmp.path());
+
+    // Write an existing credentials file with extra fields.
+    let existing = json!({
+        "claudeAiOauth": {
+            "accessToken": "old-token",
+            "refreshToken": "rt-keep-this",
+            "expiresAt": 1234567890000_i64,
+            "scopes": ["user:inference", "user:sessions:claude_code"],
+            "subscriptionType": "max",
+            "rateLimitTier": "default_claude_max_20x"
+        }
+    });
+    let cred_path = tmp.path().join(".credentials.json");
+    std::fs::write(&cred_path, serde_json::to_string_pretty(&existing)?)?;
+
+    // Write new token — should update accessToken but keep everything else.
+    write_credentials_file("sk-ant-new-token")?;
+
+    let content = std::fs::read_to_string(&cred_path)?;
+    let parsed: serde_json::Value = serde_json::from_str(&content)?;
+    assert_eq!(parsed["claudeAiOauth"]["accessToken"], "sk-ant-new-token");
+    assert_eq!(parsed["claudeAiOauth"]["refreshToken"], "rt-keep-this");
+    assert_eq!(parsed["claudeAiOauth"]["subscriptionType"], "max");
+    assert_eq!(parsed["claudeAiOauth"]["scopes"][1], "user:sessions:claude_code");
+
+    std::env::remove_var("CLAUDE_CONFIG_DIR");
     Ok(())
 }
