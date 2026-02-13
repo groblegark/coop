@@ -505,20 +505,20 @@ function AppInner() {
             {sessionCount} session{sessionCount !== 1 ? "s" : ""}
           </span>
           <span>{healthyCount} healthy</span>
-          <div className="relative">
-            <button
-              type="button"
-              className={`border-none bg-transparent p-0 text-[13px] hover:text-zinc-300 ${alertCount > 0 ? "text-red-400" : "text-zinc-500"}`}
-              onClick={() => setCredPanelOpen((v) => !v)}
-            >
-              {alertCount > 0
-                ? `${alertCount} credential alert${alertCount !== 1 ? "s" : ""}`
-                : "credentials"}
-            </button>
-            {credPanelOpen && (
-              <CredentialPanel alerts={credentialAlerts} onClose={() => setCredPanelOpen(false)} />
-            )}
-          </div>
+        </div>
+        <div className="relative ml-auto">
+          <button
+            type="button"
+            className={`rounded border px-2.5 py-1 text-[12px] transition-colors ${alertCount > 0 ? "border-red-700 bg-red-500/10 text-red-400 hover:border-red-500 hover:text-red-300" : "border-zinc-700 bg-[#1c2128] text-zinc-400 hover:border-zinc-500 hover:text-zinc-300"}`}
+            onClick={() => setCredPanelOpen((v) => !v)}
+          >
+            {alertCount > 0
+              ? `${alertCount} Credential Alert${alertCount !== 1 ? "s" : ""}`
+              : "Credentials"}
+          </button>
+          {credPanelOpen && (
+            <CredentialPanel alerts={credentialAlerts} onClose={() => setCredPanelOpen(false)} />
+          )}
         </div>
       </header>
 
