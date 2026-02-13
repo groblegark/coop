@@ -117,16 +117,14 @@ function LaunchCard() {
   }, []);
 
   return (
-    <div className="flex h-[280px] items-center justify-center rounded-lg border border-dashed border-[#21262d] bg-[#1e1e1e]">
-      <button
-        className="flex h-16 w-16 items-center justify-center rounded-full border border-[#21262d] bg-[#0d1117] text-2xl text-zinc-500 transition-colors hover:border-blue-500 hover:text-blue-400 disabled:opacity-50"
-        onClick={handleLaunch}
-        disabled={status === "launching"}
-        title="Launch new session"
-      >
-        {status === "launching" ? "\u2026" : "+"}
-      </button>
-    </div>
+    <button
+      className="flex h-[280px] cursor-pointer items-center justify-center rounded-lg border border-dashed border-[#21262d] text-zinc-500 transition-colors hover:border-[#444c56] hover:text-blue-400 disabled:opacity-50"
+      onClick={handleLaunch}
+      disabled={status === "launching"}
+      title="Launch new session"
+    >
+      <span className="text-3xl">{status === "launching" ? "\u2026" : "+"}</span>
+    </button>
   );
 }
 
@@ -767,6 +765,7 @@ function AppInner() {
             sessions={sessionArray}
             expandedSession={expandedSession}
             focusedSession={focusedSession}
+            launchAvailable={launchAvailable}
             onSelectSession={(id) => toggleExpand(id)}
           />
 
