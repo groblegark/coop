@@ -74,6 +74,13 @@ spec:
       command: ["sh", "-c"]
       args:
         - |
+          # Write minimal Claude config so the CLI skips onboarding when
+          # credentials are supplied via env vars.
+          if [ -n "\${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || [ -n "\${ANTHROPIC_API_KEY:-}" ]; then
+            VER=\$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+            VER=\${VER:-0.0.0}
+            printf '{"hasCompletedOnboarding":true,"lastOnboardingVersion":"%s"}\n' "\$VER" > "\$HOME/.claude.json"
+          fi
           export COOP_URL="http://\${POD_IP}:8080"
           exec coop --host 0.0.0.0 --port 8080 --log-format text -- claude
       env:
