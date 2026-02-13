@@ -1,76 +1,8 @@
 import { useState, useCallback, useEffect } from "react";
 import { apiGet, apiPost, apiPut } from "@/hooks/useApiClient";
-import type { ApiResult } from "@/lib/types";
-
-function showResult(res: ApiResult): { ok: boolean; text: string } {
-  const display = res.json ? JSON.stringify(res.json) : res.text;
-  return { ok: res.ok, text: `${res.status}: ${display}` };
-}
-
-function ResultDisplay({
-  result,
-}: {
-  result: { ok: boolean; text: string } | null;
-}) {
-  if (!result) return null;
-  return (
-    <div
-      className={`mt-1 max-h-10 overflow-y-auto break-all text-[10px] ${result.ok ? "text-green-400" : "text-red-400"}`}
-    >
-      {result.text}
-    </div>
-  );
-}
-
-function Section({
-  label,
-  headerRight,
-  children,
-}: {
-  label: React.ReactNode;
-  headerRight?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="border-b border-[#2a2a2a] p-2">
-      <div className="mb-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-zinc-600">
-        <span>{label}</span>
-        {headerRight}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function ActionBtn({
-  children,
-  variant,
-  onClick,
-  className,
-}: {
-  children: React.ReactNode;
-  variant?: "success" | "danger" | "warn";
-  onClick?: () => void;
-  className?: string;
-}) {
-  const variantClass =
-    variant === "danger"
-      ? "border-red-800 text-red-400 hover:border-red-400 hover:text-red-300"
-      : variant === "success"
-        ? "border-green-800 text-green-400 hover:border-green-400 hover:text-green-300"
-        : variant === "warn"
-          ? "border-amber-700 text-amber-400 hover:border-amber-400 hover:text-amber-300"
-          : "border-zinc-600 text-zinc-400 hover:border-zinc-500 hover:text-white";
-
-  return (
-    <button
-      className={`whitespace-nowrap rounded border bg-[#2a2a2a] px-2.5 py-0.5 font-mono text-[11px] transition-colors active:bg-[#333] ${variantClass} ${className ?? ""}`}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
+import { Section } from "@/components/Section";
+import { ActionBtn } from "@/components/ActionBtn";
+import { ResultDisplay, showResult } from "@/components/ResultDisplay";
 
 // ── Config Panel ──
 

@@ -3,16 +3,16 @@ import {
   useRef,
   useCallback,
   useEffect,
-  useMemo,
 } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { Terminal, type TerminalHandle } from "@/components/Terminal";
+import { AgentBadge } from "@/components/AgentBadge";
 import { DropOverlay } from "@/components/DropOverlay";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useFileUpload } from "@/hooks/useFileUpload";
 import { apiGet, apiPost, apiPut } from "@/hooks/useApiClient";
 import { b64decode, b64encode, textToB64 } from "@/lib/base64";
-import { TERMINAL_THEME, TERMINAL_FONT_SIZE, KEY_DEFS } from "@/lib/constants";
+import { THEME, TERMINAL_FONT_SIZE, KEY_DEFS } from "@/lib/constants";
 import type {
   WsMessage,
   PromptContext,
@@ -321,23 +321,6 @@ export function App() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // ── Status bar state class ──
-
-  const stateClass = useMemo(() => {
-    if (!agentState) return "";
-    const s = agentState.toLowerCase();
-    if (s === "working") return "border-emerald-400 text-emerald-400";
-    if (s === "idle" || s === "waiting_for_input")
-      return "border-amber-500 text-amber-500";
-    if (s.includes("prompt")) return "border-blue-400 text-blue-400";
-    if (s === "starting" || s.includes("setup"))
-      return "border-purple-400 text-purple-400";
-    if (s.includes("error") || s === "parked")
-      return "border-red-400 text-red-400";
-    if (s === "exited") return "border-zinc-500 text-zinc-500";
-    return "border-zinc-600 text-zinc-400";
-  }, [agentState]);
-
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#1e1e1e]">
       <DropOverlay active={dragActive} />
@@ -348,7 +331,7 @@ export function App() {
         <Terminal
           ref={termRef}
           fontSize={TERMINAL_FONT_SIZE}
-          theme={TERMINAL_THEME}
+          theme={THEME}
           className="min-w-0 flex-1 p-4"
           onData={onTermData}
           onBinary={onTermBinary}
@@ -417,13 +400,7 @@ export function App() {
           <span className="font-bold tracking-wide text-teal-400">
             [coop]
           </span>
-          {agentState && (
-            <span
-              className={`inline-block min-w-[90px] rounded border px-2.5 py-0.5 text-center font-semibold ${stateClass}`}
-            >
-              {agentState}
-            </span>
-          )}
+          {agentState && <AgentBadge state={agentState} />}
           <span className="flex items-center">
             <span
               className={`mr-1.5 inline-block h-2 w-2 rounded-full ${

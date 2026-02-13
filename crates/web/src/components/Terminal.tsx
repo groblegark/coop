@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import type { ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import { THEME } from "@/lib/constants";
 
 export interface TerminalHandle {
   terminal: XTerm | null;
@@ -30,7 +31,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       fontFamily = "'SF Mono', 'Cascadia Code', 'Fira Code', Menlo, Monaco, monospace",
       theme,
       scrollback = 10000,
-      cursorBlink = true,
+      cursorBlink = false,
       disableStdin = false,
       className,
       onData,
@@ -67,7 +68,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       const term = new XTerm({
         fontSize,
         fontFamily,
-        theme: theme ?? { background: "#1e1e1e" },
+        theme: theme ?? THEME,
         scrollback,
         cursorBlink,
         cursorInactiveStyle: "none",

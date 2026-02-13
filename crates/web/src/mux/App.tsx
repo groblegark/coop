@@ -16,7 +16,7 @@ import { DropOverlay } from "@/components/DropOverlay";
 import { b64decode, b64encode } from "@/lib/base64";
 import {
   MONO_FONT,
-  MUX_THEME,
+  THEME,
   PREVIEW_FONT_SIZE,
   EXPANDED_FONT_SIZE,
 } from "@/lib/constants";
@@ -134,7 +134,7 @@ function Tile({
       <div className="relative flex-1 overflow-hidden">
         <div
           ref={termContainerRef}
-          className={expanded ? "h-full" : "absolute bottom-0 left-0"}
+          className={expanded ? "h-full p-4" : "absolute bottom-0 left-0"}
         />
       </div>
     </div>
@@ -187,7 +187,7 @@ export function App() {
         scrollback: 0,
         fontSize: PREVIEW_FONT_SIZE,
         fontFamily: MONO_FONT,
-        theme: MUX_THEME,
+        theme: THEME,
         cursorBlink: false,
         cursorInactiveStyle: "none",
         disableStdin: true,

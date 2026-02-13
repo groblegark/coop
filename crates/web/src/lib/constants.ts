@@ -1,17 +1,10 @@
 export const MONO_FONT =
   "'SF Mono', 'Cascadia Code', 'Fira Code', Menlo, Monaco, monospace";
 
-export const TERMINAL_THEME = {
+export const THEME = {
   background: "#1e1e1e",
   foreground: "#c9d1d9",
-  cursor: "#58a6ff",
-  selectionBackground: "#388bfd44",
-} as const;
-
-export const MUX_THEME = {
-  background: "#0d1117",
-  foreground: "#c9d1d9",
-  cursor: "#58a6ff",
+  cursor: "#1e1e1e",
   selectionBackground: "#388bfd44",
 } as const;
 
