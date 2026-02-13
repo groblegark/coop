@@ -13,6 +13,7 @@ import { parseArgs } from "node:util";
 import {
 	buildCoop,
 	coopBin,
+	findAvailablePort,
 	onExit,
 	openBrowser,
 	openBrowserUrl,
@@ -30,7 +31,7 @@ const { values, positionals } = parseArgs({
 	strict: false,
 });
 
-const port = Number(values.port);
+const port = await findAvailablePort(Number(values.port));
 const cmd = positionals.length ? positionals : ["/bin/bash"];
 
 if (!values["no-build"]) {

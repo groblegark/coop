@@ -159,6 +159,37 @@ export function onExit(fn: CleanupFn): void {
 	}
 }
 
+/** Check if a port is available by trying to listen on it. */
+async function isPortAvailable(port: number): Promise<boolean> {
+	const { createServer } = await import("node:net");
+	return new Promise((resolve) => {
+		const server = createServer();
+		server.once("error", () => resolve(false));
+		server.once("listening", () => {
+			server.close(() => resolve(true));
+		});
+		server.listen(port, "127.0.0.1");
+	});
+}
+
+/** Find an available port starting from the given port, trying up to maxAttempts consecutive ports. */
+export async function findAvailablePort(
+	startPort: number,
+	maxAttempts = 10,
+): Promise<number> {
+	for (let i = 0; i < maxAttempts; i++) {
+		const port = startPort + i;
+		if (await isPortAvailable(port)) {
+			return port;
+		}
+		console.log(`Port ${port} is in use, trying ${port + 1}…`);
+	}
+	console.error(
+		`No available port found in range ${startPort}–${startPort + maxAttempts - 1}`,
+	);
+	process.exit(1);
+}
+
 export type Profile = "empty" | "authorized" | "trusted";
 
 export interface ProfileOpts {

@@ -16,6 +16,7 @@ import { parseArgs } from "node:util";
 import { $ } from "bun";
 import {
 	buildDocker,
+	findAvailablePort,
 	onExit,
 	openBrowser,
 	waitForHealth,
@@ -37,7 +38,7 @@ const { values } = parseArgs({
 	strict: true,
 });
 
-const port = Number(values.port);
+const port = await findAvailablePort(Number(values.port));
 
 interface ModeConfig {
 	imageTarget: string;
