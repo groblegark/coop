@@ -27,7 +27,7 @@ pub fn spawn_distributor(state: Arc<MuxState>, mut event_rx: broadcast::Receiver
 
             match event {
                 CredentialEvent::Refreshed { account, credentials } => {
-                    distribute_to_sessions(&state, &account, &credentials).await;
+                    distribute_to_sessions(&state, &account, &credentials, true).await;
                 }
                 CredentialEvent::RefreshFailed { .. } | CredentialEvent::ReauthRequired { .. } => {
                     // No action needed for distribution.
@@ -37,11 +37,14 @@ pub fn spawn_distributor(state: Arc<MuxState>, mut event_rx: broadcast::Receiver
     });
 }
 
-/// Push fresh credentials to all registered sessions.
-async fn distribute_to_sessions(
+/// Push credentials to all registered sessions as a profile.
+///
+/// When `switch` is true, also triggers a profile switch on each session.
+pub async fn distribute_to_sessions(
     state: &MuxState,
     account: &str,
     credentials: &std::collections::HashMap<String, String>,
+    switch: bool,
 ) {
     let sessions = state.sessions.read().await;
     for entry in sessions.values() {
@@ -59,13 +62,15 @@ async fn distribute_to_sessions(
             continue;
         }
 
-        // Trigger switch to the fresh profile.
-        let switch_body = serde_json::json!({
-            "profile": account,
-            "force": false,
-        });
-        if let Err(e) = client.post_json("/api/v1/session/switch", &switch_body).await {
-            tracing::debug!(session = %entry.id, account, err = %e, "failed to trigger switch");
+        if switch {
+            // Trigger switch to the fresh profile.
+            let switch_body = serde_json::json!({
+                "profile": account,
+                "force": false,
+            });
+            if let Err(e) = client.post_json("/api/v1/session/switch", &switch_body).await {
+                tracing::debug!(session = %entry.id, account, err = %e, "failed to trigger switch");
+            }
         }
     }
 }

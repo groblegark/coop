@@ -29,9 +29,7 @@ export function InspectorSidebar({
 }: InspectorSidebarProps) {
   const [activeTab, setActiveTab] = useState<InspectorTab>("state");
 
-  // ── API polling (owned here, not in parent) ──
-
-  const [health, setHealth] = useState<unknown>(null);
+    const [health, setHealth] = useState<unknown>(null);
   const [status, setStatus] = useState<unknown>(null);
   const [agent, setAgent] = useState<unknown>(null);
   const [usage, setUsage] = useState<unknown>(null);
@@ -64,9 +62,7 @@ export function InspectorSidebar({
     };
   }, [wsRequest]);
 
-  // ── Event log (owned here, fed via WS subscription) ──
-
-  const [events, setEvents] = useState<EventEntry[]>([]);
+    const [events, setEvents] = useState<EventEntry[]>([]);
 
   useEffect(() => {
     return subscribeWsEvents((msg) => {
@@ -123,8 +119,6 @@ export function InspectorSidebar({
     </>
   );
 }
-
-// ── Event log accumulator ──
 
 function appendEvent(
   msg: WsMessage,

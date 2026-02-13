@@ -9,13 +9,12 @@ import { Terminal, type TerminalHandle } from "@/components/Terminal";
 import { TerminalLayout } from "@/components/TerminalLayout";
 import { InspectorSidebar, type WsEventListener } from "@/components/inspector/InspectorSidebar";
 import { DropOverlay } from "@/components/DropOverlay";
+import { OAuthToast } from "@/components/OAuthToast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useFileUpload } from "@/hooks/useFileUpload";
 import { b64decode, b64encode } from "@/lib/base64";
 import { THEME, TERMINAL_FONT_SIZE } from "@/lib/constants";
 import type { WsMessage, PromptContext } from "@/lib/types";
-
-// ── App ──
 
 export function App() {
   const termRef = useRef<TerminalHandle>(null);
@@ -26,19 +25,16 @@ export function App() {
   const [prompt, setPrompt] = useState<PromptContext | null>(null);
   const [lastMessage, setLastMessage] = useState<string | null>(null);
   const [ptyOffset, setPtyOffset] = useState(0);
+  const [oauthUrl, setOauthUrl] = useState<string | null>(null);
 
-  // ── WS event subscription (for InspectorSidebar) ──
-
-  const wsListenersRef = useRef(new Set<WsEventListener>());
+    const wsListenersRef = useRef(new Set<WsEventListener>());
 
   const subscribeWsEvents = useCallback((listener: WsEventListener) => {
     wsListenersRef.current.add(listener);
     return () => { wsListenersRef.current.delete(listener); };
   }, []);
 
-  // ── WebSocket ──
-
-  const onMessage = useCallback((raw: unknown) => {
+    const onMessage = useCallback((raw: unknown) => {
     const msg = raw as WsMessage;
 
     // Notify subscribers (inspector events + usage)
@@ -85,6 +81,15 @@ export function App() {
     }
   }, [connectionStatus, send, request]);
 
+  // OAuth auto-prompt
+  useEffect(() => {
+    if (prompt?.subtype === "oauth_login" && prompt.input) {
+      setOauthUrl(prompt.input);
+    } else {
+      setOauthUrl(null);
+    }
+  }, [prompt]);
+
   // Keep-alive ping
   useEffect(() => {
     if (connectionStatus !== "connected") return;
@@ -92,9 +97,7 @@ export function App() {
     return () => clearInterval(id);
   }, [connectionStatus, send]);
 
-  // ── Terminal callbacks ──
-
-  const onTermData = useCallback(
+    const onTermData = useCallback(
     (data: string) => {
       const encoder = new TextEncoder();
       send({
@@ -121,9 +124,7 @@ export function App() {
     [send],
   );
 
-  // ── File upload ──
-
-  const { dragActive } = useFileUpload({
+    const { dragActive } = useFileUpload({
     uploadPath: "/api/v1/upload",
     onUploaded: (paths) => {
       const text = paths.join(" ") + " ";
@@ -138,9 +139,7 @@ export function App() {
     },
   });
 
-  // ── Interaction callback (refocus terminal) ──
-
-  const focusTerminal = useCallback(() => {
+    const focusTerminal = useCallback(() => {
     termRef.current?.terminal?.focus();
   }, []);
 
@@ -164,6 +163,9 @@ export function App() {
       }
     >
       <DropOverlay active={dragActive} />
+      {oauthUrl && (
+        <OAuthToast url={oauthUrl} onDismiss={() => setOauthUrl(null)} />
+      )}
       <Terminal
         ref={termRef}
         fontSize={TERMINAL_FONT_SIZE}

@@ -6,8 +6,6 @@ import { Section } from "@/components/Section";
 import { ActionBtn } from "@/components/ActionBtn";
 import { ResultDisplay, showResult } from "@/components/ResultDisplay";
 
-// ── Actions Panel ──
-
 interface ActionsPanelProps {
   prompt: PromptContext | null;
   lastMessage: string | null;
@@ -31,8 +29,6 @@ export function ActionsPanel({
     </div>
   );
 }
-
-// ── Input Section ──
 
 function InputSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [text, setText] = useState("");
@@ -74,8 +70,6 @@ function InputSection({ wsRequest }: { wsRequest: WsRequest }) {
   );
 }
 
-// ── Keys Section ──
-
 function KeysSection({ wsSend }: { wsSend: (msg: unknown) => void }) {
   return (
     <Section label="Keys">
@@ -93,8 +87,6 @@ function KeysSection({ wsSend }: { wsSend: (msg: unknown) => void }) {
     </Section>
   );
 }
-
-// ── Resize Section ──
 
 function ResizeSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [cols, setCols] = useState("");
@@ -139,8 +131,6 @@ function ResizeSection({ wsRequest }: { wsRequest: WsRequest }) {
   );
 }
 
-// ── Nudge Section ──
-
 function NudgeSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
@@ -172,8 +162,6 @@ function NudgeSection({ wsRequest }: { wsRequest: WsRequest }) {
     </Section>
   );
 }
-
-// ── Respond Section ──
 
 function RespondSection({
   prompt,
@@ -228,8 +216,6 @@ function RespondSection({
     </Section>
   );
 }
-
-// ── Permission Prompt ──
 
 function PermissionPrompt({
   prompt,
@@ -289,8 +275,6 @@ function PermissionPrompt({
     </>
   );
 }
-
-// ── Plan Prompt ──
 
 function PlanPrompt({
   prompt,
@@ -395,8 +379,6 @@ function PlanPrompt({
   );
 }
 
-// ── Setup Prompt ──
-
 function SetupPrompt({
   prompt,
   onResult,
@@ -457,8 +439,6 @@ function SetupPrompt({
     </>
   );
 }
-
-// ── Question Prompt ──
 
 function QuestionPrompt({
   prompt,
@@ -570,8 +550,6 @@ function QuestionPrompt({
     </>
   );
 }
-
-// ── Local helpers ──
 
 function FallbackBadge() {
   return (

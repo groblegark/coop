@@ -4,8 +4,6 @@ import { Section } from "@/components/Section";
 import { ActionBtn } from "@/components/ActionBtn";
 import { ResultDisplay, showResult } from "@/components/ResultDisplay";
 
-// ── Config Panel ──
-
 export function ConfigPanel({ wsRequest }: { wsRequest: WsRequest }) {
   return (
     <div className="flex-1 overflow-y-auto">
@@ -20,8 +18,6 @@ export function ConfigPanel({ wsRequest }: { wsRequest: WsRequest }) {
     </div>
   );
 }
-
-// ── Profiles ──
 
 interface ProfileInfo {
   name: string;
@@ -139,8 +135,6 @@ function ProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
   );
 }
 
-// ── Register Profiles ──
-
 function RegisterProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [json, setJson] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
@@ -179,8 +173,6 @@ function RegisterProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
     </Section>
   );
 }
-
-// ── Session Switch ──
 
 function SessionSwitchSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [creds, setCreds] = useState("");
@@ -234,8 +226,6 @@ function SessionSwitchSection({ wsRequest }: { wsRequest: WsRequest }) {
     </Section>
   );
 }
-
-// ── Stop Config ──
 
 function StopConfigSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [mode, setMode] = useState("allow");
@@ -291,8 +281,6 @@ function StopConfigSection({ wsRequest }: { wsRequest: WsRequest }) {
   );
 }
 
-// ── Start Config ──
-
 function StartConfigSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [json, setJson] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
@@ -337,8 +325,6 @@ function StartConfigSection({ wsRequest }: { wsRequest: WsRequest }) {
     </Section>
   );
 }
-
-// ── Transcripts ──
 
 interface TranscriptInfo {
   number: number;
@@ -447,8 +433,6 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
   );
 }
 
-// ── Signal ──
-
 function SignalSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
     null,
@@ -479,8 +463,6 @@ function SignalSection({ wsRequest }: { wsRequest: WsRequest }) {
     </Section>
   );
 }
-
-// ── Shutdown ──
 
 function ShutdownSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(

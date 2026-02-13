@@ -17,6 +17,10 @@ use crate::credential::{
     provider_default_env_key, AccountConfig, AccountStatus, CredentialConfig, CredentialEvent,
 };
 
+/// Set of account names that were defined in the original static config file
+/// (used to distinguish dynamic accounts for persistence).
+type StaticNames = std::collections::HashSet<String>;
+
 /// Runtime state for a single account.
 struct AccountState {
     config: AccountConfig,
@@ -29,7 +33,8 @@ struct AccountState {
 /// The credential broker manages token freshness for all configured accounts.
 pub struct CredentialBroker {
     accounts: RwLock<HashMap<String, AccountState>>,
-    config: CredentialConfig,
+    /// Account names from the original static config (for persistence filtering).
+    static_names: StaticNames,
     event_tx: broadcast::Sender<CredentialEvent>,
     http: reqwest::Client,
 }
@@ -41,7 +46,9 @@ impl CredentialBroker {
         event_tx: broadcast::Sender<CredentialEvent>,
     ) -> Arc<Self> {
         let mut accounts = HashMap::new();
+        let mut static_names = StaticNames::new();
         for acct in &config.accounts {
+            static_names.insert(acct.name.clone());
             accounts.insert(
                 acct.name.clone(),
                 AccountState {
@@ -55,7 +62,7 @@ impl CredentialBroker {
         }
         Arc::new(Self {
             accounts: RwLock::new(accounts),
-            config,
+            static_names,
             event_tx,
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(30))
@@ -64,14 +71,29 @@ impl CredentialBroker {
         })
     }
 
-    /// Get a reference to the credential config.
-    pub fn config(&self) -> &CredentialConfig {
-        &self.config
-    }
-
     /// Load persisted credentials and seed account states.
+    ///
+    /// Also restores dynamic accounts that were added at runtime in previous sessions.
     pub async fn load_persisted(&self, creds: &PersistedCredentials) {
         let mut accounts = self.accounts.write().await;
+
+        // Restore dynamic account configs first (so token seeding below finds them).
+        for acct_config in &creds.dynamic_accounts {
+            if !accounts.contains_key(&acct_config.name) {
+                accounts.insert(
+                    acct_config.name.clone(),
+                    AccountState {
+                        config: acct_config.clone(),
+                        status: AccountStatus::Expired,
+                        access_token: None,
+                        refresh_token: None,
+                        expires_at: 0,
+                    },
+                );
+            }
+        }
+
+        // Seed persisted tokens into all known accounts.
         for (name, persisted) in &creds.accounts {
             if let Some(state) = accounts.get_mut(name) {
                 state.access_token = Some(persisted.access_token.clone());
@@ -120,6 +142,87 @@ impl CredentialBroker {
         Ok(())
     }
 
+    /// Dynamically add a new account at runtime.
+    ///
+    /// Optionally seeds tokens and emits a `Refreshed` event (which triggers
+    /// distribution to sessions). Spawns a refresh loop for the new account.
+    /// Returns an error if the account name is already taken.
+    pub async fn add_account(
+        self: &Arc<Self>,
+        config: AccountConfig,
+        access_token: Option<String>,
+        refresh_token: Option<String>,
+        expires_in: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let name = config.name.clone();
+
+        {
+            let mut accounts = self.accounts.write().await;
+            if accounts.contains_key(&name) {
+                anyhow::bail!("account already exists: {name}");
+            }
+
+            let has_token = access_token.is_some();
+            let expires_at = expires_in.map(|s| epoch_secs() + s).unwrap_or(0);
+            let status = if has_token && (expires_in.is_none() || expires_at > epoch_secs()) {
+                AccountStatus::Healthy
+            } else {
+                AccountStatus::Expired
+            };
+
+            let state = AccountState {
+                config: config.clone(),
+                status,
+                access_token: access_token.clone(),
+                refresh_token,
+                expires_at,
+            };
+            accounts.insert(name.clone(), state);
+
+            // Emit Refreshed event if we have a token (triggers distribution).
+            if let Some(ref token) = access_token {
+                let env_key = config
+                    .env_key
+                    .as_deref()
+                    .unwrap_or_else(|| provider_default_env_key(&config.provider));
+                let credentials = HashMap::from([(env_key.to_owned(), token.clone())]);
+                let _ = self
+                    .event_tx
+                    .send(CredentialEvent::Refreshed { account: name.clone(), credentials });
+            }
+
+            self.persist(&accounts).await;
+        }
+
+        // Spawn a refresh loop for the new account.
+        let broker = Arc::clone(self);
+        let loop_name = name.clone();
+        tokio::spawn(async move {
+            broker.refresh_loop(&loop_name).await;
+        });
+
+        tracing::info!(account = %name, "dynamic account added");
+        Ok(())
+    }
+
+    /// Get the first account name (for default selection in reauth).
+    pub async fn first_account_name(&self) -> Option<String> {
+        self.accounts.read().await.keys().next().cloned()
+    }
+
+    /// Get the current credentials map for an account (env_key -> token).
+    pub async fn get_credentials(&self, account: &str) -> Option<HashMap<String, String>> {
+        let accounts = self.accounts.read().await;
+        let state = accounts.get(account)?;
+        let token = state.access_token.as_ref()?;
+        let env_key = state
+            .config
+            .env_key
+            .as_deref()
+            .unwrap_or_else(|| provider_default_env_key(&state.config.provider));
+        Some(HashMap::from([(env_key.to_owned(), token.clone())]))
+    }
+
     /// Get status info for all accounts.
     pub async fn status_list(&self) -> Vec<AccountStatusInfo> {
         let accounts = self.accounts.read().await;
@@ -149,28 +252,30 @@ impl CredentialBroker {
         self: &Arc<Self>,
         account_name: &str,
     ) -> anyhow::Result<DeviceCodeResponse> {
-        // Look up the account config.
-        let acct_config = self
-            .config
-            .accounts
-            .iter()
-            .find(|a| a.name == account_name)
-            .ok_or_else(|| anyhow::anyhow!("unknown account: {account_name}"))?;
+        // Look up the account config from the runtime accounts map (supports dynamic accounts).
+        // Clone the needed strings so we can drop the read lock before the async call.
+        let (device_auth_url, client_id, token_url) = {
+            let accounts = self.accounts.read().await;
+            let acct_state = accounts
+                .get(account_name)
+                .ok_or_else(|| anyhow::anyhow!("unknown account: {account_name}"))?;
+            let acct_config = &acct_state.config;
 
-        let device_auth_url = acct_config
-            .device_auth_url
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("no device_auth_url configured for {account_name}"))?;
-        let client_id = acct_config
-            .client_id
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("no client_id configured for {account_name}"))?;
-        let token_url = acct_config
-            .token_url
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("no token_url configured for {account_name}"))?;
+            let device_auth_url = acct_config.device_auth_url.clone().ok_or_else(|| {
+                anyhow::anyhow!("no device_auth_url configured for {account_name}")
+            })?;
+            let client_id = acct_config
+                .client_id
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("no client_id configured for {account_name}"))?;
+            let token_url = acct_config
+                .token_url
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("no token_url configured for {account_name}"))?;
+            (device_auth_url, client_id, token_url)
+        };
 
-        let resp = device_code::initiate_reauth(&self.http, device_auth_url, client_id).await?;
+        let resp = device_code::initiate_reauth(&self.http, &device_auth_url, &client_id).await?;
 
         // Emit ReauthRequired event.
         let _ = self.event_tx.send(CredentialEvent::ReauthRequired {
@@ -185,8 +290,8 @@ impl CredentialBroker {
         let device_code = resp.device_code.clone();
         let interval = resp.interval;
         let expires_in = resp.expires_in;
-        let poll_token_url = token_url.to_owned();
-        let poll_client_id = client_id.to_owned();
+        let poll_token_url = token_url;
+        let poll_client_id = client_id;
 
         tokio::spawn(async move {
             match device_code::poll_device_code(
@@ -227,20 +332,19 @@ impl CredentialBroker {
         Ok(resp)
     }
 
-    /// Spawn refresh loops for all accounts.
+    /// Spawn refresh loops for all currently registered accounts.
     pub fn spawn_refresh_loops(self: &Arc<Self>) {
-        let accounts_snapshot: Vec<String> = {
-            // We can't hold the lock across await, so collect names first.
-            // We'll read config from the hashmap in the loop.
-            self.config.accounts.iter().map(|a| a.name.clone()).collect()
-        };
-
-        for name in accounts_snapshot {
-            let broker = Arc::clone(self);
-            tokio::spawn(async move {
-                broker.refresh_loop(&name).await;
-            });
-        }
+        let broker = Arc::clone(self);
+        tokio::spawn(async move {
+            let accounts_snapshot: Vec<String> =
+                broker.accounts.read().await.keys().cloned().collect();
+            for name in accounts_snapshot {
+                let b = Arc::clone(&broker);
+                tokio::spawn(async move {
+                    b.refresh_loop(&name).await;
+                });
+            }
+        });
     }
 
     /// Refresh loop for a single account.
@@ -357,6 +461,10 @@ impl CredentialBroker {
                         expires_at: state.expires_at,
                     },
                 );
+            }
+            // Save config for accounts not in the original static config.
+            if !self.static_names.contains(name) {
+                persisted.dynamic_accounts.push(state.config.clone());
             }
         }
         if let Err(e) = crate::credential::persist::save(&path, &persisted) {

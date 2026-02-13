@@ -52,9 +52,7 @@ export function TerminalLayout({
   className,
   style,
 }: TerminalLayoutProps) {
-  // ── Sidebar state (owned here) ──
-
-  const [sidebarVisible, setSidebarVisible] = useState(false);
+    const [sidebarVisible, setSidebarVisible] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(450);
 
   const handleToggle = useCallback(() => {

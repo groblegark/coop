@@ -6,6 +6,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { useWebSocket, WsRpc, type ConnectionStatus } from "@/hooks/useWebSocket";
 import { useFileUpload } from "@/hooks/useFileUpload";
 import { DropOverlay } from "@/components/DropOverlay";
+import { OAuthToast } from "@/components/OAuthToast";
 import { StatusBar } from "@/components/StatusBar";
 import { TerminalLayout } from "@/components/TerminalLayout";
 import { InspectorSidebar, type WsEventListener } from "@/components/inspector/InspectorSidebar";
@@ -21,8 +22,7 @@ import type { MuxWsMessage, MuxMetadata, WsMessage, PromptContext } from "@/lib/
 import { SessionSidebar } from "./SessionSidebar";
 import { MuxProvider, useMux } from "./MuxContext";
 import { Tile, LaunchCard, sessionTitle, sessionSubtitle } from "@/components/Tile";
-
-// ── Session state ──
+import { CredentialPanel, type CredentialAlert } from "./CredentialPanel";
 
 export interface SessionInfo {
   id: string;
@@ -40,8 +40,6 @@ export interface SessionInfo {
 }
 
 const encoder = new TextEncoder();
-
-// ── App ──
 
 function AppInner() {
   const [sessions, setSessions] = useState<Map<string, SessionInfo>>(
@@ -75,10 +73,12 @@ function AppInner() {
   }, []);
 
   const [launchAvailable, setLaunchAvailable] = useState(false);
+  const [oauthUrl, setOauthUrl] = useState<string | null>(null);
 
   const [credentialAlerts, setCredentialAlerts] = useState<
-    Map<string, string>
+    Map<string, CredentialAlert>
   >(() => new Map());
+  const [credPanelOpen, setCredPanelOpen] = useState(false);
 
   // Stats
   const sessionCount = sessions.size;
@@ -91,13 +91,11 @@ function AppInner() {
     return c;
   }, [sessions]);
   const alertCount = useMemo(
-    () => [...credentialAlerts.values()].filter((s) => s !== "refreshed").length,
+    () => [...credentialAlerts.values()].filter((a) => a.event !== "credential:refreshed").length,
     [credentialAlerts],
   );
 
-  // ── Create terminal for a new session ──
-
-  const createSession = useCallback(
+    const createSession = useCallback(
     (id: string, url: string | null, state: string | null, metadata: MuxMetadata | null): SessionInfo => {
       const term = new XTerm({
         scrollback: 0,
@@ -164,9 +162,7 @@ function AppInner() {
     [],
   );
 
-  // ── Expand / collapse ──
-
-  const collapseSession = useCallback((id: string) => {
+    const collapseSession = useCallback((id: string) => {
     const info = sessionsRef.current.get(id);
     if (!info) return;
     if (expandedRpcRef.current) {
@@ -300,13 +296,9 @@ function AppInner() {
     [collapseSession, expandSession],
   );
 
-  // ── Mux WS send ref ──
+    const muxSendRef = useRef<((msg: unknown) => void) | null>(null);
 
-  const muxSendRef = useRef<((msg: unknown) => void) | null>(null);
-
-  // ── Mux WebSocket handler ──
-
-  const onMuxMessage = useCallback(
+    const onMuxMessage = useCallback(
     (raw: unknown) => {
       const msg = raw as MuxWsMessage;
 
@@ -333,6 +325,9 @@ function AppInner() {
           info.state = msg.next;
           if (msg.last_message != null) info.lastMessage = msg.last_message;
           setSessions(new Map(sessionsRef.current));
+        }
+        if (msg.prompt?.subtype === "oauth_login" && msg.prompt.input) {
+          setOauthUrl(msg.prompt.input);
         }
       } else if (msg.event === "session:online") {
         if (!sessionsRef.current.has(msg.session)) {
@@ -369,7 +364,13 @@ function AppInner() {
           if (msg.event === "credential:refreshed") {
             next.delete(msg.account);
           } else {
-            next.set(msg.account, msg.event);
+            const alert: CredentialAlert = { event: msg.event };
+            if (msg.event === "credential:reauth:required") {
+              const reauth = msg as { auth_url?: string; user_code?: string };
+              alert.auth_url = reauth.auth_url;
+              alert.user_code = reauth.user_code;
+            }
+            next.set(msg.account, alert);
           }
           return next;
         });
@@ -411,9 +412,14 @@ function AppInner() {
     muxSendRef.current = muxSend;
   }, [muxSend]);
 
-  // ── Fetch launch config ──
-
+  // OAuth auto-prompt (expanded session)
   useEffect(() => {
+    if (expandedPrompt?.subtype === "oauth_login" && expandedPrompt.input) {
+      setOauthUrl(expandedPrompt.input);
+    }
+  }, [expandedPrompt]);
+
+    useEffect(() => {
     apiGet("/api/v1/config/launch").then((res) => {
       if (res.ok && res.json && typeof res.json === "object" && "available" in (res.json as Record<string, unknown>)) {
         setLaunchAvailable((res.json as Record<string, unknown>).available === true);
@@ -421,9 +427,7 @@ function AppInner() {
     });
   }, []);
 
-  // ── File upload ──
-
-  const { dragActive } = useFileUpload({
+    const { dragActive } = useFileUpload({
     uploadPath: () =>
       focusedRef.current
         ? `/api/v1/sessions/${focusedRef.current}/upload`
@@ -456,14 +460,10 @@ function AppInner() {
     },
   });
 
-  // ── Sidebar context ──
-
-  const { sidebarCollapsed, toggleSidebar } = useMux();
+    const { sidebarCollapsed, toggleSidebar } = useMux();
   const sidebarWidth = sidebarCollapsed ? 40 : 220;
 
-  // ── Expanded session WS helpers ──
-
-  const expandedWsSend = useCallback((msg: unknown) => {
+    const expandedWsSend = useCallback((msg: unknown) => {
     const ws = expandedWsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(msg));
@@ -483,12 +483,14 @@ function AppInner() {
     if (id) sessionsRef.current.get(id)?.term.focus();
   }, []);
 
-  // ── Keyboard shortcuts ──
-
-  useEffect(() => {
+    useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && expandedRef.current) {
-        toggleExpand(expandedRef.current);
+      if (e.key === "Escape") {
+        if (credPanelOpen) {
+          setCredPanelOpen(false);
+        } else if (expandedRef.current) {
+          toggleExpand(expandedRef.current);
+        }
       }
       if (e.key === "b" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
@@ -497,11 +499,9 @@ function AppInner() {
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [toggleExpand, toggleSidebar]);
+  }, [toggleExpand, toggleSidebar, credPanelOpen]);
 
-  // ── Render ──
-
-  const sessionArray = useMemo(() => [...sessions.values()], [sessions]);
+    const sessionArray = useMemo(() => [...sessions.values()], [sessions]);
 
   return (
     <div className="flex h-screen flex-col bg-[#0d1117] font-sans text-[#c9d1d9]">
@@ -525,15 +525,29 @@ function AppInner() {
             {sessionCount} session{sessionCount !== 1 ? "s" : ""}
           </span>
           <span>{healthyCount} healthy</span>
-          {alertCount > 0 && (
-            <span className="text-red-400">
-              {alertCount} credential alert{alertCount !== 1 ? "s" : ""}
-            </span>
-          )}
+          <div className="relative">
+            <button
+              className={`border-none bg-transparent p-0 text-[13px] hover:text-zinc-300 ${alertCount > 0 ? "text-red-400" : "text-zinc-500"}`}
+              onClick={() => setCredPanelOpen((v) => !v)}
+            >
+              {alertCount > 0
+                ? `${alertCount} credential alert${alertCount !== 1 ? "s" : ""}`
+                : "credentials"}
+            </button>
+            {credPanelOpen && (
+              <CredentialPanel
+                alerts={credentialAlerts}
+                onClose={() => setCredPanelOpen(false)}
+              />
+            )}
+          </div>
         </div>
       </header>
 
       <DropOverlay active={dragActive} />
+      {oauthUrl && (
+        <OAuthToast url={oauthUrl} onDismiss={() => setOauthUrl(null)} />
+      )}
 
       {/* Main area: sidebar + content */}
       <div className="relative flex min-h-0 flex-1 flex-col">

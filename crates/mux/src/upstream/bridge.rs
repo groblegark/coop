@@ -145,10 +145,6 @@ impl Drop for WsBridge {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Run loop
-// ---------------------------------------------------------------------------
-
 async fn run_loop(
     url: String,
     entry_id: String,
@@ -251,10 +247,6 @@ async fn run_loop(
         backoff_ms = (backoff_ms * 2).min(max_backoff_ms);
     }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /// Lightweight routing info extracted from a JSON message without full deserialization.
 #[derive(Deserialize, Default)]

@@ -4,8 +4,6 @@ import { AgentBadge } from "@/components/AgentBadge";
 import { TerminalPreview } from "@/components/TerminalPreview";
 import type { SessionInfo } from "./App";
 
-// ── Helpers ──
-
 export function sessionTitle(info: SessionInfo): string {
   if (info.metadata?.k8s?.pod) return info.metadata.k8s.pod;
   if (info.url) {
@@ -21,8 +19,6 @@ export function sessionSubtitle(info: SessionInfo): string {
   }
   return shortId;
 }
-
-// ── Tile Component ──
 
 export function Tile({
   info,
@@ -69,8 +65,6 @@ export function Tile({
     </div>
   );
 }
-
-// ── Launch Card ──
 
 export function LaunchCard() {
   const [status, setStatus] = useState<"idle" | "launching">("idle");

@@ -1,8 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from "react";
 import type { EventEntry } from "@/lib/types";
 
-// ── Recursive table renderer ──
-
 function renderRows(
   obj: unknown,
   prefix: string,
@@ -67,8 +65,6 @@ function ApiTable({
   );
 }
 
-// ── Event type colors ──
-
 const typeColors: Record<string, string> = {
   pty: "text-blue-400",
   output: "text-blue-400",
@@ -89,8 +85,6 @@ function eventTypeColor(type: string): string {
   const base = type.split(":")[0];
   return typeColors[base] || "text-zinc-400";
 }
-
-// ── StatePanel ──
 
 interface StatePanelProps {
   health: unknown;

@@ -72,8 +72,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       },
     }));
 
-    // ── Instance mode: mount an externally-created terminal ──
-    const mountedRef = useRef(false);
+        const mountedRef = useRef(false);
     const fitAddonRef = useRef(externalFit);
     fitAddonRef.current = externalFit;
 
@@ -113,9 +112,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       };
     }, [instance]);
 
-    // ── Managed mode: create and own the terminal ──
-
-    useEffect(() => {
+        useEffect(() => {
       if (instance != null) return;
 
       const el = containerRef.current;
