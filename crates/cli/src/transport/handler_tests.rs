@@ -25,10 +25,10 @@ fn session_state_starting_when_pid_zero() {
 }
 
 #[test]
-fn session_state_running_when_pid_nonzero() {
-    assert_eq!(session_state_str(&AgentState::Starting, 1), "running");
-    assert_eq!(session_state_str(&AgentState::Working, 42), "running");
-    assert_eq!(session_state_str(&AgentState::Idle, 100), "running");
+fn session_state_uses_agent_state_when_pid_nonzero() {
+    assert_eq!(session_state_str(&AgentState::Starting, 1), "starting");
+    assert_eq!(session_state_str(&AgentState::Working, 42), "working");
+    assert_eq!(session_state_str(&AgentState::Idle, 100), "idle");
 }
 
 #[test]
@@ -80,11 +80,11 @@ async fn compute_health_pid_zero_is_none() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn compute_status_running() -> anyhow::Result<()> {
+async fn compute_status_returns_agent_state() -> anyhow::Result<()> {
     let StoreCtx { store: state, .. } =
         StoreBuilder::new().child_pid(5678).agent_state(AgentState::Working).build();
     let st = compute_status(&state).await;
-    assert_eq!(st.state, "running");
+    assert_eq!(st.state, "working");
     assert_eq!(st.pid, Some(5678));
     assert!(st.uptime_secs >= 0);
     assert!(st.exit_code.is_none());

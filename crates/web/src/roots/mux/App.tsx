@@ -61,14 +61,8 @@ function AppInner() {
   const expandedRpcRef = useRef<WsRpc | null>(null);
   const [expandedWsStatus, setExpandedWsStatus] = useState<ConnectionStatus>("disconnected");
 
-  // Inspector state for expanded view
-  const [inspectorVisible, setInspectorVisible] = useState(false);
-  const [inspectorWidth, setInspectorWidth] = useState(450);
+  // Inspector data for expanded view (events/prompt/lastMessage from the WS stream)
   const [expandedEvents, setExpandedEvents] = useState<EventEntry[]>([]);
-  const [expandedHealth, setExpandedHealth] = useState<unknown>(null);
-  const [expandedStatus, setExpandedStatus] = useState<unknown>(null);
-  const [expandedAgent, setExpandedAgent] = useState<unknown>(null);
-  const [expandedUsage, setExpandedUsage] = useState<unknown>(null);
   const [expandedPrompt, setExpandedPrompt] = useState<PromptContext | null>(null);
   const [expandedLastMessage, setExpandedLastMessage] = useState<string | null>(null);
 
@@ -176,12 +170,7 @@ function AppInner() {
       expandedWsRef.current = null;
     }
     setExpandedWsStatus("disconnected");
-    setInspectorVisible(false);
     setExpandedEvents([]);
-    setExpandedHealth(null);
-    setExpandedStatus(null);
-    setExpandedAgent(null);
-    setExpandedUsage(null);
     setExpandedPrompt(null);
     setExpandedLastMessage(null);
     if (info.webgl) {
@@ -303,8 +292,6 @@ function AppInner() {
           setSessions((prev) => new Map(prev));
           setExpandedPrompt(msg.prompt ?? null);
           setExpandedLastMessage(msg.last_message ?? null);
-        } else if (msg.event === "usage:update" && msg.cumulative) {
-          setExpandedUsage({ ...msg.cumulative, uptime_secs: "(live)" });
         }
       } catch {
         // ignore parse errors
@@ -360,37 +347,6 @@ function AppInner() {
     },
     [collapseSession, expandSession],
   );
-
-  // ── Inspector polling for expanded view ──
-
-  useEffect(() => {
-    if (!expandedSession || !inspectorVisible) return;
-
-    let cancelled = false;
-    async function poll() {
-      if (cancelled || !expandedRpcRef.current) return;
-      const r = expandedRpcRef.current;
-      try {
-        const [h, st, ag, u] = await Promise.all([
-          r.request({ event: "health:get" }).catch(() => null),
-          r.request({ event: "status:get" }).catch(() => null),
-          r.request({ event: "agent:get" }).catch(() => null),
-          r.request({ event: "usage:get" }).catch(() => null),
-        ]);
-        if (cancelled) return;
-        if (h?.ok) setExpandedHealth(h.json);
-        if (st?.ok) setExpandedStatus(st.json);
-        if (ag?.ok) setExpandedAgent(ag.json);
-        if (u?.ok) setExpandedUsage(u.json);
-      } catch {
-        // ignore
-      }
-    }
-
-    poll();
-    const id = setInterval(poll, 2000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [expandedSession, inspectorVisible]);
 
   // ── Focus ──
 
@@ -570,7 +526,7 @@ function AppInner() {
   const { sidebarCollapsed, toggleSidebar } = useMux();
   const sidebarWidth = sidebarCollapsed ? 40 : 220;
 
-  // ── Inspector handlers ──
+  // ── Expanded session WS helpers ──
 
   const expandedWsSend = useCallback((msg: unknown) => {
     const ws = expandedWsRef.current;
@@ -587,33 +543,7 @@ function AppInner() {
     return rpc.request(msg);
   }, []);
 
-  const handleToggleInspector = useCallback(() => {
-    setInspectorVisible((v) => !v);
-    const id = expandedRef.current;
-    if (id) sessionsRef.current.get(id)?.term.focus();
-  }, []);
-
-  const handleInspectorResize = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const onMove = (e: MouseEvent) => {
-      const right = window.innerWidth - e.clientX;
-      setInspectorWidth(Math.min(600, Math.max(300, right)));
-    };
-    const onUp = () => {
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      const id = expandedRef.current;
-      if (id) sessionsRef.current.get(id)?.term.focus();
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, []);
-
-  const handleInspectorTabClick = useCallback(() => {
+  const handleTerminalFocus = useCallback(() => {
     const id = expandedRef.current;
     if (id) sessionsRef.current.get(id)?.term.focus();
   }, []);
@@ -715,30 +645,25 @@ function AppInner() {
               credAlert={info.credAlert}
               headerRight={
                 <button
-                  className="border-none bg-transparent p-0.5 text-sm text-zinc-500 hover:text-zinc-300"
-                  title="Collapse"
+                  className="border-none bg-transparent p-1 text-zinc-500 hover:text-zinc-300"
+                  title="Close (Esc)"
                   onClick={() => toggleExpand(expandedSession)}
                 >
-                  &#10530;
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <line x1="4" y1="4" x2="14" y2="14" />
+                    <line x1="14" y1="4" x2="4" y2="14" />
+                  </svg>
                 </button>
               }
               wsStatus={expandedWsStatus}
               agentState={info.state}
               statusLabel="[coopmux]"
-              inspectorVisible={inspectorVisible}
-              onToggleInspector={handleToggleInspector}
-              inspectorWidth={inspectorWidth}
-              onInspectorResize={handleInspectorResize}
-              health={expandedHealth}
-              status={expandedStatus}
-              agent={expandedAgent}
-              usage={expandedUsage}
               events={expandedEvents}
               prompt={expandedPrompt}
               lastMessage={expandedLastMessage}
               wsSend={expandedWsSend}
               wsRequest={expandedWsRequest}
-              onInspectorTabClick={handleInspectorTabClick}
+              onTerminalFocus={handleTerminalFocus}
             >
               <Terminal
                 instance={info.term}

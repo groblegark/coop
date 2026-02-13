@@ -86,16 +86,15 @@ pub fn to_domain_answers(answers: &[TransportQuestionAnswer]) -> Vec<QuestionAns
 }
 
 /// Determine session state string from agent state and child PID.
+///
+/// Returns the agent state wire string (e.g. `"working"`, `"idle"`, `"prompt"`).
+/// When the child process hasn't started yet (pid == 0), returns `"starting"`
+/// regardless of the agent's internal state.
 pub fn session_state_str(agent: &AgentState, child_pid: u32) -> &'static str {
-    match agent {
-        AgentState::Exited { .. } => "exited",
-        _ => {
-            if child_pid == 0 {
-                "starting"
-            } else {
-                "running"
-            }
-        }
+    if child_pid == 0 && !matches!(agent, AgentState::Exited { .. }) {
+        "starting"
+    } else {
+        agent.as_str()
     }
 }
 

@@ -24,18 +24,10 @@ export function App() {
   const [agentState, setAgentState] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<PromptContext | null>(null);
   const [lastMessage, setLastMessage] = useState<string | null>(null);
-  const [sidebarVisible, setSidebarVisible] = useState(false);
   const [ptyOffset, setPtyOffset] = useState(0);
-  const [sidebarWidth, setSidebarWidth] = useState(450);
 
   // Event log
   const [events, setEvents] = useState<EventEntry[]>([]);
-
-  // API tables (polled via WS request)
-  const [health, setHealth] = useState<unknown>(null);
-  const [status, setStatus] = useState<unknown>(null);
-  const [agent, setAgent] = useState<unknown>(null);
-  const [usage, setUsage] = useState<unknown>(null);
 
   // ── WebSocket ──
 
@@ -54,8 +46,6 @@ export function App() {
     } else if (msg.event === "exit") {
       setWsStatus("disconnected");
       setAgentState("exited");
-    } else if (msg.event === "usage:update" && msg.cumulative) {
-      setUsage({ ...msg.cumulative, uptime_secs: "(live)" });
     }
   }, []);
 
@@ -177,7 +167,7 @@ export function App() {
     });
   }, []);
 
-  // ── API polling (via WS request) ──
+  // ── Initial API poll ──
 
   const pollApi = useCallback(async () => {
     try {
@@ -192,31 +182,6 @@ export function App() {
       // ignore
     }
   }, [request]);
-
-  const pollApiFull = useCallback(async () => {
-    pollApi();
-    if (!sidebarVisible) return;
-    try {
-      const [h, st, ag, u] = await Promise.all([
-        request({ event: "health:get" }).catch(() => null),
-        request({ event: "status:get" }).catch(() => null),
-        request({ event: "agent:get" }).catch(() => null),
-        request({ event: "usage:get" }).catch(() => null),
-      ]);
-      if (h?.ok) setHealth(h.json);
-      if (st?.ok) setStatus(st.json);
-      if (ag?.ok) setAgent(ag.json);
-      if (u?.ok) setUsage(u.json);
-    } catch {
-      // ignore
-    }
-  }, [sidebarVisible, pollApi, request]);
-
-  useEffect(() => {
-    pollApiFull();
-    const id = setInterval(pollApiFull, 2000);
-    return () => clearInterval(id);
-  }, [pollApiFull]);
 
   // ── Terminal callbacks ──
 
@@ -264,36 +229,9 @@ export function App() {
     },
   });
 
-  // ── Sidebar resize ──
+  // ── Terminal focus callback ──
 
-  const handleResizeMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      const onMove = (e: MouseEvent) => {
-        const right = window.innerWidth - e.clientX;
-        setSidebarWidth(Math.min(600, Math.max(300, right)));
-      };
-      const onUp = () => {
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
-        termRef.current?.terminal?.focus();
-      };
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
-    },
-    [],
-  );
-
-  const handleToggleInspector = useCallback(() => {
-    setSidebarVisible((v) => !v);
-    termRef.current?.terminal?.focus();
-  }, []);
-
-  const handleInspectorTabClick = useCallback(() => {
+  const handleTerminalFocus = useCallback(() => {
     termRef.current?.terminal?.focus();
   }, []);
 
@@ -304,20 +242,12 @@ export function App() {
       wsStatus={wsStatus}
       agentState={agentState}
       ptyOffset={ptyOffset}
-      inspectorVisible={sidebarVisible}
-      onToggleInspector={handleToggleInspector}
-      inspectorWidth={sidebarWidth}
-      onInspectorResize={handleResizeMouseDown}
-      health={health}
-      status={status}
-      agent={agent}
-      usage={usage}
       events={events}
       prompt={prompt}
       lastMessage={lastMessage}
       wsSend={send}
       wsRequest={request}
-      onInspectorTabClick={handleInspectorTabClick}
+      onTerminalFocus={handleTerminalFocus}
     >
       <DropOverlay active={dragActive} />
       <Terminal

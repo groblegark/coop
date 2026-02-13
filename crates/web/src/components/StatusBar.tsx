@@ -1,10 +1,6 @@
-import { AgentBadge } from "./AgentBadge";
-
 export interface StatusBarProps {
   /** Label shown at far left (default: "[coop]") */
   label?: string;
-  /** Agent state — when provided, renders an AgentBadge */
-  agentState?: string | null;
   /** WebSocket connection status */
   wsStatus: "connecting" | "connected" | "disconnected";
   /** Host name shown next to the connection indicator */
@@ -19,7 +15,6 @@ export interface StatusBarProps {
 
 export function StatusBar({
   label = "[coop]",
-  agentState,
   wsStatus,
   host,
   ptyOffset,
@@ -30,7 +25,6 @@ export function StatusBar({
     <div className="flex h-8 shrink-0 items-center justify-between border-t border-[#333] bg-[#1a1a1a] px-3 font-mono text-[13px] text-zinc-300">
       <span className="flex items-center gap-2.5">
         <span className="font-bold tracking-wide text-teal-400">{label}</span>
-        {agentState && <AgentBadge state={agentState} />}
       </span>
       <span className="flex items-center gap-2.5">
         {ptyOffset != null && ptyOffset > 0 && (
