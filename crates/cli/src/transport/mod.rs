@@ -310,7 +310,7 @@ pub fn keys_to_bytes(keys: &[String]) -> Result<Vec<u8>, String> {
 }
 
 /// Embedded web terminal UI (served at `/`).
-const TERMINAL_HTML: &str = include_str!("../web/terminal.html");
+const TERMINAL_HTML: &str = include_str!("../../../web/dist/terminal.html");
 
 /// Build the axum `Router` with all HTTP and WebSocket routes.
 pub fn build_router(state: Arc<Store>) -> Router {

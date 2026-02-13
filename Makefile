@@ -1,4 +1,4 @@
-.PHONY: check ci fmt install coverage outdated try-claude try-claudeless try-gemini try-mux docker-claudeless try-docker-claudeless try-docker-claude try-docker-gemini test-docker capture-claude
+.PHONY: check ci fmt web install coverage outdated try-claude try-claudeless try-gemini try-mux docker-claudeless try-docker-claudeless try-docker-claude try-docker-gemini test-docker capture-claude
 
 # Quick checks
 #
@@ -22,6 +22,10 @@ ci:
 	cargo test --all
 	cargo audit
 	cargo deny check licenses bans sources
+
+# Build web UIs (terminal + mux dashboard)
+web:
+	cd crates/web && bun run build
 
 # Format code
 fmt:

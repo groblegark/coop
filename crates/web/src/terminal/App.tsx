@@ -1,0 +1,473 @@
+import {
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  useMemo,
+} from "react";
+import "@xterm/xterm/css/xterm.css";
+import { Terminal, type TerminalHandle } from "@/components/Terminal";
+import { DropOverlay } from "@/components/DropOverlay";
+import { useWebSocket } from "@/hooks/useWebSocket";
+import { useFileUpload } from "@/hooks/useFileUpload";
+import { apiGet, apiPost, apiPut } from "@/hooks/useApiClient";
+import { b64decode, b64encode, textToB64 } from "@/lib/base64";
+import { TERMINAL_THEME, TERMINAL_FONT_SIZE, KEY_DEFS } from "@/lib/constants";
+import type {
+  WsMessage,
+  PromptContext,
+  ApiResult,
+  UsageCumulative,
+} from "@/lib/types";
+import { StatePanel } from "./StatePanel";
+import { ActionsPanel } from "./ActionsPanel";
+import { ConfigPanel } from "./ConfigPanel";
+
+// ── App ──
+
+export function App() {
+  const termRef = useRef<TerminalHandle>(null);
+  const [wsStatus, setWsStatus] = useState<
+    "connecting" | "connected" | "disconnected"
+  >("connecting");
+  const [agentState, setAgentState] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState<PromptContext | null>(null);
+  const [lastMessage, setLastMessage] = useState<string | null>(null);
+  const [sidebarVisible, setSidebarVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState<"state" | "actions" | "config">(
+    "state",
+  );
+  const [ptyOffset, setPtyOffset] = useState(0);
+  const [sidebarWidth, setSidebarWidth] = useState(450);
+
+  // Event log
+  const [events, setEvents] = useState<EventEntry[]>([]);
+
+  // API tables (polled)
+  const [health, setHealth] = useState<unknown>(null);
+  const [status, setStatus] = useState<unknown>(null);
+  const [agent, setAgent] = useState<unknown>(null);
+  const [usage, setUsage] = useState<unknown>(null);
+
+  // ── WebSocket ──
+
+  const wsSendRef = useRef<(msg: unknown) => void>(() => {});
+
+  const onMessage = useCallback((raw: unknown) => {
+    const msg = raw as WsMessage;
+    appendEvent(msg);
+
+    if (msg.event === "pty" || msg.event === "replay") {
+      const bytes = b64decode(msg.data);
+      termRef.current?.terminal?.write(bytes);
+      setPtyOffset(msg.offset + bytes.length);
+    } else if (msg.event === "transition") {
+      setAgentState(msg.next);
+      setPrompt(msg.prompt ?? null);
+      setLastMessage(msg.last_message ?? null);
+    } else if (msg.event === "exit") {
+      const desc =
+        msg.signal != null ? `signal ${msg.signal}` : `code ${msg.code ?? "?"}`;
+      setWsStatus("disconnected");
+      setAgentState("exited");
+    } else if (msg.event === "usage:update" && msg.cumulative) {
+      setUsage({ ...msg.cumulative, uptime_secs: "(live)" });
+    }
+  }, []);
+
+  const { send, status: connectionStatus } = useWebSocket({
+    path: "/ws?subscribe=pty,state,usage,hooks",
+    onMessage,
+  });
+
+  useEffect(() => {
+    wsSendRef.current = send;
+  }, [send]);
+
+  useEffect(() => {
+    setWsStatus(connectionStatus);
+    if (connectionStatus === "connected") {
+      send({ event: "replay:get", offset: 0 });
+      const term = termRef.current?.terminal;
+      if (term) {
+        send({ event: "resize", cols: term.cols, rows: term.rows });
+      }
+      pollApi();
+    }
+  }, [connectionStatus, send]);
+
+  // Keep-alive ping
+  useEffect(() => {
+    if (connectionStatus !== "connected") return;
+    const id = setInterval(() => send({ event: "ping" }), 15_000);
+    return () => clearInterval(id);
+  }, [connectionStatus, send]);
+
+  // ── Event log ──
+
+  const appendEvent = useCallback((msg: WsMessage) => {
+    setEvents((prev) => {
+      const next = [...prev];
+      const type = msg.event;
+      const ts = new Date().toTimeString().slice(0, 8);
+
+      // Collapse pty/replay
+      if (type === "pty" || type === "replay") {
+        const len = "data" in msg && msg.data ? atob(msg.data).length : 0;
+        const last = next[next.length - 1];
+        if (last?.type === "pty") {
+          return [
+            ...next.slice(0, -1),
+            {
+              ...last,
+              ts,
+              detail: `${(last.count ?? 1) + 1}x ${(last.bytes ?? 0) + len}B thru ${("offset" in msg ? msg.offset : 0) + len}`,
+              count: (last.count ?? 1) + 1,
+              bytes: (last.bytes ?? 0) + len,
+            },
+          ];
+        }
+        return [
+          ...next,
+          {
+            ts,
+            type: "pty",
+            detail: `1x ${len}B thru ${("offset" in msg ? msg.offset : 0) + len}`,
+            count: 1,
+            bytes: len,
+          },
+        ].slice(-200);
+      }
+
+      // Collapse pong
+      if (type === "pong") {
+        const last = next[next.length - 1];
+        if (last?.type === "pong") {
+          return [
+            ...next.slice(0, -1),
+            { ...last, ts, detail: `${(last.count ?? 1) + 1}x`, count: (last.count ?? 1) + 1 },
+          ];
+        }
+        return [...next, { ts, type: "pong", detail: "1x", count: 1 }].slice(
+          -200,
+        );
+      }
+
+      // Other events
+      let detail = "";
+      if (msg.event === "transition") {
+        detail = `${msg.prev} -> ${msg.next}`;
+        if (msg.cause) detail += ` [${msg.cause}]`;
+        if (msg.error_detail)
+          detail += ` (${msg.error_category || "error"})`;
+      } else if (msg.event === "exit") {
+        detail =
+          msg.signal != null
+            ? `signal ${msg.signal}`
+            : `code ${msg.code ?? "?"}`;
+      } else if (msg.event === "error") {
+        detail = `${msg.code}: ${msg.message}`;
+      } else if (msg.event === "resize") {
+        detail = `${msg.cols}x${msg.rows}`;
+      } else if (msg.event === "stop:outcome") {
+        detail = msg.type || "";
+      } else if (msg.event === "start:outcome") {
+        detail = msg.source || "";
+        if (msg.session_id) detail += ` session=${msg.session_id}`;
+        if (msg.injected) detail += " (injected)";
+      } else if (msg.event === "prompt:outcome") {
+        detail = `${msg.source}: ${msg.type || "?"}`;
+        if (msg.subtype) detail += `(${msg.subtype})`;
+        if (msg.option != null) detail += ` opt=${msg.option}`;
+      } else if (msg.event === "session:switched") {
+        detail = msg.scheduled ? "scheduled" : "immediate";
+      } else if (msg.event === "usage:update") {
+        detail = msg.cumulative
+          ? `in=${msg.cumulative.input_tokens} out=${msg.cumulative.output_tokens} $${msg.cumulative.total_cost_usd?.toFixed(4) ?? "?"} seq=${msg.seq}`
+          : `seq=${msg.seq}`;
+      } else if (msg.event === "hook:raw") {
+        const d = msg.data || {};
+        const parts = [d.event || "?"];
+        if (d.tool_name) parts.push(d.tool_name);
+        if (d.notification_type) parts.push(d.notification_type);
+        detail = parts.join(" ");
+      }
+
+      return [...next, { ts, type: msg.event, detail }].slice(-200);
+    });
+  }, []);
+
+  // ── API polling ──
+
+  const pollApi = useCallback(async () => {
+    try {
+      const agentRes = await apiGet("/api/v1/agent");
+      if (agentRes.ok && agentRes.json) {
+        const a = agentRes.json as { state?: string; prompt?: PromptContext; last_message?: string };
+        if (a.state) setAgentState(a.state);
+        setPrompt(a.prompt ?? null);
+        setLastMessage(a.last_message ?? null);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const pollApiFull = useCallback(async () => {
+    pollApi();
+    if (!sidebarVisible) return;
+    try {
+      const [h, st, ag, u] = await Promise.all([
+        apiGet("/api/v1/health").catch(() => null),
+        apiGet("/api/v1/status").catch(() => null),
+        apiGet("/api/v1/agent").catch(() => null),
+        apiGet("/api/v1/session/usage").catch(() => null),
+      ]);
+      if (h?.ok) setHealth(h.json);
+      if (st?.ok) setStatus(st.json);
+      if (ag?.ok) setAgent(ag.json);
+      if (u?.ok) setUsage(u.json);
+    } catch {
+      // ignore
+    }
+  }, [sidebarVisible, pollApi]);
+
+  useEffect(() => {
+    pollApiFull();
+    const id = setInterval(pollApiFull, 2000);
+    return () => clearInterval(id);
+  }, [pollApiFull]);
+
+  // ── Terminal callbacks ──
+
+  const onTermData = useCallback(
+    (data: string) => {
+      const encoder = new TextEncoder();
+      send({
+        event: "input:send:raw",
+        data: b64encode(encoder.encode(data)),
+      });
+    },
+    [send],
+  );
+
+  const onTermBinary = useCallback(
+    (data: string) => {
+      const bytes = new Uint8Array(data.length);
+      for (let i = 0; i < data.length; i++) bytes[i] = data.charCodeAt(i);
+      send({ event: "input:send:raw", data: b64encode(bytes) });
+    },
+    [send],
+  );
+
+  const onTermResize = useCallback(
+    (size: { cols: number; rows: number }) => {
+      send({ event: "resize", ...size });
+    },
+    [send],
+  );
+
+  // ── File upload ──
+
+  const { dragActive } = useFileUpload({
+    uploadPath: "/api/v1/upload",
+    onUploaded: (paths) => {
+      const text = paths.join(" ") + " ";
+      const encoder = new TextEncoder();
+      send({ event: "input:send:raw", data: b64encode(encoder.encode(text)) });
+      termRef.current?.terminal?.focus();
+    },
+    onError: (msg) => {
+      termRef.current?.terminal?.write(
+        `\r\n\x1b[31m[${msg}]\x1b[0m\r\n`,
+      );
+    },
+  });
+
+  // ── Sidebar resize ──
+
+  const handleResizeMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const onMove = (e: MouseEvent) => {
+        const right = window.innerWidth - e.clientX;
+        setSidebarWidth(Math.min(600, Math.max(300, right)));
+      };
+      const onUp = () => {
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        termRef.current?.fit();
+        termRef.current?.terminal?.focus();
+      };
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [],
+  );
+
+  // Refit on sidebar toggle/resize
+  useEffect(() => {
+    requestAnimationFrame(() => termRef.current?.fit());
+  }, [sidebarVisible, sidebarWidth]);
+
+  // Window resize
+  useEffect(() => {
+    const onResize = () => termRef.current?.fit();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // ── Status bar state class ──
+
+  const stateClass = useMemo(() => {
+    if (!agentState) return "";
+    const s = agentState.toLowerCase();
+    if (s === "working") return "border-emerald-400 text-emerald-400";
+    if (s === "idle" || s === "waiting_for_input")
+      return "border-amber-500 text-amber-500";
+    if (s.includes("prompt")) return "border-blue-400 text-blue-400";
+    if (s === "starting" || s.includes("setup"))
+      return "border-purple-400 text-purple-400";
+    if (s.includes("error") || s === "parked")
+      return "border-red-400 text-red-400";
+    if (s === "exited") return "border-zinc-500 text-zinc-500";
+    return "border-zinc-600 text-zinc-400";
+  }, [agentState]);
+
+  return (
+    <div className="flex h-screen flex-col overflow-hidden bg-[#1e1e1e]">
+      <DropOverlay active={dragActive} />
+
+      {/* Main area */}
+      <div className="flex min-h-0 flex-1">
+        {/* Terminal */}
+        <Terminal
+          ref={termRef}
+          fontSize={TERMINAL_FONT_SIZE}
+          theme={TERMINAL_THEME}
+          className="min-w-0 flex-1 p-4"
+          onData={onTermData}
+          onBinary={onTermBinary}
+          onResize={onTermResize}
+        />
+
+        {/* Resize handle */}
+        {sidebarVisible && (
+          <div
+            className="w-[5px] shrink-0 cursor-col-resize transition-colors hover:bg-blue-400"
+            onMouseDown={handleResizeMouseDown}
+          />
+        )}
+
+        {/* Sidebar */}
+        {sidebarVisible && (
+          <div
+            className="flex shrink-0 flex-col overflow-hidden border-l border-[#333] bg-[#181818] font-mono text-xs text-zinc-400"
+            style={{ width: sidebarWidth }}
+          >
+            {/* Tab bar */}
+            <div className="flex shrink-0 border-b border-[#333] bg-[#151515]">
+              {(["state", "actions", "config"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  className={`flex-1 border-b-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+                    activeTab === tab
+                      ? "border-blue-400 text-zinc-300"
+                      : "border-transparent text-zinc-600 hover:text-zinc-400"
+                  }`}
+                  onClick={() => {
+                    setActiveTab(tab);
+                    termRef.current?.terminal?.focus();
+                  }}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+            {/* Panels */}
+            {activeTab === "state" && (
+              <StatePanel
+                health={health}
+                status={status}
+                agent={agent}
+                usage={usage}
+                events={events}
+              />
+            )}
+            {activeTab === "actions" && (
+              <ActionsPanel
+                prompt={prompt}
+                lastMessage={lastMessage}
+                wsSend={send}
+              />
+            )}
+            {activeTab === "config" && <ConfigPanel />}
+          </div>
+        )}
+      </div>
+
+      {/* Status bar */}
+      <div className="flex h-8 shrink-0 items-center justify-between border-t border-[#333] bg-[#1a1a1a] px-3 font-mono text-[13px] text-zinc-300">
+        <span className="flex items-center gap-2.5">
+          <span className="font-bold tracking-wide text-teal-400">
+            [coop]
+          </span>
+          {agentState && (
+            <span
+              className={`inline-block min-w-[90px] rounded border px-2.5 py-0.5 text-center font-semibold ${stateClass}`}
+            >
+              {agentState}
+            </span>
+          )}
+          <span className="flex items-center">
+            <span
+              className={`mr-1.5 inline-block h-2 w-2 rounded-full ${
+                wsStatus === "connected"
+                  ? "bg-green-500"
+                  : wsStatus === "connecting"
+                    ? "bg-amber-500"
+                    : "bg-red-500"
+              }`}
+            />
+            <span>
+              {wsStatus === "connected"
+                ? `Connected — ${location.host}`
+                : wsStatus === "connecting"
+                  ? "Connecting…"
+                  : "Disconnected"}
+            </span>
+          </span>
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="text-xs text-zinc-600">
+            {ptyOffset > 0 && `offset: ${ptyOffset}`}
+          </span>
+          <button
+            className="rounded border border-zinc-600 px-2.5 py-0.5 font-mono text-[11px] text-zinc-200 hover:border-zinc-400 hover:text-white"
+            onClick={() => {
+              setSidebarVisible((v) => !v);
+              termRef.current?.terminal?.focus();
+            }}
+          >
+            {sidebarVisible ? "Hide" : "Inspector"}
+          </button>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── Event entry type ──
+
+export interface EventEntry {
+  ts: string;
+  type: string;
+  detail: string;
+  count?: number;
+  bytes?: number;
+}
