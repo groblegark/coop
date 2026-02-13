@@ -36,7 +36,7 @@ function StatusBadge({ status }: { status: string }) {
 
 /** Env key options per provider. First entry is the default. */
 const providerEnvKeys: Record<string, string[]> = {
-  claude: ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"],
+  claude: ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
   openai: ["OPENAI_API_KEY"],
   gemini: ["GEMINI_API_KEY"],
   other: ["API_KEY"],

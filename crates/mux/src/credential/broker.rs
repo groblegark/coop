@@ -111,7 +111,8 @@ impl CredentialBroker {
                 state.access_token = Some(persisted.access_token.clone());
                 state.refresh_token = persisted.refresh_token.clone();
                 state.expires_at = persisted.expires_at;
-                if persisted.expires_at > epoch_secs() {
+                // expires_at == 0 means no expiry (long-lived token).
+                if persisted.expires_at == 0 || persisted.expires_at > epoch_secs() {
                     state.status = AccountStatus::Healthy;
                 } else {
                     state.status = AccountStatus::Expired;
@@ -536,9 +537,12 @@ impl CredentialBroker {
                 let refresh_token = match &state.refresh_token {
                     Some(rt) => rt.clone(),
                     None => {
-                        // No refresh token — mark expired, drop lock, then wait.
+                        // No refresh token. If token has no expiry (long-lived)
+                        // or hasn't expired yet, keep current status and wait.
+                        // Otherwise mark expired.
+                        let is_expired = state.expires_at > 0 && state.expires_at <= epoch_secs();
                         drop(accounts);
-                        {
+                        if is_expired {
                             let mut accounts = self.accounts.write().await;
                             if let Some(s) = accounts.get_mut(account_name) {
                                 s.status = AccountStatus::Expired;
