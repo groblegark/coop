@@ -12,7 +12,13 @@ export interface TerminalHandle {
 }
 
 interface TerminalProps {
-  fontSize: number;
+  /** Externally-created terminal — skip managed creation when provided. */
+  instance?: XTerm;
+  /** FitAddon for ResizeObserver fitting in instance mode. */
+  fitAddon?: FitAddon;
+  /** Fires after instance.open() — use for replaying cached screen data. */
+  onReady?: () => void;
+  fontSize?: number;
   fontFamily?: string;
   theme?: ITheme;
   scrollback?: number;
@@ -27,6 +33,9 @@ interface TerminalProps {
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
   function Terminal(
     {
+      instance,
+      fitAddon: externalFit,
+      onReady,
       fontSize,
       fontFamily = "'SF Mono', 'Cascadia Code', 'Fira Code', Menlo, Monaco, monospace",
       theme,
@@ -51,22 +60,58 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
     onBinaryRef.current = onBinary;
     const onResizeRef = useRef(onResize);
     onResizeRef.current = onResize;
+    const onReadyRef = useRef(onReady);
+    onReadyRef.current = onReady;
 
     useImperativeHandle(ref, () => ({
       get terminal() {
-        return termRef.current;
+        return instance ?? termRef.current;
       },
       fit() {
-        fitRef.current?.fit();
+        (externalFit ?? fitRef.current)?.fit();
       },
     }));
 
+    // ── Instance mode: mount an externally-created terminal ──
+    const mountedRef = useRef(false);
+
     useEffect(() => {
+      if (instance == null) return;
+
+      const el = containerRef.current;
+      if (!el || mountedRef.current) return;
+
+      instance.open(el);
+      mountedRef.current = true;
+      onReadyRef.current?.();
+
+      let observer: ResizeObserver | undefined;
+      if (externalFit) {
+        observer = new ResizeObserver(() => {
+          requestAnimationFrame(() => externalFit.fit());
+        });
+        observer.observe(el);
+      }
+
+      return () => {
+        observer?.disconnect();
+        mountedRef.current = false;
+        // Clear container DOM for React strict-mode remount, but do NOT
+        // dispose — the instance is owned externally.
+        while (el.firstChild) el.removeChild(el.firstChild);
+      };
+    }, [instance, externalFit]);
+
+    // ── Managed mode: create and own the terminal ──
+
+    useEffect(() => {
+      if (instance != null) return;
+
       const el = containerRef.current;
       if (!el) return;
 
       const term = new XTerm({
-        fontSize,
+        fontSize: fontSize ?? 14,
         fontFamily,
         theme: theme ?? THEME,
         scrollback,
@@ -109,7 +154,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         termRef.current = null;
         fitRef.current = null;
       };
-    }, [fontSize, fontFamily, theme, scrollback, cursorBlink, disableStdin]);
+    }, [instance, fontSize, fontFamily, theme, scrollback, cursorBlink, disableStdin]);
 
     return (
       <div

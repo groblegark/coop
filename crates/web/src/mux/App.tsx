@@ -8,11 +8,11 @@ import {
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-import "@xterm/xterm/css/xterm.css";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useFileUpload } from "@/hooks/useFileUpload";
 import { AgentBadge } from "@/components/AgentBadge";
 import { DropOverlay } from "@/components/DropOverlay";
+import { Terminal } from "@/components/Terminal";
 import { b64decode, b64encode } from "@/lib/base64";
 import {
   MONO_FONT,
@@ -55,21 +55,14 @@ function Tile({
   onFocus: () => void;
   onToggleExpand: () => void;
 }) {
-  const termContainerRef = useRef<HTMLDivElement>(null);
-  const mountedRef = useRef(false);
-
-  useEffect(() => {
-    const el = termContainerRef.current;
-    if (!el || mountedRef.current) return;
-    info.term.open(el);
-    mountedRef.current = true;
+  const handleReady = useCallback(() => {
     // Re-render cached screen after open() to handle screen_batch that
     // arrived before the terminal was mounted into the DOM.
     if (info.lastScreenLines && !expanded) {
       info.term.resize(info.sourceCols, info.lastScreenLines.length);
       info.term.write(info.lastScreenLines.join("\r\n"));
     }
-  }, [info.term, expanded]);
+  }, [info, expanded]);
 
   const title = useMemo(() => {
     if (info.metadata?.k8s?.pod) return info.metadata.k8s.pod;
@@ -132,9 +125,12 @@ function Tile({
 
       {/* Terminal */}
       <div className="relative flex-1 overflow-hidden">
-        <div
-          ref={termContainerRef}
+        <Terminal
+          instance={info.term}
+          fitAddon={expanded ? info.fit : undefined}
+          theme={THEME}
           className={expanded ? "h-full p-4" : "absolute bottom-0 left-0"}
+          onReady={handleReady}
         />
       </div>
     </div>
@@ -519,25 +515,6 @@ export function App() {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [toggleExpand]);
-
-  // ── Window resize ──
-
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    const onResize = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        if (expandedRef.current) {
-          sessionsRef.current.get(expandedRef.current)?.fit.fit();
-        }
-      }, 100);
-    };
-    window.addEventListener("resize", onResize);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener("resize", onResize);
-    };
-  }, []);
 
   // ── Render ──
 
