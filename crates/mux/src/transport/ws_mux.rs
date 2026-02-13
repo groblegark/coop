@@ -117,9 +117,10 @@ struct ScreenThumbnail {
 pub async fn ws_mux_handler(
     State(state): State<Arc<MuxState>>,
     Query(query): Query<MuxWsQuery>,
+    headers: axum::http::HeaderMap,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    // Validate auth.
+    // Validate auth: query param `?token=` first, then Authorization header fallback.
     if state.config.auth_token.is_some() {
         if let Some(ref token) = query.token {
             if auth::validate_ws_query(token, state.config.auth_token.as_deref()).is_err() {
@@ -129,7 +130,7 @@ pub async fn ws_mux_handler(
                     .unwrap_or_default()
                     .into_response();
             }
-        } else {
+        } else if auth::validate_bearer(&headers, state.config.auth_token.as_deref()).is_err() {
             return axum::http::Response::builder()
                 .status(401)
                 .body(axum::body::Body::from("token required"))
