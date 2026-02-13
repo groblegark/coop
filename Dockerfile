@@ -15,7 +15,9 @@ RUN case "$TARGETARCH" in \
     esac \
     && cargo build --release --target "$RUST_TARGET" \
     && strip "target/$RUST_TARGET/release/coop" \
-    && cp "target/$RUST_TARGET/release/coop" /coop-bin
+    && cp "target/$RUST_TARGET/release/coop" /coop-bin \
+    && strip "target/$RUST_TARGET/release/coopmux" \
+    && cp "target/$RUST_TARGET/release/coopmux" /coopmux-bin
 
 # ---------------------------------------------------------------------------
 # Base: common developer tools shared by all runtime stages
@@ -69,3 +71,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
 RUN npm install -g @google/gemini-cli
 COPY --from=builder /coop-bin /usr/local/bin/coop
 ENTRYPOINT ["coop"]
+
+# ---------------------------------------------------------------------------
+# Coopmux: mux server with kubectl for launching session pods in Kubernetes
+# ---------------------------------------------------------------------------
+FROM base AS coopmux
+ARG TARGETARCH
+RUN curl -fsSL "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${TARGETARCH}/kubectl" \
+    -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl
+COPY --from=builder /coopmux-bin /usr/local/bin/coopmux
+COPY deploy/k8s-launch.sh /usr/local/bin/coop-launch
+RUN chmod +x /usr/local/bin/coop-launch
+ENTRYPOINT ["coopmux"]

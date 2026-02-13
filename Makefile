@@ -1,4 +1,4 @@
-.PHONY: check ci fmt web install coverage outdated try-claude try-claudeless try-gemini try-mux docker-claudeless try-docker-claudeless try-docker-claude try-docker-gemini test-docker capture-claude
+.PHONY: check ci fmt web install coverage outdated try-claude try-claudeless try-gemini try-mux docker-claudeless try-docker-claudeless try-docker-claude try-docker-gemini try-k8s test-docker capture-claude
 
 # Quick checks
 #
@@ -81,6 +81,10 @@ try-docker-claude:
 # Launch coop + gemini CLI in Docker with browser terminal
 try-docker-gemini:
 	@bun tests/debug/start-docker.ts gemini
+
+# Launch coopmux + claude in local k8s cluster (kind or k3d)
+try-k8s:
+	@bun tests/debug/start-k8s.ts
 
 # Capture state changes during claude onboarding (interactive)
 # Usage: make capture-claude CONFIG=empty    (full onboarding)
