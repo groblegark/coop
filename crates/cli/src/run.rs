@@ -735,24 +735,14 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     // Spawn NATS publisher
     {
-        use crate::driver::nats_recv::NatsConfig;
         use crate::transport::nats_pub::{NatsPubConfig, NatsPublisher};
         use tokio::sync::broadcast;
 
-        // Use explicit config or auto-discover from env.
-        let nats_config = if let Some(ref url) = config.nats_url {
-            Some(NatsPubConfig {
-                url: url.clone(),
-                token: config.nats_token.clone(),
-                prefix: config.nats_prefix.clone(),
-            })
-        } else {
-            NatsConfig::from_env().map(|c| NatsPubConfig {
-                url: c.url,
-                token: c.token,
-                prefix: config.nats_prefix.clone(),
-            })
-        };
+        let nats_config = config.nats_url.as_ref().map(|url| NatsPubConfig {
+            url: url.clone(),
+            token: config.nats_token.clone(),
+            prefix: config.nats_prefix.clone(),
+        });
 
         if let Some(pub_config) = nats_config {
             if !config.nats_publish_disable {

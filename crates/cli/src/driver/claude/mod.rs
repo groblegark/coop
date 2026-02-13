@@ -15,8 +15,6 @@ use std::path::{Path, PathBuf};
 use crate::config::Config;
 
 use super::hook_recv::HookReceiver;
-use super::nats_detect::NatsDetector;
-use super::nats_recv::{NatsConfig, NatsReceiver};
 use super::{Detector, DetectorSinks};
 use encoding::{ClaudeNudgeEncoder, ClaudeRespondEncoder};
 use stream::LogDetector;
@@ -48,9 +46,6 @@ impl ClaudeDriver {
         let DetectorSinks { last_message, raw_hook_tx, raw_message_tx, stdout_rx, usage } = sinks;
         let mut detectors: Vec<Box<dyn Detector>> = Vec::new();
 
-        // Clone raw_hook_tx before consuming it, for NATS detector.
-        let nats_hook_tx = raw_hook_tx.clone();
-
         // Tier 1: Hook events (highest confidence)
         if let Some(pipe_path) = hook_pipe_path {
             let receiver = HookReceiver::new(pipe_path)?;
@@ -76,17 +71,6 @@ impl ClaudeDriver {
                 last_message,
                 raw_message_tx,
             )));
-        }
-
-        // Tier 1 (NATS): Hook events from bd daemon via JetStream.
-        // Uses auto-discovery from env vars / nats-info.json.
-        if let Some(nats_config) = NatsConfig::from_env() {
-            let receiver = NatsReceiver::new(nats_config);
-            detectors.push(Box::new(NatsDetector {
-                receiver,
-                map_event: stream::map_claude_hook,
-                raw_hook_tx: nats_hook_tx,
-            }));
         }
 
         // Sort by tier (lowest number = highest priority)

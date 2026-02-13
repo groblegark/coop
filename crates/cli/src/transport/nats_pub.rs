@@ -4,11 +4,6 @@
 //! NATS event publisher — broadcasts coop state transitions, stop events,
 //! and credential events to a NATS server so external consumers can subscribe
 //! without polling.
-//!
-//! This is the outbound counterpart to the inbound `driver::nats_recv` module.
-//! The receiver consumes hook events from bd daemon; the publisher emits coop's
-//! own derived events (state transitions, stop verdicts, credential refreshes)
-//! back to NATS.
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
