@@ -34,6 +34,18 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+/** Env key options per provider. First entry is the default. */
+const providerEnvKeys: Record<string, string[]> = {
+  claude: ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"],
+  openai: ["OPENAI_API_KEY"],
+  gemini: ["GEMINI_API_KEY"],
+  other: ["API_KEY"],
+};
+
+function envKeysForProvider(provider: string): string[] {
+  return providerEnvKeys[provider] ?? ["API_KEY"];
+}
+
 function formatExpiry(secs: number): string {
   if (secs < 60) return `${secs}s`;
   if (secs < 3600) return `${Math.floor(secs / 60)}m`;
@@ -140,6 +152,7 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
 
   const [formName, setFormName] = useState("");
   const [formProvider, setFormProvider] = useState("claude");
+  const [formEnvKey, setFormEnvKey] = useState(envKeysForProvider("claude")[0]);
   const [formToken, setFormToken] = useState("");
   const [formSubmitting, setFormSubmitting] = useState(false);
 
@@ -148,7 +161,11 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
     setFormSubmitting(true);
     setResult(null);
 
-    const body: Record<string, unknown> = { name: formName.trim(), provider: formProvider };
+    const body: Record<string, unknown> = {
+      name: formName.trim(),
+      provider: formProvider,
+      env_key: formEnvKey,
+    };
     if (formToken.trim()) {
       body.token = formToken.trim();
     }
@@ -160,10 +177,11 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
     if (res.ok) {
       setFormName("");
       setFormToken("");
+      setFormEnvKey(envKeysForProvider(formProvider)[0]);
       setShowForm(false);
       fetchStatus();
     }
-  }, [formName, formProvider, formToken, fetchStatus]);
+  }, [formName, formProvider, formEnvKey, formToken, fetchStatus]);
 
   return (
     <div
@@ -294,7 +312,10 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
               <select
                 className="rounded border border-[#2a2a2a] bg-[#0d1117] px-1.5 py-1 text-[11px] font-mono text-zinc-300 outline-none"
                 value={formProvider}
-                onChange={(e) => setFormProvider(e.target.value)}
+                onChange={(e) => {
+                  setFormProvider(e.target.value);
+                  setFormEnvKey(envKeysForProvider(e.target.value)[0]);
+                }}
               >
                 <option value="claude">claude</option>
                 <option value="openai">openai</option>
@@ -302,9 +323,20 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
                 <option value="other">other</option>
               </select>
             </div>
+            <select
+              className="mb-1.5 w-full rounded border border-[#2a2a2a] bg-[#0d1117] px-2 py-1 text-[11px] font-mono text-zinc-300 outline-none"
+              value={formEnvKey}
+              onChange={(e) => setFormEnvKey(e.target.value)}
+            >
+              {envKeysForProvider(formProvider).map((key) => (
+                <option key={key} value={key}>
+                  {key}
+                </option>
+              ))}
+            </select>
             <input
               className="mb-1.5 w-full rounded border border-[#2a2a2a] bg-[#0d1117] px-2 py-1 text-[11px] font-mono text-zinc-300 placeholder-zinc-600 outline-none focus:border-zinc-500"
-              placeholder="API key (optional)"
+              placeholder="Token (optional)"
               type="password"
               value={formToken}
               onChange={(e) => setFormToken(e.target.value)}
