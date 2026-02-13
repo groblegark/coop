@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use axum::http::StatusCode;
 use axum::middleware;
-use axum::response::Html;
+use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -312,10 +312,43 @@ pub fn keys_to_bytes(keys: &[String]) -> Result<Vec<u8>, String> {
 /// Embedded web terminal UI (served at `/`).
 const TERMINAL_HTML: &str = include_str!("../../../web/dist/terminal.html");
 
+/// Path to on-disk terminal HTML (debug builds only, for `--hot` live reload).
+#[cfg(debug_assertions)]
+const TERMINAL_HTML_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/dist/terminal.html");
+
+/// Build the axum `Router`, optionally serving HTML from disk for live reload.
+#[cfg(debug_assertions)]
+pub fn build_router_hot(state: Arc<Store>, hot: bool) -> Router {
+    if hot {
+        build_router_inner(
+            state,
+            get(|| async {
+                match tokio::fs::read_to_string(TERMINAL_HTML_PATH).await {
+                    Ok(html) => Html(html).into_response(),
+                    Err(e) => (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("failed to read terminal.html: {e}"),
+                    )
+                        .into_response(),
+                }
+            }),
+        )
+    } else {
+        build_router_inner(state, get(|| async { Html(TERMINAL_HTML) }))
+    }
+}
+
 /// Build the axum `Router` with all HTTP and WebSocket routes.
 pub fn build_router(state: Arc<Store>) -> Router {
+    build_router_inner(state, get(|| async { Html(TERMINAL_HTML) }))
+}
+
+fn build_router_inner(
+    state: Arc<Store>,
+    index_route: axum::routing::MethodRouter<Arc<Store>>,
+) -> Router {
     Router::new()
-        .route("/", get(|| async { Html(TERMINAL_HTML) }))
+        .route("/", index_route)
         .route("/api/v1/health", get(http::health))
         .route("/api/v1/ready", get(http::ready))
         .route("/api/v1/screen", get(http::screen))

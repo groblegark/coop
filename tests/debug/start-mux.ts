@@ -44,7 +44,7 @@ if (!(await Bun.file(muxBin).exists())) {
 // -- Start coopmux ----------------------------------------------------------
 
 console.log(`Starting coopmux on port ${muxPort}`);
-const muxProc = Bun.spawn([muxBin, "--port", String(muxPort)], {
+const muxProc = Bun.spawn([muxBin, "--port", String(muxPort), "--hot"], {
 	stdout: "inherit",
 	stderr: "inherit",
 	stdin: "ignore",

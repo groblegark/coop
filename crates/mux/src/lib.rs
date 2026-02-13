@@ -19,7 +19,10 @@ use tokio_util::sync::CancellationToken;
 use crate::config::MuxConfig;
 use crate::credential::broker::CredentialBroker;
 use crate::state::MuxState;
+#[cfg(not(debug_assertions))]
 use crate::transport::build_router;
+#[cfg(debug_assertions)]
+use crate::transport::build_router_hot;
 use crate::upstream::health::spawn_health_checker;
 
 /// Run the mux server until shutdown.
@@ -72,6 +75,9 @@ pub async fn run(config: MuxConfig) -> anyhow::Result<()> {
 
         tracing::info!("coopmux listening on {addr} (credentials enabled)");
         spawn_health_checker(Arc::clone(&state));
+        #[cfg(debug_assertions)]
+        let router = build_router_hot(state, config.hot);
+        #[cfg(not(debug_assertions))]
         let router = build_router(state);
         let listener = TcpListener::bind(&addr).await?;
         axum::serve(listener, router).with_graceful_shutdown(shutdown.cancelled_owned()).await?;
@@ -79,6 +85,9 @@ pub async fn run(config: MuxConfig) -> anyhow::Result<()> {
         let state = Arc::new(state);
         tracing::info!("coopmux listening on {addr}");
         spawn_health_checker(Arc::clone(&state));
+        #[cfg(debug_assertions)]
+        let router = build_router_hot(state, config.hot);
+        #[cfg(not(debug_assertions))]
         let router = build_router(state);
         let listener = TcpListener::bind(&addr).await?;
         axum::serve(listener, router).with_graceful_shutdown(shutdown.cancelled_owned()).await?;

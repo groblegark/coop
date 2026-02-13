@@ -45,7 +45,7 @@ if (!(await Bun.file(bin).exists())) {
 
 console.log(`Starting coop on port ${port}: ${cmd.join(" ")}`);
 const proc = Bun.spawn(
-	[bin, "--port", String(port), "--log-format", "text", "--", ...cmd],
+	[bin, "--port", String(port), "--log-format", "text", "--hot", "--", ...cmd],
 	{
 		stdout: "inherit",
 		stderr: "inherit",

@@ -38,11 +38,15 @@ use crate::start::StartState;
 use crate::stop::StopState;
 use crate::switch::{SwitchRequest, SwitchState};
 use crate::transcript::TranscriptState;
+#[cfg(not(debug_assertions))]
+use crate::transport::build_router;
+#[cfg(debug_assertions)]
+use crate::transport::build_router_hot;
 use crate::transport::grpc::CoopGrpc;
 use crate::transport::state::{
     DetectionInfo, DriverState, LifecycleState, SessionSettings, TerminalState, TransportChannels,
 };
-use crate::transport::{build_health_router, build_router, Store};
+use crate::transport::{build_health_router, Store};
 use crate::usage::UsageState;
 
 /// Result of a completed session.
@@ -591,6 +595,9 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     // Spawn HTTP server
     if let Some(port) = config.port {
+        #[cfg(debug_assertions)]
+        let router = build_router_hot(Arc::clone(&store), config.hot);
+        #[cfg(not(debug_assertions))]
         let router = build_router(Arc::clone(&store));
         let addr = format!("{}:{}", config.host, port);
         let listener = TcpListener::bind(&addr).await?;
@@ -607,6 +614,9 @@ pub async fn prepare(config: Config) -> anyhow::Result<PreparedSession> {
 
     // Spawn Unix socket server
     if let Some(ref socket_path) = config.socket {
+        #[cfg(debug_assertions)]
+        let router = build_router_hot(Arc::clone(&store), config.hot);
+        #[cfg(not(debug_assertions))]
         let router = build_router(Arc::clone(&store));
         let path = socket_path.clone();
         // Remove stale socket

@@ -155,6 +155,11 @@ pub struct Config {
     #[arg(long, env = "COOP_GROOM", default_value = "auto")]
     pub groom: String,
 
+    /// Serve web assets from disk instead of embedded (for live reload during dev).
+    #[cfg(debug_assertions)]
+    #[arg(long, hide = true, env = "COOP_HOT")]
+    pub hot: bool,
+
     /// Profile rotation mode: auto or manual.
     #[arg(long, env = "COOP_PROFILE", default_value = "auto")]
     pub profile: String,
@@ -315,6 +320,8 @@ impl Config {
             nats_password: None,
             nats_creds: None,
             groom: "manual".into(),
+            #[cfg(debug_assertions)]
+            hot: false,
             profile: "auto".into(),
             command: vec!["echo".into()],
             drain_timeout_ms: Some(100),

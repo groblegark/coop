@@ -35,6 +35,11 @@ pub struct MuxConfig {
     /// Path to credential configuration JSON file.
     #[arg(long, env = "COOP_MUX_CREDENTIAL_CONFIG")]
     pub credential_config: Option<std::path::PathBuf>,
+
+    /// Serve web assets from disk instead of embedded (for live reload during dev).
+    #[cfg(debug_assertions)]
+    #[arg(long, hide = true, env = "COOP_HOT")]
+    pub hot: bool,
 }
 
 impl MuxConfig {

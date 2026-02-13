@@ -29,6 +29,8 @@ fn test_config() -> MuxConfig {
         health_check_ms: 10000,
         max_health_failures: 3,
         credential_config: None,
+        #[cfg(debug_assertions)]
+        hot: false,
     }
 }
 

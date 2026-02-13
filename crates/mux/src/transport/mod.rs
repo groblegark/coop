@@ -22,8 +22,43 @@ use crate::state::MuxState;
 /// Embedded mux dashboard HTML.
 const MUX_HTML: &str = include_str!("../../../web/dist/mux.html");
 
+/// Path to on-disk mux HTML (debug builds only, for `--hot` live reload).
+#[cfg(debug_assertions)]
+const MUX_HTML_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/dist/mux.html");
+
+/// Build the axum `Router`, optionally serving HTML from disk for live reload.
+#[cfg(debug_assertions)]
+pub fn build_router_hot(state: Arc<MuxState>, hot: bool) -> Router {
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+
+    if hot {
+        build_router_inner(
+            state,
+            get(|| async {
+                match tokio::fs::read_to_string(MUX_HTML_PATH).await {
+                    Ok(html) => Html(html).into_response(),
+                    Err(e) => {
+                        (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to read mux.html: {e}"))
+                            .into_response()
+                    }
+                }
+            }),
+        )
+    } else {
+        build_router_inner(state, get(|| async { Html(MUX_HTML) }))
+    }
+}
+
 /// Build the axum `Router` with all mux routes.
 pub fn build_router(state: Arc<MuxState>) -> Router {
+    build_router_inner(state, get(|| async { Html(MUX_HTML) }))
+}
+
+fn build_router_inner(
+    state: Arc<MuxState>,
+    mux_route: axum::routing::MethodRouter<Arc<MuxState>>,
+) -> Router {
     Router::new()
         // Health (no auth)
         .route("/api/v1/health", get(http::health))
@@ -43,7 +78,7 @@ pub fn build_router(state: Arc<MuxState>) -> Router {
         .route("/ws/{session_id}", get(ws::ws_handler))
         // Mux aggregation
         .route("/ws/mux", get(ws_mux::ws_mux_handler))
-        .route("/mux", get(|| async { Html(MUX_HTML) }))
+        .route("/mux", mux_route)
         // Credential management (returns 400 when broker not configured)
         .route("/api/v1/credentials/status", get(http_cred::credentials_status))
         .route("/api/v1/credentials/seed", post(http_cred::credentials_seed))
