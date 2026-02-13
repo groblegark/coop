@@ -46,3 +46,22 @@ fn build_auth_url_includes_params() -> anyhow::Result<()> {
     assert!(url.contains("state=state-xyz"));
     Ok(())
 }
+
+#[test]
+fn build_auth_url_appends_to_existing_query() -> anyhow::Result<()> {
+    let url = build_auth_url(
+        "https://claude.ai/oauth/authorize?code=true",
+        "client-123",
+        "http://localhost/callback",
+        "user:inference",
+        "challenge-abc",
+        "state-xyz",
+    );
+    // Should use & (not ?) since base URL already has query params.
+    assert!(url.starts_with("https://claude.ai/oauth/authorize?code=true&"));
+    assert!(url.contains("response_type=code"));
+    // Must not contain "??" or "?&".
+    assert!(!url.contains("??"));
+    assert!(!url.contains("?&"));
+    Ok(())
+}
