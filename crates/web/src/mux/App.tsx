@@ -31,6 +31,7 @@ interface SessionInfo {
   metadata: MuxMetadata | null;
   term: XTerm;
   fit: FitAddon;
+  webgl: WebglAddon | null;
   sourceCols: number;
   sourceRows: number;
   lastScreenLines: string[] | null;
@@ -61,13 +62,6 @@ function Tile({
     const el = termContainerRef.current;
     if (!el || mountedRef.current) return;
     info.term.open(el);
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
-      info.term.loadAddon(webgl);
-    } catch {
-      // canvas fallback
-    }
     mountedRef.current = true;
   }, [info.term]);
 
@@ -237,6 +231,7 @@ export function App() {
         metadata,
         term,
         fit,
+        webgl: null,
         sourceCols: 80,
         sourceRows: 24,
         lastScreenLines: null,
@@ -254,6 +249,10 @@ export function App() {
     if (expandedWsRef.current) {
       expandedWsRef.current.close();
       expandedWsRef.current = null;
+    }
+    if (info.webgl) {
+      info.webgl.dispose();
+      info.webgl = null;
     }
     info.term.options.fontSize = PREVIEW_FONT_SIZE;
     info.term.options.scrollback = 0;
@@ -309,6 +308,17 @@ export function App() {
       info.term.reset();
       info.term.options.disableStdin = false;
       info.term.focus();
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => {
+          webgl.dispose();
+          if (info.webgl === webgl) info.webgl = null;
+        });
+        info.term.loadAddon(webgl);
+        info.webgl = webgl;
+      } catch {
+        // canvas fallback
+      }
       requestAnimationFrame(() => {
         info.fit.fit();
         connectExpandedWs(id, info);

@@ -181,14 +181,15 @@ async fn handle_mux_ws(state: Arc<MuxState>, socket: WebSocket) {
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(_) => break,
                 };
-                // Forward credential events to all clients; other events only for watched sessions.
+                // Forward session lifecycle and credential events to all clients;
+                // state transitions only for watched sessions.
                 let should_forward = match &event {
                     MuxEvent::CredentialRefreshed { .. }
                     | MuxEvent::CredentialRefreshFailed { .. }
-                    | MuxEvent::CredentialReauthRequired { .. } => true,
-                    MuxEvent::State { session, .. }
-                    | MuxEvent::SessionOnline { session, .. }
-                    | MuxEvent::SessionOffline { session } => watched.contains(session),
+                    | MuxEvent::CredentialReauthRequired { .. }
+                    | MuxEvent::SessionOnline { .. }
+                    | MuxEvent::SessionOffline { .. } => true,
+                    MuxEvent::State { session, .. } => watched.contains(session),
                 };
                 if should_forward {
                     let msg = MuxServerMessage::Event(event);

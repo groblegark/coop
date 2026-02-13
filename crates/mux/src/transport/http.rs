@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use crate::error::MuxError;
-use crate::state::{epoch_ms, MuxState, SessionEntry};
+use crate::state::{epoch_ms, MuxEvent, MuxState, SessionEntry};
 use crate::upstream::client::UpstreamClient;
 
 // -- Request/Response types ---------------------------------------------------
@@ -85,6 +85,10 @@ pub async fn register_session(
     let metadata = req.metadata.unwrap_or(serde_json::Value::Null);
     let cancel = CancellationToken::new();
 
+    // Clone values needed for the SessionOnline event before moving into entry.
+    let event_url = url.clone();
+    let event_metadata = metadata.clone();
+
     let entry = Arc::new(SessionEntry {
         id: id.clone(),
         url,
@@ -112,6 +116,12 @@ pub async fn register_session(
         }
     };
     if is_new {
+        // Notify connected dashboard clients about the new session.
+        let _ = s.feed.event_tx.send(MuxEvent::SessionOnline {
+            session: id.clone(),
+            url: event_url,
+            metadata: event_metadata,
+        });
         tracing::info!(session_id = %id, "session registered");
     } else {
         tracing::debug!(session_id = %id, "session re-registered (heartbeat)");

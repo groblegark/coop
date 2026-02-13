@@ -28,6 +28,7 @@ pub fn spawn_screen_poller(
         let entry = Arc::clone(&entry);
         let cancel = cancel.clone();
         tokio::spawn(async move {
+            let client = UpstreamClient::new(entry.url.clone(), entry.auth_token.clone());
             let mut interval = tokio::time::interval(screen_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -37,7 +38,6 @@ pub fn spawn_screen_poller(
                     _ = interval.tick() => {}
                 }
 
-                let client = UpstreamClient::new(entry.url.clone(), entry.auth_token.clone());
                 match client.get_screen().await {
                     Ok(value) => {
                         let screen = CachedScreen {
@@ -68,6 +68,7 @@ pub fn spawn_screen_poller(
     {
         let entry = Arc::clone(&entry);
         tokio::spawn(async move {
+            let client = UpstreamClient::new(entry.url.clone(), entry.auth_token.clone());
             let mut interval = tokio::time::interval(status_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -77,7 +78,6 @@ pub fn spawn_screen_poller(
                     _ = interval.tick() => {}
                 }
 
-                let client = UpstreamClient::new(entry.url.clone(), entry.auth_token.clone());
                 match client.get_status().await {
                     Ok(value) => {
                         let status = CachedStatus {
