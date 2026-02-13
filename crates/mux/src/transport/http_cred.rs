@@ -127,6 +127,9 @@ pub struct AddAccountRequest {
     pub refresh_token: Option<String>,
     #[serde(default)]
     pub expires_in: Option<u64>,
+    /// Whether this account supports OAuth reauth/refresh (default: true).
+    #[serde(default = "crate::credential::default_true")]
+    pub reauth: bool,
 }
 
 /// `POST /api/v1/credentials/accounts` — add a new account dynamically.
@@ -147,6 +150,7 @@ pub async fn credentials_add_account(
         client_id: req.client_id,
         auth_url: req.auth_url,
         device_auth_url: req.device_auth_url,
+        reauth: req.reauth,
     };
 
     match broker.add_account(config, req.token, req.refresh_token, req.expires_in).await {

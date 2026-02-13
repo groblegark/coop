@@ -163,6 +163,7 @@ async fn credentials_seed_and_status() -> anyhow::Result<()> {
         client_id: None,
         auth_url: None,
         device_auth_url: None,
+        reauth: true,
     }];
     let state = test_state_with_broker(accounts);
     let server = test_server(Arc::clone(&state));

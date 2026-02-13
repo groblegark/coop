@@ -49,6 +49,14 @@ pub struct AccountConfig {
     /// uses device code flow instead of auth code + PKCE.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_auth_url: Option<String>,
+    /// Whether this account supports OAuth reauth/refresh. Defaults to `true`.
+    /// Set to `false` for tokens pasted directly (API keys, long-lived tokens).
+    #[serde(default = "default_true")]
+    pub reauth: bool,
+}
+
+pub fn default_true() -> bool {
+    true
 }
 
 /// Refresh margin in seconds (`COOP_MUX_REFRESH_MARGIN_SECS`, default 900).

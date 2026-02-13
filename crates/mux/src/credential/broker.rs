@@ -111,8 +111,7 @@ impl CredentialBroker {
                 state.access_token = Some(persisted.access_token.clone());
                 state.refresh_token = persisted.refresh_token.clone();
                 state.expires_at = persisted.expires_at;
-                // expires_at == 0 means no expiry (long-lived token).
-                if persisted.expires_at == 0 || persisted.expires_at > epoch_secs() {
+                if persisted.expires_at > epoch_secs() {
                     state.status = AccountStatus::Healthy;
                 } else {
                     state.status = AccountStatus::Expired;
@@ -136,7 +135,7 @@ impl CredentialBroker {
 
         state.access_token = Some(access_token.clone());
         state.refresh_token = refresh_token;
-        state.expires_at = expires_in.map(|s| epoch_secs() + s).unwrap_or(0);
+        state.expires_at = epoch_secs() + expires_in.unwrap_or(DEFAULT_EXPIRES_IN);
         state.status = AccountStatus::Healthy;
 
         // Build credentials map and emit event.
@@ -176,12 +175,8 @@ impl CredentialBroker {
             }
 
             let has_token = access_token.is_some();
-            let expires_at = expires_in.map(|s| epoch_secs() + s).unwrap_or(0);
-            let status = if has_token && (expires_in.is_none() || expires_at > epoch_secs()) {
-                AccountStatus::Healthy
-            } else {
-                AccountStatus::Expired
-            };
+            let expires_at = epoch_secs() + expires_in.unwrap_or(DEFAULT_EXPIRES_IN);
+            let status = if has_token { AccountStatus::Healthy } else { AccountStatus::Expired };
 
             let state = AccountState {
                 config: config.clone(),
@@ -251,6 +246,7 @@ impl CredentialBroker {
                     status: state.status,
                     expires_in_secs: expires_in,
                     has_refresh_token: state.refresh_token.is_some(),
+                    reauth: state.config.reauth,
                 }
             })
             .collect()
@@ -512,6 +508,12 @@ impl CredentialBroker {
                 let Some(state) = accounts.get(account_name) else {
                     return;
                 };
+                // Non-renewable accounts (e.g. long-lived tokens) don't refresh.
+                if !state.config.reauth {
+                    drop(accounts);
+                    tokio::time::sleep(Duration::from_secs(300)).await;
+                    continue;
+                }
                 let token_url = match state
                     .config
                     .token_url
@@ -675,6 +677,7 @@ pub struct AccountStatusInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_in_secs: Option<u64>,
     pub has_refresh_token: bool,
+    pub reauth: bool,
 }
 
 /// Response from initiating a reauth flow.
@@ -689,6 +692,9 @@ pub struct ReauthResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
 }
+
+/// Default expiry for tokens without an explicit `expires_in` (11 months).
+const DEFAULT_EXPIRES_IN: u64 = 11 * 30 * 24 * 3600;
 
 fn epoch_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()

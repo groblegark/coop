@@ -16,6 +16,7 @@ interface AccountStatus {
   status: "healthy" | "refreshing" | "expired";
   expires_in_secs?: number;
   has_refresh_token: boolean;
+  reauth: boolean;
 }
 
 const statusStyles: Record<string, string> = {
@@ -165,6 +166,7 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
       name: formName.trim(),
       provider: formProvider,
       env_key: formEnvKey,
+      reauth: !formToken.trim(),
     };
     if (formToken.trim()) {
       body.token = formToken.trim();
@@ -287,7 +289,7 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
               </div>
             </div>
             <div className="flex shrink-0 gap-1">
-              {acct.status === "expired" && (
+              {acct.status === "expired" && acct.reauth && (
                 <ActionBtn variant="warn" onClick={() => handleReauth(acct.name)}>
                   Reauth
                 </ActionBtn>
