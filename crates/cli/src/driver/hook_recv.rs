@@ -34,6 +34,9 @@ impl AsFd for FifoFd {
 /// by `tokio::select!` and don't leak blocked threads on shutdown.
 pub struct HookReceiver {
     pipe_path: PathBuf,
+    /// Pre-opened fd that keeps a reader on the FIFO so writers don't block.
+    /// Consumed by `ensure_fd()` to build the `AsyncFd`.
+    raw_fd: Option<OwnedFd>,
     async_fd: Option<AsyncFd<FifoFd>>,
     line_buf: Vec<u8>,
 }
@@ -47,10 +50,23 @@ struct RawHookJson {
 
 impl HookReceiver {
     /// Create a new hook receiver, creating the named pipe at `pipe_path`.
+    ///
+    /// Opens the FIFO immediately with `O_RDWR` so that a reader exists on
+    /// the pipe before the agent process starts. Without this, hook scripts
+    /// that write to the pipe (`> $COOP_HOOK_PIPE`) would block on
+    /// `open(O_WRONLY)` until the async detector task calls `ensure_fd()`,
+    /// causing "startup hook error" under load (e.g. mux with many sessions).
     pub fn new(pipe_path: &Path) -> anyhow::Result<Self> {
         nix::unistd::mkfifo(pipe_path, Mode::from_bits_truncate(0o600))?;
+
+        // Open O_RDWR immediately so the kernel sees a reader on the FIFO.
+        // This fd is later consumed by `ensure_fd()` to build the `AsyncFd`.
+        let std_file = std::fs::OpenOptions::new().read(true).write(true).open(pipe_path)?;
+        let raw_fd: OwnedFd = std_file.into();
+
         Ok(Self {
             pipe_path: pipe_path.to_path_buf(),
+            raw_fd: Some(raw_fd),
             async_fd: None,
             line_buf: Vec::with_capacity(4096),
         })
@@ -109,17 +125,19 @@ impl HookReceiver {
         }
     }
 
-    /// Ensure the pipe fd is open and registered with tokio.
+    /// Register the pipe fd with tokio for async I/O.
     ///
-    /// Opens with `O_RDWR | O_NONBLOCK`: `O_RDWR` prevents spurious EOF
-    /// when the last writer closes; `O_NONBLOCK` enables event-driven reads
-    /// through [`AsyncFd`].
+    /// Consumes the pre-opened fd from `new()` (or opens a fresh one as
+    /// fallback), sets non-blocking mode, and wraps in [`AsyncFd`].
     fn ensure_fd(&mut self) -> anyhow::Result<()> {
         if self.async_fd.is_none() {
-            let std_file =
-                std::fs::OpenOptions::new().read(true).write(true).open(&self.pipe_path)?;
-            crate::backend::nbio::set_nonblocking(&std_file)?;
-            let owned: OwnedFd = std_file.into();
+            let owned: OwnedFd = match self.raw_fd.take() {
+                Some(fd) => fd,
+                None => {
+                    std::fs::OpenOptions::new().read(true).write(true).open(&self.pipe_path)?.into()
+                }
+            };
+            crate::backend::nbio::set_nonblocking(&owned)?;
             let fifo_fd = FifoFd(owned);
             let async_fd = AsyncFd::new(fifo_fd)?;
             self.async_fd = Some(async_fd);
