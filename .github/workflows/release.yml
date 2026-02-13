@@ -72,11 +72,13 @@ jobs:
         run: |
           cargo build --release --target ${{ matrix.target }}
           strip target/${{ matrix.target }}/release/coop 2>/dev/null || true
-          strip target/${{ matrix.target }}/release/coop-mux 2>/dev/null || true
+          strip target/${{ matrix.target }}/release/coopmux 2>/dev/null || true
 
       - name: Package
         run: |
           cd target/${{ matrix.target }}/release
+          # Include coopmux as coop-mux for backwards compatibility with Dockerfiles.
+          cp coopmux coop-mux 2>/dev/null || true
           tar czf /tmp/${{ matrix.artifact }}.tar.gz coop coop-mux
 
       - name: Upload artifact
