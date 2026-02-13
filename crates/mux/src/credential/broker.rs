@@ -12,9 +12,9 @@ use tokio::sync::{broadcast, RwLock};
 use crate::credential::persist::{PersistedAccount, PersistedCredentials};
 use crate::credential::refresh::refresh_with_retries;
 use crate::credential::{
-    provider_default_auth_url, provider_default_client_id, provider_default_env_key,
-    provider_default_scopes, provider_default_token_url, AccountConfig, AccountStatus,
-    CredentialConfig, CredentialEvent,
+    provider_default_auth_url, provider_default_client_id, provider_default_device_auth_url,
+    provider_default_env_key, provider_default_scopes, provider_default_token_url, AccountConfig,
+    AccountStatus, CredentialConfig, CredentialEvent,
 };
 
 /// Set of account names that were defined in the original static config file
@@ -271,9 +271,8 @@ impl CredentialBroker {
 
     /// Initiate OAuth reauth flow for an account.
     ///
-    /// If the account has `device_auth_url` set, uses device code flow (RFC 8628).
-    /// Otherwise uses authorization code + PKCE. The `redirect_uri` is optional —
-    /// providers with a registered platform redirect (e.g. Claude) don't need one.
+    /// Tries device code flow (RFC 8628) first, falls back to authorization
+    /// code + PKCE if the device auth endpoint is unavailable or fails.
     pub async fn initiate_reauth(
         self: &Arc<Self>,
         account_name: &str,
@@ -284,13 +283,19 @@ impl CredentialBroker {
                 .get(account_name)
                 .ok_or_else(|| anyhow::anyhow!("unknown account: {account_name}"))?;
             acct_state.config.device_auth_url.is_some()
+                || provider_default_device_auth_url(&acct_state.config.provider).is_some()
         };
 
         if has_device_auth {
-            self.initiate_device_code_reauth(account_name).await
-        } else {
-            self.initiate_pkce_reauth(account_name).await
+            match self.initiate_device_code_reauth(account_name).await {
+                Ok(resp) => return Ok(resp),
+                Err(e) => {
+                    tracing::warn!(account = %account_name, err = %e, "device code flow failed, falling back to PKCE");
+                }
+            }
         }
+
+        self.initiate_pkce_reauth(account_name).await
     }
 
     /// Initiate device code flow (RFC 8628).
@@ -311,6 +316,7 @@ impl CredentialBroker {
             let device_auth_url = cfg
                 .device_auth_url
                 .clone()
+                .or_else(|| provider_default_device_auth_url(&cfg.provider).map(String::from))
                 .ok_or_else(|| anyhow::anyhow!("no device_auth_url for {account_name}"))?;
             let client_id = cfg
                 .client_id
@@ -623,10 +629,10 @@ impl CredentialBroker {
                         if let Some(s) = accounts.get_mut(account_name) {
                             s.status = AccountStatus::Expired;
                         }
-                        accounts
-                            .get(account_name)
-                            .and_then(|s| s.config.device_auth_url.as_ref())
-                            .is_some()
+                        accounts.get(account_name).map_or(false, |s| {
+                            s.config.device_auth_url.is_some()
+                                || provider_default_device_auth_url(&s.config.provider).is_some()
+                        })
                     };
 
                     let _ = self.event_tx.send(CredentialEvent::RefreshFailed {

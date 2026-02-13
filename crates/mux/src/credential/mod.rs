@@ -123,7 +123,15 @@ pub fn provider_default_env_key(provider: &str) -> &str {
 /// Resolve the default OAuth token URL for a provider.
 pub fn provider_default_token_url(provider: &str) -> Option<&'static str> {
     match provider.to_lowercase().as_str() {
-        "claude" | "anthropic" => Some("https://claude.ai/oauth/token"),
+        "claude" | "anthropic" => Some("https://platform.claude.com/v1/oauth/token"),
+        _ => None,
+    }
+}
+
+/// Resolve the default OAuth device authorization URL for a provider (RFC 8628).
+pub fn provider_default_device_auth_url(provider: &str) -> Option<&'static str> {
+    match provider.to_lowercase().as_str() {
+        "claude" | "anthropic" => Some("https://console.anthropic.com/v1/oauth/device/code"),
         _ => None,
     }
 }
