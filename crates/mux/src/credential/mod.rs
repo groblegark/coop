@@ -137,12 +137,9 @@ pub fn provider_default_client_id(provider: &str) -> Option<&'static str> {
 }
 
 /// Resolve the default OAuth authorization URL for a provider.
-///
-/// Claude's authorize endpoint requires `code=true`; it is baked into the URL
-/// so `build_auth_url` appends remaining params with `&`.
 pub fn provider_default_auth_url(provider: &str) -> Option<&'static str> {
     match provider.to_lowercase().as_str() {
-        "claude" | "anthropic" => Some("https://claude.ai/oauth/authorize?code=true"),
+        "claude" | "anthropic" => Some("https://claude.ai/oauth/authorize"),
         _ => None,
     }
 }

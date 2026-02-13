@@ -32,8 +32,7 @@ pub fn generate_state() -> String {
 
 /// Build the full authorization URL with PKCE parameters.
 ///
-/// Handles base URLs that already contain query parameters (e.g.
-/// `https://claude.ai/oauth/authorize?code=true`).
+/// Parameter order matches Claude Code CLI exactly.
 pub fn build_auth_url(
     auth_url: &str,
     client_id: &str,
@@ -42,10 +41,9 @@ pub fn build_auth_url(
     code_challenge: &str,
     state: &str,
 ) -> String {
-    let sep = if auth_url.contains('?') { '&' } else { '?' };
-    // Parameter order matches Claude Code CLI exactly.
     format!(
-        "{auth_url}{sep}client_id={client_id}\
+        "{auth_url}?code=true\
+         &client_id={client_id}\
          &response_type=code\
          &redirect_uri={redirect_uri}\
          &scope={scope}\

@@ -38,9 +38,9 @@ fn build_auth_url_includes_params() -> anyhow::Result<()> {
         "challenge-abc",
         "state-xyz",
     );
-    assert!(url.starts_with("https://example.com/authorize?"));
-    assert!(url.contains("response_type=code"));
+    assert!(url.starts_with("https://example.com/authorize?code=true&"));
     assert!(url.contains("client_id=client-123"));
+    assert!(url.contains("response_type=code"));
     assert!(url.contains("code_challenge=challenge-abc"));
     assert!(url.contains("code_challenge_method=S256"));
     assert!(url.contains("state=state-xyz"));
@@ -48,20 +48,23 @@ fn build_auth_url_includes_params() -> anyhow::Result<()> {
 }
 
 #[test]
-fn build_auth_url_appends_to_existing_query() -> anyhow::Result<()> {
+fn build_auth_url_matches_claude_code_param_order() -> anyhow::Result<()> {
     let url = build_auth_url(
-        "https://claude.ai/oauth/authorize?code=true",
-        "client-123",
-        "http://localhost/callback",
-        "user:inference",
+        "https://claude.ai/oauth/authorize",
+        "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+        "https://platform.claude.com/oauth/code/callback",
+        "user:profile user:inference",
         "challenge-abc",
         "state-xyz",
     );
-    // Should use & (not ?) since base URL already has query params.
-    assert!(url.starts_with("https://claude.ai/oauth/authorize?code=true&"));
-    assert!(url.contains("response_type=code"));
-    // Must not contain "??" or "?&".
-    assert!(!url.contains("??"));
-    assert!(!url.contains("?&"));
+    // Parameter order: code=true, client_id, response_type, redirect_uri, scope, code_challenge, code_challenge_method, state
+    let q = url.split('?').nth(1).unwrap();
+    let keys: Vec<&str> = q.split('&').map(|p| p.split('=').next().unwrap()).collect();
+    assert_eq!(
+        keys,
+        ["code", "client_id", "response_type", "redirect_uri", "scope", "code_challenge", "code_challenge_method", "state"],
+    );
+    // Spaces in scope encoded as +
+    assert!(url.contains("scope=user%3Aprofile+user%3Ainference"));
     Ok(())
 }
