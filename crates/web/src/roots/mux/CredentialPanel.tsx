@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { apiGet, apiPost } from "@/hooks/useApiClient";
-import { Section } from "@/components/Section";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActionBtn } from "@/components/ActionBtn";
 import { ResultDisplay, showResult } from "@/components/ResultDisplay";
+import { Section } from "@/components/Section";
+import { apiGet, apiPost } from "@/hooks/useApiClient";
 
 export interface CredentialAlert {
   event: string;
@@ -76,12 +76,15 @@ export function CredentialPanel({ alerts, onClose }: CredentialPanelProps) {
     return () => document.removeEventListener("mousedown", onClick);
   }, [onClose]);
 
-    const handleReauth = useCallback(async (account: string) => {
-    setResult(null);
-    const res = await apiPost("/api/v1/credentials/reauth", { account });
-    setResult(showResult(res));
-    fetchStatus();
-  }, [fetchStatus]);
+  const handleReauth = useCallback(
+    async (account: string) => {
+      setResult(null);
+      const res = await apiPost("/api/v1/credentials/reauth", { account });
+      setResult(showResult(res));
+      fetchStatus();
+    },
+    [fetchStatus],
+  );
 
   const handleDistribute = useCallback(async (account: string) => {
     setResult(null);
@@ -89,7 +92,7 @@ export function CredentialPanel({ alerts, onClose }: CredentialPanelProps) {
     setResult(showResult(res));
   }, []);
 
-    const [formName, setFormName] = useState("");
+  const [formName, setFormName] = useState("");
   const [formProvider, setFormProvider] = useState("claude");
   const [formToken, setFormToken] = useState("");
   const [formSubmitting, setFormSubmitting] = useState(false);
@@ -99,10 +102,7 @@ export function CredentialPanel({ alerts, onClose }: CredentialPanelProps) {
     setFormSubmitting(true);
     setResult(null);
 
-    const body: Record<string, unknown> = {
-      name: formName.trim(),
-      provider: formProvider,
-    };
+    const body: Record<string, unknown> = { name: formName.trim(), provider: formProvider };
     if (formToken.trim()) {
       body.token = formToken.trim();
     }
@@ -119,7 +119,7 @@ export function CredentialPanel({ alerts, onClose }: CredentialPanelProps) {
     }
   }, [formName, formProvider, formToken, fetchStatus]);
 
-    const activeReauths = [...alerts.entries()]
+  const activeReauths = [...alerts.entries()]
     .filter(([, a]) => a.event === "credential:reauth:required" && a.user_code)
     .map(([name, a]) => ({ name, auth_url: a.auth_url!, user_code: a.user_code! }));
 
@@ -135,10 +135,10 @@ export function CredentialPanel({ alerts, onClose }: CredentialPanelProps) {
             <div key={r.name} className="mb-2 rounded bg-[#1c2128] p-2">
               <div className="mb-1 text-[11px] font-mono text-zinc-300">{r.name}</div>
               <div className="flex items-center gap-2">
-                <span className="text-[13px] font-mono font-bold tracking-widest text-yellow-400">{r.user_code}</span>
-                <ActionBtn
-                  onClick={() => navigator.clipboard.writeText(r.user_code)}
-                >
+                <span className="text-[13px] font-mono font-bold tracking-widest text-yellow-400">
+                  {r.user_code}
+                </span>
+                <ActionBtn onClick={() => navigator.clipboard.writeText(r.user_code)}>
                   Copy
                 </ActionBtn>
               </div>
@@ -160,6 +160,7 @@ export function CredentialPanel({ alerts, onClose }: CredentialPanelProps) {
         label="Accounts"
         headerRight={
           <button
+            type="button"
             className="text-[10px] text-zinc-500 hover:text-zinc-300"
             onClick={() => setShowForm((v) => !v)}
           >
@@ -171,22 +172,31 @@ export function CredentialPanel({ alerts, onClose }: CredentialPanelProps) {
           <div className="py-2 text-center text-[11px] text-zinc-500">No accounts configured</div>
         )}
         {accounts.map((acct) => (
-          <div key={acct.name} className="mb-1.5 flex items-center gap-2 rounded bg-[#1c2128] px-2 py-1.5">
+          <div
+            key={acct.name}
+            className="mb-1.5 flex items-center gap-2 rounded bg-[#1c2128] px-2 py-1.5"
+          >
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <span className="truncate text-[11px] font-mono text-zinc-300">{acct.name}</span>
-                <span className="shrink-0 rounded bg-[#2a2a2a] px-1 py-px text-[9px] uppercase text-zinc-500">{acct.provider}</span>
+                <span className="shrink-0 rounded bg-[#2a2a2a] px-1 py-px text-[9px] uppercase text-zinc-500">
+                  {acct.provider}
+                </span>
               </div>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <StatusBadge status={acct.status} />
                 {acct.expires_in_secs != null && (
-                  <span className="text-[10px] text-zinc-500">{formatExpiry(acct.expires_in_secs)}</span>
+                  <span className="text-[10px] text-zinc-500">
+                    {formatExpiry(acct.expires_in_secs)}
+                  </span>
                 )}
               </div>
             </div>
             <div className="flex shrink-0 gap-1">
               {acct.status === "expired" && (
-                <ActionBtn variant="warn" onClick={() => handleReauth(acct.name)}>Reauth</ActionBtn>
+                <ActionBtn variant="warn" onClick={() => handleReauth(acct.name)}>
+                  Reauth
+                </ActionBtn>
               )}
               {acct.status === "healthy" && (
                 <ActionBtn onClick={() => handleDistribute(acct.name)}>Push</ActionBtn>

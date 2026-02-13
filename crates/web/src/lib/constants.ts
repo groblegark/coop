@@ -1,5 +1,4 @@
-export const MONO_FONT =
-  "'SF Mono', 'Cascadia Code', 'Fira Code', Menlo, Monaco, monospace";
+export const MONO_FONT = "'SF Mono', 'Cascadia Code', 'Fira Code', Menlo, Monaco, monospace";
 
 export const THEME = {
   background: "#1e1e1e",

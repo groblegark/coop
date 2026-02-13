@@ -1,5 +1,5 @@
+import type { Terminal as XTerm } from "@xterm/xterm";
 import { useCallback } from "react";
-import { Terminal as XTerm } from "@xterm/xterm";
 import { Terminal } from "@/components/Terminal";
 import { THEME } from "@/lib/constants";
 

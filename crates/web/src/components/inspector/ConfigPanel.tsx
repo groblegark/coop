@@ -1,8 +1,8 @@
-import { useState, useCallback, useEffect } from "react";
-import type { WsRequest } from "@/hooks/useWebSocket";
-import { Section } from "@/components/Section";
+import { useCallback, useEffect, useState } from "react";
 import { ActionBtn } from "@/components/ActionBtn";
 import { ResultDisplay, showResult } from "@/components/ResultDisplay";
+import { Section } from "@/components/Section";
+import type { WsRequest } from "@/hooks/useWebSocket";
 
 export function ConfigPanel({ wsRequest }: { wsRequest: WsRequest }) {
   return (
@@ -28,9 +28,7 @@ interface ProfileInfo {
 function ProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [autoRotate, setAutoRotate] = useState(true);
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const refresh = useCallback(async () => {
     const res = await wsRequest({ event: "profiles:list" });
@@ -38,10 +36,7 @@ function ProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
       setResult(showResult(res));
       return;
     }
-    const data = res.json as {
-      mode?: string;
-      profiles?: ProfileInfo[];
-    };
+    const data = res.json as { mode?: string; profiles?: ProfileInfo[] };
     setAutoRotate(data.mode === "auto");
     setProfiles(data.profiles ?? []);
   }, [wsRequest]);
@@ -62,11 +57,7 @@ function ProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
 
   const switchProfile = useCallback(
     async (name: string) => {
-      const res = await wsRequest({
-        event: "session:switch",
-        profile: name,
-        force: false,
-      });
+      const res = await wsRequest({ event: "session:switch", profile: name, force: false });
       setResult(showResult(res));
       if (res.ok) setTimeout(refresh, 500);
     },
@@ -98,10 +89,7 @@ function ProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
       ) : (
         <div className="mt-1 flex flex-col gap-0.5">
           {profiles.map((p) => (
-            <div
-              key={p.name}
-              className="flex items-center gap-1.5 text-[11px]"
-            >
+            <div key={p.name} className="flex items-center gap-1.5 text-[11px]">
               <span
                 className={`h-1.5 w-1.5 shrink-0 rounded-full ${
                   p.status === "active"
@@ -114,12 +102,11 @@ function ProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
               <span className="text-zinc-300">{p.name}</span>
               <span className="text-[10px] text-zinc-500">
                 {p.status}
-                {p.cooldown_remaining_secs
-                  ? ` (${p.cooldown_remaining_secs}s)`
-                  : ""}
+                {p.cooldown_remaining_secs ? ` (${p.cooldown_remaining_secs}s)` : ""}
               </span>
               {p.status !== "active" && (
                 <button
+                  type="button"
                   className="ml-auto border-none bg-transparent p-0 text-[10px] text-blue-400 hover:text-blue-300 hover:underline"
                   onClick={() => switchProfile(p.name)}
                 >
@@ -137,12 +124,10 @@ function ProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
 
 function RegisterProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [json, setJson] = useState("");
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const handleRegister = useCallback(async () => {
-    let profiles;
+    let profiles: unknown;
     try {
       profiles = JSON.parse(json);
     } catch {
@@ -177,9 +162,7 @@ function RegisterProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
 function SessionSwitchSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [creds, setCreds] = useState("");
   const [force, setForce] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const handleSwitch = useCallback(async () => {
     let credentials = null;
@@ -214,9 +197,7 @@ function SessionSwitchSection({ wsRequest }: { wsRequest: WsRequest }) {
             onChange={(e) => setForce(e.target.checked)}
             className="accent-blue-400"
           />
-          <span className="text-[10px] text-zinc-500">
-            Force (skip idle wait)
-          </span>
+          <span className="text-[10px] text-zinc-500">Force (skip idle wait)</span>
         </label>
         <ActionBtn variant="warn" onClick={handleSwitch}>
           Switch
@@ -230,9 +211,7 @@ function SessionSwitchSection({ wsRequest }: { wsRequest: WsRequest }) {
 function StopConfigSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [mode, setMode] = useState("allow");
   const [prompt, setPrompt] = useState("");
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const handleGet = useCallback(async () => {
     const res = await wsRequest({ event: "stop:config:get" });
@@ -283,9 +262,7 @@ function StopConfigSection({ wsRequest }: { wsRequest: WsRequest }) {
 
 function StartConfigSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [json, setJson] = useState("");
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const handleGet = useCallback(async () => {
     const res = await wsRequest({ event: "config:start:get" });
@@ -297,7 +274,7 @@ function StartConfigSection({ wsRequest }: { wsRequest: WsRequest }) {
   }, [wsRequest]);
 
   const handlePut = useCallback(async () => {
-    let body;
+    let body: unknown;
     try {
       body = JSON.parse(json);
     } catch {
@@ -342,9 +319,7 @@ function formatBytes(b: number): string {
 function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [transcripts, setTranscripts] = useState<TranscriptInfo[]>([]);
   const [activeLine, setActiveLine] = useState<number | null>(null);
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const refresh = useCallback(async () => {
     const [listRes, catchupRes] = await Promise.all([
@@ -355,13 +330,9 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
       setResult(showResult(listRes));
       return;
     }
-    setTranscripts(
-      (listRes.json as { transcripts?: TranscriptInfo[] })?.transcripts ?? [],
-    );
+    setTranscripts((listRes.json as { transcripts?: TranscriptInfo[] })?.transcripts ?? []);
     if (catchupRes.ok && catchupRes.json) {
-      setActiveLine(
-        (catchupRes.json as { current_line?: number }).current_line ?? null,
-      );
+      setActiveLine((catchupRes.json as { current_line?: number }).current_line ?? null);
     }
   }, [wsRequest]);
 
@@ -399,25 +370,19 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
       ) : (
         <div className="mt-1 flex flex-col gap-0.5">
           {transcripts.map((t) => {
-            const time = new Date(Number(t.timestamp) * 1000).toLocaleTimeString(
-              [],
-              { hour: "2-digit", minute: "2-digit" },
-            );
+            const time = new Date(Number(t.timestamp) * 1000).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            });
             return (
-              <div
-                key={t.number}
-                className="flex items-center gap-1.5 text-[11px]"
-              >
+              <div key={t.number} className="flex items-center gap-1.5 text-[11px]">
                 <span className="min-w-5 text-zinc-500">#{t.number}</span>
                 <span className="flex-1 text-zinc-400">
                   {time} · {t.line_count} lines · {formatBytes(t.byte_size)}
                 </span>
                 <ActionBtn
                   onClick={() =>
-                    window.open(
-                      `${location.origin}/api/v1/transcripts/${t.number}`,
-                      "_blank",
-                    )
+                    window.open(`${location.origin}/api/v1/transcripts/${t.number}`, "_blank")
                   }
                   className="!px-1.5 !py-px !text-[10px]"
                 >
@@ -434,14 +399,15 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
 }
 
 function SignalSection({ wsRequest }: { wsRequest: WsRequest }) {
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const sendSignal = useCallback(async (signal: string) => {
-    const res = await wsRequest({ event: "signal:send", signal });
-    setResult(showResult(res));
-  }, [wsRequest]);
+  const sendSignal = useCallback(
+    async (signal: string) => {
+      const res = await wsRequest({ event: "signal:send", signal });
+      setResult(showResult(res));
+    },
+    [wsRequest],
+  );
 
   return (
     <Section label="Signal">
@@ -465,9 +431,7 @@ function SignalSection({ wsRequest }: { wsRequest: WsRequest }) {
 }
 
 function ShutdownSection({ wsRequest }: { wsRequest: WsRequest }) {
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const handleShutdown = useCallback(async () => {
     const res = await wsRequest({ event: "shutdown" });

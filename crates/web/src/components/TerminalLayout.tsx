@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 import { AgentBadge } from "./AgentBadge";
 import { StatusBar } from "./StatusBar";
 
@@ -52,7 +52,7 @@ export function TerminalLayout({
   className,
   style,
 }: TerminalLayoutProps) {
-    const [sidebarVisible, setSidebarVisible] = useState(false);
+  const [sidebarVisible, setSidebarVisible] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(450);
 
   const handleToggle = useCallback(() => {
@@ -94,9 +94,7 @@ export function TerminalLayout({
             {title}
           </span>
           {subtitle && (
-            <span className="truncate font-mono text-[11px] text-zinc-500">
-              {subtitle}
-            </span>
+            <span className="truncate font-mono text-[11px] text-zinc-500">{subtitle}</span>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -117,6 +115,7 @@ export function TerminalLayout({
         {/* Resize handle */}
         {sidebarVisible && inspector && (
           <div
+            aria-hidden="true"
             className="w-[5px] shrink-0 cursor-col-resize transition-colors hover:bg-blue-400"
             onMouseDown={handleResize}
           />

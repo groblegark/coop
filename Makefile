@@ -9,6 +9,8 @@
 check:
 	cargo fmt --all
 	cargo clippy --all -- -D warnings
+	cd crates/web && bun run fix
+	cd crates/web && tsc --noEmit
 	quench check --fix
 	cargo build --all
 	cargo test --all
@@ -17,6 +19,7 @@ check:
 ci:
 	cargo fmt --all
 	cargo clippy --all -- -D warnings
+	cd crates/web && bun run check
 	quench check --fix
 	cargo build --all
 	cargo test --all

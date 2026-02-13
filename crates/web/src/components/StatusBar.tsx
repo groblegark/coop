@@ -50,6 +50,7 @@ export function StatusBar({
         </span>
         {onToggleInspector && (
           <button
+            type="button"
             className="rounded border border-zinc-600 px-2.5 py-0.5 font-mono text-[11px] text-zinc-200 hover:border-zinc-400 hover:text-white"
             onClick={onToggleInspector}
           >

@@ -5,11 +5,7 @@ export function showResult(res: ApiResult): { ok: boolean; text: string } {
   return { ok: res.ok, text: `${res.status}: ${display}` };
 }
 
-export function ResultDisplay({
-  result,
-}: {
-  result: { ok: boolean; text: string } | null;
-}) {
+export function ResultDisplay({ result }: { result: { ok: boolean; text: string } | null }) {
   if (!result) return null;
   return (
     <div

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiResult } from "@/lib/types";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
@@ -29,7 +29,10 @@ export class WsRpc {
     timer: ReturnType<typeof setTimeout>;
   }> = [];
 
-  constructor(private ws: WebSocket, private timeout = 10_000) {}
+  constructor(
+    private ws: WebSocket,
+    private timeout = 10_000,
+  ) {}
 
   /** Handle an incoming message. Returns true if it was a response (had request_id). */
   handleMessage(msg: Record<string, unknown>): boolean {
@@ -100,7 +103,12 @@ export function useWebSocket({
   const request: WsRequest = useCallback((msg: Record<string, unknown>) => {
     const rpc = rpcRef.current;
     if (!rpc) {
-      return Promise.resolve({ ok: false, status: 0, json: null, text: "Not connected" } as ApiResult);
+      return Promise.resolve({
+        ok: false,
+        status: 0,
+        json: null,
+        text: "Not connected",
+      } as ApiResult);
     }
     return rpc.request(msg);
   }, []);

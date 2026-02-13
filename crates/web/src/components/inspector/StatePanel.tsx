@@ -1,10 +1,7 @@
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { EventEntry } from "@/lib/types";
 
-function renderRows(
-  obj: unknown,
-  prefix: string,
-): { key: string; value: string }[] {
+function renderRows(obj: unknown, prefix: string): { key: string; value: string }[] {
   if (obj == null) return [{ key: prefix || "--", value: "--" }];
   if (typeof obj !== "object") return [{ key: prefix, value: String(obj) }];
   const entries = Array.isArray(obj)
@@ -94,13 +91,7 @@ interface StatePanelProps {
   events: EventEntry[];
 }
 
-export function StatePanel({
-  health,
-  status,
-  agent,
-  usage,
-  events,
-}: StatePanelProps) {
+export function StatePanel({ health, status, agent, usage, events }: StatePanelProps) {
   const logRef = useRef<HTMLDivElement>(null);
   const [apiHeight, setApiHeight] = useState<number | undefined>(undefined);
 
@@ -111,14 +102,12 @@ export function StatePanel({
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 60) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [events]);
+  }, []);
 
   // Horizontal resize handle
   const handleHResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    const panel = e.currentTarget.closest(
-      "[data-state-panel]",
-    ) as HTMLElement | null;
+    const panel = e.currentTarget.closest("[data-state-panel]") as HTMLElement | null;
     if (!panel) return;
 
     document.body.style.cursor = "row-resize";
@@ -145,10 +134,7 @@ export function StatePanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-state-panel>
       {/* API section */}
-      <div
-        className="shrink-0 overflow-y-auto"
-        style={{ height: apiHeight ?? "50%" }}
-      >
+      <div className="shrink-0 overflow-y-auto" style={{ height: apiHeight ?? "50%" }}>
         <ApiTable label="Health" data={health} />
         <ApiTable label="Status" data={status} />
         <ApiTable label="Agent" data={agent} />
@@ -157,6 +143,7 @@ export function StatePanel({
 
       {/* Resize handle */}
       <div
+        aria-hidden="true"
         className="h-[5px] shrink-0 cursor-row-resize border-t border-[#2a2a2a] transition-colors hover:bg-blue-400"
         onMouseDown={handleHResize}
       />
@@ -174,12 +161,8 @@ export function StatePanel({
         {events.map((ev, i) => (
           <div key={i} className="border-b border-[#222] py-0.5">
             <span className="text-zinc-600">{ev.ts}</span>{" "}
-            <span className={`font-semibold ${eventTypeColor(ev.type)}`}>
-              {ev.type}
-            </span>
-            {ev.detail && (
-              <span className="ml-1 text-zinc-500">{ev.detail}</span>
-            )}
+            <span className={`font-semibold ${eventTypeColor(ev.type)}`}>{ev.type}</span>
+            {ev.detail && <span className="ml-1 text-zinc-500">{ev.detail}</span>}
           </div>
         ))}
       </div>
