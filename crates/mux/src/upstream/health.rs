@@ -51,8 +51,7 @@ pub fn spawn_health_checker(state: Arc<MuxState>) {
                                 session_id = %entry.id,
                                 "evicting session after {count} consecutive health failures"
                             );
-                            entry.cancel.cancel();
-                            state.sessions.write().await.remove(&entry.id);
+                            state.remove_session(&entry.id).await;
                         }
                     }
                 }

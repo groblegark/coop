@@ -108,6 +108,22 @@ impl MuxState {
             credential_broker: None,
         }
     }
+
+    /// Remove a session and clean up all associated resources.
+    ///
+    /// Cancels the session entry, emits `SessionOffline`, and tears down
+    /// any active feed/poller watcher tasks.
+    pub async fn remove_session(&self, id: &str) -> Option<Arc<SessionEntry>> {
+        let entry = self.sessions.write().await.remove(id)?;
+        entry.cancel.cancel();
+        let _ = self.feed.event_tx.send(MuxEvent::SessionOffline { session: id.to_owned() });
+        let mut watchers = self.feed.watchers.write().await;
+        if let Some(ws) = watchers.remove(id) {
+            ws.feed_cancel.cancel();
+            ws.poller_cancel.cancel();
+        }
+        Some(entry)
+    }
 }
 
 /// A registered upstream coop session.

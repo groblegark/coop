@@ -100,9 +100,16 @@ pub async fn register_session(
 
     let is_new = {
         let mut sessions = s.sessions.write().await;
-        let is_new = !sessions.contains_key(&id);
-        sessions.insert(id.clone(), entry);
-        is_new
+        if sessions.contains_key(&id) {
+            // Heartbeat re-registration: keep the existing entry so that
+            // pollers/feeds (which hold Arc clones of the old entry) continue
+            // writing to the same cached_screen/cached_status that screen_batch
+            // reads.  Replacing the entry would orphan their writes.
+            false
+        } else {
+            sessions.insert(id.clone(), entry);
+            true
+        }
     };
     if is_new {
         tracing::info!(session_id = %id, "session registered");
@@ -118,19 +125,7 @@ pub async fn deregister_session(
     State(s): State<Arc<MuxState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let mut sessions = s.sessions.write().await;
-    if let Some(entry) = sessions.remove(&id) {
-        entry.cancel.cancel();
-        // Emit SessionOffline and clean up any active feed/poller watchers.
-        let _ =
-            s.feed.event_tx.send(crate::state::MuxEvent::SessionOffline { session: id.clone() });
-        {
-            let mut watchers = s.feed.watchers.write().await;
-            if let Some(ws) = watchers.remove(&id) {
-                ws.feed_cancel.cancel();
-                ws.poller_cancel.cancel();
-            }
-        }
+    if s.remove_session(&id).await.is_some() {
         tracing::info!(session_id = %id, "session deregistered");
         Json(DeregisterResponse { id, removed: true }).into_response()
     } else {
