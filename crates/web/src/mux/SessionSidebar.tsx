@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useMemo, useState, useCallback } from "react";
+import { apiPost } from "@/hooks/useApiClient";
 import type { SessionInfo } from "./App";
 import { useMux } from "./MuxContext";
 
@@ -6,6 +7,7 @@ export interface SessionSidebarProps {
   sessions: SessionInfo[];
   expandedSession: string | null;
   focusedSession: string | null;
+  launchAvailable: boolean;
   onSelectSession: (id: string) => void;
 }
 
@@ -53,12 +55,20 @@ export function SessionSidebar({
   sessions,
   expandedSession,
   focusedSession,
+  launchAvailable,
   onSelectSession,
 }: SessionSidebarProps) {
   const { sidebarCollapsed: collapsed } = useMux();
   const sorted = useMemo(() => sortByAttention(sessions), [sessions]);
+  const [launching, setLaunching] = useState(false);
 
-  if (sessions.length === 0) return null;
+  const handleLaunch = useCallback(async () => {
+    setLaunching(true);
+    await apiPost("/api/v1/sessions/launch");
+    setTimeout(() => setLaunching(false), 2000);
+  }, []);
+
+  if (sessions.length === 0 && !launchAvailable) return null;
 
   return (
     <div
@@ -113,6 +123,29 @@ export function SessionSidebar({
           );
         })}
       </div>
+
+      {/* New session button */}
+      {launchAvailable && (
+        collapsed ? (
+          <button
+            className="flex w-full items-center justify-center border-t border-[#21262d] py-2 text-zinc-500 hover:bg-[#1a1f26] hover:text-blue-400 disabled:opacity-50"
+            onClick={handleLaunch}
+            disabled={launching}
+            title="New session"
+          >
+            <span className="text-base leading-none">{launching ? "\u2026" : "+"}</span>
+          </button>
+        ) : (
+          <button
+            className="flex w-full items-center gap-2 border-t border-[#21262d] px-3 py-2 text-[12px] text-zinc-500 hover:bg-[#1a1f26] hover:text-blue-400 disabled:opacity-50"
+            onClick={handleLaunch}
+            disabled={launching}
+          >
+            <span className="text-base leading-none">{launching ? "\u2026" : "+"}</span>
+            <span>New Session</span>
+          </button>
+        )
+      )}
     </div>
   );
 }

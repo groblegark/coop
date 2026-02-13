@@ -324,7 +324,7 @@ export function App() {
         ref={termRef}
         fontSize={TERMINAL_FONT_SIZE}
         theme={THEME}
-        className="min-w-0 flex-1 p-4"
+        className="min-w-0 flex-1 py-4 pl-4 pr-2"
         onData={onTermData}
         onBinary={onTermBinary}
         onResize={onTermResize}

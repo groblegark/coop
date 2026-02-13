@@ -833,7 +833,7 @@ function AppInner() {
                 fitAddon={info.fit}
                 onReady={() => info.term.focus()}
                 theme={THEME}
-                className="h-full min-w-0 flex-1 p-4"
+                className="h-full min-w-0 flex-1 py-4 pl-4 pr-2"
               />
             </TerminalLayout>
           );
