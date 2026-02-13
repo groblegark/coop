@@ -19,7 +19,7 @@ import {
 import type { MuxWsMessage, MuxMetadata, WsMessage, PromptContext, EventEntry } from "@/lib/types";
 import { SessionSidebar } from "./SessionSidebar";
 import { MuxProvider, useMux } from "./MuxContext";
-import { Tile, LaunchCard, sessionTitle, sessionSubtitle } from "./Tile";
+import { Tile, LaunchCard, sessionTitle, sessionSubtitle } from "@/components/Tile";
 
 // ── Session state ──
 

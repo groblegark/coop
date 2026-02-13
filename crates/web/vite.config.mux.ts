@@ -5,13 +5,13 @@ import { viteSingleFile } from "vite-plugin-singlefile";
 import path from "path";
 
 export default defineConfig({
-  root: "src/mux",
+  root: "src/roots/mux",
   plugins: [react(), tailwindcss(), viteSingleFile()],
   resolve: {
     alias: { "@": path.resolve(__dirname, "src") },
   },
   build: {
-    outDir: "../../dist/mux",
+    outDir: "../../../dist/mux",
     emptyOutDir: true,
   },
   server: {
