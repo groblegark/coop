@@ -167,8 +167,10 @@ impl PreparedSession {
             // write the file before spawning the new backend.
             if agent_enum == AgentType::Claude {
                 if let Some(token) = creds.get("CLAUDE_CODE_OAUTH_TOKEN") {
-                    if let Err(e) = claude_setup::write_credentials_file(token) {
-                        error!("failed to write OAuth credentials file: {e}");
+                    if !token.is_empty() {
+                        if let Err(e) = claude_setup::write_credentials_file(token) {
+                            error!("failed to write OAuth credentials file: {e}");
+                        }
                     }
                 }
             }
