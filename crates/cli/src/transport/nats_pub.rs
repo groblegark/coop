@@ -64,6 +64,10 @@ pub struct CredentialEventPayload {
     pub account: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_code: Option<String>,
     pub ts: String,
 }
 
@@ -159,6 +163,8 @@ impl NatsPublisher {
                                         event_type: "refresh_failed".to_owned(),
                                         account,
                                         error: Some(error),
+                                        auth_url: None,
+                                        user_code: None,
                                         ts: iso8601_now(),
                                     }
                                 }
@@ -167,14 +173,18 @@ impl NatsPublisher {
                                         event_type: "refreshed".to_owned(),
                                         account,
                                         error: None,
+                                        auth_url: None,
+                                        user_code: None,
                                         ts: iso8601_now(),
                                     }
                                 }
-                                CredentialEvent::ReauthRequired { account, .. } => {
+                                CredentialEvent::ReauthRequired { account, auth_url, user_code } => {
                                     CredentialEventPayload {
                                         event_type: "reauth_required".to_owned(),
                                         account,
                                         error: None,
+                                        auth_url: if auth_url.is_empty() { None } else { Some(auth_url) },
+                                        user_code: if user_code.is_empty() { None } else { Some(user_code) },
                                         ts: iso8601_now(),
                                     }
                                 }
