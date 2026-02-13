@@ -19,6 +19,7 @@ fn test_config(name: &str, token_url: &str) -> CredentialConfig {
             token_url: Some(token_url.to_owned()),
             client_id: Some("test-client".to_owned()),
             r#static: false,
+            auto_reauth: true,
             device_auth_url: None,
             authorize_url: None,
             redirect_uri: None,
@@ -39,6 +40,7 @@ fn static_config(name: &str) -> CredentialConfig {
             authorize_url: None,
             redirect_uri: None,
             r#static: true,
+            auto_reauth: false,
             refresh_margin_secs: 0,
         }],
         persist_path: None,
@@ -58,6 +60,7 @@ async fn new_creates_accounts_from_config() {
                 authorize_url: None,
                 redirect_uri: None,
                 r#static: false,
+                auto_reauth: true,
                 refresh_margin_secs: 900,
             },
             AccountConfig {
@@ -69,6 +72,7 @@ async fn new_creates_accounts_from_config() {
                 authorize_url: None,
                 redirect_uri: None,
                 r#static: true,
+                auto_reauth: false,
                 refresh_margin_secs: 0,
             },
         ],
@@ -144,6 +148,7 @@ async fn credentials_for_maps_provider_to_env_key() {
                 authorize_url: None,
                 redirect_uri: None,
                 r#static: true,
+                auto_reauth: false,
                 refresh_margin_secs: 0,
             },
             AccountConfig {
@@ -155,6 +160,7 @@ async fn credentials_for_maps_provider_to_env_key() {
                 authorize_url: None,
                 redirect_uri: None,
                 r#static: true,
+                auto_reauth: false,
                 refresh_margin_secs: 0,
             },
         ],
@@ -185,6 +191,7 @@ async fn all_credentials_excludes_revoked() {
                 authorize_url: None,
                 redirect_uri: None,
                 r#static: true,
+                auto_reauth: false,
                 refresh_margin_secs: 0,
             },
             AccountConfig {
@@ -196,6 +203,7 @@ async fn all_credentials_excludes_revoked() {
                 authorize_url: None,
                 redirect_uri: None,
                 r#static: false,
+                auto_reauth: true,
                 refresh_margin_secs: 0,
             },
         ],
@@ -320,7 +328,7 @@ async fn do_refresh_invalid_grant_marks_revoked() {
     let status = broker.status().await;
     assert_eq!(status[0].status, AccountStatus::Revoked);
 
-    // Should get RefreshFailed event (not multiple — revoked stops retries).
+    // Should get RefreshFailed event followed by ReauthRequired (auto-reauth).
     let event = rx.try_recv();
     assert!(event.is_ok());
     match event.expect("event") {
@@ -328,6 +336,20 @@ async fn do_refresh_invalid_grant_marks_revoked() {
             assert_eq!(account, "test");
         }
         other => panic!("expected RefreshFailed, got {other:?}"),
+    }
+
+    // Auto-reauth triggers ReauthRequired with the login-reauth URL.
+    let event2 = rx.try_recv();
+    assert!(event2.is_ok());
+    match event2.expect("event") {
+        CredentialEvent::ReauthRequired { account, auth_url, .. } => {
+            assert_eq!(account, "test");
+            assert!(
+                auth_url.contains("oauth/authorize"),
+                "auth_url should be a login-reauth URL: {auth_url}"
+            );
+        }
+        other => panic!("expected ReauthRequired, got {other:?}"),
     }
 }
 
@@ -510,6 +532,7 @@ fn login_reauth_config(name: &str, token_url: &str) -> CredentialConfig {
             authorize_url: Some("https://claude.ai/oauth/authorize".to_owned()),
             redirect_uri: Some("https://platform.claude.com/oauth/code/callback".to_owned()),
             r#static: false,
+            auto_reauth: true,
             refresh_margin_secs: 5,
         }],
         persist_path: None,

@@ -61,6 +61,10 @@ pub struct AccountConfig {
     /// Whether this is a static credential (API key, no refresh).
     #[serde(default)]
     pub r#static: bool,
+    /// Whether to auto-trigger login-reauth when a refresh token is revoked.
+    /// Defaults to true.
+    #[serde(default = "default_auto_reauth")]
+    pub auto_reauth: bool,
     /// Seconds before expiry to trigger refresh.
     #[serde(default = "default_refresh_margin")]
     pub refresh_margin_secs: u64,
@@ -72,6 +76,10 @@ fn default_provider() -> String {
 
 fn default_refresh_margin() -> u64 {
     DEFAULT_REFRESH_MARGIN_SECS
+}
+
+fn default_auto_reauth() -> bool {
+    true
 }
 
 /// Top-level credential broker configuration (from `--agent-config`).
@@ -649,16 +657,44 @@ impl CredentialBroker {
                         error = %msg,
                         "refresh token revoked — marking account as revoked"
                     );
-                    {
+                    let auto_reauth = {
                         let mut accounts = self.accounts.write().await;
                         if let Some(a) = accounts.get_mut(name) {
                             a.status = AccountStatus::Revoked;
                         }
-                    }
+                        accounts
+                            .get(name)
+                            .map(|a| a.config.auto_reauth)
+                            .unwrap_or(false)
+                    };
                     let _ = self.event_tx.send(CredentialEvent::RefreshFailed {
                         account: name.to_owned(),
                         error: msg,
                     });
+
+                    // Auto-trigger login-reauth if enabled.
+                    if auto_reauth {
+                        info!(
+                            account = name,
+                            "auto-triggering login-reauth after token revocation"
+                        );
+                        match self.initiate_login_reauth(name).await {
+                            Ok(session) => {
+                                info!(
+                                    account = name,
+                                    auth_url = %session.auth_url,
+                                    "login-reauth URL generated — awaiting human authorization"
+                                );
+                            }
+                            Err(e) => {
+                                warn!(
+                                    account = name,
+                                    error = %e,
+                                    "auto login-reauth failed"
+                                );
+                            }
+                        }
+                    }
                     return;
                 }
                 Err(RefreshError::Transient(msg)) => {
