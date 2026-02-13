@@ -29,7 +29,7 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
         "response=$(printf '%s' \"$event\" | curl -sf -X POST ",
         "-H 'Content-Type: application/json' ",
         "-d @- \"$COOP_URL/api/v1/hooks/start\" 2>/dev/null); ",
-        "[ -n \"$response\" ] && eval \"$response\""
+        "if [ -n \"$response\" ]; then eval \"$response\"; fi"
     );
 
     // AfterAgent hook: write stop event to pipe, then curl gating endpoint.

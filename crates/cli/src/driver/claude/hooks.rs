@@ -26,7 +26,7 @@ pub fn generate_hook_config(pipe_path: &Path) -> Value {
         "response=$(printf '%s' \"$event\" | curl -sf -X POST ",
         "-H 'Content-Type: application/json' ",
         "-d @- \"$COOP_URL/api/v1/hooks/start\" 2>/dev/null); ",
-        "[ -n \"$response\" ] && eval \"$response\""
+        "if [ -n \"$response\" ]; then eval \"$response\"; fi"
     );
 
     // Stop hook uses curl to call coop's gating endpoint. If curl fails
