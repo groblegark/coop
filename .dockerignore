@@ -1,28 +1,29 @@
-# Cargo config (sets sccache wrapper not available in container)
-.cargo/
+# Ignore everything by default
+*
 
-# Build artifacts
-target/
+# Cargo workspace
+!Cargo.toml
+!Cargo.lock
 
-# Git / CI
-.git/
-.github/
-.gitignore
+# Rust crates (source only)
+!crates/cli/
+!crates/mux/
 
-# Editor / OS
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-.DS_Store
+# Embedded web assets (include_str! in Rust)
+!crates/web/dist/
 
-# Caches
-.quench/
-.wok/
-.v0/
+# Protobuf definitions (build.rs codegen)
+!proto/
 
-# Coverage
-*.profraw
-*.profdata
-coverage/
+# Test scenarios (claudeless image)
+!crates/cli/tests/scenarios/
+
+# Deploy scripts (coopmux image)
+!deploy/k8s-launch.sh
+
+# Re-exclude build artifacts and junk inside allowed dirs
+**/target/
+**/node_modules/
+**/.DS_Store
+**/*.swp
+**/*.swo
