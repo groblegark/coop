@@ -43,8 +43,10 @@ pub fn build_auth_url(
     state: &str,
 ) -> String {
     let sep = if auth_url.contains('?') { '&' } else { '?' };
+    // Parameter order matches Claude Code CLI exactly.
     format!(
-        "{auth_url}{sep}response_type=code&client_id={client_id}\
+        "{auth_url}{sep}client_id={client_id}\
+         &response_type=code\
          &redirect_uri={redirect_uri}\
          &scope={scope}\
          &code_challenge={code_challenge}\

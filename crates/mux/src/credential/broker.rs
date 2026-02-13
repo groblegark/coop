@@ -135,7 +135,12 @@ impl CredentialBroker {
 
         state.access_token = Some(access_token.clone());
         state.refresh_token = refresh_token;
-        state.expires_at = epoch_secs() + expires_in.unwrap_or(DEFAULT_EXPIRES_IN);
+        // Non-refreshable credentials (reauth: false) have no expiry.
+        state.expires_at = if state.config.reauth {
+            epoch_secs() + expires_in.unwrap_or(DEFAULT_EXPIRES_IN)
+        } else {
+            0
+        };
         state.status = AccountStatus::Healthy;
 
         // Build credentials map and emit event.
@@ -175,7 +180,12 @@ impl CredentialBroker {
             }
 
             let has_token = access_token.is_some();
-            let expires_at = epoch_secs() + expires_in.unwrap_or(DEFAULT_EXPIRES_IN);
+            // Non-refreshable credentials (reauth: false) have no expiry.
+            let expires_at = if config.reauth {
+                epoch_secs() + expires_in.unwrap_or(DEFAULT_EXPIRES_IN)
+            } else {
+                0
+            };
             let status = if has_token { AccountStatus::Healthy } else { AccountStatus::Expired };
 
             let state = AccountState {
@@ -238,8 +248,15 @@ impl CredentialBroker {
         accounts
             .iter()
             .map(|(name, state)| {
-                let expires_in =
-                    if state.expires_at > now { Some(state.expires_at - now) } else { None };
+                // Only show expires_in for refreshable credentials that aren't expired.
+                let expires_in = if state.config.reauth
+                    && state.status != AccountStatus::Expired
+                    && state.expires_at > now
+                {
+                    Some(state.expires_at - now)
+                } else {
+                    None
+                };
                 AccountStatusInfo {
                     name: name.clone(),
                     provider: state.config.provider.clone(),
