@@ -771,7 +771,7 @@ function AppInner() {
 
           {/* Grid */}
           {sessionCount > 0 || launchAvailable ? (
-            <div className="grid flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(480px,1fr))] content-start gap-3 overflow-auto p-4">
+            <div className="grid flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(340px,1fr))] content-start gap-3 overflow-auto p-4">
               {sessionArray
                 .filter((info) => info.id !== expandedSession)
                 .map((info) => (
