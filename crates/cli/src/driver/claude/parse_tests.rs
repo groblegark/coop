@@ -18,7 +18,15 @@ use super::{extract_assistant_text, format_claude_cause, parse_claude_state};
     },
     system_message = {
         json!({ "type": "system", "message": { "content": [] } }),
-        Some(AgentState::Working)
+        None
+    },
+    progress_hook = {
+        json!({ "type": "progress", "data": { "type": "hook_progress", "hookEvent": "Stop" } }),
+        None
+    },
+    file_history_snapshot = {
+        json!({ "type": "file-history-snapshot", "snapshot": {} }),
+        None
     },
     user_message = {
         json!({ "type": "user", "message": { "content": [{ "type": "text", "text": "hello" }] } }),

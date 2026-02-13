@@ -79,10 +79,13 @@ pub fn parse_claude_state(json: &Value) -> Option<AgentState> {
         return Some(AgentState::Error { detail: error.as_str().unwrap_or("unknown").to_string() });
     }
 
+    let entry_type = json.get("type").and_then(|v| v.as_str());
+
     // Detect user-interrupt entries: Claude writes a `type: "user"` entry
     // with "[Request interrupted by user]" when the user presses Escape.
     // This is a definitive turn boundary — the agent is now idle.
-    if json.get("type").and_then(|v| v.as_str()) == Some("user") {
+    // Non-interrupt user messages mean the agent will start working.
+    if entry_type == Some("user") {
         let is_interrupt = json
             .get("message")
             .and_then(|m| m.get("content"))
@@ -95,14 +98,16 @@ pub fn parse_claude_state(json: &Value) -> Option<AgentState> {
                             .is_some_and(|t| t.contains("[Request interrupted by user]"))
                 })
             });
-        if is_interrupt {
-            return Some(AgentState::Idle);
-        }
+        return if is_interrupt { Some(AgentState::Idle) } else { Some(AgentState::Working) };
     }
 
-    // Only assistant messages carry meaningful state transitions
-    if json.get("type").and_then(|v| v.as_str()) != Some("assistant") {
-        return Some(AgentState::Working);
+    // Only assistant messages carry meaningful state transitions.
+    // Other types (progress, system, file-history-snapshot, etc.) are
+    // session metadata — not agent state signals. Emitting Working for
+    // these would let Tier 2 spuriously escalate over a Tier 1 Idle
+    // (e.g. a stop_hook_summary arriving after the Stop hook FIFO event).
+    if entry_type != Some("assistant") {
+        return None;
     }
 
     let content = json.get("message")?.get("content")?.as_array()?;

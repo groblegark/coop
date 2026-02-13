@@ -28,10 +28,13 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
     let log_path = dir.path().join("session.jsonl");
 
     // Write data before starting the detector — the first poll tick reads immediately.
+    // Use a user message (→ Working) followed by an assistant text-only (→ Idle).
+    // Note: non-meaningful types like "system" and "progress" are intentionally
+    // ignored by parse_claude_state to avoid spurious Tier 2 Working emissions.
     std::fs::write(
         &log_path,
         concat!(
-            "{\"type\":\"system\",\"message\":{\"content\":[]}}\n",
+            "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}}\n",
             "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"done\"}]}}\n",
         ),
     )?;
@@ -62,7 +65,7 @@ async fn log_detector_parses_lines_and_emits_states() -> anyhow::Result<()> {
     shutdown.cancel();
     let _ = handle.await;
 
-    // Should have received at least Working (system) and Idle (assistant text-only)
+    // Should have received at least Working (user) and Idle (assistant text-only)
     assert!(timeout.is_ok(), "timed out waiting for states");
     assert!(states.iter().any(|s| matches!(s, AgentState::Working)));
     assert!(states.iter().any(|s| matches!(s, AgentState::Idle)));
