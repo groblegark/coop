@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64};
 use std::sync::Arc;
@@ -10,6 +11,7 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::GroomLevel;
+use crate::credential::CredentialBroker;
 use crate::driver::{
     AgentState, AgentType, ErrorCategory, ExitStatus, NudgeEncoder, RespondEncoder,
 };
@@ -58,6 +60,9 @@ pub struct Store {
     pub usage: Arc<UsageState>,
     /// Named credential profiles for rotation. Always present (defaults to empty).
     pub profile: Arc<ProfileState>,
+    /// Pending environment variable overrides.  Written by `PUT /api/v1/env/:key`,
+    /// merged into the child's environment on the next session switch.
+    pub pending_env: RwLock<HashMap<String, String>>,
     /// Serializes structured input delivery (nudge, respond) and enforces
     /// a minimum inter-delivery gap to prevent garbled terminal input.
     pub input_gate: Arc<InputGate>,
@@ -67,6 +72,9 @@ pub struct Store {
     pub input_activity: Arc<tokio::sync::Notify>,
     /// File-backed event log for state/hook event catchup on WS reconnect.
     pub event_log: Arc<EventLog>,
+    /// Credential broker for centralized OAuth token management (Epic 16).
+    /// `None` when no `credentials` config is provided.
+    pub credentials: Option<Arc<CredentialBroker>>,
     /// Session recording state. Always present (defaults to disabled).
     pub record: Arc<RecordingState>,
     /// Session directory for file uploads. `None` in attach mode.

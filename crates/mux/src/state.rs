@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use crate::config::MuxConfig;
 use crate::credential::broker::CredentialBroker;
 use crate::credential::CredentialEvent;
+use crate::events::Aggregator;
 use crate::upstream::bridge::WsBridge;
 
 /// Events emitted by the mux for aggregation consumers.
@@ -111,11 +112,14 @@ impl SessionFeed {
     }
 }
 
+
 /// Shared mux state.
 pub struct MuxState {
     pub sessions: RwLock<HashMap<String, Arc<SessionEntry>>>,
     pub config: MuxConfig,
     pub shutdown: CancellationToken,
+    /// Aggregated event channel for `/ws/mux` clients.
+    pub aggregator: Aggregator,
     pub feed: SessionFeed,
     pub credential_broker: Option<Arc<CredentialBroker>>,
 }
@@ -126,6 +130,7 @@ impl MuxState {
             sessions: RwLock::new(HashMap::new()),
             config,
             shutdown,
+            aggregator: Aggregator::new(),
             feed: SessionFeed::new(),
             credential_broker: None,
         }

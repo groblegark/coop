@@ -6,6 +6,7 @@
 pub mod config;
 pub mod credential;
 pub mod error;
+pub mod events;
 pub mod state;
 pub mod transport;
 pub mod upstream;
