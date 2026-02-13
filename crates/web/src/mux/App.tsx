@@ -26,6 +26,7 @@ import type { MuxWsMessage, MuxMetadata } from "@/lib/types";
 
 interface SessionInfo {
   id: string;
+  url: string | null;
   state: string | null;
   metadata: MuxMetadata | null;
   term: XTerm;
@@ -70,14 +71,21 @@ function Tile({
     mountedRef.current = true;
   }, [info.term]);
 
+  const title = useMemo(() => {
+    if (info.metadata?.k8s?.pod) return info.metadata.k8s.pod;
+    if (info.url) {
+      try { return new URL(info.url).host; } catch { /* fallback */ }
+    }
+    return info.id.substring(0, 12);
+  }, [info.id, info.url, info.metadata]);
+
   const subtitle = useMemo(() => {
-    if (!info.metadata?.k8s) return "";
-    const k = info.metadata.k8s;
-    let text = "";
-    if (k.pod) text += `pod/${k.pod}`;
-    if (k.namespace) text += ` (${k.namespace})`;
-    return text;
-  }, [info.metadata]);
+    const shortId = info.id.substring(0, 8);
+    if (info.metadata?.k8s?.namespace) {
+      return `${info.metadata.k8s.namespace} \u00b7 ${shortId}`;
+    }
+    return shortId;
+  }, [info.id, info.metadata]);
 
   return (
     <div
@@ -95,13 +103,11 @@ function Tile({
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[#21262d] px-3 py-1.5">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-mono text-[13px] font-semibold">
-            {info.id.substring(0, 12)}
+            {title}
           </span>
-          {subtitle && (
-            <span className="truncate text-[11px] text-zinc-500">
-              {subtitle}
-            </span>
-          )}
+          <span className="truncate text-[11px] text-zinc-500">
+            {subtitle}
+          </span>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {info.credAlert && (
@@ -176,7 +182,7 @@ export function App() {
   // ── Create terminal for a new session ──
 
   const createSession = useCallback(
-    (id: string, state: string | null, metadata: MuxMetadata | null): SessionInfo => {
+    (id: string, url: string | null, state: string | null, metadata: MuxMetadata | null): SessionInfo => {
       const term = new XTerm({
         scrollback: 0,
         fontSize: PREVIEW_FONT_SIZE,
@@ -226,6 +232,7 @@ export function App() {
 
       return {
         id,
+        url,
         state,
         metadata,
         term,
@@ -360,7 +367,7 @@ export function App() {
           if (!newSessions.has(s.id)) {
             newSessions.set(
               s.id,
-              createSession(s.id, s.state ?? null, s.metadata ?? null),
+              createSession(s.id, s.url ?? null, s.state ?? null, s.metadata ?? null),
             );
           }
         }
@@ -379,7 +386,7 @@ export function App() {
           const newSessions = new Map(sessionsRef.current);
           newSessions.set(
             msg.session,
-            createSession(msg.session, null, msg.metadata ?? null),
+            createSession(msg.session, msg.url ?? null, null, msg.metadata ?? null),
           );
           setSessions(newSessions);
           muxSendRef.current?.({
