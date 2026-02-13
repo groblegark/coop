@@ -1,5 +1,3 @@
-import { cn } from "@/lib/utils";
-
 const stateStyles: Record<string, string> = {
   idle: "bg-blue-500/20 text-blue-400",
   waiting_for_input: "bg-blue-500/20 text-blue-400",
@@ -35,11 +33,7 @@ interface AgentBadgeProps {
 export function AgentBadge({ state, className }: AgentBadgeProps) {
   return (
     <span
-      className={cn(
-        "inline-block rounded-full px-2 py-0.5 text-[11px] font-medium uppercase whitespace-nowrap",
-        badgeClassForState(state),
-        className,
-      )}
+      className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium uppercase whitespace-nowrap ${badgeClassForState(state)} ${className || ""}`}
     >
       {state || "unknown"}
     </span>

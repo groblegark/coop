@@ -1,5 +1,3 @@
-import { cn } from "@/lib/utils";
-
 const variantStyles = {
   danger:
     "border-red-800 text-red-400 hover:border-red-400 hover:text-red-300",
@@ -27,12 +25,7 @@ export function ActionBtn({
 }: ActionBtnProps) {
   return (
     <button
-      className={cn(
-        "whitespace-nowrap rounded bg-[#2a2a2a] px-2.5 py-0.5 font-mono text-[11px] transition-colors active:bg-[#333]",
-        variantStyles[variant ?? "default"],
-        dashed ? "border-dashed opacity-85" : "border",
-        className,
-      )}
+      className={`whitespace-nowrap rounded bg-[#2a2a2a] px-2.5 py-0.5 font-mono text-[11px] transition-colors active:bg-[#333] ${variantStyles[variant ?? "default"]} ${dashed ? "border-dashed opacity-85" : "border"} ${className || ""}`}
       onClick={onClick}
     >
       {children}
