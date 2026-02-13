@@ -18,10 +18,12 @@ import {
   EXPANDED_FONT_SIZE,
 } from "@/lib/constants";
 import type { MuxWsMessage, MuxMetadata } from "@/lib/types";
+import { SessionSidebar } from "./SessionSidebar";
+import { MuxProvider, useMux } from "./MuxContext";
 
 // ── Session state ──
 
-interface SessionInfo {
+export interface SessionInfo {
   id: string;
   url: string | null;
   state: string | null;
@@ -39,80 +41,42 @@ const encoder = new TextEncoder();
 
 // ── Tile Component ──
 
+function sessionTitle(info: SessionInfo): string {
+  if (info.metadata?.k8s?.pod) return info.metadata.k8s.pod;
+  if (info.url) {
+    try { return new URL(info.url).host; } catch { /* fallback */ }
+  }
+  return info.id.substring(0, 12);
+}
+
+function sessionSubtitle(info: SessionInfo): string {
+  const shortId = info.id.substring(0, 8);
+  if (info.metadata?.k8s?.namespace) {
+    return `${info.metadata.k8s.namespace} \u00b7 ${shortId}`;
+  }
+  return shortId;
+}
+
 function Tile({
   info,
   focused,
-  expanded,
-  expandedWsStatus,
-  onFocus,
   onToggleExpand,
 }: {
   info: SessionInfo;
   focused: boolean;
-  expanded: boolean;
-  expandedWsStatus: ConnectionStatus;
-  onFocus: () => void;
   onToggleExpand: () => void;
 }) {
   const handleReady = useCallback(() => {
     // Re-render cached screen after open() to handle screen_batch that
     // arrived before the terminal was mounted into the DOM.
-    if (info.lastScreenLines && !expanded) {
+    if (info.lastScreenLines) {
       info.term.resize(info.sourceCols, info.lastScreenLines.length);
       info.term.write(info.lastScreenLines.join("\r\n"));
     }
-  }, [info, expanded]);
+  }, [info]);
 
-  const title = useMemo(() => {
-    if (info.metadata?.k8s?.pod) return info.metadata.k8s.pod;
-    if (info.url) {
-      try { return new URL(info.url).host; } catch { /* fallback */ }
-    }
-    return info.id.substring(0, 12);
-  }, [info.id, info.url, info.metadata]);
-
-  const subtitle = useMemo(() => {
-    const shortId = info.id.substring(0, 8);
-    if (info.metadata?.k8s?.namespace) {
-      return `${info.metadata.k8s.namespace} \u00b7 ${shortId}`;
-    }
-    return shortId;
-  }, [info.id, info.metadata]);
-
-  if (expanded) {
-    return (
-      <TerminalLayout
-        className="fixed inset-0 z-[100]"
-        title={title}
-        subtitle={subtitle}
-        credAlert={info.credAlert}
-        headerRight={
-          <button
-            data-expand
-            className="border-none bg-transparent p-0.5 text-sm text-zinc-500 hover:text-zinc-300"
-            title="Collapse"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleExpand();
-            }}
-          >
-            &#10530;
-          </button>
-        }
-        wsStatus={expandedWsStatus}
-        agentState={info.state}
-        statusLabel="[coopmux]"
-      >
-        <Terminal
-          instance={info.term}
-          fitAddon={info.fit}
-          theme={THEME}
-          className="h-full min-w-0 flex-1 p-4"
-          onReady={handleReady}
-        />
-      </TerminalLayout>
-    );
-  }
+  const title = useMemo(() => sessionTitle(info), [info.id, info.url, info.metadata]);
+  const subtitle = useMemo(() => sessionSubtitle(info), [info.id, info.metadata]);
 
   return (
     <div
@@ -193,7 +157,7 @@ function LaunchCard() {
 
 // ── App ──
 
-export function App() {
+function AppInner() {
   const [sessions, setSessions] = useState<Map<string, SessionInfo>>(
     () => new Map(),
   );
@@ -578,6 +542,11 @@ export function App() {
     },
   });
 
+  // ── Sidebar context ──
+
+  const { sidebarCollapsed, toggleSidebar } = useMux();
+  const sidebarWidth = sidebarCollapsed ? 40 : 220;
+
   // ── Keyboard shortcuts ──
 
   useEffect(() => {
@@ -585,10 +554,14 @@ export function App() {
       if (e.key === "Escape" && expandedRef.current) {
         toggleExpand(expandedRef.current);
       }
+      if (e.key === "b" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        toggleSidebar();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [toggleExpand]);
+  }, [toggleExpand, toggleSidebar]);
 
   // ── Render ──
 
@@ -598,7 +571,19 @@ export function App() {
     <div className="flex h-screen flex-col bg-[#0d1117] font-sans text-[#c9d1d9]">
       {/* Header */}
       <header className="flex shrink-0 items-center gap-4 border-b border-[#21262d] px-5 py-2.5">
-        <h1 className="text-base font-semibold">coopmux</h1>
+        <div className="flex items-center gap-2">
+          <button
+            className="border-none bg-transparent p-0.5 text-zinc-500 hover:text-zinc-300"
+            onClick={toggleSidebar}
+            title={sidebarCollapsed ? "Expand sidebar (Cmd+B)" : "Collapse sidebar (Cmd+B)"}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="1.5" y="2" width="13" height="12" rx="1.5" />
+              <line x1="5.5" y1="2" x2="5.5" y2="14" />
+            </svg>
+          </button>
+          <h1 className="text-base font-semibold">coopmux</h1>
+        </div>
         <div className="flex gap-4 text-[13px] text-zinc-500">
           <span>
             {sessionCount} session{sessionCount !== 1 ? "s" : ""}
@@ -614,30 +599,80 @@ export function App() {
 
       <DropOverlay active={dragActive} />
 
-      {/* Grid */}
-      {sessionCount > 0 || launchAvailable ? (
-        <div className="grid flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(480px,1fr))] content-start gap-3 overflow-auto p-4">
-          {sessionArray.map((info) => (
-            <Tile
-              key={info.id}
-              info={info}
-              focused={focusedSession === info.id}
-              expanded={expandedSession === info.id}
-              expandedWsStatus={expandedWsStatus}
-              onFocus={() => focusSession(info.id)}
-              onToggleExpand={() => toggleExpand(info.id)}
+      {/* Main area: sidebar + content */}
+      <div className="flex min-h-0 flex-1">
+        <SessionSidebar
+          sessions={sessionArray}
+          expandedSession={expandedSession}
+          focusedSession={focusedSession}
+          onSelectSession={(id) => toggleExpand(id)}
+        />
+
+        {/* Grid */}
+        {sessionCount > 0 || launchAvailable ? (
+          <div className="grid flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(480px,1fr))] content-start gap-3 overflow-auto p-4">
+            {sessionArray
+              .filter((info) => info.id !== expandedSession)
+              .map((info) => (
+                <Tile
+                  key={info.id}
+                  info={info}
+                  focused={focusedSession === info.id}
+                  onToggleExpand={() => toggleExpand(info.id)}
+                />
+              ))}
+            {launchAvailable && <LaunchCard />}
+          </div>
+        ) : (
+          <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
+            <p>Waiting for connections&hellip;</p>
+          </div>
+        )}
+      </div>
+
+      {/* Expanded session overlay */}
+      {expandedSession && sessions.get(expandedSession) && (() => {
+        const info = sessions.get(expandedSession)!;
+        return (
+          <TerminalLayout
+            className="fixed inset-y-0 right-0 z-[100] transition-[left] duration-200"
+            style={{ left: sidebarWidth }}
+            title={sessionTitle(info)}
+            subtitle={sessionSubtitle(info)}
+            credAlert={info.credAlert}
+            headerRight={
+              <button
+                className="border-none bg-transparent p-0.5 text-sm text-zinc-500 hover:text-zinc-300"
+                title="Collapse"
+                onClick={() => toggleExpand(expandedSession)}
+              >
+                &#10530;
+              </button>
+            }
+            wsStatus={expandedWsStatus}
+            agentState={info.state}
+            statusLabel="[coopmux]"
+          >
+            <Terminal
+              instance={info.term}
+              fitAddon={info.fit}
+              theme={THEME}
+              className="h-full min-w-0 flex-1 p-4"
             />
-          ))}
-          {launchAvailable && <LaunchCard />}
-        </div>
-      ) : (
-        <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
-          <p>Waiting for connections&hellip;</p>
-        </div>
-      )}
+          </TerminalLayout>
+        );
+      })()}
 
       {/* Page-level status bar */}
       <StatusBar label="[coopmux]" wsStatus={muxWsStatus} />
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <MuxProvider>
+      <AppInner />
+    </MuxProvider>
   );
 }

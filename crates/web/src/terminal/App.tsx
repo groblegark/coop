@@ -354,31 +354,29 @@ export function App() {
   );
 
   return (
-    <>
+    <TerminalLayout
+      className="h-screen"
+      title={location.host}
+      wsStatus={wsStatus}
+      agentState={agentState}
+      ptyOffset={ptyOffset}
+      inspectorVisible={sidebarVisible}
+      onToggleInspector={handleToggleInspector}
+      inspectorWidth={sidebarWidth}
+      onInspectorResize={handleResizeMouseDown}
+      inspectorContent={inspectorContent}
+    >
       <DropOverlay active={dragActive} />
-      <TerminalLayout
-        className="h-screen"
-        title={location.host}
-        wsStatus={wsStatus}
-        agentState={agentState}
-        ptyOffset={ptyOffset}
-        inspectorVisible={sidebarVisible}
-        onToggleInspector={handleToggleInspector}
-        inspectorWidth={sidebarWidth}
-        onInspectorResize={handleResizeMouseDown}
-        inspectorContent={inspectorContent}
-      >
-        <Terminal
-          ref={termRef}
-          fontSize={TERMINAL_FONT_SIZE}
-          theme={THEME}
-          className="min-w-0 flex-1 p-4"
-          onData={onTermData}
-          onBinary={onTermBinary}
-          onResize={onTermResize}
-        />
-      </TerminalLayout>
-    </>
+      <Terminal
+        ref={termRef}
+        fontSize={TERMINAL_FONT_SIZE}
+        theme={THEME}
+        className="min-w-0 flex-1 p-4"
+        onData={onTermData}
+        onBinary={onTermBinary}
+        onResize={onTermResize}
+      />
+    </TerminalLayout>
   );
 }
 

@@ -37,6 +37,8 @@ export interface TerminalLayoutProps {
   children: ReactNode;
   /** Extra classes on the root container */
   className?: string;
+  /** Inline styles on the root container */
+  style?: React.CSSProperties;
 }
 
 export function TerminalLayout({
@@ -56,10 +58,12 @@ export function TerminalLayout({
   statusLabel,
   children,
   className,
+  style,
 }: TerminalLayoutProps) {
   return (
     <div
-      className={`flex flex-col overflow-hidden bg-[#1e1e1e] ${className || ""}`}
+      className={`flex flex-col overflow-hidden bg-[#1e1e1e] font-sans text-[#c9d1d9] ${className || ""}`}
+      style={style}
     >
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[#333] px-3 py-1.5">
