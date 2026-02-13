@@ -41,13 +41,13 @@ pub enum CredCommand {
         #[arg(long, default_value = "claude")]
         provider: String,
         /// OAuth token endpoint URL
-        #[arg(long, default_value = "https://console.anthropic.com/v1/oauth/token")]
+        #[arg(long, default_value = "https://platform.claude.com/v1/oauth/token")]
         token_url: String,
         /// OAuth device authorization URL
         #[arg(long, default_value = "https://console.anthropic.com/v1/oauth/device/code")]
         device_url: String,
         /// OAuth client ID
-        #[arg(long, default_value = "9d1c")]
+        #[arg(long, default_value = "9d1c250a-e61b-44d9-88ed-5944d1962f5e")]
         client_id: String,
         /// Don't open the browser automatically
         #[arg(long)]
