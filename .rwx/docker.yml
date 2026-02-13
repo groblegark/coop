@@ -1,0 +1,105 @@
+on:
+  github:
+    push:
+      if: ${{ event.git.branch == 'main' || starts-with(event.git.tag, 'v') }}
+      init:
+        commit-sha: ${{ event.git.sha }}
+        ref-name: ${{ event.git.tag || event.git.branch }}
+      status-checks:
+        name: Docker
+    pull_request:
+      init:
+        commit-sha: ${{ event.git.sha }}
+        ref-name: pr
+      status-checks:
+        name: Docker
+
+base:
+  image: ubuntu:24.04
+  config: rwx/base 1.0.0
+
+tasks:
+  - key: code
+    call: git/clone 2.0.3
+    with:
+      repository: https://github.com/groblegark/coop.git
+      ref: ${{ init.commit-sha }}
+
+  # Each target: build, smoke test, and push in one task
+  - key: docker-empty
+    use: code
+    docker: true
+    run: |
+      docker build --target empty \
+        -t ghcr.io/groblegark/coop:empty-sha-${COMMIT_SHA:0:7} \
+        -t ghcr.io/groblegark/coop:empty \
+        .
+      docker run --rm ghcr.io/groblegark/coop:empty-sha-${COMMIT_SHA:0:7} --help
+
+      if [ "$REF_NAME" != "pr" ]; then
+        echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
+        docker push ghcr.io/groblegark/coop:empty-sha-${COMMIT_SHA:0:7}
+        docker push ghcr.io/groblegark/coop:empty
+        if [[ "$REF_NAME" == v* ]]; then
+          VERSION="${REF_NAME#v}"
+          docker tag ghcr.io/groblegark/coop:empty-sha-${COMMIT_SHA:0:7} ghcr.io/groblegark/coop:empty-${VERSION}
+          docker push ghcr.io/groblegark/coop:empty-${VERSION}
+        fi
+      fi
+    env:
+      COMMIT_SHA: ${{ init.commit-sha }}
+      REF_NAME: ${{ init.ref-name }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GITHUB_USER: ${{ secrets.GITHUB_USER }}
+
+  - key: docker-claude
+    use: code
+    docker: true
+    run: |
+      docker build --target claude \
+        -t ghcr.io/groblegark/coop:claude-sha-${COMMIT_SHA:0:7} \
+        -t ghcr.io/groblegark/coop:claude \
+        .
+      docker run --rm ghcr.io/groblegark/coop:claude-sha-${COMMIT_SHA:0:7} --help
+
+      if [ "$REF_NAME" != "pr" ]; then
+        echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
+        docker push ghcr.io/groblegark/coop:claude-sha-${COMMIT_SHA:0:7}
+        docker push ghcr.io/groblegark/coop:claude
+        if [[ "$REF_NAME" == v* ]]; then
+          VERSION="${REF_NAME#v}"
+          docker tag ghcr.io/groblegark/coop:claude-sha-${COMMIT_SHA:0:7} ghcr.io/groblegark/coop:claude-${VERSION}
+          docker push ghcr.io/groblegark/coop:claude-${VERSION}
+        fi
+      fi
+    env:
+      COMMIT_SHA: ${{ init.commit-sha }}
+      REF_NAME: ${{ init.ref-name }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GITHUB_USER: ${{ secrets.GITHUB_USER }}
+
+  - key: docker-gemini
+    use: code
+    docker: true
+    run: |
+      docker build --target gemini \
+        -t ghcr.io/groblegark/coop:gemini-sha-${COMMIT_SHA:0:7} \
+        -t ghcr.io/groblegark/coop:gemini \
+        .
+      docker run --rm ghcr.io/groblegark/coop:gemini-sha-${COMMIT_SHA:0:7} --help
+
+      if [ "$REF_NAME" != "pr" ]; then
+        echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
+        docker push ghcr.io/groblegark/coop:gemini-sha-${COMMIT_SHA:0:7}
+        docker push ghcr.io/groblegark/coop:gemini
+        if [[ "$REF_NAME" == v* ]]; then
+          VERSION="${REF_NAME#v}"
+          docker tag ghcr.io/groblegark/coop:gemini-sha-${COMMIT_SHA:0:7} ghcr.io/groblegark/coop:gemini-${VERSION}
+          docker push ghcr.io/groblegark/coop:gemini-${VERSION}
+        fi
+      fi
+    env:
+      COMMIT_SHA: ${{ init.commit-sha }}
+      REF_NAME: ${{ init.ref-name }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GITHUB_USER: ${{ secrets.GITHUB_USER }}
