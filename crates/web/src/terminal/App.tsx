@@ -298,7 +298,6 @@ export function App() {
         document.body.style.userSelect = "";
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
-        termRef.current?.fit();
         termRef.current?.terminal?.focus();
       };
       document.body.style.cursor = "col-resize";
@@ -308,18 +307,6 @@ export function App() {
     },
     [],
   );
-
-  // Refit on sidebar toggle/resize
-  useEffect(() => {
-    requestAnimationFrame(() => termRef.current?.fit());
-  }, [sidebarVisible, sidebarWidth]);
-
-  // Window resize
-  useEffect(() => {
-    const onResize = () => termRef.current?.fit();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#1e1e1e]">

@@ -88,22 +88,36 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         // canvas fallback
       }
 
-      fit.fit();
-
       term.onData((data) => onDataRef.current?.(data));
       term.onBinary((data) => onBinaryRef.current?.(data));
       term.onResize((size) => onResizeRef.current?.(size));
+
+      // ResizeObserver fires after layout (before paint), catching both
+      // the initial container sizing and subsequent resizes.  This replaces
+      // the synchronous fit() that could run before flex layout settled.
+      const observer = new ResizeObserver(() => {
+        requestAnimationFrame(() => fit.fit());
+      });
+      observer.observe(el);
 
       termRef.current = term;
       fitRef.current = fit;
 
       return () => {
+        observer.disconnect();
         term.dispose();
         termRef.current = null;
         fitRef.current = null;
       };
     }, [fontSize, fontFamily, theme, scrollback, cursorBlink, disableStdin]);
 
-    return <div ref={containerRef} className={className} />;
+    return (
+      <div
+        className={className}
+        style={{ background: (theme ?? THEME).background }}
+      >
+        <div ref={containerRef} className="h-full w-full overflow-hidden" />
+      </div>
+    );
   },
 );

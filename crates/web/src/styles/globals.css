@@ -91,6 +91,10 @@
 }
 
 /* xterm.js overrides */
+.xterm {
+  height: 100%;
+  width: 100%;
+}
 .xterm-cursor-layer {
   display: none !important;
 }

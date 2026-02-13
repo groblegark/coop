@@ -63,7 +63,13 @@ function Tile({
     if (!el || mountedRef.current) return;
     info.term.open(el);
     mountedRef.current = true;
-  }, [info.term]);
+    // Re-render cached screen after open() to handle screen_batch that
+    // arrived before the terminal was mounted into the DOM.
+    if (info.lastScreenLines && !expanded) {
+      info.term.resize(info.sourceCols, info.lastScreenLines.length);
+      info.term.write(info.lastScreenLines.join("\r\n"));
+    }
+  }, [info.term, expanded]);
 
   const title = useMemo(() => {
     if (info.metadata?.k8s?.pod) return info.metadata.k8s.pod;
@@ -381,6 +387,7 @@ export function App() {
             );
           }
         }
+        sessionsRef.current = newSessions;
         setSessions(newSessions);
         if (ids.length > 0 && muxSendRef.current) {
           muxSendRef.current({ event: "subscribe", sessions: ids });
@@ -398,6 +405,7 @@ export function App() {
             msg.session,
             createSession(msg.session, msg.url ?? null, null, msg.metadata ?? null),
           );
+          sessionsRef.current = newSessions;
           setSessions(newSessions);
           muxSendRef.current?.({
             event: "subscribe",
@@ -410,6 +418,7 @@ export function App() {
           info.term.dispose();
           const newSessions = new Map(sessionsRef.current);
           newSessions.delete(msg.session);
+          sessionsRef.current = newSessions;
           setSessions(newSessions);
           if (focusedRef.current === msg.session) setFocusedSession(null);
           if (expandedRef.current === msg.session) setExpandedSession(null);

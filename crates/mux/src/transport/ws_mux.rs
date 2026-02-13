@@ -238,9 +238,37 @@ async fn handle_mux_ws(state: Arc<MuxState>, socket: WebSocket) {
                         if let Ok(client_msg) = serde_json::from_str::<MuxClientMessage>(&text) {
                             match client_msg {
                                 MuxClientMessage::Subscribe { sessions } => {
+                                    let mut new_sids = Vec::new();
                                     for sid in sessions {
                                         if watched.insert(sid.clone()) {
                                             start_watching(&state, &sid).await;
+                                            new_sids.push(sid);
+                                        }
+                                    }
+                                    // Send immediate screen_batch for newly subscribed sessions
+                                    // so clients don't wait for the next periodic tick.
+                                    if !new_sids.is_empty() {
+                                        let sessions_lock = state.sessions.read().await;
+                                        let mut screens = Vec::new();
+                                        for sid in &new_sids {
+                                            if let Some(entry) = sessions_lock.get(sid) {
+                                                if let Some(screen) = entry.cached_screen.read().await.as_ref() {
+                                                    screens.push(ScreenThumbnail {
+                                                        session: sid.clone(),
+                                                        lines: screen.lines.clone(),
+                                                        cols: screen.cols,
+                                                        rows: screen.rows,
+                                                        seq: screen.seq,
+                                                    });
+                                                }
+                                            }
+                                        }
+                                        drop(sessions_lock);
+                                        if !screens.is_empty() {
+                                            let msg = MuxServerMessage::ScreenBatch { screens };
+                                            if send_json(&mut ws_tx, &msg).await.is_err() {
+                                                break;
+                                            }
                                         }
                                     }
                                 }
