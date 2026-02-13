@@ -62,7 +62,16 @@ fn build_auth_url_matches_claude_code_param_order() -> anyhow::Result<()> {
     let keys: Vec<&str> = q.split('&').map(|p| p.split('=').next().unwrap()).collect();
     assert_eq!(
         keys,
-        ["code", "client_id", "response_type", "redirect_uri", "scope", "code_challenge", "code_challenge_method", "state"],
+        [
+            "code",
+            "client_id",
+            "response_type",
+            "redirect_uri",
+            "scope",
+            "code_challenge",
+            "code_challenge_method",
+            "state"
+        ],
     );
     // Spaces in scope encoded as +
     assert!(url.contains("scope=user%3Aprofile+user%3Ainference"));

@@ -84,9 +84,37 @@ try {
 			: "ANTHROPIC_API_KEY";
 	const token = cred.type === "oauth_token" ? cred.token : cred.key;
 	const coop = coopBin();
-	await $`${coop} cred new "Local (macOS)" --provider claude --env-key ${envKey} --token ${token} --no-reauth`
-		.env({ ...process.env, COOP_MUX_URL: muxUrl })
-		.quiet();
+	const env = { ...process.env, COOP_MUX_URL: muxUrl };
+	const acctName = "Local (macOS)";
+
+	// Build optional flags shared by both new and set.
+	const extraArgs: string[] = [];
+	if (cred.type === "oauth_token" && cred.refreshToken) {
+		extraArgs.push("--refresh-token", cred.refreshToken);
+	}
+	if (cred.type === "oauth_token" && cred.expiresAt) {
+		const ttl = Math.max(0, Math.floor((cred.expiresAt - Date.now()) / 1000));
+		extraArgs.push("--expires-in", String(ttl));
+	}
+
+	// Try `cred new`; fall back to `cred set` if the account already exists.
+	const newArgs: string[] = [
+		"cred", "new", acctName,
+		"--provider", "claude",
+		"--env-key", envKey,
+		"--token", token,
+		...extraArgs,
+	];
+	if (cred.type === "api_key" || (cred.type === "oauth_token" && !cred.refreshToken)) {
+		newArgs.push("--no-reauth");
+	}
+
+	const created = await $`${coop} ${newArgs}`.env(env).quiet().nothrow();
+	if (created.exitCode !== 0) {
+		// Account likely exists from persisted state — update its token.
+		const setArgs = ["cred", "set", acctName, "--token", token, ...extraArgs];
+		await $`${coop} ${setArgs}`.env(env).quiet();
+	}
 	console.log(`Seeded local credential (${cred.type})`);
 } catch (err) {
 	console.log(

@@ -180,7 +180,7 @@ fn write_credentials_creates_new_file() -> anyhow::Result<()> {
     let content = std::fs::read_to_string(&path)?;
     let parsed: serde_json::Value = serde_json::from_str(&content)?;
     assert_eq!(parsed["claudeAiOauth"]["accessToken"], "sk-ant-test-token");
-    assert!(parsed["claudeAiOauth"]["refreshToken"].is_null());
+    assert_eq!(parsed["claudeAiOauth"]["refreshToken"], "");
     assert_eq!(parsed["claudeAiOauth"]["scopes"][0], "user:inference");
 
     std::env::remove_var("CLAUDE_CONFIG_DIR");

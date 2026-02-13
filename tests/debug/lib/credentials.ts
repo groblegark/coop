@@ -29,7 +29,7 @@ export async function loadEnvFile(): Promise<void> {
  * Resolved credential — either an OAuth token (Flow A) or API key (Flow B).
  */
 export type Credential =
-	| { type: "oauth_token"; token: string }
+	| { type: "oauth_token"; token: string; refreshToken?: string; expiresAt?: number }
 	| { type: "api_key"; key: string };
 
 /**
@@ -52,8 +52,13 @@ export async function resolveCredential(): Promise<Credential> {
 				.quiet()
 				.text();
 		const data = JSON.parse(kcJson);
-		const token = data?.claudeAiOauth?.accessToken;
-		if (token) return { type: "oauth_token", token };
+		const oauth = data?.claudeAiOauth;
+		if (oauth?.accessToken) return {
+			type: "oauth_token",
+			token: oauth.accessToken,
+			refreshToken: oauth.refreshToken || undefined,
+			expiresAt: oauth.expiresAt || undefined,
+		};
 	} catch {
 		// not found or not macOS
 	}
@@ -62,8 +67,13 @@ export async function resolveCredential(): Promise<Credential> {
 	const credPath = join(process.env.HOME ?? "", ".claude/.credentials.json");
 	try {
 		const data = await Bun.file(credPath).json();
-		const token = data?.claudeAiOauth?.accessToken;
-		if (token) return { type: "oauth_token", token };
+		const oauth = data?.claudeAiOauth;
+		if (oauth?.accessToken) return {
+			type: "oauth_token",
+			token: oauth.accessToken,
+			refreshToken: oauth.refreshToken || undefined,
+			expiresAt: oauth.expiresAt || undefined,
+		};
 	} catch {
 		// file doesn't exist
 	}

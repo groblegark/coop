@@ -70,7 +70,7 @@ pub struct ReauthArgs {
 }
 
 /// Run the `coop cred` subcommand. Returns a process exit code.
-pub fn run(args: &CredArgs) -> i32 {
+pub async fn run(args: &CredArgs) -> i32 {
     let mux_url = match std::env::var("COOP_MUX_URL") {
         Ok(u) => u.trim_end_matches('/').to_owned(),
         Err(_) => {
@@ -80,32 +80,35 @@ pub fn run(args: &CredArgs) -> i32 {
     };
 
     let mux_token = std::env::var("COOP_MUX_TOKEN").ok();
-    let client = reqwest::blocking::Client::builder()
+    let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .unwrap_or_default();
 
     match &args.command {
-        CredCommand::List => cmd_list(&client, &mux_url, mux_token.as_deref()),
-        CredCommand::New(new_args) => cmd_new(&client, &mux_url, mux_token.as_deref(), new_args),
-        CredCommand::Set(set_args) => cmd_set(&client, &mux_url, mux_token.as_deref(), set_args),
-        CredCommand::Reauth(reauth) => cmd_reauth(&client, &mux_url, mux_token.as_deref(), reauth),
+        CredCommand::List => cmd_list(&client, &mux_url, mux_token.as_deref()).await,
+        CredCommand::New(new_args) => {
+            cmd_new(&client, &mux_url, mux_token.as_deref(), new_args).await
+        }
+        CredCommand::Set(set_args) => {
+            cmd_set(&client, &mux_url, mux_token.as_deref(), set_args).await
+        }
+        CredCommand::Reauth(reauth) => {
+            cmd_reauth(&client, &mux_url, mux_token.as_deref(), reauth).await
+        }
     }
 }
 
-fn apply_auth(
-    req: reqwest::blocking::RequestBuilder,
-    token: Option<&str>,
-) -> reqwest::blocking::RequestBuilder {
+fn apply_auth(req: reqwest::RequestBuilder, token: Option<&str>) -> reqwest::RequestBuilder {
     match token {
         Some(t) => req.bearer_auth(t),
         None => req,
     }
 }
 
-fn cmd_list(client: &reqwest::blocking::Client, mux_url: &str, token: Option<&str>) -> i32 {
+async fn cmd_list(client: &reqwest::Client, mux_url: &str, token: Option<&str>) -> i32 {
     let url = format!("{mux_url}/api/v1/credentials/status");
-    let resp = match apply_auth(client.get(&url), token).send() {
+    let resp = match apply_auth(client.get(&url), token).send().await {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: {e}");
@@ -114,7 +117,7 @@ fn cmd_list(client: &reqwest::blocking::Client, mux_url: &str, token: Option<&st
     };
 
     let status = resp.status();
-    let text = resp.text().unwrap_or_default();
+    let text = resp.text().await.unwrap_or_default();
 
     if status.is_success() {
         // Pretty-print the JSON table.
@@ -147,8 +150,8 @@ fn cmd_list(client: &reqwest::blocking::Client, mux_url: &str, token: Option<&st
     }
 }
 
-fn cmd_new(
-    client: &reqwest::blocking::Client,
+async fn cmd_new(
+    client: &reqwest::Client,
     mux_url: &str,
     token: Option<&str>,
     args: &NewArgs,
@@ -164,7 +167,7 @@ fn cmd_new(
         "reauth": !args.no_reauth,
     });
 
-    let resp = match apply_auth(client.post(&url), token).json(&body).send() {
+    let resp = match apply_auth(client.post(&url), token).json(&body).send().await {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: {e}");
@@ -173,7 +176,7 @@ fn cmd_new(
     };
 
     let status = resp.status();
-    let text = resp.text().unwrap_or_default();
+    let text = resp.text().await.unwrap_or_default();
 
     if status.is_success() {
         println!("Created account '{}'.", args.name);
@@ -184,8 +187,8 @@ fn cmd_new(
     }
 }
 
-fn cmd_set(
-    client: &reqwest::blocking::Client,
+async fn cmd_set(
+    client: &reqwest::Client,
     mux_url: &str,
     token: Option<&str>,
     args: &SetArgs,
@@ -198,7 +201,7 @@ fn cmd_set(
         "expires_in": args.expires_in,
     });
 
-    let resp = match apply_auth(client.post(&url), token).json(&body).send() {
+    let resp = match apply_auth(client.post(&url), token).json(&body).send().await {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: {e}");
@@ -207,7 +210,7 @@ fn cmd_set(
     };
 
     let status = resp.status();
-    let text = resp.text().unwrap_or_default();
+    let text = resp.text().await.unwrap_or_default();
 
     if status.is_success() {
         println!("Set token for account '{}'.", args.account);
@@ -218,8 +221,8 @@ fn cmd_set(
     }
 }
 
-fn cmd_reauth(
-    client: &reqwest::blocking::Client,
+async fn cmd_reauth(
+    client: &reqwest::Client,
     mux_url: &str,
     token: Option<&str>,
     args: &ReauthArgs,
@@ -229,7 +232,7 @@ fn cmd_reauth(
         "account": args.account,
     });
 
-    let resp = match apply_auth(client.post(&url), token).json(&body).send() {
+    let resp = match apply_auth(client.post(&url), token).json(&body).send().await {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: {e}");
@@ -238,7 +241,7 @@ fn cmd_reauth(
     };
 
     let status = resp.status();
-    let text = resp.text().unwrap_or_default();
+    let text = resp.text().await.unwrap_or_default();
 
     if status.is_success() {
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
