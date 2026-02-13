@@ -72,6 +72,7 @@ function Tile({
     // arrived before the terminal was mounted into the DOM.
     if (info.lastScreenLines) {
       info.term.resize(info.sourceCols, info.lastScreenLines.length);
+      info.term.reset();
       info.term.write(info.lastScreenLines.join("\r\n"));
     }
   }, [info]);
@@ -429,6 +430,7 @@ function AppInner() {
       info.term.options.scrollback = 10000;
       info.term.reset();
       info.term.options.disableStdin = false;
+      info.term.focus();
       try {
         const webgl = new WebglAddon();
         webgl.onContextLoss(() => {
@@ -442,7 +444,6 @@ function AppInner() {
       }
       requestAnimationFrame(() => {
         info.fit.fit();
-        info.term.focus();
         connectExpandedWs(id, info);
       });
     },
