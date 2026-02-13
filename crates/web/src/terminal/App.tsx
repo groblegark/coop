@@ -10,13 +10,9 @@ import { TerminalLayout } from "@/components/TerminalLayout";
 import { DropOverlay } from "@/components/DropOverlay";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useFileUpload } from "@/hooks/useFileUpload";
-import { apiGet } from "@/hooks/useApiClient";
 import { b64decode, b64encode } from "@/lib/base64";
 import { THEME, TERMINAL_FONT_SIZE } from "@/lib/constants";
-import type { WsMessage, PromptContext } from "@/lib/types";
-import { StatePanel } from "./StatePanel";
-import { ActionsPanel } from "./ActionsPanel";
-import { ConfigPanel } from "./ConfigPanel";
+import type { WsMessage, PromptContext, EventEntry } from "@/lib/types";
 
 // ── App ──
 
@@ -29,24 +25,19 @@ export function App() {
   const [prompt, setPrompt] = useState<PromptContext | null>(null);
   const [lastMessage, setLastMessage] = useState<string | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(false);
-  const [activeTab, setActiveTab] = useState<"state" | "actions" | "config">(
-    "state",
-  );
   const [ptyOffset, setPtyOffset] = useState(0);
   const [sidebarWidth, setSidebarWidth] = useState(450);
 
   // Event log
   const [events, setEvents] = useState<EventEntry[]>([]);
 
-  // API tables (polled)
+  // API tables (polled via WS request)
   const [health, setHealth] = useState<unknown>(null);
   const [status, setStatus] = useState<unknown>(null);
   const [agent, setAgent] = useState<unknown>(null);
   const [usage, setUsage] = useState<unknown>(null);
 
   // ── WebSocket ──
-
-  const wsSendRef = useRef<(msg: unknown) => void>(() => {});
 
   const onMessage = useCallback((raw: unknown) => {
     const msg = raw as WsMessage;
@@ -61,8 +52,6 @@ export function App() {
       setPrompt(msg.prompt ?? null);
       setLastMessage(msg.last_message ?? null);
     } else if (msg.event === "exit") {
-      const desc =
-        msg.signal != null ? `signal ${msg.signal}` : `code ${msg.code ?? "?"}`;
       setWsStatus("disconnected");
       setAgentState("exited");
     } else if (msg.event === "usage:update" && msg.cumulative) {
@@ -70,14 +59,10 @@ export function App() {
     }
   }, []);
 
-  const { send, status: connectionStatus } = useWebSocket({
+  const { send, request, status: connectionStatus } = useWebSocket({
     path: "/ws?subscribe=pty,state,usage,hooks",
     onMessage,
   });
-
-  useEffect(() => {
-    wsSendRef.current = send;
-  }, [send]);
 
   useEffect(() => {
     setWsStatus(connectionStatus);
@@ -192,11 +177,11 @@ export function App() {
     });
   }, []);
 
-  // ── API polling ──
+  // ── API polling (via WS request) ──
 
   const pollApi = useCallback(async () => {
     try {
-      const agentRes = await apiGet("/api/v1/agent");
+      const agentRes = await request({ event: "agent:get" });
       if (agentRes.ok && agentRes.json) {
         const a = agentRes.json as { state?: string; prompt?: PromptContext; last_message?: string };
         if (a.state) setAgentState(a.state);
@@ -206,17 +191,17 @@ export function App() {
     } catch {
       // ignore
     }
-  }, []);
+  }, [request]);
 
   const pollApiFull = useCallback(async () => {
     pollApi();
     if (!sidebarVisible) return;
     try {
       const [h, st, ag, u] = await Promise.all([
-        apiGet("/api/v1/health").catch(() => null),
-        apiGet("/api/v1/status").catch(() => null),
-        apiGet("/api/v1/agent").catch(() => null),
-        apiGet("/api/v1/session/usage").catch(() => null),
+        request({ event: "health:get" }).catch(() => null),
+        request({ event: "status:get" }).catch(() => null),
+        request({ event: "agent:get" }).catch(() => null),
+        request({ event: "usage:get" }).catch(() => null),
       ]);
       if (h?.ok) setHealth(h.json);
       if (st?.ok) setStatus(st.json);
@@ -225,7 +210,7 @@ export function App() {
     } catch {
       // ignore
     }
-  }, [sidebarVisible, pollApi]);
+  }, [sidebarVisible, pollApi, request]);
 
   useEffect(() => {
     pollApiFull();
@@ -308,50 +293,9 @@ export function App() {
     termRef.current?.terminal?.focus();
   }, []);
 
-  // ── Inspector sidebar content ──
-
-  const inspectorContent = (
-    <>
-      {/* Tab bar */}
-      <div className="flex shrink-0 border-b border-[#333] bg-[#151515]">
-        {(["state", "actions", "config"] as const).map((tab) => (
-          <button
-            key={tab}
-            className={`flex-1 border-b-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide transition-colors ${
-              activeTab === tab
-                ? "border-blue-400 text-zinc-300"
-                : "border-transparent text-zinc-600 hover:text-zinc-400"
-            }`}
-            onClick={() => {
-              setActiveTab(tab);
-              termRef.current?.terminal?.focus();
-            }}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      {/* Panels */}
-      {activeTab === "state" && (
-        <StatePanel
-          health={health}
-          status={status}
-          agent={agent}
-          usage={usage}
-          events={events}
-        />
-      )}
-      {activeTab === "actions" && (
-        <ActionsPanel
-          prompt={prompt}
-          lastMessage={lastMessage}
-          wsSend={send}
-        />
-      )}
-      {activeTab === "config" && <ConfigPanel />}
-    </>
-  );
+  const handleInspectorTabClick = useCallback(() => {
+    termRef.current?.terminal?.focus();
+  }, []);
 
   return (
     <TerminalLayout
@@ -364,7 +308,16 @@ export function App() {
       onToggleInspector={handleToggleInspector}
       inspectorWidth={sidebarWidth}
       onInspectorResize={handleResizeMouseDown}
-      inspectorContent={inspectorContent}
+      health={health}
+      status={status}
+      agent={agent}
+      usage={usage}
+      events={events}
+      prompt={prompt}
+      lastMessage={lastMessage}
+      wsSend={send}
+      wsRequest={request}
+      onInspectorTabClick={handleInspectorTabClick}
     >
       <DropOverlay active={dragActive} />
       <Terminal
@@ -378,14 +331,4 @@ export function App() {
       />
     </TerminalLayout>
   );
-}
-
-// ── Event entry type ──
-
-export interface EventEntry {
-  ts: string;
-  type: string;
-  detail: string;
-  count?: number;
-  bytes?: number;
 }

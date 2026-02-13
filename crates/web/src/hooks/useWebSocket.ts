@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from "react";
+import type { ApiResult } from "@/lib/types";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
@@ -13,6 +14,63 @@ interface UseWebSocketOptions {
   enabled?: boolean;
 }
 
+/** Send a WS message and await the correlated response via `request_id`. */
+export type WsRequest = (msg: Record<string, unknown>) => Promise<ApiResult>;
+
+let nextId = 1;
+
+/**
+ * Standalone request-response helper for a raw WebSocket.
+ * Used by mux expanded view where we manage the WS manually.
+ */
+export class WsRpc {
+  private pending = new Map<string, { resolve: (r: ApiResult) => void; timer: ReturnType<typeof setTimeout> }>();
+
+  constructor(private ws: WebSocket, private timeout = 10_000) {}
+
+  /** Handle an incoming message. Returns true if it was a response (had request_id). */
+  handleMessage(msg: Record<string, unknown>): boolean {
+    const rid = msg.request_id as string | undefined;
+    if (!rid) return false;
+    const entry = this.pending.get(rid);
+    if (!entry) return false;
+    clearTimeout(entry.timer);
+    this.pending.delete(rid);
+    const isError = msg.event === "error";
+    entry.resolve({
+      ok: !isError,
+      status: isError ? 400 : 200,
+      json: msg,
+      text: JSON.stringify(msg),
+    });
+    return true;
+  }
+
+  request(msg: Record<string, unknown>): Promise<ApiResult> {
+    return new Promise((resolve) => {
+      if (this.ws.readyState !== WebSocket.OPEN) {
+        resolve({ ok: false, status: 0, json: null, text: "WebSocket not open" });
+        return;
+      }
+      const rid = `r${nextId++}`;
+      const timer = setTimeout(() => {
+        this.pending.delete(rid);
+        resolve({ ok: false, status: 408, json: null, text: "Request timeout" });
+      }, this.timeout);
+      this.pending.set(rid, { resolve, timer });
+      this.ws.send(JSON.stringify({ ...msg, request_id: rid }));
+    });
+  }
+
+  dispose() {
+    for (const [, entry] of this.pending) {
+      clearTimeout(entry.timer);
+      entry.resolve({ ok: false, status: 0, json: null, text: "Disposed" });
+    }
+    this.pending.clear();
+  }
+}
+
 export function useWebSocket({
   path,
   onMessage,
@@ -20,6 +78,7 @@ export function useWebSocket({
   enabled = true,
 }: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
+  const rpcRef = useRef<WsRpc | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
@@ -29,6 +88,14 @@ export function useWebSocket({
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(msg));
     }
+  }, []);
+
+  const request: WsRequest = useCallback((msg: Record<string, unknown>) => {
+    const rpc = rpcRef.current;
+    if (!rpc) {
+      return Promise.resolve({ ok: false, status: 0, json: null, text: "Not connected" } as ApiResult);
+    }
+    return rpc.request(msg);
   }, []);
 
   useEffect(() => {
@@ -50,6 +117,8 @@ export function useWebSocket({
 
       const ws = new WebSocket(url);
       wsRef.current = ws;
+      const rpc = new WsRpc(ws);
+      rpcRef.current = rpc;
 
       ws.onopen = () => {
         if (cancelled) {
@@ -61,7 +130,11 @@ export function useWebSocket({
 
       ws.onmessage = (ev) => {
         try {
-          onMessageRef.current(JSON.parse(ev.data));
+          const parsed = JSON.parse(ev.data);
+          // If this is a response to a pending request, don't forward to onMessage
+          if (!rpc.handleMessage(parsed)) {
+            onMessageRef.current(parsed);
+          }
         } catch {
           // ignore parse errors
         }
@@ -69,6 +142,8 @@ export function useWebSocket({
 
       ws.onclose = () => {
         wsRef.current = null;
+        rpc.dispose();
+        rpcRef.current = null;
         if (!cancelled) {
           setStatus("disconnected");
           reconnectTimer = setTimeout(connect, reconnectDelay);
@@ -85,10 +160,12 @@ export function useWebSocket({
     return () => {
       cancelled = true;
       clearTimeout(reconnectTimer);
+      rpcRef.current?.dispose();
+      rpcRef.current = null;
       wsRef.current?.close();
       wsRef.current = null;
     };
   }, [path, reconnectDelay, enabled]);
 
-  return { send, status, wsRef };
+  return { send, request, status, wsRef };
 }

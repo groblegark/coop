@@ -1,5 +1,8 @@
 import type { ReactNode, MouseEventHandler } from "react";
+import type { PromptContext, EventEntry } from "@/lib/types";
+import type { WsRequest } from "@/hooks/useWebSocket";
 import { StatusBar } from "./StatusBar";
+import { InspectorSidebar } from "./inspector/InspectorSidebar";
 
 export interface TerminalLayoutProps {
   /** Title displayed in the header bar */
@@ -19,8 +22,19 @@ export interface TerminalLayoutProps {
   inspectorWidth?: number;
   /** Mouse-down handler for the sidebar resize handle */
   onInspectorResize?: MouseEventHandler;
-  /** Content rendered inside the inspector sidebar */
-  inspectorContent?: ReactNode;
+
+  /** Inspector data props (when provided, InspectorSidebar is rendered internally) */
+  health?: unknown;
+  status?: unknown;
+  agent?: unknown;
+  usage?: unknown;
+  events?: EventEntry[];
+  prompt?: PromptContext | null;
+  lastMessage?: string | null;
+  wsSend?: (msg: unknown) => void;
+  wsRequest?: WsRequest;
+  /** Called when an inspector tab is clicked (e.g. to refocus terminal) */
+  onInspectorTabClick?: () => void;
 
   /** WebSocket connection status */
   wsStatus: "connecting" | "connected" | "disconnected";
@@ -50,7 +64,16 @@ export function TerminalLayout({
   onToggleInspector,
   inspectorWidth = 450,
   onInspectorResize,
-  inspectorContent,
+  health,
+  status,
+  agent,
+  usage,
+  events,
+  prompt,
+  lastMessage,
+  wsSend,
+  wsRequest,
+  onInspectorTabClick,
   wsStatus,
   agentState,
   ptyOffset,
@@ -60,6 +83,8 @@ export function TerminalLayout({
   className,
   style,
 }: TerminalLayoutProps) {
+  const hasInspectorData = wsSend && wsRequest && events;
+
   return (
     <div
       className={`flex flex-col overflow-hidden bg-[#1e1e1e] font-sans text-[#c9d1d9] ${className || ""}`}
@@ -100,12 +125,23 @@ export function TerminalLayout({
         )}
 
         {/* Inspector sidebar */}
-        {inspectorVisible && inspectorContent && (
+        {inspectorVisible && hasInspectorData && (
           <div
             className="flex shrink-0 flex-col overflow-hidden border-l border-[#333] bg-[#181818] font-mono text-xs text-zinc-400"
             style={{ width: inspectorWidth }}
           >
-            {inspectorContent}
+            <InspectorSidebar
+              health={health ?? null}
+              status={status ?? null}
+              agent={agent ?? null}
+              usage={usage ?? null}
+              events={events!}
+              prompt={prompt ?? null}
+              lastMessage={lastMessage ?? null}
+              wsSend={wsSend!}
+              wsRequest={wsRequest!}
+              onTabClick={onInspectorTabClick}
+            />
           </div>
         )}
       </div>

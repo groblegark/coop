@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState } from "react";
-import type { EventEntry } from "./App";
+import type { EventEntry } from "@/lib/types";
 
 // ── Recursive table renderer ──
 

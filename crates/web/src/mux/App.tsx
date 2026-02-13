@@ -429,7 +429,6 @@ function AppInner() {
       info.term.options.scrollback = 10000;
       info.term.reset();
       info.term.options.disableStdin = false;
-      info.term.focus();
       try {
         const webgl = new WebglAddon();
         webgl.onContextLoss(() => {
@@ -443,6 +442,7 @@ function AppInner() {
       }
       requestAnimationFrame(() => {
         info.fit.fit();
+        info.term.focus();
         connectExpandedWs(id, info);
       });
     },

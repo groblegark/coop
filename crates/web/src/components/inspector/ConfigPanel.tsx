@@ -1,22 +1,22 @@
 import { useState, useCallback, useEffect } from "react";
-import { apiGet, apiPost, apiPut } from "@/hooks/useApiClient";
+import type { WsRequest } from "@/hooks/useWebSocket";
 import { Section } from "@/components/Section";
 import { ActionBtn } from "@/components/ActionBtn";
 import { ResultDisplay, showResult } from "@/components/ResultDisplay";
 
 // ── Config Panel ──
 
-export function ConfigPanel() {
+export function ConfigPanel({ wsRequest }: { wsRequest: WsRequest }) {
   return (
     <div className="flex-1 overflow-y-auto">
-      <ProfilesSection />
-      <RegisterProfilesSection />
-      <SessionSwitchSection />
-      <StopConfigSection />
-      <StartConfigSection />
-      <TranscriptsSection />
-      <SignalSection />
-      <ShutdownSection />
+      <ProfilesSection wsRequest={wsRequest} />
+      <RegisterProfilesSection wsRequest={wsRequest} />
+      <SessionSwitchSection wsRequest={wsRequest} />
+      <StopConfigSection wsRequest={wsRequest} />
+      <StartConfigSection wsRequest={wsRequest} />
+      <TranscriptsSection wsRequest={wsRequest} />
+      <SignalSection wsRequest={wsRequest} />
+      <ShutdownSection wsRequest={wsRequest} />
     </div>
   );
 }
@@ -29,7 +29,7 @@ interface ProfileInfo {
   cooldown_remaining_secs?: number;
 }
 
-function ProfilesSection() {
+function ProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [autoRotate, setAutoRotate] = useState(true);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
@@ -37,7 +37,7 @@ function ProfilesSection() {
   );
 
   const refresh = useCallback(async () => {
-    const res = await apiGet("/api/v1/session/profiles");
+    const res = await wsRequest({ event: "profiles:list" });
     if (!res.ok) {
       setResult(showResult(res));
       return;
@@ -48,7 +48,7 @@ function ProfilesSection() {
     };
     setAutoRotate(data.mode === "auto");
     setProfiles(data.profiles ?? []);
-  }, []);
+  }, [wsRequest]);
 
   useEffect(() => {
     refresh();
@@ -57,23 +57,24 @@ function ProfilesSection() {
   const toggleAutoRotate = useCallback(
     async (checked: boolean) => {
       const mode = checked ? "auto" : "manual";
-      const res = await apiPut("/api/v1/session/profiles/mode", { mode });
+      const res = await wsRequest({ event: "profiles:mode:set", mode });
       setResult(showResult(res));
       if (res.ok) refresh();
     },
-    [refresh],
+    [refresh, wsRequest],
   );
 
   const switchProfile = useCallback(
     async (name: string) => {
-      const res = await apiPost("/api/v1/session/switch", {
+      const res = await wsRequest({
+        event: "session:switch",
         profile: name,
         force: false,
       });
       setResult(showResult(res));
       if (res.ok) setTimeout(refresh, 500);
     },
-    [refresh],
+    [refresh, wsRequest],
   );
 
   return (
@@ -140,7 +141,7 @@ function ProfilesSection() {
 
 // ── Register Profiles ──
 
-function RegisterProfilesSection() {
+function RegisterProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [json, setJson] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
     null,
@@ -154,13 +155,11 @@ function RegisterProfilesSection() {
       setResult({ ok: false, text: "Invalid JSON" });
       return;
     }
-    const body = Array.isArray(profiles)
-      ? { profiles }
-      : { profiles: [profiles] };
-    const res = await apiPost("/api/v1/session/profiles", body);
+    const list = Array.isArray(profiles) ? profiles : [profiles];
+    const res = await wsRequest({ event: "profiles:register", profiles: list });
     setResult(showResult(res));
     if (res.ok) setJson("");
-  }, [json]);
+  }, [json, wsRequest]);
 
   return (
     <Section label="Register Profiles">
@@ -183,7 +182,7 @@ function RegisterProfilesSection() {
 
 // ── Session Switch ──
 
-function SessionSwitchSection() {
+function SessionSwitchSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [creds, setCreds] = useState("");
   const [force, setForce] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
@@ -200,11 +199,11 @@ function SessionSwitchSection() {
         return;
       }
     }
-    const body: Record<string, unknown> = { force };
+    const body: Record<string, unknown> = { event: "session:switch", force };
     if (credentials) body.credentials = credentials;
-    const res = await apiPost("/api/v1/session/switch", body);
+    const res = await wsRequest(body);
     setResult(showResult(res));
-  }, [creds, force]);
+  }, [creds, force, wsRequest]);
 
   return (
     <Section label="Session Switch">
@@ -238,7 +237,7 @@ function SessionSwitchSection() {
 
 // ── Stop Config ──
 
-function StopConfigSection() {
+function StopConfigSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [mode, setMode] = useState("allow");
   const [prompt, setPrompt] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
@@ -246,22 +245,23 @@ function StopConfigSection() {
   );
 
   const handleGet = useCallback(async () => {
-    const res = await apiGet("/api/v1/config/stop");
+    const res = await wsRequest({ event: "stop:config:get" });
     setResult(showResult(res));
     if (res.ok && res.json) {
-      const data = res.json as { mode?: string; prompt?: string };
-      setMode(data.mode || "allow");
-      setPrompt(data.prompt || "");
+      const data = res.json as { config?: { mode?: string; prompt?: string } };
+      const cfg = data.config ?? (res.json as { mode?: string; prompt?: string });
+      setMode(cfg.mode || "allow");
+      setPrompt(cfg.prompt || "");
     }
-  }, []);
+  }, [wsRequest]);
 
   const handlePut = useCallback(async () => {
-    const res = await apiPut("/api/v1/config/stop", {
-      mode,
-      prompt: prompt || null,
+    const res = await wsRequest({
+      event: "stop:config:put",
+      config: { mode, prompt: prompt || null },
     });
     setResult(showResult(res));
-  }, [mode, prompt]);
+  }, [mode, prompt, wsRequest]);
 
   return (
     <Section label="Stop Config">
@@ -293,19 +293,20 @@ function StopConfigSection() {
 
 // ── Start Config ──
 
-function StartConfigSection() {
+function StartConfigSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [json, setJson] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
     null,
   );
 
   const handleGet = useCallback(async () => {
-    const res = await apiGet("/api/v1/config/start");
+    const res = await wsRequest({ event: "config:start:get" });
     setResult(showResult(res));
     if (res.ok && res.json) {
-      setJson(JSON.stringify(res.json, null, 2));
+      const data = res.json as { config?: unknown };
+      setJson(JSON.stringify(data.config ?? res.json, null, 2));
     }
-  }, []);
+  }, [wsRequest]);
 
   const handlePut = useCallback(async () => {
     let body;
@@ -315,9 +316,9 @@ function StartConfigSection() {
       setResult({ ok: false, text: "Invalid JSON" });
       return;
     }
-    const res = await apiPut("/api/v1/config/start", body);
+    const res = await wsRequest({ event: "config:put:get", config: body });
     setResult(showResult(res));
-  }, [json]);
+  }, [json, wsRequest]);
 
   return (
     <Section label="Start Config">
@@ -352,7 +353,7 @@ function formatBytes(b: number): string {
   return `${(b / (1024 * 1024)).toFixed(1)}M`;
 }
 
-function TranscriptsSection() {
+function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [transcripts, setTranscripts] = useState<TranscriptInfo[]>([]);
   const [activeLine, setActiveLine] = useState<number | null>(null);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
@@ -361,8 +362,8 @@ function TranscriptsSection() {
 
   const refresh = useCallback(async () => {
     const [listRes, catchupRes] = await Promise.all([
-      apiGet("/api/v1/transcripts"),
-      apiGet("/api/v1/transcripts/catchup?since_transcript=0&since_line=0"),
+      wsRequest({ event: "transcript:list" }),
+      wsRequest({ event: "transcript:catchup", since_transcript: 0, since_line: 0 }),
     ]);
     if (!listRes.ok) {
       setResult(showResult(listRes));
@@ -376,7 +377,7 @@ function TranscriptsSection() {
         (catchupRes.json as { current_line?: number }).current_line ?? null,
       );
     }
-  }, []);
+  }, [wsRequest]);
 
   useEffect(() => {
     refresh();
@@ -448,15 +449,15 @@ function TranscriptsSection() {
 
 // ── Signal ──
 
-function SignalSection() {
+function SignalSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
     null,
   );
 
   const sendSignal = useCallback(async (signal: string) => {
-    const res = await apiPost("/api/v1/signal", { signal });
+    const res = await wsRequest({ event: "signal:send", signal });
     setResult(showResult(res));
-  }, []);
+  }, [wsRequest]);
 
   return (
     <Section label="Signal">
@@ -481,15 +482,15 @@ function SignalSection() {
 
 // ── Shutdown ──
 
-function ShutdownSection() {
+function ShutdownSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
     null,
   );
 
   const handleShutdown = useCallback(async () => {
-    const res = await apiPost("/api/v1/shutdown", {});
+    const res = await wsRequest({ event: "shutdown" });
     setResult(showResult(res));
-  }, []);
+  }, [wsRequest]);
 
   return (
     <Section label="Lifecycle">

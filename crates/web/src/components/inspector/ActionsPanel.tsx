@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
-import { apiPost } from "@/hooks/useApiClient";
 import { KEY_DEFS } from "@/lib/constants";
 import type { PromptContext } from "@/lib/types";
+import type { WsRequest } from "@/hooks/useWebSocket";
 import { Section } from "@/components/Section";
 import { ActionBtn } from "@/components/ActionBtn";
 import { ResultDisplay, showResult } from "@/components/ResultDisplay";
@@ -12,27 +12,29 @@ interface ActionsPanelProps {
   prompt: PromptContext | null;
   lastMessage: string | null;
   wsSend: (msg: unknown) => void;
+  wsRequest: WsRequest;
 }
 
 export function ActionsPanel({
   prompt,
   lastMessage,
   wsSend,
+  wsRequest,
 }: ActionsPanelProps) {
   return (
     <div className="flex-1 overflow-y-auto">
-      <InputSection wsSend={wsSend} />
+      <InputSection wsRequest={wsRequest} />
       <KeysSection wsSend={wsSend} />
-      <ResizeSection />
-      <NudgeSection />
-      <RespondSection prompt={prompt} lastMessage={lastMessage} />
+      <ResizeSection wsRequest={wsRequest} />
+      <NudgeSection wsRequest={wsRequest} />
+      <RespondSection prompt={prompt} lastMessage={lastMessage} wsRequest={wsRequest} />
     </div>
   );
 }
 
 // ── Input Section ──
 
-function InputSection({ wsSend }: { wsSend: (msg: unknown) => void }) {
+function InputSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [text, setText] = useState("");
   const [enter, setEnter] = useState(true);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
@@ -40,10 +42,10 @@ function InputSection({ wsSend }: { wsSend: (msg: unknown) => void }) {
   );
 
   const handleSend = useCallback(async () => {
-    const res = await apiPost("/api/v1/input", { text, enter });
+    const res = await wsRequest({ event: "input:send", text, enter });
     setResult(showResult(res));
     setText("");
-  }, [text, enter]);
+  }, [text, enter, wsRequest]);
 
   return (
     <Section label="Input">
@@ -94,7 +96,7 @@ function KeysSection({ wsSend }: { wsSend: (msg: unknown) => void }) {
 
 // ── Resize Section ──
 
-function ResizeSection() {
+function ResizeSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [cols, setCols] = useState("");
   const [rows, setRows] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
@@ -108,9 +110,9 @@ function ResizeSection() {
       setResult({ ok: false, text: "Invalid cols/rows" });
       return;
     }
-    const res = await apiPost("/api/v1/resize", { cols: c, rows: r });
+    const res = await wsRequest({ event: "resize", cols: c, rows: r });
     setResult(showResult(res));
-  }, [cols, rows]);
+  }, [cols, rows, wsRequest]);
 
   return (
     <Section label="Resize">
@@ -139,17 +141,17 @@ function ResizeSection() {
 
 // ── Nudge Section ──
 
-function NudgeSection() {
+function NudgeSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
     null,
   );
 
   const handleNudge = useCallback(async () => {
-    const res = await apiPost("/api/v1/agent/nudge", { message });
+    const res = await wsRequest({ event: "nudge", message });
     setResult(showResult(res));
     if (res.ok) setMessage("");
-  }, [message]);
+  }, [message, wsRequest]);
 
   return (
     <Section label="Nudge">
@@ -176,9 +178,11 @@ function NudgeSection() {
 function RespondSection({
   prompt,
   lastMessage,
+  wsRequest,
 }: {
   prompt: PromptContext | null;
   lastMessage: string | null;
+  wsRequest: WsRequest;
 }) {
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
     null,
@@ -209,16 +213,16 @@ function RespondSection({
       )}
 
       {prompt.type === "permission" && (
-        <PermissionPrompt prompt={prompt} onResult={setResult} />
+        <PermissionPrompt prompt={prompt} onResult={setResult} wsRequest={wsRequest} />
       )}
       {prompt.type === "plan" && (
-        <PlanPrompt prompt={prompt} onResult={setResult} />
+        <PlanPrompt prompt={prompt} onResult={setResult} wsRequest={wsRequest} />
       )}
       {prompt.type === "setup" && (
-        <SetupPrompt prompt={prompt} onResult={setResult} />
+        <SetupPrompt prompt={prompt} onResult={setResult} wsRequest={wsRequest} />
       )}
       {prompt.type === "question" && (
-        <QuestionPrompt prompt={prompt} onResult={setResult} />
+        <QuestionPrompt prompt={prompt} onResult={setResult} wsRequest={wsRequest} />
       )}
       <ResultDisplay result={result} />
     </Section>
@@ -230,9 +234,11 @@ function RespondSection({
 function PermissionPrompt({
   prompt,
   onResult,
+  wsRequest,
 }: {
   prompt: PromptContext;
   onResult: (r: { ok: boolean; text: string }) => void;
+  wsRequest: WsRequest;
 }) {
   const isFallback = !!prompt.options_fallback;
   const options = prompt.options?.length
@@ -272,9 +278,7 @@ function PermissionPrompt({
             }
             dashed={styles[i]?.includes("fallback")}
             onClick={async () => {
-              const res = await apiPost("/api/v1/agent/respond", {
-                option: i + 1,
-              });
+              const res = await wsRequest({ event: "respond", option: i + 1 });
               onResult(showResult(res));
             }}
           >
@@ -291,9 +295,11 @@ function PermissionPrompt({
 function PlanPrompt({
   prompt,
   onResult,
+  wsRequest,
 }: {
   prompt: PromptContext;
   onResult: (r: { ok: boolean; text: string }) => void;
+  wsRequest: WsRequest;
 }) {
   const [feedback, setFeedback] = useState("");
   const isFallback = !!prompt.options_fallback;
@@ -346,9 +352,7 @@ function PlanPrompt({
             }
             dashed={styles[i]?.includes("fallback")}
             onClick={async () => {
-              const res = await apiPost("/api/v1/agent/respond", {
-                option: i + 1,
-              });
+              const res = await wsRequest({ event: "respond", option: i + 1 });
               onResult(showResult(res));
             }}
           >
@@ -363,7 +367,8 @@ function PlanPrompt({
           onChange={(e) => setFeedback(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
-              apiPost("/api/v1/agent/respond", {
+              wsRequest({
+                event: "respond",
                 option: lastIdx,
                 text: feedback || undefined,
               }).then((res) => onResult(showResult(res)));
@@ -375,7 +380,8 @@ function PlanPrompt({
         <ActionBtn
           variant="warn"
           onClick={async () => {
-            const res = await apiPost("/api/v1/agent/respond", {
+            const res = await wsRequest({
+              event: "respond",
               option: lastIdx,
               text: feedback || undefined,
             });
@@ -394,9 +400,11 @@ function PlanPrompt({
 function SetupPrompt({
   prompt,
   onResult,
+  wsRequest,
 }: {
   prompt: PromptContext;
   onResult: (r: { ok: boolean; text: string }) => void;
+  wsRequest: WsRequest;
 }) {
   const options = prompt.options?.length ? prompt.options : ["Continue"];
 
@@ -438,9 +446,7 @@ function SetupPrompt({
           <ActionBtn
             key={i}
             onClick={async () => {
-              const res = await apiPost("/api/v1/agent/respond", {
-                option: i + 1,
-              });
+              const res = await wsRequest({ event: "respond", option: i + 1 });
               onResult(showResult(res));
             }}
           >
@@ -457,9 +463,11 @@ function SetupPrompt({
 function QuestionPrompt({
   prompt,
   onResult,
+  wsRequest,
 }: {
   prompt: PromptContext;
   onResult: (r: { ok: boolean; text: string }) => void;
+  wsRequest: WsRequest;
 }) {
   const [freeform, setFreeform] = useState("");
   const q = prompt.questions?.[prompt.question_current ?? 0];
@@ -474,7 +482,8 @@ function QuestionPrompt({
           <ActionBtn
             variant="success"
             onClick={async () => {
-              const res = await apiPost("/api/v1/input", {
+              const res = await wsRequest({
+                event: "input:send",
                 text: "",
                 enter: true,
               });
@@ -486,7 +495,8 @@ function QuestionPrompt({
           <ActionBtn
             variant="danger"
             onClick={async () => {
-              const res = await apiPost("/api/v1/input", {
+              const res = await wsRequest({
+                event: "input:send",
                 text: "\x1b",
                 enter: false,
               });
@@ -515,7 +525,8 @@ function QuestionPrompt({
             key={i}
             className="rounded border border-[#3a3a3a] bg-[#252525] px-1.5 py-0.5 font-mono text-[10px] text-zinc-400 transition-all hover:border-zinc-500 hover:bg-[#2e2e2e] hover:text-zinc-300 active:bg-[#333]"
             onClick={async () => {
-              const res = await apiPost("/api/v1/agent/respond", {
+              const res = await wsRequest({
+                event: "respond",
                 answers: [{ option: i + 1 }],
               });
               onResult(showResult(res));
@@ -532,7 +543,8 @@ function QuestionPrompt({
           onChange={(e) => setFreeform(e.target.value)}
           onKeyDown={async (e) => {
             if (e.key === "Enter") {
-              const res = await apiPost("/api/v1/agent/respond", {
+              const res = await wsRequest({
+                event: "respond",
                 answers: [{ text: freeform }],
               });
               onResult(showResult(res));
@@ -544,7 +556,8 @@ function QuestionPrompt({
         />
         <ActionBtn
           onClick={async () => {
-            const res = await apiPost("/api/v1/agent/respond", {
+            const res = await wsRequest({
+              event: "respond",
               answers: [{ text: freeform }],
             });
             onResult(showResult(res));
