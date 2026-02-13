@@ -280,6 +280,7 @@ export function App() {
     }
     info.term.options.fontSize = PREVIEW_FONT_SIZE;
     info.term.options.scrollback = 0;
+    info.term.options.disableStdin = true;
     info.term.reset();
     if (info.lastScreenLines) {
       info.term.resize(info.sourceCols, info.lastScreenLines.length);

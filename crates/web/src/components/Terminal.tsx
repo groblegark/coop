@@ -74,6 +74,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
 
     // ── Instance mode: mount an externally-created terminal ──
     const mountedRef = useRef(false);
+    const fitAddonRef = useRef(externalFit);
+    fitAddonRef.current = externalFit;
 
     useEffect(() => {
       if (instance == null) return;
@@ -85,22 +87,23 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       mountedRef.current = true;
       onReadyRef.current?.();
 
-      let observer: ResizeObserver | undefined;
-      if (externalFit) {
-        observer = new ResizeObserver(() => {
-          requestAnimationFrame(() => externalFit.fit());
-        });
-        observer.observe(el);
-      }
+      // Always observe resizes; the ref-based callback is a no-op when
+      // no FitAddon is provided (preview mode).  This avoids tearing
+      // down / re-opening the terminal when fitAddon toggles on
+      // expand/collapse — xterm.js doesn't handle repeated open() well.
+      const observer = new ResizeObserver(() => {
+        requestAnimationFrame(() => fitAddonRef.current?.fit());
+      });
+      observer.observe(el);
 
       return () => {
-        observer?.disconnect();
+        observer.disconnect();
         mountedRef.current = false;
         // Clear container DOM for React strict-mode remount, but do NOT
         // dispose — the instance is owned externally.
         while (el.firstChild) el.removeChild(el.firstChild);
       };
-    }, [instance, externalFit]);
+    }, [instance]);
 
     // ── Managed mode: create and own the terminal ──
 
