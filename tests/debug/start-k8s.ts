@@ -30,7 +30,7 @@ const { values } = parseArgs({
 	args: Bun.argv.slice(2),
 	options: {
 		tool: { type: "string" },
-		port: { type: "string", default: "9800" },
+		port: { type: "string", default: "9810" },
 		"no-build": { type: "boolean", default: false },
 		"no-open": { type: "boolean", default: false },
 	},
