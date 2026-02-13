@@ -551,7 +551,10 @@ async fn initiate_login_reauth_returns_auth_url() {
     assert!(session.auth_url.contains("client_id=9d1c250a"));
     assert!(session.auth_url.contains("redirect_uri="));
     assert!(session.auth_url.contains("scope=user%3Asessions"));
+    assert!(session.auth_url.contains("code_challenge="));
+    assert!(session.auth_url.contains("code_challenge_method=S256"));
     assert!(!session.state.is_empty());
+    assert!(!session.code_verifier.is_empty());
     assert_eq!(session.redirect_uri, "https://platform.claude.com/oauth/code/callback");
     assert_eq!(session.client_id, "9d1c250a-e61b-44d9-88ed-5944d1962f5e");
 }
@@ -604,6 +607,9 @@ async fn complete_login_reauth_exchanges_code() {
     let config = login_reauth_config("test", &token_url);
     let (broker, _rx) = CredentialBroker::new(&config);
 
+    // Initiate first so the PKCE code_verifier is stored in pending_reauth.
+    broker.initiate_login_reauth("test").await.expect("initiate");
+
     broker
         .complete_login_reauth(
             "test",
@@ -636,6 +642,9 @@ async fn complete_login_reauth_invalid_code_fails() {
 
     let config = login_reauth_config("test", &token_url);
     let (broker, _rx) = CredentialBroker::new(&config);
+
+    // Initiate first so the PKCE code_verifier is stored in pending_reauth.
+    broker.initiate_login_reauth("test").await.expect("initiate");
 
     let result = broker
         .complete_login_reauth(

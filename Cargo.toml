@@ -28,6 +28,7 @@ rustix = { version = "1", features = ["termios"] }
 notify = "8"
 prost = "0.14"
 regex = "1"
+sha2 = "0.10"
 tokio-stream = { version = "0.1", features = ["sync", "net"] }
 tonic = "0.14"
 tonic-prost = "0.14"

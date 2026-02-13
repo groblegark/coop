@@ -178,6 +178,9 @@ pub struct LoginReauthSession {
     pub redirect_uri: String,
     /// OAuth client ID used in the authorization request.
     pub client_id: String,
+    /// PKCE code verifier — sent during token exchange, NOT in the authorize URL.
+    #[serde(skip)]
+    pub code_verifier: String,
 }
 
 /// OAuth token response from the provider.
@@ -985,14 +988,19 @@ impl CredentialBroker {
         // Generate a random state parameter for CSRF protection.
         let state = generate_state();
 
+        // Generate PKCE code verifier and challenge (RFC 7636).
+        let code_verifier = generate_code_verifier();
+        let code_challenge = compute_code_challenge(&code_verifier);
+
         // Build the full authorization URL.
         let auth_url = format!(
-            "{}?response_type=code&client_id={}&redirect_uri={}&scope={}&state={}",
+            "{}?response_type=code&client_id={}&redirect_uri={}&scope={}&state={}&code_challenge={}&code_challenge_method=S256",
             authorize_url,
             urlencoded(&client_id),
             urlencoded(&redirect_uri),
             urlencoded(Self::DEFAULT_SCOPE),
             urlencoded(&state),
+            urlencoded(&code_challenge),
         );
 
         info!(
@@ -1013,6 +1021,7 @@ impl CredentialBroker {
             state,
             redirect_uri,
             client_id,
+            code_verifier,
         };
 
         // Track as pending so the refresh loop doesn't re-initiate.
@@ -1037,6 +1046,15 @@ impl CredentialBroker {
         redirect_uri: &str,
         client_id: &str,
     ) -> Result<(), String> {
+        // Retrieve the PKCE code_verifier from the pending reauth session.
+        let code_verifier = self
+            .pending_reauth
+            .read()
+            .await
+            .get(account_name)
+            .map(|s| s.code_verifier.clone())
+            .unwrap_or_default();
+
         let token_url = {
             let accounts = self.accounts.read().await;
             let account = accounts
@@ -1049,12 +1067,13 @@ impl CredentialBroker {
                 .ok_or_else(|| "no token_url configured".to_string())?
         };
 
-        // Exchange authorization code for tokens.
+        // Exchange authorization code for tokens (includes PKCE code_verifier).
         let form_body = format!(
-            "grant_type=authorization_code&client_id={}&code={}&redirect_uri={}",
+            "grant_type=authorization_code&client_id={}&code={}&redirect_uri={}&code_verifier={}",
             urlencoded(client_id),
             urlencoded(code),
             urlencoded(redirect_uri),
+            urlencoded(&code_verifier),
         );
 
         let resp = self
@@ -1352,6 +1371,25 @@ fn generate_state() -> String {
         out.push(CHARS[(b & 0x3F) as usize] as char);
     }
     out
+}
+
+/// Generate a PKCE code verifier (RFC 7636 §4.1).
+/// 43-128 characters from the unreserved set [A-Z] / [a-z] / [0-9] / "-" / "." / "_" / "~".
+fn generate_code_verifier() -> String {
+    use rand::Rng;
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+    let mut rng = rand::rng();
+    (0..64)
+        .map(|_| CHARS[rng.random_range(0..CHARS.len())] as char)
+        .collect()
+}
+
+/// Compute PKCE code challenge from verifier (RFC 7636 §4.2): BASE64URL(SHA256(verifier)).
+fn compute_code_challenge(verifier: &str) -> String {
+    use base64::Engine;
+    use sha2::{Digest, Sha256};
+    let hash = Sha256::digest(verifier.as_bytes());
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hash)
 }
 
 /// Minimal URL-encode for form values (percent-encode non-unreserved chars).
