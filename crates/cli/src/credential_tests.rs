@@ -551,11 +551,14 @@ async fn initiate_login_reauth_returns_auth_url() {
     assert!(session.auth_url.contains("response_type=code"));
     assert!(session.auth_url.contains("client_id=9d1c250a"));
     assert!(session.auth_url.contains("redirect_uri="));
-    assert!(session.auth_url.contains("scope=user%3Aprofile"));
+    // Scope should use + for spaces (matching URLSearchParams / Claude Code)
+    assert!(session.auth_url.contains("scope=user%3Aprofile+user%3Ainference+user%3Asessions%3Aclaude_code+user%3Amcp_servers"));
     assert!(session.auth_url.contains("code_challenge="));
     assert!(session.auth_url.contains("code_challenge_method=S256"));
-    assert!(!session.state.is_empty());
-    assert!(!session.code_verifier.is_empty());
+    // State: 43 chars (32 random bytes base64url), matching Claude Code
+    assert_eq!(session.state.len(), 43);
+    // Code verifier: 43 chars, matching Claude Code's default
+    assert_eq!(session.code_verifier.len(), 43);
     assert_eq!(session.redirect_uri, "https://platform.claude.com/oauth/code/callback");
     assert_eq!(session.client_id, "9d1c250a-e61b-44d9-88ed-5944d1962f5e");
 }

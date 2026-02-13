@@ -993,14 +993,14 @@ impl CredentialBroker {
         let code_verifier = generate_code_verifier();
         let code_challenge = compute_code_challenge(&code_verifier);
 
-        // Build the full authorization URL.
-        // Parameters match Claude Code CLI: code=true must be present alongside response_type=code.
+        // Build the full authorization URL using URLSearchParams-style encoding
+        // (spaces as +, matching Claude Code CLI exactly).
         let auth_url = format!(
             "{}?code=true&client_id={}&response_type=code&redirect_uri={}&scope={}&code_challenge={}&code_challenge_method=S256&state={}",
             authorize_url,
             urlencoded(&client_id),
             urlencoded(&redirect_uri),
-            urlencoded(Self::DEFAULT_SCOPE),
+            urlencoded_form(Self::DEFAULT_SCOPE),
             urlencoded(&code_challenge),
             urlencoded(&state),
         );
@@ -1354,34 +1354,23 @@ pub fn parse_claude_credentials(json: &str) -> anyhow::Result<ExtractedCredentia
     Ok(ExtractedCredentials { access_token, refresh_token, expires_in_secs })
 }
 
-/// Generate a random state parameter for OAuth CSRF protection (4 bytes, base64url).
+/// Generate a random state parameter for OAuth CSRF protection.
+/// 32 random bytes, base64url-encoded (43 chars) — matches Claude Code.
 fn generate_state() -> String {
-    use std::time::SystemTime;
-    // Simple pseudo-random: combine process ID, thread ID, and nanosecond timestamp.
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64;
-    let pid = std::process::id() as u64;
-    // Mix bits for reasonable uniqueness (not cryptographic, just CSRF-adequate).
-    let mixed = seed.wrapping_mul(6364136223846793005).wrapping_add(pid);
-    let bytes = mixed.to_le_bytes();
-    // Base64url-encode first 6 bytes (produces 8 chars).
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut out = String::with_capacity(8);
-    for &b in &bytes[..6] {
-        out.push(CHARS[(b & 0x3F) as usize] as char);
-    }
-    out
+    use base64::Engine;
+    use rand::RngCore;
+    let mut bytes = [0u8; 32];
+    rand::rng().fill_bytes(&mut bytes);
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
 /// Generate a PKCE code verifier (RFC 7636 §4.1).
-/// 43-128 characters from the unreserved set [A-Z] / [a-z] / [0-9] / "-" / "." / "_" / "~".
+/// 43 characters from the unreserved set — matches Claude Code's default length.
 fn generate_code_verifier() -> String {
     use rand::Rng;
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+    const CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
     let mut rng = rand::rng();
-    (0..64)
+    (0..43)
         .map(|_| CHARS[rng.random_range(0..CHARS.len())] as char)
         .collect()
 }
@@ -1402,6 +1391,25 @@ fn urlencoded(s: &str) -> String {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
                 out.push(b as char);
             }
+            _ => {
+                out.push('%');
+                out.push_str(&format!("{b:02X}"));
+            }
+        }
+    }
+    out
+}
+
+/// URL-encode with spaces as `+` (application/x-www-form-urlencoded style),
+/// matching JavaScript URLSearchParams.append() behavior used by Claude Code.
+fn urlencoded_form(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            b' ' => out.push('+'),
             _ => {
                 out.push('%');
                 out.push_str(&format!("{b:02X}"));
