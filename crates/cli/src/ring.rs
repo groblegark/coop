@@ -90,6 +90,13 @@ impl RingBuffer {
     pub fn total_written(&self) -> u64 {
         self.total_written
     }
+
+    /// The oldest byte offset still available in the buffer.
+    ///
+    /// Data before this offset has been overwritten by newer writes.
+    pub fn oldest_offset(&self) -> u64 {
+        self.total_written.saturating_sub(self.capacity as u64)
+    }
 }
 
 #[cfg(test)]

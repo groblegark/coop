@@ -18,7 +18,9 @@ use std::sync::Arc;
 
 use axum::http::StatusCode;
 use axum::middleware;
-use axum::response::{Html, IntoResponse};
+use axum::response::Html;
+#[cfg(debug_assertions)]
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};

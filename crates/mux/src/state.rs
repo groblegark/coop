@@ -106,7 +106,7 @@ impl Default for SessionFeed {
 
 impl SessionFeed {
     pub fn new() -> Self {
-        let (event_tx, _) = broadcast::channel(256);
+        let (event_tx, _) = broadcast::channel(512);
         Self { event_tx, watchers: RwLock::new(HashMap::new()) }
     }
 }

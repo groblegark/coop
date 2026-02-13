@@ -20,6 +20,8 @@ use axum::response::IntoResponse;
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 
+use tokio::sync::broadcast::error::RecvError;
+
 use crate::error::ErrorCode;
 use crate::event::{OutputEvent, TransitionEvent};
 use crate::start::StartConfig;
@@ -101,6 +103,10 @@ async fn handle_connection(
     let mut profile_rx = state.profile.profile_tx.subscribe();
     let mut authed = !needs_auth;
 
+    // Track byte offset for PTY lag recovery via ring buffer replay.
+    let mut next_offset: u64 =
+        if flags.pty { state.terminal.ring.read().await.total_written() } else { 0 };
+
     // Send initial state: either replay from event log or current-state snapshot.
     if flags.state && authed {
         if let Some(seq) = since_seq {
@@ -142,7 +148,8 @@ async fn handle_connection(
             event = transcript_rx.recv() => {
                 let event = match event {
                     Ok(e) => e,
-                    Err(_) => continue,
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
                 };
                 if flags.transcripts {
                     let msg = transcript_event_to_msg(&event);
@@ -154,7 +161,8 @@ async fn handle_connection(
             event = usage_rx.recv() => {
                 let event = match event {
                     Ok(e) => e,
-                    Err(_) => continue,
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
                 };
                 if flags.usage {
                     let msg = usage_event_to_msg(&event);
@@ -166,7 +174,8 @@ async fn handle_connection(
             event = prompt_rx.recv() => {
                 let event = match event {
                     Ok(e) => e,
-                    Err(_) => continue,
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
                 };
                 if flags.state {
                     let msg = ServerMessage::PromptOutcome {
@@ -183,7 +192,8 @@ async fn handle_connection(
             event = stop_rx.recv() => {
                 let event = match event {
                     Ok(e) => e,
-                    Err(_) => continue,
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
                 };
                 if flags.state {
                     let msg = stop_event_to_msg(&event);
@@ -195,7 +205,8 @@ async fn handle_connection(
             event = start_rx.recv() => {
                 let event = match event {
                     Ok(e) => e,
-                    Err(_) => continue,
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
                 };
                 if flags.state {
                     let msg = start_event_to_msg(&event);
@@ -205,33 +216,68 @@ async fn handle_connection(
                 }
             }
             event = output_rx.recv() => {
-                let event = match event {
-                    Ok(e) => e,
-                    Err(_) => continue,
-                };
-                match &event {
-                    OutputEvent::Raw(data) if flags.pty => {
-                        let encoded = base64::engine::general_purpose::STANDARD.encode(data);
+                match event {
+                    Ok(OutputEvent::Raw(data)) if flags.pty => {
                         let ring = state.terminal.ring.read().await;
-                        let offset = ring.total_written().saturating_sub(data.len() as u64);
-                        let msg = ServerMessage::Pty { data: encoded, offset };
+                        let msg_offset = ring.total_written().saturating_sub(data.len() as u64);
+                        drop(ring);
+                        // Skip if already covered by a prior replay.
+                        if msg_offset + data.len() as u64 <= next_offset {
+                            continue;
+                        }
+                        let encoded = base64::engine::general_purpose::STANDARD.encode(&data);
+                        let msg = ServerMessage::Pty { data: encoded, offset: msg_offset };
+                        next_offset = msg_offset + data.len() as u64;
                         if send_json(&mut ws_tx, &msg).await.is_err() {
                             break;
                         }
                     }
-                    OutputEvent::ScreenUpdate { seq } if flags.screen => {
+                    Ok(OutputEvent::ScreenUpdate { seq }) if flags.screen => {
                         let snap = state.terminal.screen.read().await.snapshot();
-                        if send_json(&mut ws_tx, &snapshot_to_msg(snap, *seq)).await.is_err() {
+                        if send_json(&mut ws_tx, &snapshot_to_msg(snap, seq)).await.is_err() {
                             break;
                         }
                     }
-                    _ => {}
+                    Ok(_) => {}
+                    Err(RecvError::Lagged(n)) => {
+                        if flags.pty {
+                            let ring = state.terminal.ring.read().await;
+                            let total_written = ring.total_written();
+                            // If ring has wrapped past next_offset, read from oldest available.
+                            let read_offset = next_offset.max(ring.oldest_offset());
+                            let combined = read_ring_combined(&ring, read_offset);
+                            drop(ring);
+                            if !combined.is_empty() {
+                                let read_len = combined.len() as u64;
+                                let encoded = base64::engine::general_purpose::STANDARD.encode(&combined);
+                                let msg = ServerMessage::Replay {
+                                    data: encoded,
+                                    offset: read_offset,
+                                    next_offset: read_offset + read_len,
+                                    total_written,
+                                };
+                                next_offset = read_offset + read_len;
+                                if send_json(&mut ws_tx, &msg).await.is_err() {
+                                    break;
+                                }
+                            } else {
+                                next_offset = total_written;
+                            }
+                            tracing::debug!(
+                                client_id = %client_id,
+                                skipped = n,
+                                "recovered from broadcast lag via ring buffer replay"
+                            );
+                        }
+                    }
+                    Err(RecvError::Closed) => break,
                 }
             }
             event = state_rx.recv() => {
                 let event = match event {
                     Ok(e) => e,
-                    Err(_) => continue,
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
                 };
                 if flags.state {
                     let msg = transition_to_msg(&event);
@@ -243,7 +289,8 @@ async fn handle_connection(
             event = hook_rx.recv() => {
                 let event = match event {
                     Ok(e) => e,
-                    Err(_) => continue,
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
                 };
                 if flags.hooks {
                     let msg = ServerMessage::HookRaw { data: event.json };
@@ -255,7 +302,8 @@ async fn handle_connection(
             event = message_rx.recv() => {
                 let event = match event {
                     Ok(e) => e,
-                    Err(_) => continue,
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
                 };
                 if flags.messages {
                     let msg = ServerMessage::MessageRaw { data: event.json, source: event.source };
@@ -267,7 +315,8 @@ async fn handle_connection(
             event = record_rx.recv() => {
                 let event = match event {
                     Ok(e) => e,
-                    Err(_) => continue,
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
                 };
                 if flags.recording {
                     let msg = ServerMessage::RecordingEntryMsg {
@@ -285,7 +334,8 @@ async fn handle_connection(
             event = profile_rx.recv() => {
                 let event = match event {
                     Ok(e) => e,
-                    Err(_) => continue,
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
                 };
                 if flags.profiles {
                     let msg = profile_event_to_msg(&event);
