@@ -32,6 +32,10 @@ pub struct MuxConfig {
     #[arg(long, default_value_t = 3, env = "COOP_MUX_MAX_HEALTH_FAILURES")]
     pub max_health_failures: u32,
 
+    /// Launch command template for spawning new sessions (shell command via `sh -c`).
+    #[arg(long, env = "COOP_MUX_LAUNCH")]
+    pub launch: Option<String>,
+
     /// Path to credential configuration JSON file.
     #[arg(long, env = "COOP_MUX_CREDENTIAL_CONFIG")]
     pub credential_config: Option<std::path::PathBuf>,

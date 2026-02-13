@@ -57,6 +57,16 @@ pub struct DeregisterResponse {
     pub removed: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub struct LaunchConfigResponse {
+    pub available: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LaunchResponse {
+    pub launched: bool,
+}
+
 // -- Handlers -----------------------------------------------------------------
 
 /// `GET /api/v1/health`
@@ -262,6 +272,43 @@ pub async fn session_upload(
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     proxy_post(&s, &id, "/api/v1/upload", body).await
+}
+
+/// `GET /api/v1/config/launch` — whether launch is available.
+pub async fn launch_config(State(s): State<Arc<MuxState>>) -> impl IntoResponse {
+    Json(LaunchConfigResponse { available: s.config.launch.is_some() })
+}
+
+/// `POST /api/v1/sessions/launch` — spawn a new session via the configured launch command.
+pub async fn launch_session(State(s): State<Arc<MuxState>>) -> impl IntoResponse {
+    let launch = match &s.config.launch {
+        Some(cmd) => cmd.clone(),
+        None => {
+            return MuxError::BadRequest
+                .to_http_response("launch command not configured")
+                .into_response()
+        }
+    };
+
+    let mux_url = format!("http://{}:{}", s.config.host, s.config.port);
+
+    let mut cmd = tokio::process::Command::new("sh");
+    cmd.args(["-c", &launch]);
+    cmd.env("COOP_MUX_URL", &mux_url);
+    if let Some(token) = &s.config.auth_token {
+        cmd.env("COOP_MUX_TOKEN", token);
+    }
+    cmd.stdin(std::process::Stdio::null());
+    cmd.stdout(std::process::Stdio::inherit());
+    cmd.stderr(std::process::Stdio::inherit());
+
+    match cmd.spawn() {
+        Ok(_child) => Json(LaunchResponse { launched: true }).into_response(),
+        Err(e) => {
+            tracing::error!(err = %e, "failed to spawn launch command");
+            MuxError::Internal.to_http_response(format!("failed to spawn: {e}")).into_response()
+        }
+    }
 }
 
 /// Generic POST proxy to upstream coop.

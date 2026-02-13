@@ -62,7 +62,7 @@ try-gemini:
 
 # Launch coopmux dashboard (sessions connect automatically)
 try-mux:
-	@bun tests/debug/start-mux.ts
+	@bun tests/debug/start-mux.ts --launch claude
 
 # Build Docker claudeless image (for testing)
 docker-claudeless:

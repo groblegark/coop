@@ -74,6 +74,9 @@ fn build_router_inner(
         .route("/api/v1/sessions/{id}/input/raw", post(http::session_input_raw))
         .route("/api/v1/sessions/{id}/input/keys", post(http::session_input_keys))
         .route("/api/v1/sessions/{id}/upload", post(http::session_upload))
+        // Launch
+        .route("/api/v1/sessions/launch", post(http::launch_session))
+        .route("/api/v1/config/launch", get(http::launch_config))
         // WebSocket (per-session bridge)
         .route("/ws/{session_id}", get(ws::ws_handler))
         // Mux aggregation

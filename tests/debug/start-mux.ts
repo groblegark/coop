@@ -5,12 +5,15 @@
 // Debug helper: build and launch coopmux dashboard (sessions connect automatically).
 //
 // Usage:
-//   bun tests/debug/start-mux.ts                  # start mux on default port
-//   bun tests/debug/start-mux.ts --mux-port 9900  # custom port
+//   bun tests/debug/start-mux.ts                              # start mux on default port
+//   bun tests/debug/start-mux.ts --mux-port 9900              # custom port
+//   bun tests/debug/start-mux.ts --launch 'coop -- claude'    # with launch command
 
 import { parseArgs } from "node:util";
 import {
+	buildAll,
 	buildMux,
+	coopBin,
 	coopmuxBin,
 	onExit,
 	openBrowserUrl,
@@ -21,6 +24,7 @@ const { values } = parseArgs({
 	args: Bun.argv.slice(2),
 	options: {
 		"mux-port": { type: "string", default: "9800" },
+		launch: { type: "string" },
 		"no-build": { type: "boolean", default: false },
 		"no-open": { type: "boolean", default: false },
 	},
@@ -28,11 +32,16 @@ const { values } = parseArgs({
 });
 
 const muxPort = Number(values["mux-port"]);
+const launch = values.launch ?? undefined;
 
 // -- Build ------------------------------------------------------------------
 
 if (!values["no-build"]) {
-	await buildMux();
+	if (launch) {
+		await buildAll();
+	} else {
+		await buildMux();
+	}
 }
 
 const muxBin = coopmuxBin();
@@ -41,13 +50,22 @@ if (!(await Bun.file(muxBin).exists())) {
 	process.exit(1);
 }
 
+// -- Build launch command ---------------------------------------------------
+
+const muxArgs: string[] = ["--port", String(muxPort), "--hot"];
+
+if (launch) {
+	const launchCmd = `${coopBin()} --port 0 --log-format text --hot -- ${launch}`;
+	muxArgs.push("--launch", launchCmd);
+}
+
 // -- Start coopmux ----------------------------------------------------------
 
 console.log(`Starting coopmux on port ${muxPort}`);
-const muxProc = Bun.spawn([muxBin, "--port", String(muxPort), "--hot"], {
+const muxProc = Bun.spawn([muxBin, ...muxArgs], {
 	stdout: "inherit",
 	stderr: "inherit",
-	stdin: "ignore",
+	stdin: launch ? "inherit" : "ignore",
 });
 onExit(() => muxProc.kill());
 

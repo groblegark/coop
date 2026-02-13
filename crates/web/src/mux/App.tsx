@@ -1,10 +1,5 @@
-import {
-  useState,
-  useRef,
-  useCallback,
-  useEffect,
-  useMemo,
-} from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { apiGet, apiPost } from "@/hooks/useApiClient";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -137,6 +132,31 @@ function Tile({
   );
 }
 
+// ── Launch Card ──
+
+function LaunchCard() {
+  const [status, setStatus] = useState<"idle" | "launching">("idle");
+
+  const handleLaunch = useCallback(async () => {
+    setStatus("launching");
+    await apiPost("/api/v1/sessions/launch");
+    setTimeout(() => setStatus("idle"), 2000);
+  }, []);
+
+  return (
+    <div className="flex h-[280px] items-center justify-center rounded-lg border border-dashed border-[#21262d] bg-[#161b22]">
+      <button
+        className="flex h-16 w-16 items-center justify-center rounded-full border border-[#21262d] bg-[#0d1117] text-2xl text-zinc-500 transition-colors hover:border-blue-500 hover:text-blue-400 disabled:opacity-50"
+        onClick={handleLaunch}
+        disabled={status === "launching"}
+        title="Launch new session"
+      >
+        {status === "launching" ? "…" : "+"}
+      </button>
+    </div>
+  );
+}
+
 // ── App ──
 
 export function App() {
@@ -155,6 +175,8 @@ export function App() {
   expandedRef.current = expandedSession;
 
   const expandedWsRef = useRef<WebSocket | null>(null);
+
+  const [launchAvailable, setLaunchAvailable] = useState(false);
 
   const [credentialAlerts, setCredentialAlerts] = useState<
     Map<string, string>
@@ -469,6 +491,16 @@ export function App() {
     muxSendRef.current = muxSend;
   }, [muxSend]);
 
+  // ── Fetch launch config ──
+
+  useEffect(() => {
+    apiGet("/api/v1/config/launch").then((res) => {
+      if (res.ok && res.json && typeof res.json === "object" && "available" in (res.json as Record<string, unknown>)) {
+        setLaunchAvailable((res.json as Record<string, unknown>).available === true);
+      }
+    });
+  }, []);
+
   // ── File upload ──
 
   const { dragActive } = useFileUpload({
@@ -541,7 +573,7 @@ export function App() {
       <DropOverlay active={dragActive} />
 
       {/* Grid */}
-      {sessionCount > 0 ? (
+      {sessionCount > 0 || launchAvailable ? (
         <div className="grid flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(480px,1fr))] content-start gap-3 overflow-auto p-4">
           {sessionArray.map((info) => (
             <Tile
@@ -553,6 +585,7 @@ export function App() {
               onToggleExpand={() => toggleExpand(info.id)}
             />
           ))}
+          {launchAvailable && <LaunchCard />}
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
