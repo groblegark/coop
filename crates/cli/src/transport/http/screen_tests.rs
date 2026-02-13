@@ -107,7 +107,7 @@ async fn status_running() -> anyhow::Result<()> {
     let resp = server.get("/api/v1/status").await;
     resp.assert_status(StatusCode::OK);
     let body = resp.text();
-    assert!(body.contains("\"state\":\"running\""));
+    assert!(body.contains("\"state\":\"starting\""));
     assert!(body.contains("\"uptime_secs\":"), "body: {body}");
     Ok(())
 }

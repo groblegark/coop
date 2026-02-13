@@ -571,7 +571,7 @@ function AppInner() {
   return (
     <div className="flex h-screen flex-col bg-[#0d1117] font-sans text-[#c9d1d9]">
       {/* Header */}
-      <header className="flex shrink-0 items-center gap-4 border-b border-[#21262d] px-5 py-2.5">
+      <header className="flex shrink-0 items-center gap-4 border-b border-[#21262d] px-2.5 py-2.5">
         <div className="flex items-center gap-2">
           <button
             className="border-none bg-transparent p-0.5 text-zinc-500 hover:text-zinc-300"
