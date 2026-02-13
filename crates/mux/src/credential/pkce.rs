@@ -58,7 +58,7 @@ pub fn build_auth_url(
     )
 }
 
-/// Exchange an authorization code for tokens (JSON body, matching Claude Code).
+/// Exchange an authorization code for tokens (form-encoded, per RFC 6749).
 pub async fn exchange_code(
     client: &reqwest::Client,
     token_url: &str,
@@ -67,18 +67,15 @@ pub async fn exchange_code(
     code_verifier: &str,
     redirect_uri: &str,
 ) -> anyhow::Result<TokenResponse> {
-    let json_body = serde_json::json!({
-        "grant_type": "authorization_code",
-        "client_id": client_id,
-        "code": code,
-        "redirect_uri": redirect_uri,
-        "code_verifier": code_verifier,
-    });
-
     let resp = client
         .post(token_url)
-        .header("Content-Type", "application/json")
-        .body(json_body.to_string())
+        .form(&[
+            ("grant_type", "authorization_code"),
+            ("client_id", client_id),
+            ("code", code),
+            ("redirect_uri", redirect_uri),
+            ("code_verifier", code_verifier),
+        ])
         .send()
         .await?;
 

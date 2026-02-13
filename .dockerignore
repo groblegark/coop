@@ -5,25 +5,32 @@
 !Cargo.toml
 !Cargo.lock
 
-# Rust crates (source only)
-!crates/cli/
-!crates/mux/
+# Protobuf definitions (build.rs codegen)
+!proto
+!proto/**
+
+# Rust source crates
+!crates
+crates/*
+!crates/cli
+!crates/cli/**
+!crates/mux
+!crates/mux/**
 
 # Embedded web assets (include_str! in Rust)
-!crates/web/dist/
-
-# Protobuf definitions (build.rs codegen)
-!proto/
-
-# Test scenarios (claudeless image)
-!crates/cli/tests/scenarios/
+!crates/web
+crates/web/*
+!crates/web/dist
+!crates/web/dist/**
 
 # Deploy scripts (coopmux image)
+!deploy
+deploy/*
 !deploy/k8s-launch.sh
 
 # Re-exclude build artifacts and junk inside allowed dirs
-**/target/
-**/node_modules/
+**/target
+**/node_modules
 **/.DS_Store
 **/*.swp
 **/*.swo
