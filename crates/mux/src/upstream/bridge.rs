@@ -159,8 +159,8 @@ async fn run_loop(
     let mut backoff_ms = 100u64;
     let max_backoff_ms = 5000u64;
     let mut rid_counter: u64 = 0;
-    // Pending correlation IDs: request_id -> originating ClientId.
-    let mut pending: HashMap<String, ClientId> = HashMap::new();
+    // Pending correlation IDs: request_id -> (originating ClientId, client's original request_id).
+    let mut pending: HashMap<String, (ClientId, Option<String>)> = HashMap::new();
 
     loop {
         if cancel.is_cancelled() {
@@ -188,10 +188,18 @@ async fn run_loop(
 
                                     if let Some(rid) = info.request_id {
                                         // Response: route to originator only.
-                                        if let Some(cid) = pending.remove(rid) {
+                                        if let Some((cid, original_rid)) = pending.remove(rid) {
+                                            let routed: Arc<str> = match original_rid {
+                                                Some(ref orig) => {
+                                                    restore_request_id(&text, orig)
+                                                        .map(Arc::from)
+                                                        .unwrap_or(shared)
+                                                }
+                                                None => shared,
+                                            };
                                             let guard = clients.read().await;
                                             if let Some(slot) = guard.get(&cid) {
-                                                let _ = slot.tx.send(shared);
+                                                let _ = slot.tx.send(routed);
                                             }
                                         }
                                     } else {
@@ -221,7 +229,7 @@ async fn run_loop(
                             match msg {
                                 Some((client_id, text)) => {
                                     let stamped = stamp_request_id(&mut rid_counter, &text);
-                                    pending.insert(stamped.request_id.clone(), client_id);
+                                    pending.insert(stamped.request_id.clone(), (client_id, stamped.original_request_id));
                                     if write.send(Message::Text(stamped.text.into())).await.is_err() {
                                         tracing::debug!(session_id = %entry_id, "upstream WS write failed");
                                         break;
@@ -274,23 +282,43 @@ fn extract_route_info(json: &str) -> RouteInfo<'_> {
 struct StampedMessage {
     text: String,
     request_id: String,
+    /// The client's original `request_id`, if any, so responses can restore it.
+    original_request_id: Option<String>,
 }
 
-/// Inject a unique `request_id` into a JSON object string.
+/// Replace (or insert) `request_id` in a JSON message with a bridge-assigned correlation ID.
 ///
-/// Avoids a full JSON parse/reserialize — uses string splicing for the common
-/// case of well-formed `{...}` input.
+/// Uses `serde_json::Value` to properly handle messages that already contain a `request_id`
+/// from the downstream client, avoiding duplicate keys.
 fn stamp_request_id(counter: &mut u64, json: &str) -> StampedMessage {
     *counter += 1;
     let rid = counter.to_string();
-    // Insert `"request_id":"N",` right after the opening `{`.
+
+    if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(json) {
+        let original = value.get("request_id").and_then(|v| v.as_str()).map(|s| s.to_owned());
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert("request_id".to_owned(), serde_json::Value::String(rid.clone()));
+        }
+        let text = serde_json::to_string(&value).unwrap_or_else(|_| json.to_owned());
+        return StampedMessage { text, request_id: rid, original_request_id: original };
+    }
+
+    // Fallback: string splice for non-JSON (shouldn't happen with well-formed messages).
     let text = if let Some(rest) = json.strip_prefix('{') {
         format!("{{\"request_id\":\"{rid}\",{rest}")
     } else {
-        // Fallback: wrap in an object (shouldn't happen with well-formed messages).
         format!("{{\"request_id\":\"{rid}\",\"_raw\":{json}}}")
     };
-    StampedMessage { text, request_id: rid }
+    StampedMessage { text, request_id: rid, original_request_id: None }
+}
+
+/// Restore the original client `request_id` in a response JSON message.
+fn restore_request_id(json: &str, original_rid: &str) -> Option<String> {
+    let mut value = serde_json::from_str::<serde_json::Value>(json).ok()?;
+    value
+        .as_object_mut()?
+        .insert("request_id".to_owned(), serde_json::Value::String(original_rid.to_owned()));
+    serde_json::to_string(&value).ok()
 }
 
 /// Build the upstream WebSocket URL from an HTTP base URL.
