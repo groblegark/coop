@@ -300,23 +300,6 @@ function AppInner() {
     [collapseSession, expandSession],
   );
 
-  // ── Focus ──
-
-  const focusSession = useCallback((id: string) => {
-    const prev = focusedRef.current;
-    if (prev === id) return;
-    if (prev) {
-      const prevInfo = sessionsRef.current.get(prev);
-      if (prevInfo) prevInfo.term.options.disableStdin = true;
-    }
-    setFocusedSession(id);
-    const info = sessionsRef.current.get(id);
-    if (info) {
-      info.term.options.disableStdin = false;
-      info.term.focus();
-    }
-  }, []);
-
   // ── Mux WS send ref ──
 
   const muxSendRef = useRef<((msg: unknown) => void) | null>(null);
