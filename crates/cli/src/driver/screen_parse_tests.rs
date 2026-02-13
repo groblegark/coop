@@ -11,6 +11,7 @@ use super::{
 fn make_snapshot(lines: Vec<&str>) -> ScreenSnapshot {
     ScreenSnapshot {
         lines: lines.into_iter().map(String::from).collect(),
+        ansi: vec![],
         cols: 80,
         rows: 24,
         alt_screen: false,

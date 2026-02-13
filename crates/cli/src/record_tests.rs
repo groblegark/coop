@@ -7,6 +7,7 @@ use crate::screen::{CursorPosition, ScreenSnapshot};
 fn test_snapshot() -> ScreenSnapshot {
     ScreenSnapshot {
         lines: vec!["hello".to_owned()],
+        ansi: vec![],
         cols: 80,
         rows: 24,
         alt_screen: false,

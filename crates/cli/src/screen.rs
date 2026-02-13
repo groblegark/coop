@@ -157,9 +157,11 @@ impl Screen {
         let (cols, rows) = self.vt.size();
         let cursor = self.vt.cursor();
         let lines: Vec<String> = self.vt.view().map(|line| line.text()).collect();
+        let ansi: Vec<String> = self.vt.view().map(line_to_ansi).collect();
 
         ScreenSnapshot {
             lines,
+            ansi,
             cols: cols as u16,
             rows: rows as u16,
             alt_screen: self.alt_screen,
@@ -198,6 +200,8 @@ impl Screen {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScreenSnapshot {
     pub lines: Vec<String>,
+    /// Lines with ANSI SGR escape sequences preserving colors and attributes.
+    pub ansi: Vec<String>,
     pub cols: u16,
     pub rows: u16,
     pub alt_screen: bool,
@@ -210,6 +214,89 @@ pub struct ScreenSnapshot {
 pub struct CursorPosition {
     pub row: u16,
     pub col: u16,
+}
+
+// -- ANSI SGR generation from avt cells ---------------------------------------
+
+/// Encode a single avt color as SGR parameter(s).
+///
+/// `base` is 30 for foreground, 40 for background.
+fn color_sgr(c: &avt::Color, base: u8, out: &mut String) {
+    use std::fmt::Write;
+    match c {
+        avt::Color::Indexed(n) if *n < 8 => {
+            let _ = write!(out, ";{}", base + n);
+        }
+        avt::Color::Indexed(n) if *n < 16 => {
+            let _ = write!(out, ";{}", base + 52 + n);
+        }
+        avt::Color::Indexed(n) => {
+            let _ = write!(out, ";{};5;{}", base + 8, n);
+        }
+        avt::Color::RGB(rgb) => {
+            let _ = write!(out, ";{};2;{};{};{}", base + 8, rgb.r, rgb.g, rgb.b);
+        }
+    }
+}
+
+/// Emit a full SGR reset-and-set sequence for `pen`.
+fn pen_to_sgr(pen: &avt::Pen, out: &mut String) {
+    out.push_str("\x1b[0");
+    if let Some(c) = pen.foreground() {
+        color_sgr(&c, 30, out);
+    }
+    if let Some(c) = pen.background() {
+        color_sgr(&c, 40, out);
+    }
+    if pen.is_bold() {
+        out.push_str(";1");
+    }
+    if pen.is_faint() {
+        out.push_str(";2");
+    }
+    if pen.is_italic() {
+        out.push_str(";3");
+    }
+    if pen.is_underline() {
+        out.push_str(";4");
+    }
+    if pen.is_blink() {
+        out.push_str(";5");
+    }
+    if pen.is_inverse() {
+        out.push_str(";7");
+    }
+    if pen.is_strikethrough() {
+        out.push_str(";9");
+    }
+    out.push('m');
+}
+
+/// Convert an avt [`Line`](avt::Line) to a string with ANSI SGR escapes.
+fn line_to_ansi(line: &avt::Line) -> String {
+    let mut s = String::new();
+    let mut styled = false;
+
+    for cells in line.chunks(|c1, c2| c1.pen() != c2.pen()) {
+        let pen = cells[0].pen();
+        if pen.is_default() {
+            if styled {
+                s.push_str("\x1b[0m");
+                styled = false;
+            }
+        } else {
+            pen_to_sgr(pen, &mut s);
+            styled = true;
+        }
+        for cell in &cells {
+            s.push(cell.char());
+        }
+    }
+
+    if styled {
+        s.push_str("\x1b[0m");
+    }
+    s
 }
 
 #[cfg(test)]

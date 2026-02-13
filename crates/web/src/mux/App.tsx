@@ -77,7 +77,7 @@ function Tile({
 
   return (
     <div
-      className={`flex flex-col overflow-hidden rounded-lg border bg-[#161b22] transition-[border-color] duration-150 ${
+      className={`flex flex-col overflow-hidden rounded-lg border bg-[#1e1e1e] transition-[border-color] duration-150 ${
         expanded
           ? "fixed inset-0 z-[100] h-auto rounded-none border-none"
           : "h-[280px]"
@@ -144,7 +144,7 @@ function LaunchCard() {
   }, []);
 
   return (
-    <div className="flex h-[280px] items-center justify-center rounded-lg border border-dashed border-[#21262d] bg-[#161b22]">
+    <div className="flex h-[280px] items-center justify-center rounded-lg border border-dashed border-[#21262d] bg-[#1e1e1e]">
       <button
         className="flex h-16 w-16 items-center justify-center rounded-full border border-[#21262d] bg-[#0d1117] text-2xl text-zinc-500 transition-colors hover:border-blue-500 hover:text-blue-400 disabled:opacity-50"
         onClick={handleLaunch}
@@ -462,20 +462,22 @@ export function App() {
           if (!info) continue;
 
           const lines = scr.lines.slice();
-          while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+          const ansi = scr.ansi?.slice() ?? lines.slice();
+          // Trim trailing blank lines, but leave one for bottom padding.
+          while (lines.length > 1 && lines[lines.length - 1].trim() === "") {
             lines.pop();
+            ansi.pop();
           }
-          if (lines.length === 0) lines.push("");
 
           info.sourceCols = scr.cols;
           info.sourceRows = scr.rows;
-          info.lastScreenLines = lines;
+          info.lastScreenLines = ansi;
 
           if (scr.session === expandedRef.current) continue;
 
           info.term.resize(scr.cols, lines.length);
           info.term.reset();
-          info.term.write(lines.join("\r\n"));
+          info.term.write(ansi.join("\r\n"));
         }
       }
     },

@@ -40,11 +40,17 @@ pub fn spawn_screen_poller(
 
                 match client.get_screen().await {
                     Ok(value) => {
+                        let lines: Vec<String> = value
+                            .get("lines")
+                            .and_then(|v| serde_json::from_value(v.clone()).ok())
+                            .unwrap_or_default();
+                        let ansi: Vec<String> = value
+                            .get("ansi")
+                            .and_then(|v| serde_json::from_value(v.clone()).ok())
+                            .unwrap_or_default();
                         let screen = CachedScreen {
-                            lines: value
-                                .get("lines")
-                                .and_then(|v| serde_json::from_value(v.clone()).ok())
-                                .unwrap_or_default(),
+                            lines,
+                            ansi,
                             cols: value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16,
                             rows: value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16,
                             alt_screen: value

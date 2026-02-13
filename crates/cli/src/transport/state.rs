@@ -102,6 +102,7 @@ impl TerminalState {
             terminal.screen.try_read().map(|s| s.snapshot()).unwrap_or_else(|_| {
                 crate::screen::ScreenSnapshot {
                     lines: vec![],
+                    ansi: vec![],
                     cols: 0,
                     rows: 0,
                     alt_screen: false,

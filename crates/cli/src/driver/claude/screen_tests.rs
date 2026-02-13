@@ -9,6 +9,7 @@ use super::classify_claude_screen;
 fn snapshot(lines: &[&str]) -> ScreenSnapshot {
     ScreenSnapshot {
         lines: lines.iter().map(|s| s.to_string()).collect(),
+        ansi: vec![],
         cols: 80,
         rows: 24,
         alt_screen: false,
@@ -83,6 +84,7 @@ fn settings_error_emits_setup() {
         include_str!("fixtures/bad_settings.screen.txt").lines().map(String::from).collect();
     let snap = ScreenSnapshot {
         lines,
+        ansi: vec![],
         cols: 200,
         rows: 50,
         alt_screen: false,
@@ -278,6 +280,7 @@ fn plan_context_returns_plan_kind() {
             "Step 1: Add middleware".to_string(),
             "[y] Accept  [n] Reject".to_string(),
         ],
+        ansi: vec![],
         cols: 80,
         rows: 24,
         alt_screen: false,
@@ -385,6 +388,7 @@ fn login_success_fixture_emits_setup() {
     let lines = fixture_lines(include_str!("fixtures/login_success.screen.txt"));
     let snap = ScreenSnapshot {
         lines,
+        ansi: vec![],
         cols: 200,
         rows: 50,
         alt_screen: false,
@@ -405,6 +409,7 @@ fn security_notes_fixture_emits_setup() {
     let lines = fixture_lines(include_str!("fixtures/security_notes.screen.txt"));
     let snap = ScreenSnapshot {
         lines,
+        ansi: vec![],
         cols: 200,
         rows: 50,
         alt_screen: false,
@@ -467,6 +472,7 @@ fn accessing_workspace_fixture_emits_permission() {
     let lines = fixture_lines(include_str!("fixtures/accessing_workspace.screen.txt"));
     let snap = ScreenSnapshot {
         lines,
+        ansi: vec![],
         cols: 200,
         rows: 50,
         alt_screen: false,

@@ -108,6 +108,7 @@ struct SessionSnapshot {
 struct ScreenThumbnail {
     session: String,
     lines: Vec<String>,
+    ansi: Vec<String>,
     cols: u16,
     rows: u16,
     seq: u64,
@@ -212,6 +213,7 @@ async fn handle_mux_ws(state: Arc<MuxState>, socket: WebSocket) {
                             screens.push(ScreenThumbnail {
                                 session: session_id.clone(),
                                 lines: screen.lines.clone(),
+                                ansi: screen.ansi.clone(),
                                 cols: screen.cols,
                                 rows: screen.rows,
                                 seq: screen.seq,
@@ -256,6 +258,7 @@ async fn handle_mux_ws(state: Arc<MuxState>, socket: WebSocket) {
                                                     screens.push(ScreenThumbnail {
                                                         session: sid.clone(),
                                                         lines: screen.lines.clone(),
+                                                        ansi: screen.ansi.clone(),
                                                         cols: screen.cols,
                                                         rows: screen.rows,
                                                         seq: screen.seq,

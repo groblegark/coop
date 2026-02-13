@@ -61,6 +61,7 @@ pub struct ScreenQuery {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScreenResponse {
     pub lines: Vec<String>,
+    pub ansi: Vec<String>,
     pub cols: u16,
     pub rows: u16,
     pub alt_screen: bool,
@@ -166,6 +167,7 @@ pub async fn screen(
 
     Json(ScreenResponse {
         lines: snap.lines,
+        ansi: snap.ansi,
         cols: snap.cols,
         rows: snap.rows,
         alt_screen: snap.alt_screen,

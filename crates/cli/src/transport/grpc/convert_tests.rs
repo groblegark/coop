@@ -25,6 +25,7 @@ fn cursor_to_proto_handles_max_u16() {
 fn screen_snapshot_to_proto_converts_all_fields() {
     let snap = ScreenSnapshot {
         lines: vec!["hello".to_owned(), "world".to_owned()],
+        ansi: vec![],
         cols: 80,
         rows: 24,
         alt_screen: true,
@@ -47,6 +48,7 @@ fn screen_snapshot_to_proto_converts_all_fields() {
 fn screen_snapshot_to_response_omits_cursor() {
     let snap = ScreenSnapshot {
         lines: vec![],
+        ansi: vec![],
         cols: 40,
         rows: 10,
         alt_screen: false,
@@ -62,6 +64,7 @@ fn screen_snapshot_to_response_omits_cursor() {
 fn screen_snapshot_to_response_includes_cursor() {
     let snap = ScreenSnapshot {
         lines: vec![],
+        ansi: vec![],
         cols: 40,
         rows: 10,
         alt_screen: false,

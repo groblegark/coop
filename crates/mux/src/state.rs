@@ -144,6 +144,7 @@ pub struct SessionEntry {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CachedScreen {
     pub lines: Vec<String>,
+    pub ansi: Vec<String>,
     pub cols: u16,
     pub rows: u16,
     pub alt_screen: bool,
