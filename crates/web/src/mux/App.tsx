@@ -106,7 +106,7 @@ function Tile({
       </div>
 
       {/* Terminal */}
-      <div className="relative flex-1 overflow-hidden">
+      <div className="pointer-events-none relative flex-1 overflow-hidden">
         <Terminal
           instance={info.term}
           theme={THEME}
