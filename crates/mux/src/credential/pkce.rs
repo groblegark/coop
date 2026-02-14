@@ -58,7 +58,7 @@ pub fn build_auth_url(
     )
 }
 
-/// Exchange an authorization code for tokens (JSON body, as required by Claude).
+/// Exchange an authorization code for tokens (form-encoded, as required by Anthropic's OAuth).
 pub async fn exchange_code(
     client: &reqwest::Client,
     token_url: &str,
@@ -69,13 +69,13 @@ pub async fn exchange_code(
 ) -> anyhow::Result<TokenResponse> {
     let resp = client
         .post(token_url)
-        .json(&serde_json::json!({
-            "grant_type": "authorization_code",
-            "client_id": client_id,
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "code_verifier": code_verifier,
-        }))
+        .form(&[
+            ("grant_type", "authorization_code"),
+            ("client_id", client_id),
+            ("code", code),
+            ("redirect_uri", redirect_uri),
+            ("code_verifier", code_verifier),
+        ])
         .send()
         .await?;
 
