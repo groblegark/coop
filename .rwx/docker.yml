@@ -47,8 +47,10 @@ tasks:
       repository: https://github.com/groblegark/coop.git
       ref: ${{ init.commit-sha }}
 
-  # ── Rust toolchain with musl target ────────────────────────────────────
+  # ── Rust toolchain with musl target (cached) ───────────────────────────
   - key: rust
+    filter:
+      - .rwx/docker.yml
     run: |
       curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
         | sh -s -- -y --default-toolchain stable
@@ -57,10 +59,12 @@ tasks:
       echo "$HOME/.cargo/bin" | tee -a $RWX_ENV/PATH
       echo "" | tee $RWX_ENV/RUSTC_WRAPPER
 
-  # ── Cargo fetch ────────────────────────────────────────────────────────
+  # ── Cargo fetch (cached by Cargo.lock) ─────────────────────────────────
   - key: cargo-deps
     use: [code, rust, build-deps]
     run: cargo fetch
+    filter:
+      - Cargo.lock
 
   # ── Build coop binary → artifact ──────────────────────────────────────
   - key: build-coop
