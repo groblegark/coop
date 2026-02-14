@@ -44,7 +44,7 @@ allow = [
 # Our own crates use BUSL-1.1
 exceptions = [
     { allow = ["BUSL-1.1"], crate = "coop" },
-    { allow = ["BUSL-1.1"], crate = "coop-mux" },
+    { allow = ["BUSL-1.1"], crate = "coopmux" },
     { allow = ["BUSL-1.1"], crate = "coop-specs" },
 ]
 

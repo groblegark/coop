@@ -1,12 +1,12 @@
 [package]
-name = "coop-mux"
+name = "coopmux"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
 
 [lib]
-name = "coop_mux"
+name = "coopmux"
 path = "src/lib.rs"
 
 [[bin]]

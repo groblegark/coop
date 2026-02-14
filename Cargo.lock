@@ -495,7 +495,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "coop-mux"
+name = "coop-specs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-nats",
+ "coop",
+ "futures-util",
+ "reqwest",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "tonic",
+]
+
+[[package]]
+name = "coopmux"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -519,22 +535,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
-]
-
-[[package]]
-name = "coop-specs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-nats",
- "coop",
- "futures-util",
- "reqwest",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-tungstenite",
- "tonic",
 ]
 
 [[package]]

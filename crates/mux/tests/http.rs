@@ -12,12 +12,12 @@ use std::time::Instant;
 use axum_test::TestServer;
 use tokio_util::sync::CancellationToken;
 
-use coop_mux::config::MuxConfig;
-use coop_mux::credential::broker::CredentialBroker;
-use coop_mux::credential::{AccountConfig, CredentialConfig};
+use coopmux::config::MuxConfig;
+use coopmux::credential::broker::CredentialBroker;
+use coopmux::credential::{AccountConfig, CredentialConfig};
 
-use coop_mux::state::{MuxState, SessionEntry};
-use coop_mux::transport::build_router;
+use coopmux::state::{MuxState, SessionEntry};
+use coopmux::transport::build_router;
 
 fn test_config() -> MuxConfig {
     MuxConfig {

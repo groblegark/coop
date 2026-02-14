@@ -4,7 +4,7 @@
 use clap::{Parser, Subcommand};
 use tracing::error;
 
-use coop_mux::config::MuxConfig;
+use coopmux::config::MuxConfig;
 
 #[derive(Parser)]
 #[command(name = "coopmux", version, about = "PTY multiplexing proxy for coop instances.")]
@@ -45,7 +45,7 @@ async fn main() {
                 )
                 .init();
 
-            if let Err(e) = coop_mux::run(cli.config).await {
+            if let Err(e) = coopmux::run(cli.config).await {
                 error!("fatal: {e:#}");
                 std::process::exit(1);
             }

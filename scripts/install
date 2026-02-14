@@ -11,7 +11,7 @@ mkdir -p "$INSTALL_DIR"
 # Build coop CLI and coopmux
 echo "Building coop and coopmux..."
 cd "$ROOT_DIR"
-cargo build --release -p coop -p coop-mux
+cargo build --release -p coop -p coopmux
 
 # Install to ~/.local/bin/
 echo "Installing to $INSTALL_DIR..."
