@@ -134,7 +134,7 @@ tasks:
       DISPATCH_ID=$(curl -sSf -X POST https://cloud.rwx.com/mint/api/runs/dispatches \
         -H "Authorization: Bearer $RWX_TOKEN" \
         -H "Content-Type: application/json" \
-        -d "{\"key\": \"gastown-agent-rebuild\", \"params\": {\"trigger-source\": \"coop-release-$TAG\"}, \"ref\": \"main\", \"title\": \"Agent rebuild (coop $TAG)\"}" \
+        -d "{\"key\": \"gastown-agent-rebuild\", \"params\": {\"trigger-source\": \"coop-release-$TAG\", \"coop-version\": \"$TAG\"}, \"ref\": \"main\", \"title\": \"Agent rebuild (coop $TAG)\"}" \
         | python3 -c "import sys,json; print(json.load(sys.stdin).get('dispatch_id',''))")
       echo "Dispatched gastown-agent-rebuild via RWX (dispatch_id=$DISPATCH_ID, tag=$TAG)"
     env:

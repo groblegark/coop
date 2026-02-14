@@ -59,6 +59,8 @@ tasks:
   - key: cargo-deps
     use: [code, rust, build-deps]
     run: cargo fetch
+    filter:
+      - Cargo.lock
 
   # ── Build coop binary → artifact ──────────────────────────────────────
   - key: build-coop

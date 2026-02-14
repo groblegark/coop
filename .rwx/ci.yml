@@ -50,6 +50,8 @@ tasks:
   - key: cargo-deps
     use: rust
     run: cargo fetch
+    filter:
+      - Cargo.lock
 
   # ── Format check (parallel) ──────────────────────────────────────────
   - key: fmt
