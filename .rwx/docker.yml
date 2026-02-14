@@ -59,12 +59,12 @@ tasks:
       echo "$HOME/.cargo/bin" | tee -a $RWX_ENV/PATH
       echo "" | tee $RWX_ENV/RUSTC_WRAPPER
 
-  # ── Cargo fetch (cached by Cargo.lock) ─────────────────────────────────
+  # ── Cargo fetch (cached by Cargo.toml) ─────────────────────────────────
   - key: cargo-deps
     use: [code, rust, build-deps]
     run: cargo fetch
     filter:
-      - Cargo.lock
+      - Cargo.toml
 
   # ── Build coop binary → artifact ──────────────────────────────────────
   - key: build-coop
