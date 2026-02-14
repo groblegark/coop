@@ -42,8 +42,11 @@ pub async fn spawn_if_configured(
         Ok(v) => v,
         Err(_) => "http://127.0.0.1:9800".to_owned(), // default coopmux port
     };
-    let coop_url = std::env::var("COOP_URL")
-        .unwrap_or_else(|_| format!("http://127.0.0.1:{}", default_port.unwrap_or(0)));
+    let coop_url = std::env::var("COOP_URL").unwrap_or_else(|_| {
+        // In Kubernetes, use POD_IP so the mux can reach us across pods.
+        let host = std::env::var("POD_IP").unwrap_or_else(|_| "127.0.0.1".to_owned());
+        format!("http://{}:{}", host, default_port.unwrap_or(0))
+    });
     let reg = MuxRegistration {
         mux_url,
         mux_token: std::env::var("COOP_MUX_TOKEN")
