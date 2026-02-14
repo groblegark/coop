@@ -1,3 +1,7 @@
+# OCI image build for coop (empty, claude, gemini variants)
+# Rust builds natively with musl for static binaries, then docker: true tasks
+# assemble and push minimal runtime images to GHCR.
+
 on:
   github:
     push:
@@ -12,7 +16,8 @@ on:
         commit-sha: ${{ event.git.sha }}
         ref-name: pr
       status-checks:
-        name: Docker
+        - tasks: [build-coop]
+          name: Docker
   cli:
     init:
       commit-sha: ${{ event.git.sha }}
@@ -23,34 +28,97 @@ base:
   config: rwx/base 1.0.0
 
 tasks:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Build — native Rust compile with musl, outputs static binary artifact
+  # ═══════════════════════════════════════════════════════════════════════
+
+  # ── System deps (protobuf, musl toolchain) ─────────────────────────────
+  - key: build-deps
+    filter:
+      - .rwx/docker.yml
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y protobuf-compiler musl-tools pkg-config libssl-dev
+
+  # ── Clone ──────────────────────────────────────────────────────────────
   - key: code
     call: git/clone 2.0.3
     with:
       repository: https://github.com/groblegark/coop.git
       ref: ${{ init.commit-sha }}
 
-  # Each target: build, smoke test, and push in one task
-  - key: docker-empty
-    use: code
+  # ── Rust toolchain with musl target (cached by filter) ─────────────────
+  - key: rust
+    filter:
+      - .rwx/docker.yml
+    run: |
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --default-toolchain stable
+      . "$HOME/.cargo/env"
+      rustup target add x86_64-unknown-linux-musl
+      echo "$HOME/.cargo/bin" | tee -a $RWX_ENV/PATH
+      echo "" | tee $RWX_ENV/RUSTC_WRAPPER
+
+  # ── Cargo fetch (cached by Cargo.lock) ─────────────────────────────────
+  - key: cargo-deps
+    use: [code, rust, build-deps]
+    run: cargo fetch
+    filter:
+      - Cargo.lock
+
+  # ── Build coop binary → artifact ──────────────────────────────────────
+  - key: build-coop
+    use: cargo-deps
+    run: |
+      cargo build --release --target x86_64-unknown-linux-musl -p coop
+      strip target/x86_64-unknown-linux-musl/release/coop
+      cp target/x86_64-unknown-linux-musl/release/coop coop-bin
+    outputs:
+      artifacts:
+        - key: coop-binary
+          path: coop-bin
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Push — assemble runtime images from artifact, push to GHCR
+  # Skipped on PRs (build-coop validates the build).
+  # ═══════════════════════════════════════════════════════════════════════
+
+  # ── empty: coop + common dev tools ─────────────────────────────────────
+  - key: push-empty
+    use: build-coop
+    if: ${{ init.ref-name != 'pr' }}
     docker: true
     run: |
       REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
+      SHORT_SHA="${COMMIT_SHA:0:7}"
 
-      docker build --target empty \
-        -t ghcr.io/groblegark/coop:empty-sha-${COMMIT_SHA:0:7} \
+      mkdir -p /tmp/image-ctx
+      cp ${{ tasks.build-coop.artifacts.coop-binary }} /tmp/image-ctx/coop
+
+      printf '%s\n' \
+        'FROM debian:bookworm-slim' \
+        'RUN apt-get update && apt-get install -y --no-install-recommends \' \
+        '        git python3 build-essential openssh-client \' \
+        '        jq ripgrep fd-find tree \' \
+        '        ca-certificates curl \' \
+        '    && rm -rf /var/lib/apt/lists/*' \
+        'COPY coop /coop' \
+        'ENTRYPOINT ["/coop"]' \
+        > /tmp/image-ctx/Dockerfile
+
+      docker build \
+        -t ghcr.io/groblegark/coop:empty-sha-${SHORT_SHA} \
         -t ghcr.io/groblegark/coop:empty \
-        .
-      docker run --rm ghcr.io/groblegark/coop:empty-sha-${COMMIT_SHA:0:7} --help
+        /tmp/image-ctx
+      docker run --rm ghcr.io/groblegark/coop:empty-sha-${SHORT_SHA} --help
 
-      if [ "$REF_NAME" != "pr" ]; then
-        echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
-        docker push ghcr.io/groblegark/coop:empty-sha-${COMMIT_SHA:0:7}
-        docker push ghcr.io/groblegark/coop:empty
-        if [[ "$REF_NAME" == v* ]]; then
-          VERSION="${REF_NAME#v}"
-          docker tag ghcr.io/groblegark/coop:empty-sha-${COMMIT_SHA:0:7} ghcr.io/groblegark/coop:empty-${VERSION}
-          docker push ghcr.io/groblegark/coop:empty-${VERSION}
-        fi
+      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
+      docker push ghcr.io/groblegark/coop:empty-sha-${SHORT_SHA}
+      docker push ghcr.io/groblegark/coop:empty
+      if [[ "$REF_NAME" == v* ]]; then
+        VERSION="${REF_NAME#v}"
+        docker tag ghcr.io/groblegark/coop:empty-sha-${SHORT_SHA} ghcr.io/groblegark/coop:empty-${VERSION}
+        docker push ghcr.io/groblegark/coop:empty-${VERSION}
       fi
     env:
       COMMIT_SHA: ${{ init.commit-sha }}
@@ -58,27 +126,49 @@ tasks:
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       GITHUB_USER: ${{ secrets.GITHUB_USER }}
 
-  - key: docker-claude
-    use: code
+  # ── claude: coop + Claude CLI ──────────────────────────────────────────
+  - key: push-claude
+    use: build-coop
+    if: ${{ init.ref-name != 'pr' }}
     docker: true
     run: |
       REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
+      SHORT_SHA="${COMMIT_SHA:0:7}"
 
-      docker build --target claude \
-        -t ghcr.io/groblegark/coop:claude-sha-${COMMIT_SHA:0:7} \
+      mkdir -p /tmp/image-ctx
+      cp ${{ tasks.build-coop.artifacts.coop-binary }} /tmp/image-ctx/coop
+
+      printf '%s\n' \
+        'FROM debian:bookworm-slim AS claude-install' \
+        'RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \' \
+        '    && rm -rf /var/lib/apt/lists/*' \
+        'RUN curl -fsSL https://claude.ai/install.sh | bash' \
+        '' \
+        'FROM debian:bookworm-slim' \
+        'RUN apt-get update && apt-get install -y --no-install-recommends \' \
+        '        git python3 build-essential openssh-client \' \
+        '        jq ripgrep fd-find tree \' \
+        '        ca-certificates curl \' \
+        '    && rm -rf /var/lib/apt/lists/*' \
+        'COPY --from=claude-install /root/.local/ /root/.local/' \
+        'ENV PATH="/root/.local/bin:$PATH"' \
+        'COPY coop /usr/local/bin/coop' \
+        'ENTRYPOINT ["coop"]' \
+        > /tmp/image-ctx/Dockerfile
+
+      docker build \
+        -t ghcr.io/groblegark/coop:claude-sha-${SHORT_SHA} \
         -t ghcr.io/groblegark/coop:claude \
-        .
-      docker run --rm ghcr.io/groblegark/coop:claude-sha-${COMMIT_SHA:0:7} --help
+        /tmp/image-ctx
+      docker run --rm ghcr.io/groblegark/coop:claude-sha-${SHORT_SHA} --help
 
-      if [ "$REF_NAME" != "pr" ]; then
-        echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
-        docker push ghcr.io/groblegark/coop:claude-sha-${COMMIT_SHA:0:7}
-        docker push ghcr.io/groblegark/coop:claude
-        if [[ "$REF_NAME" == v* ]]; then
-          VERSION="${REF_NAME#v}"
-          docker tag ghcr.io/groblegark/coop:claude-sha-${COMMIT_SHA:0:7} ghcr.io/groblegark/coop:claude-${VERSION}
-          docker push ghcr.io/groblegark/coop:claude-${VERSION}
-        fi
+      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
+      docker push ghcr.io/groblegark/coop:claude-sha-${SHORT_SHA}
+      docker push ghcr.io/groblegark/coop:claude
+      if [[ "$REF_NAME" == v* ]]; then
+        VERSION="${REF_NAME#v}"
+        docker tag ghcr.io/groblegark/coop:claude-sha-${SHORT_SHA} ghcr.io/groblegark/coop:claude-${VERSION}
+        docker push ghcr.io/groblegark/coop:claude-${VERSION}
       fi
     env:
       COMMIT_SHA: ${{ init.commit-sha }}
@@ -86,27 +176,49 @@ tasks:
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       GITHUB_USER: ${{ secrets.GITHUB_USER }}
 
-  - key: docker-gemini
-    use: code
+  # ── gemini: coop + Gemini CLI ──────────────────────────────────────────
+  - key: push-gemini
+    use: build-coop
+    if: ${{ init.ref-name != 'pr' }}
     docker: true
     run: |
       REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
+      SHORT_SHA="${COMMIT_SHA:0:7}"
 
-      docker build --target gemini \
-        -t ghcr.io/groblegark/coop:gemini-sha-${COMMIT_SHA:0:7} \
+      mkdir -p /tmp/image-ctx
+      cp ${{ tasks.build-coop.artifacts.coop-binary }} /tmp/image-ctx/coop
+
+      printf '%s\n' \
+        'FROM debian:bookworm-slim AS gemini-install' \
+        'RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm ca-certificates \' \
+        '    && rm -rf /var/lib/apt/lists/*' \
+        'RUN npm install -g @google/gemini-cli' \
+        '' \
+        'FROM debian:bookworm-slim' \
+        'RUN apt-get update && apt-get install -y --no-install-recommends \' \
+        '        git python3 build-essential openssh-client \' \
+        '        jq ripgrep fd-find tree \' \
+        '        ca-certificates curl nodejs \' \
+        '    && rm -rf /var/lib/apt/lists/*' \
+        'COPY --from=gemini-install /usr/local/lib/node_modules/ /usr/local/lib/node_modules/' \
+        'RUN ln -s ../lib/node_modules/@google/gemini-cli/dist/src/cli.js /usr/local/bin/gemini' \
+        'COPY coop /usr/local/bin/coop' \
+        'ENTRYPOINT ["coop"]' \
+        > /tmp/image-ctx/Dockerfile
+
+      docker build \
+        -t ghcr.io/groblegark/coop:gemini-sha-${SHORT_SHA} \
         -t ghcr.io/groblegark/coop:gemini \
-        .
-      docker run --rm ghcr.io/groblegark/coop:gemini-sha-${COMMIT_SHA:0:7} --help
+        /tmp/image-ctx
+      docker run --rm ghcr.io/groblegark/coop:gemini-sha-${SHORT_SHA} --help
 
-      if [ "$REF_NAME" != "pr" ]; then
-        echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
-        docker push ghcr.io/groblegark/coop:gemini-sha-${COMMIT_SHA:0:7}
-        docker push ghcr.io/groblegark/coop:gemini
-        if [[ "$REF_NAME" == v* ]]; then
-          VERSION="${REF_NAME#v}"
-          docker tag ghcr.io/groblegark/coop:gemini-sha-${COMMIT_SHA:0:7} ghcr.io/groblegark/coop:gemini-${VERSION}
-          docker push ghcr.io/groblegark/coop:gemini-${VERSION}
-        fi
+      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
+      docker push ghcr.io/groblegark/coop:gemini-sha-${SHORT_SHA}
+      docker push ghcr.io/groblegark/coop:gemini
+      if [[ "$REF_NAME" == v* ]]; then
+        VERSION="${REF_NAME#v}"
+        docker tag ghcr.io/groblegark/coop:gemini-sha-${SHORT_SHA} ghcr.io/groblegark/coop:gemini-${VERSION}
+        docker push ghcr.io/groblegark/coop:gemini-${VERSION}
       fi
     env:
       COMMIT_SHA: ${{ init.commit-sha }}
