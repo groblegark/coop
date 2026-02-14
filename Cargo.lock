@@ -515,6 +515,7 @@ name = "coopmux"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-nats",
  "axum",
  "axum-test",
  "base64",
