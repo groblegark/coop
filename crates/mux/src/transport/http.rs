@@ -114,6 +114,7 @@ pub async fn register_session(
         ws_bridge: tokio::sync::RwLock::new(None),
     });
 
+    // Check if this is a heartbeat re-registration or a new session.
     let is_new = {
         let mut sessions = s.sessions.write().await;
         if sessions.contains_key(&id) {
@@ -123,10 +124,36 @@ pub async fn register_session(
             // reads.  Replacing the entry would orphan their writes.
             false
         } else {
+            // Evict any stale session(s) pointing to the same URL (e.g. after a
+            // pod restart generated a new session UUID for the same coop instance).
+            let stale: Vec<String> = sessions
+                .iter()
+                .filter(|(k, v)| *k != &id && v.url == entry.url)
+                .map(|(k, _)| k.clone())
+                .collect();
+            for stale_id in &stale {
+                if let Some(old) = sessions.remove(stale_id) {
+                    old.cancel.cancel();
+                    let _ = s
+                        .feed
+                        .event_tx
+                        .send(MuxEvent::SessionOffline { session: stale_id.clone() });
+                    tracing::info!(
+                        old_session = %stale_id,
+                        new_session = %id,
+                        url = %entry.url,
+                        "evicted stale session with same URL"
+                    );
+                }
+            }
             sessions.insert(id.clone(), Arc::clone(&entry));
             true
         }
     };
+    // Clean up watchers for any evicted sessions (separate lock to avoid
+    // holding sessions + watchers simultaneously).
+    // Note: evicted sessions already had their cancel tokens triggered above,
+    // so their pollers/feeds will stop. This just cleans the watchers map.
     if is_new {
         // Start background screen/status pollers for this session.
         crate::upstream::poller::spawn_screen_poller(entry, &s.config, cancel);
