@@ -4,7 +4,7 @@ on:
       if: ${{ event.git.branch == 'main' || starts-with(event.git.tag, 'v') }}
       init:
         commit-sha: ${{ event.git.sha }}
-        ref-name: ${{ event.git.tag || event.git.branch }}
+        ref-name: ${{ event.git.ref }}
       status-checks:
         name: Docker
     pull_request:
@@ -34,6 +34,8 @@ tasks:
     use: code
     docker: true
     run: |
+      REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
+
       docker build --target empty \
         -t ghcr.io/groblegark/coop:empty-sha-${COMMIT_SHA:0:7} \
         -t ghcr.io/groblegark/coop:empty \
@@ -60,6 +62,8 @@ tasks:
     use: code
     docker: true
     run: |
+      REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
+
       docker build --target claude \
         -t ghcr.io/groblegark/coop:claude-sha-${COMMIT_SHA:0:7} \
         -t ghcr.io/groblegark/coop:claude \
@@ -86,6 +90,8 @@ tasks:
     use: code
     docker: true
     run: |
+      REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
+
       docker build --target gemini \
         -t ghcr.io/groblegark/coop:gemini-sha-${COMMIT_SHA:0:7} \
         -t ghcr.io/groblegark/coop:gemini \
