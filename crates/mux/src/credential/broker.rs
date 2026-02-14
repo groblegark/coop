@@ -12,9 +12,9 @@ use tokio::sync::{broadcast, RwLock};
 use crate::credential::persist::{PersistedAccount, PersistedCredentials};
 use crate::credential::refresh::refresh_with_retries;
 use crate::credential::{
-    provider_default_auth_url, provider_default_client_id, provider_default_device_auth_url,
-    provider_default_env_key, provider_default_scopes, provider_default_token_url, AccountConfig,
-    AccountStatus, CredentialConfig, CredentialEvent,
+    provider_default_auth_code_token_url, provider_default_auth_url, provider_default_client_id,
+    provider_default_device_auth_url, provider_default_env_key, provider_default_scopes,
+    provider_default_token_url, AccountConfig, AccountStatus, CredentialConfig, CredentialEvent,
 };
 
 /// Set of account names that were defined in the original static config file
@@ -78,6 +78,7 @@ impl CredentialBroker {
             event_tx,
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(30))
+                .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
                 .build()
                 .unwrap_or_default(),
         })
@@ -424,6 +425,7 @@ impl CredentialBroker {
             let token_url = cfg
                 .token_url
                 .clone()
+                .or_else(|| provider_default_auth_code_token_url(&cfg.provider).map(String::from))
                 .or_else(|| provider_default_token_url(&cfg.provider).map(String::from))
                 .ok_or_else(|| anyhow::anyhow!("no token_url configured for {account_name}"))?;
             let scope = provider_default_scopes(&cfg.provider).to_owned();
