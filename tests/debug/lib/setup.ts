@@ -36,12 +36,12 @@ export async function buildCoop(): Promise<void> {
 
 export async function buildMux(): Promise<void> {
 	console.log("Building coopmux…");
-	await $`cargo build -p coop-mux --manifest-path ${rootDir()}/Cargo.toml`;
+	await $`cargo build -p coopmux --manifest-path ${rootDir()}/Cargo.toml`;
 }
 
 export async function buildAll(): Promise<void> {
 	console.log("Building coop + coopmux…");
-	await $`cargo build -p coop -p coop-mux --manifest-path ${rootDir()}/Cargo.toml`;
+	await $`cargo build -p coop -p coopmux --manifest-path ${rootDir()}/Cargo.toml`;
 }
 
 export async function buildDocker(target: string, tag: string): Promise<void> {

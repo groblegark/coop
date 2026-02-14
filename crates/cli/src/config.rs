@@ -7,7 +7,6 @@ use std::time::Duration;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
-use crate::credential::CredentialConfig;
 use crate::driver::AgentType;
 use crate::start::StartConfig;
 use crate::stop::StopConfig;
@@ -155,10 +154,6 @@ pub struct Config {
     /// Groom level: auto, manual, pristine.
     #[arg(long, env = "COOP_GROOM", default_value = "auto")]
     pub groom: String,
-
-    /// Disable NATS event publishing (receive-only mode).
-    #[arg(long, env = "COOP_NATS_PUBLISH_DISABLE")]
-    pub nats_publish_disable: bool,
 
     /// Serve web assets from disk instead of embedded (for live reload during dev).
     #[cfg(debug_assertions)]
@@ -325,7 +320,6 @@ impl Config {
             nats_password: None,
             nats_creds: None,
             groom: "manual".into(),
-            nats_publish_disable: false,
             #[cfg(debug_assertions)]
             hot: false,
             profile: "auto".into(),
@@ -402,10 +396,6 @@ pub struct AgentFileConfig {
     /// For Gemini, inserted as `mcpServers` in the settings file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mcp: Option<serde_json::Value>,
-    /// Credential broker configuration (Epic 16).
-    /// When present, coop manages OAuth token refresh for the configured accounts.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub credentials: Option<CredentialConfig>,
 }
 
 /// Load and parse the agent config file at `path`.

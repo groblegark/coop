@@ -559,3 +559,25 @@ async fn hooks_start_extracts_session_type_as_source() -> anyhow::Result<()> {
     assert_eq!(event.source, "init");
     Ok(())
 }
+
+#[tokio::test]
+async fn hooks_start_clear_resets_last_message() -> anyhow::Result<()> {
+    let StoreCtx { store: state, .. } = start_state(StartConfig::default());
+
+    // Pre-populate last_message with a stale value.
+    *state.driver.last_message.write().await = Some("stale message".to_owned());
+
+    let app = build_router(state.clone());
+    let server = axum_test::TestServer::new(app).anyhow()?;
+
+    // POST a clear event.
+    server
+        .post("/api/v1/hooks/start")
+        .json(&serde_json::json!({"event": "start", "data": {"source": "clear"}}))
+        .await;
+
+    // last_message should have been cleared.
+    let lm = state.driver.last_message.read().await;
+    assert!(lm.is_none(), "expected last_message to be cleared after /clear, got: {lm:?}");
+    Ok(())
+}

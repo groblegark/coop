@@ -122,7 +122,7 @@ async fn main() {
             std::process::exit(coop::command::send::run(&args));
         }
         Some(Commands::Cred(args)) => {
-            std::process::exit(coop::command::cred::run(&args));
+            std::process::exit(coop::command::cred::run(&args).await);
         }
         None => {
             let config = cli.config;

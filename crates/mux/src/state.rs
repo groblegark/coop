@@ -12,7 +12,6 @@ use tokio_util::sync::CancellationToken;
 use crate::config::MuxConfig;
 use crate::credential::broker::CredentialBroker;
 use crate::credential::CredentialEvent;
-use crate::events::Aggregator;
 use crate::upstream::bridge::WsBridge;
 
 /// Events emitted by the mux for aggregation consumers.
@@ -57,7 +56,12 @@ pub enum MuxEvent {
     CredentialRefreshFailed { account: String, error: String },
     /// User interaction required for credential reauthorization.
     #[serde(rename = "credential:reauth:required")]
-    CredentialReauthRequired { account: String, auth_url: String, user_code: String },
+    CredentialReauthRequired {
+        account: String,
+        auth_url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        user_code: Option<String>,
+    },
 }
 
 impl MuxEvent {
@@ -107,7 +111,7 @@ impl Default for SessionFeed {
 
 impl SessionFeed {
     pub fn new() -> Self {
-        let (event_tx, _) = broadcast::channel(256);
+        let (event_tx, _) = broadcast::channel(512);
         Self { event_tx, watchers: RwLock::new(HashMap::new()) }
     }
 }
@@ -118,8 +122,6 @@ pub struct MuxState {
     pub sessions: RwLock<HashMap<String, Arc<SessionEntry>>>,
     pub config: MuxConfig,
     pub shutdown: CancellationToken,
-    /// Aggregated event channel for `/ws/mux` clients.
-    pub aggregator: Aggregator,
     pub feed: SessionFeed,
     pub credential_broker: Option<Arc<CredentialBroker>>,
 }
@@ -130,7 +132,6 @@ impl MuxState {
             sessions: RwLock::new(HashMap::new()),
             config,
             shutdown,
-            aggregator: Aggregator::new(),
             feed: SessionFeed::new(),
             credential_broker: None,
         }

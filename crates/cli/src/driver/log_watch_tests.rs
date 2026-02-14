@@ -68,3 +68,27 @@ fn reports_correct_offset() -> anyhow::Result<()> {
     assert_eq!(lines[0], r#"{"b":2}"#);
     Ok(())
 }
+
+#[test]
+fn handles_file_truncation() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("test.jsonl");
+
+    // Write initial content and read past it.
+    std::fs::write(&path, "{\"a\":1}\n{\"b\":2}\n{\"c\":3}\n")?;
+    let mut watcher = LogWatcher::new(path.clone());
+    let lines = watcher.read_new_lines()?;
+    assert_eq!(lines.len(), 3);
+    let old_offset = watcher.offset();
+    assert!(old_offset > 0);
+
+    // Truncate the file (simulates `/clear` rewriting the session log).
+    std::fs::write(&path, "{\"new\":1}\n")?;
+
+    // Watcher should detect truncation, reset offset, and read the new content.
+    let lines = watcher.read_new_lines()?;
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0], r#"{"new":1}"#);
+    assert!(watcher.offset() < old_offset);
+    Ok(())
+}

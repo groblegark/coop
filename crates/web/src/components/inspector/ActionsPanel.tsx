@@ -1,12 +1,10 @@
-import { useState, useCallback, useMemo } from "react";
-import { KEY_DEFS } from "@/lib/constants";
-import type { PromptContext } from "@/lib/types";
-import type { WsRequest } from "@/hooks/useWebSocket";
-import { Section } from "@/components/Section";
+import { useCallback, useMemo, useState } from "react";
 import { ActionBtn } from "@/components/ActionBtn";
 import { ResultDisplay, showResult } from "@/components/ResultDisplay";
-
-// ── Actions Panel ──
+import { Section } from "@/components/Section";
+import type { WsRequest } from "@/hooks/useWebSocket";
+import { KEY_DEFS } from "@/lib/constants";
+import type { PromptContext } from "@/lib/types";
 
 interface ActionsPanelProps {
   prompt: PromptContext | null;
@@ -15,12 +13,7 @@ interface ActionsPanelProps {
   wsRequest: WsRequest;
 }
 
-export function ActionsPanel({
-  prompt,
-  lastMessage,
-  wsSend,
-  wsRequest,
-}: ActionsPanelProps) {
+export function ActionsPanel({ prompt, lastMessage, wsSend, wsRequest }: ActionsPanelProps) {
   return (
     <div className="flex-1 overflow-y-auto">
       <InputSection wsRequest={wsRequest} />
@@ -32,14 +25,10 @@ export function ActionsPanel({
   );
 }
 
-// ── Input Section ──
-
 function InputSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [text, setText] = useState("");
   const [enter, setEnter] = useState(true);
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const handleSend = useCallback(async () => {
     const res = await wsRequest({ event: "input:send", text, enter });
@@ -74,14 +63,13 @@ function InputSection({ wsRequest }: { wsRequest: WsRequest }) {
   );
 }
 
-// ── Keys Section ──
-
 function KeysSection({ wsSend }: { wsSend: (msg: unknown) => void }) {
   return (
     <Section label="Keys">
       <div className="flex flex-wrap gap-0.5">
         {KEY_DEFS.map((key) => (
           <button
+            type="button"
             key={key}
             className="rounded border border-[#3a3a3a] bg-[#252525] px-1.5 py-0.5 font-mono text-[10px] text-zinc-400 transition-all hover:border-zinc-500 hover:bg-[#2e2e2e] hover:text-zinc-300 active:bg-[#333]"
             onClick={() => wsSend({ event: "keys:send", keys: [key] })}
@@ -94,14 +82,10 @@ function KeysSection({ wsSend }: { wsSend: (msg: unknown) => void }) {
   );
 }
 
-// ── Resize Section ──
-
 function ResizeSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [cols, setCols] = useState("");
   const [rows, setRows] = useState("");
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const handleResize = useCallback(async () => {
     const c = parseInt(cols, 10);
@@ -139,13 +123,9 @@ function ResizeSection({ wsRequest }: { wsRequest: WsRequest }) {
   );
 }
 
-// ── Nudge Section ──
-
 function NudgeSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [message, setMessage] = useState("");
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const handleNudge = useCallback(async () => {
     const res = await wsRequest({ event: "nudge", message });
@@ -173,8 +153,6 @@ function NudgeSection({ wsRequest }: { wsRequest: WsRequest }) {
   );
 }
 
-// ── Respond Section ──
-
 function RespondSection({
   prompt,
   lastMessage,
@@ -184,9 +162,7 @@ function RespondSection({
   lastMessage: string | null;
   wsRequest: WsRequest;
 }) {
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   if (!prompt) {
     return (
@@ -200,8 +176,7 @@ function RespondSection({
     <Section
       label={
         <>
-          Respond to Prompt{" "}
-          <span className="text-blue-400">({prompt.type})</span>
+          Respond to Prompt <span className="text-blue-400">({prompt.type})</span>
         </>
       }
     >
@@ -228,8 +203,6 @@ function RespondSection({
     </Section>
   );
 }
-
-// ── Permission Prompt ──
 
 function PermissionPrompt({
   prompt,
@@ -290,8 +263,6 @@ function PermissionPrompt({
   );
 }
 
-// ── Plan Prompt ──
-
 function PlanPrompt({
   prompt,
   onResult,
@@ -305,12 +276,7 @@ function PlanPrompt({
   const isFallback = !!prompt.options_fallback;
   const options = prompt.options?.length
     ? prompt.options
-    : [
-        "Start with clear context",
-        "Auto-accept edits",
-        "Review each edit",
-        "Provide feedback",
-      ];
+    : ["Start with clear context", "Auto-accept edits", "Review each edit", "Provide feedback"];
   const buttonOpts = options.slice(0, -1);
   const lastLabel = options[options.length - 1];
   const lastIdx = options.length;
@@ -367,11 +333,9 @@ function PlanPrompt({
           onChange={(e) => setFeedback(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
-              wsRequest({
-                event: "respond",
-                option: lastIdx,
-                text: feedback || undefined,
-              }).then((res) => onResult(showResult(res)));
+              wsRequest({ event: "respond", option: lastIdx, text: feedback || undefined }).then(
+                (res) => onResult(showResult(res)),
+              );
             }
           }}
           placeholder={`${lastLabel}...`}
@@ -395,8 +359,6 @@ function PlanPrompt({
   );
 }
 
-// ── Setup Prompt ──
-
 function SetupPrompt({
   prompt,
   onResult,
@@ -411,9 +373,7 @@ function SetupPrompt({
   return (
     <>
       {prompt.subtype && (
-        <div className="mb-1 text-[10px] text-zinc-500">
-          Subtype: {prompt.subtype}
-        </div>
+        <div className="mb-1 text-[10px] text-zinc-500">Subtype: {prompt.subtype}</div>
       )}
       {prompt.subtype === "oauth_login" && prompt.input && (
         <div className="mb-1.5">
@@ -432,10 +392,7 @@ function SetupPrompt({
             >
               Copy
             </ActionBtn>
-            <ActionBtn
-              variant="success"
-              onClick={() => window.open(prompt.input!, "_blank")}
-            >
+            <ActionBtn variant="success" onClick={() => window.open(prompt.input!, "_blank")}>
               Open
             </ActionBtn>
           </div>
@@ -458,8 +415,6 @@ function SetupPrompt({
   );
 }
 
-// ── Question Prompt ──
-
 function QuestionPrompt({
   prompt,
   onResult,
@@ -471,8 +426,7 @@ function QuestionPrompt({
 }) {
   const [freeform, setFreeform] = useState("");
   const q = prompt.questions?.[prompt.question_current ?? 0];
-  const isConfirm =
-    (prompt.question_current ?? 0) >= (prompt.questions?.length ?? 0);
+  const isConfirm = (prompt.question_current ?? 0) >= (prompt.questions?.length ?? 0);
 
   if (isConfirm) {
     return (
@@ -482,11 +436,7 @@ function QuestionPrompt({
           <ActionBtn
             variant="success"
             onClick={async () => {
-              const res = await wsRequest({
-                event: "input:send",
-                text: "",
-                enter: true,
-              });
+              const res = await wsRequest({ event: "input:send", text: "", enter: true });
               onResult(showResult(res));
             }}
           >
@@ -495,11 +445,7 @@ function QuestionPrompt({
           <ActionBtn
             variant="danger"
             onClick={async () => {
-              const res = await wsRequest({
-                event: "input:send",
-                text: "\x1b",
-                enter: false,
-              });
+              const res = await wsRequest({ event: "input:send", text: "\x1b", enter: false });
               onResult(showResult(res));
             }}
           >
@@ -511,9 +457,7 @@ function QuestionPrompt({
   }
 
   if (!q) {
-    return (
-      <div className="text-[10px] text-zinc-600">(no question data)</div>
-    );
+    return <div className="text-[10px] text-zinc-600">(no question data)</div>;
   }
 
   return (
@@ -522,13 +466,11 @@ function QuestionPrompt({
       <div className="flex flex-col items-start gap-0.5">
         {q.options.map((opt, i) => (
           <button
+            type="button"
             key={i}
             className="rounded border border-[#3a3a3a] bg-[#252525] px-1.5 py-0.5 font-mono text-[10px] text-zinc-400 transition-all hover:border-zinc-500 hover:bg-[#2e2e2e] hover:text-zinc-300 active:bg-[#333]"
             onClick={async () => {
-              const res = await wsRequest({
-                event: "respond",
-                answers: [{ option: i + 1 }],
-              });
+              const res = await wsRequest({ event: "respond", answers: [{ option: i + 1 }] });
               onResult(showResult(res));
             }}
           >
@@ -543,10 +485,7 @@ function QuestionPrompt({
           onChange={(e) => setFreeform(e.target.value)}
           onKeyDown={async (e) => {
             if (e.key === "Enter") {
-              const res = await wsRequest({
-                event: "respond",
-                answers: [{ text: freeform }],
-              });
+              const res = await wsRequest({ event: "respond", answers: [{ text: freeform }] });
               onResult(showResult(res));
               if (res.ok) setFreeform("");
             }
@@ -556,10 +495,7 @@ function QuestionPrompt({
         />
         <ActionBtn
           onClick={async () => {
-            const res = await wsRequest({
-              event: "respond",
-              answers: [{ text: freeform }],
-            });
+            const res = await wsRequest({ event: "respond", answers: [{ text: freeform }] });
             onResult(showResult(res));
             if (res.ok) setFreeform("");
           }}
@@ -570,8 +506,6 @@ function QuestionPrompt({
     </>
   );
 }
-
-// ── Local helpers ──
 
 function FallbackBadge() {
   return (

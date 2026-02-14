@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { apiPost } from "@/hooks/useApiClient";
 import type { SessionInfo } from "./App";
 import { useMux } from "./MuxContext";
@@ -40,15 +40,17 @@ function needsAttention(state: string | null): boolean {
 function sessionLabel(info: SessionInfo): string {
   if (info.metadata?.k8s?.pod) return info.metadata.k8s.pod;
   if (info.url) {
-    try { return new URL(info.url).host; } catch { /* fallback */ }
+    try {
+      return new URL(info.url).host;
+    } catch {
+      /* fallback */
+    }
   }
   return info.id.substring(0, 12);
 }
 
 export function sortByAttention(sessions: SessionInfo[]): SessionInfo[] {
-  return [...sessions].sort(
-    (a, b) => statePriority(a.state) - statePriority(b.state),
-  );
+  return [...sessions].sort((a, b) => statePriority(a.state) - statePriority(b.state));
 }
 
 export function SessionSidebar({
@@ -85,6 +87,7 @@ export function SessionSidebar({
           if (collapsed) {
             return (
               <button
+                type="button"
                 key={info.id}
                 className={`flex w-full items-center justify-center py-2 hover:bg-[#1a1f26] ${active ? "bg-[#1a1f26]" : ""}`}
                 title={`${sessionLabel(info)} \u00b7 ${(info.state || "unknown").toUpperCase()}`}
@@ -99,6 +102,7 @@ export function SessionSidebar({
 
           return (
             <button
+              type="button"
               key={info.id}
               className={`flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-[#1a1f26] ${active ? "border-l-2 border-blue-500 bg-[#1a1f26]" : "border-l-2 border-transparent"}`}
               onClick={() => onSelectSession(info.id)}
@@ -107,12 +111,8 @@ export function SessionSidebar({
                 className={`inline-block h-2 w-2 shrink-0 rounded-full ${dot} ${pulse ? "animate-pulse" : ""}`}
               />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[12px] text-zinc-300">
-                  {sessionLabel(info)}
-                </div>
-                <div className="text-[10px] uppercase text-zinc-500">
-                  {info.state || "unknown"}
-                </div>
+                <div className="truncate text-[12px] text-zinc-300">{sessionLabel(info)}</div>
+                <div className="text-[10px] uppercase text-zinc-500">{info.state || "unknown"}</div>
                 {info.lastMessage && (
                   <div className="mt-0.5 line-clamp-2 text-[10px] leading-tight text-zinc-500">
                     {info.lastMessage}
@@ -125,9 +125,10 @@ export function SessionSidebar({
       </div>
 
       {/* New session button */}
-      {launchAvailable && (
-        collapsed ? (
+      {launchAvailable &&
+        (collapsed ? (
           <button
+            type="button"
             className="flex w-full items-center justify-center border-t border-[#21262d] py-2 text-zinc-500 hover:bg-[#1a1f26] hover:text-blue-400 disabled:opacity-50"
             onClick={handleLaunch}
             disabled={launching}
@@ -137,6 +138,7 @@ export function SessionSidebar({
           </button>
         ) : (
           <button
+            type="button"
             className="flex w-full items-center gap-2 border-t border-[#21262d] px-3 py-2 text-[12px] text-zinc-500 hover:bg-[#1a1f26] hover:text-blue-400 disabled:opacity-50"
             onClick={handleLaunch}
             disabled={launching}
@@ -144,8 +146,7 @@ export function SessionSidebar({
             <span className="text-base leading-none">{launching ? "\u2026" : "+"}</span>
             <span>New Session</span>
           </button>
-        )
-      )}
+        ))}
     </div>
   );
 }

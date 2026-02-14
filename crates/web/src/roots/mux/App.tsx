@@ -1,28 +1,23 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { apiGet } from "@/hooks/useApiClient";
-import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { useWebSocket, WsRpc, type ConnectionStatus } from "@/hooks/useWebSocket";
-import { useFileUpload } from "@/hooks/useFileUpload";
+import { Terminal as XTerm } from "@xterm/xterm";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DropOverlay } from "@/components/DropOverlay";
-import { StatusBar } from "@/components/StatusBar";
-import { TerminalLayout } from "@/components/TerminalLayout";
 import { InspectorSidebar, type WsEventListener } from "@/components/inspector/InspectorSidebar";
+import { OAuthToast } from "@/components/OAuthToast";
+import { StatusBar } from "@/components/StatusBar";
 import { Terminal } from "@/components/Terminal";
+import { TerminalLayout } from "@/components/TerminalLayout";
+import { LaunchCard, sessionSubtitle, sessionTitle, Tile } from "@/components/Tile";
+import { apiGet } from "@/hooks/useApiClient";
+import { useFileUpload } from "@/hooks/useFileUpload";
+import { type ConnectionStatus, useWebSocket, WsRpc } from "@/hooks/useWebSocket";
 import { b64decode, b64encode } from "@/lib/base64";
-import {
-  MONO_FONT,
-  THEME,
-  PREVIEW_FONT_SIZE,
-  EXPANDED_FONT_SIZE,
-} from "@/lib/constants";
-import type { MuxWsMessage, MuxMetadata, WsMessage, PromptContext } from "@/lib/types";
-import { SessionSidebar } from "./SessionSidebar";
+import { EXPANDED_FONT_SIZE, MONO_FONT, PREVIEW_FONT_SIZE, THEME } from "@/lib/constants";
+import type { MuxMetadata, MuxWsMessage, PromptContext, WsMessage } from "@/lib/types";
+import { type CredentialAlert, CredentialPanel } from "./CredentialPanel";
 import { MuxProvider, useMux } from "./MuxContext";
-import { Tile, LaunchCard, sessionTitle, sessionSubtitle } from "@/components/Tile";
-
-// ── Session state ──
+import { SessionSidebar } from "./SessionSidebar";
 
 export interface SessionInfo {
   id: string;
@@ -41,12 +36,8 @@ export interface SessionInfo {
 
 const encoder = new TextEncoder();
 
-// ── App ──
-
 function AppInner() {
-  const [sessions, setSessions] = useState<Map<string, SessionInfo>>(
-    () => new Map(),
-  );
+  const [sessions, setSessions] = useState<Map<string, SessionInfo>>(() => new Map());
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
 
@@ -71,14 +62,18 @@ function AppInner() {
 
   const subscribeExpandedWsEvents = useCallback((listener: WsEventListener) => {
     expandedWsListenersRef.current.add(listener);
-    return () => { expandedWsListenersRef.current.delete(listener); };
+    return () => {
+      expandedWsListenersRef.current.delete(listener);
+    };
   }, []);
 
   const [launchAvailable, setLaunchAvailable] = useState(false);
+  const [oauthUrl, setOauthUrl] = useState<string | null>(null);
 
-  const [credentialAlerts, setCredentialAlerts] = useState<
-    Map<string, string>
-  >(() => new Map());
+  const [credentialAlerts, setCredentialAlerts] = useState<Map<string, CredentialAlert>>(
+    () => new Map(),
+  );
+  const [credPanelOpen, setCredPanelOpen] = useState(false);
 
   // Stats
   const sessionCount = sessions.size;
@@ -91,14 +86,17 @@ function AppInner() {
     return c;
   }, [sessions]);
   const alertCount = useMemo(
-    () => [...credentialAlerts.values()].filter((s) => s !== "refreshed").length,
+    () => [...credentialAlerts.values()].filter((a) => a.event !== "credential:refreshed").length,
     [credentialAlerts],
   );
 
-  // ── Create terminal for a new session ──
-
   const createSession = useCallback(
-    (id: string, url: string | null, state: string | null, metadata: MuxMetadata | null): SessionInfo => {
+    (
+      id: string,
+      url: string | null,
+      state: string | null,
+      metadata: MuxMetadata | null,
+    ): SessionInfo => {
       const term = new XTerm({
         scrollback: 0,
         fontSize: PREVIEW_FONT_SIZE,
@@ -115,34 +113,19 @@ function AppInner() {
       // Forward keyboard input
       term.onData((data) => {
         if (focusedRef.current !== id) return;
-        if (
-          expandedRef.current === id &&
-          expandedWsRef.current?.readyState === WebSocket.OPEN
-        ) {
+        if (expandedRef.current === id && expandedWsRef.current?.readyState === WebSocket.OPEN) {
           expandedWsRef.current.send(
-            JSON.stringify({
-              event: "input:send:raw",
-              data: b64encode(encoder.encode(data)),
-            }),
+            JSON.stringify({ event: "input:send:raw", data: b64encode(encoder.encode(data)) }),
           );
         } else if (muxSendRef.current) {
-          muxSendRef.current({
-            event: "input:send",
-            session: id,
-            text: data,
-          });
+          muxSendRef.current({ event: "input:send", session: id, text: data });
         }
       });
 
       // Forward resize when expanded
       term.onResize(({ cols, rows }) => {
-        if (
-          expandedRef.current === id &&
-          expandedWsRef.current?.readyState === WebSocket.OPEN
-        ) {
-          expandedWsRef.current.send(
-            JSON.stringify({ event: "resize", cols, rows }),
-          );
+        if (expandedRef.current === id && expandedWsRef.current?.readyState === WebSocket.OPEN) {
+          expandedWsRef.current.send(JSON.stringify({ event: "resize", cols, rows }));
         }
       });
 
@@ -163,8 +146,6 @@ function AppInner() {
     },
     [],
   );
-
-  // ── Expand / collapse ──
 
   const collapseSession = useCallback((id: string) => {
     const info = sessionsRef.current.get(id);
@@ -210,13 +191,7 @@ function AppInner() {
     ws.onopen = () => {
       setExpandedWsStatus("connected");
       ws.send(JSON.stringify({ event: "replay:get", offset: 0 }));
-      ws.send(
-        JSON.stringify({
-          event: "resize",
-          cols: info.term.cols,
-          rows: info.term.rows,
-        }),
-      );
+      ws.send(JSON.stringify({ event: "resize", cols: info.term.cols, rows: info.term.rows }));
       // Initial agent poll
       rpc.request({ event: "agent:get" }).then((res) => {
         if (res.ok && res.json) {
@@ -261,32 +236,26 @@ function AppInner() {
     };
   }, []);
 
-  const expandSession = useCallback(
-    (id: string) => {
-      const info = sessionsRef.current.get(id);
-      if (!info) return;
-      info.term.options.fontSize = EXPANDED_FONT_SIZE;
-      info.term.options.scrollback = 10000;
-      info.term.reset();
-      info.term.options.disableStdin = false;
-      try {
-        const webgl = new WebglAddon();
-        webgl.onContextLoss(() => {
-          webgl.dispose();
-          if (info.webgl === webgl) info.webgl = null;
-        });
-        info.term.loadAddon(webgl);
-        info.webgl = webgl;
-      } catch {
-        // canvas fallback
-      }
-      requestAnimationFrame(() => {
-        info.fit.fit();
-        connectExpandedWs(id, info);
+  const expandSession = useCallback((id: string) => {
+    const info = sessionsRef.current.get(id);
+    if (!info) return;
+    info.term.options.fontSize = EXPANDED_FONT_SIZE;
+    info.term.options.scrollback = 10000;
+    info.term.reset();
+    info.term.options.disableStdin = false;
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+        if (info.webgl === webgl) info.webgl = null;
       });
-    },
-    [connectExpandedWs],
-  );
+      info.term.loadAddon(webgl);
+      info.webgl = webgl;
+    } catch {
+      // canvas fallback
+    }
+    // fit + WS connect deferred to onReady (after Terminal mounts xterm in overlay)
+  }, []);
 
   const toggleExpand = useCallback(
     (id: string) => {
@@ -303,28 +272,7 @@ function AppInner() {
     [collapseSession, expandSession],
   );
 
-  // ── Focus ──
-
-  const focusSession = useCallback((id: string) => {
-    const prev = focusedRef.current;
-    if (prev === id) return;
-    if (prev) {
-      const prevInfo = sessionsRef.current.get(prev);
-      if (prevInfo) prevInfo.term.options.disableStdin = true;
-    }
-    setFocusedSession(id);
-    const info = sessionsRef.current.get(id);
-    if (info) {
-      info.term.options.disableStdin = false;
-      info.term.focus();
-    }
-  }, []);
-
-  // ── Mux WS send ref ──
-
   const muxSendRef = useRef<((msg: unknown) => void) | null>(null);
-
-  // ── Mux WebSocket handler ──
 
   const onMuxMessage = useCallback(
     (raw: unknown) => {
@@ -354,6 +302,9 @@ function AppInner() {
           if (msg.last_message != null) info.lastMessage = msg.last_message;
           setSessions(new Map(sessionsRef.current));
         }
+        if (msg.prompt?.subtype === "oauth_login" && msg.prompt.input) {
+          setOauthUrl(msg.prompt.input);
+        }
       } else if (msg.event === "session:online") {
         if (!sessionsRef.current.has(msg.session)) {
           const newSessions = new Map(sessionsRef.current);
@@ -363,10 +314,7 @@ function AppInner() {
           );
           sessionsRef.current = newSessions;
           setSessions(newSessions);
-          muxSendRef.current?.({
-            event: "subscribe",
-            sessions: [msg.session],
-          });
+          muxSendRef.current?.({ event: "subscribe", sessions: [msg.session] });
         }
       } else if (msg.event === "session:offline") {
         const info = sessionsRef.current.get(msg.session);
@@ -389,7 +337,13 @@ function AppInner() {
           if (msg.event === "credential:refreshed") {
             next.delete(msg.account);
           } else {
-            next.set(msg.account, msg.event);
+            const alert: CredentialAlert = { event: msg.event };
+            if (msg.event === "credential:reauth:required") {
+              const reauth = msg as { auth_url?: string; user_code?: string };
+              alert.auth_url = reauth.auth_url;
+              alert.user_code = reauth.user_code;
+            }
+            next.set(msg.account, alert);
           }
           return next;
         });
@@ -431,36 +385,35 @@ function AppInner() {
     muxSendRef.current = muxSend;
   }, [muxSend]);
 
-  // ── Fetch launch config ──
+  // OAuth auto-prompt (expanded session)
+  useEffect(() => {
+    if (expandedPrompt?.subtype === "oauth_login" && expandedPrompt.input) {
+      setOauthUrl(expandedPrompt.input);
+    }
+  }, [expandedPrompt]);
 
   useEffect(() => {
     apiGet("/api/v1/config/launch").then((res) => {
-      if (res.ok && res.json && typeof res.json === "object" && "available" in (res.json as Record<string, unknown>)) {
+      if (
+        res.ok &&
+        res.json &&
+        typeof res.json === "object" &&
+        "available" in (res.json as Record<string, unknown>)
+      ) {
         setLaunchAvailable((res.json as Record<string, unknown>).available === true);
       }
     });
   }, []);
 
-  // ── File upload ──
-
   const { dragActive } = useFileUpload({
-    uploadPath: () =>
-      focusedRef.current
-        ? `/api/v1/sessions/${focusedRef.current}/upload`
-        : null,
+    uploadPath: () => (focusedRef.current ? `/api/v1/sessions/${focusedRef.current}/upload` : null),
     onUploaded: (paths) => {
-      const text = paths.join(" ") + " ";
+      const text = `${paths.join(" ")} `;
       const focused = focusedRef.current;
       if (!focused) return;
-      if (
-        expandedRef.current === focused &&
-        expandedWsRef.current?.readyState === WebSocket.OPEN
-      ) {
+      if (expandedRef.current === focused && expandedWsRef.current?.readyState === WebSocket.OPEN) {
         expandedWsRef.current.send(
-          JSON.stringify({
-            event: "input:send:raw",
-            data: b64encode(encoder.encode(text)),
-          }),
+          JSON.stringify({ event: "input:send:raw", data: b64encode(encoder.encode(text)) }),
         );
       } else {
         muxSendRef.current?.({ event: "input:send", session: focused, text });
@@ -476,12 +429,8 @@ function AppInner() {
     },
   });
 
-  // ── Sidebar context ──
-
   const { sidebarCollapsed, toggleSidebar } = useMux();
   const sidebarWidth = sidebarCollapsed ? 40 : 220;
-
-  // ── Expanded session WS helpers ──
 
   const expandedWsSend = useCallback((msg: unknown) => {
     const ws = expandedWsRef.current;
@@ -503,12 +452,14 @@ function AppInner() {
     if (id) sessionsRef.current.get(id)?.term.focus();
   }, []);
 
-  // ── Keyboard shortcuts ──
-
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && expandedRef.current) {
-        toggleExpand(expandedRef.current);
+      if (e.key === "Escape") {
+        if (credPanelOpen) {
+          setCredPanelOpen(false);
+        } else if (expandedRef.current) {
+          toggleExpand(expandedRef.current);
+        }
       }
       if (e.key === "b" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
@@ -517,9 +468,7 @@ function AppInner() {
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [toggleExpand, toggleSidebar]);
-
-  // ── Render ──
+  }, [toggleExpand, toggleSidebar, credPanelOpen]);
 
   const sessionArray = useMemo(() => [...sessions.values()], [sessions]);
 
@@ -529,11 +478,22 @@ function AppInner() {
       <header className="flex shrink-0 items-center gap-4 border-b border-[#21262d] px-2.5 py-2.5">
         <div className="flex items-center gap-2">
           <button
+            type="button"
             className="border-none bg-transparent p-0.5 text-zinc-500 hover:text-zinc-300"
             onClick={toggleSidebar}
             title={sidebarCollapsed ? "Expand sidebar (Cmd+B)" : "Collapse sidebar (Cmd+B)"}
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <title>Toggle sidebar</title>
               <rect x="1.5" y="2" width="13" height="12" rx="1.5" />
               <line x1="5.5" y1="2" x2="5.5" y2="14" />
             </svg>
@@ -545,15 +505,25 @@ function AppInner() {
             {sessionCount} session{sessionCount !== 1 ? "s" : ""}
           </span>
           <span>{healthyCount} healthy</span>
-          {alertCount > 0 && (
-            <span className="text-red-400">
-              {alertCount} credential alert{alertCount !== 1 ? "s" : ""}
-            </span>
+        </div>
+        <div className="relative ml-auto">
+          <button
+            type="button"
+            className={`rounded border px-2.5 py-1 text-[12px] transition-colors ${alertCount > 0 ? "border-red-700 bg-red-500/10 text-red-400 hover:border-red-500 hover:text-red-300" : "border-zinc-700 bg-[#1c2128] text-zinc-400 hover:border-zinc-500 hover:text-zinc-300"}`}
+            onClick={() => setCredPanelOpen((v) => !v)}
+          >
+            {alertCount > 0
+              ? `${alertCount} Credential Alert${alertCount !== 1 ? "s" : ""}`
+              : "Credentials"}
+          </button>
+          {credPanelOpen && (
+            <CredentialPanel onClose={() => setCredPanelOpen(false)} alerts={credentialAlerts} />
           )}
         </div>
       </header>
 
       <DropOverlay active={dragActive} />
+      {oauthUrl && <OAuthToast url={oauthUrl} onDismiss={() => setOauthUrl(null)} />}
 
       {/* Main area: sidebar + content */}
       <div className="relative flex min-h-0 flex-1 flex-col">
@@ -589,52 +559,68 @@ function AppInner() {
         </div>
 
         {/* Expanded session overlay */}
-        {expandedSession && sessions.get(expandedSession) && (() => {
-          const info = sessions.get(expandedSession)!;
-          return (
-            <TerminalLayout
-              className="absolute inset-y-0 right-0 z-[100] transition-[left] duration-200"
-              style={{ left: sidebarWidth }}
-              title={sessionTitle(info)}
-              subtitle={sessionSubtitle(info)}
-              credAlert={info.credAlert}
-              headerRight={
-                <button
-                  className="border-none bg-transparent p-1 text-zinc-500 hover:text-zinc-300"
-                  title="Close (Esc)"
-                  onClick={() => toggleExpand(expandedSession)}
-                >
-                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <line x1="4" y1="4" x2="14" y2="14" />
-                    <line x1="14" y1="4" x2="4" y2="14" />
-                  </svg>
-                </button>
-              }
-              wsStatus={expandedWsStatus}
-              agentState={info.state}
-              statusLabel="[coopmux]"
-              onInteraction={handleTerminalFocus}
-              inspector={
-                <InspectorSidebar
-                  subscribeWsEvents={subscribeExpandedWsEvents}
-                  prompt={expandedPrompt}
-                  lastMessage={expandedLastMessage}
-                  wsSend={expandedWsSend}
-                  wsRequest={expandedWsRequest}
-                  onTabClick={handleTerminalFocus}
+        {expandedSession &&
+          sessions.get(expandedSession) &&
+          (() => {
+            const info = sessions.get(expandedSession)!;
+            return (
+              <TerminalLayout
+                className="absolute inset-y-0 right-0 z-[100] transition-[left] duration-200"
+                style={{ left: sidebarWidth }}
+                title={sessionTitle(info)}
+                subtitle={sessionSubtitle(info)}
+                credAlert={info.credAlert}
+                headerRight={
+                  <button
+                    type="button"
+                    className="border-none bg-transparent p-1 text-zinc-500 hover:text-zinc-300"
+                    title="Close (Esc)"
+                    onClick={() => toggleExpand(expandedSession)}
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 18 18"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    >
+                      <title>Close</title>
+                      <line x1="4" y1="4" x2="14" y2="14" />
+                      <line x1="14" y1="4" x2="4" y2="14" />
+                    </svg>
+                  </button>
+                }
+                wsStatus={expandedWsStatus}
+                agentState={info.state}
+                statusLabel="[coopmux]"
+                onInteraction={handleTerminalFocus}
+                inspector={
+                  <InspectorSidebar
+                    subscribeWsEvents={subscribeExpandedWsEvents}
+                    prompt={expandedPrompt}
+                    lastMessage={expandedLastMessage}
+                    wsSend={expandedWsSend}
+                    wsRequest={expandedWsRequest}
+                    onTabClick={handleTerminalFocus}
+                  />
+                }
+              >
+                <Terminal
+                  instance={info.term}
+                  fitAddon={info.fit}
+                  onReady={() => {
+                    info.fit.fit();
+                    info.term.focus();
+                    connectExpandedWs(info.id, info);
+                  }}
+                  theme={THEME}
+                  className="h-full min-w-0 flex-1 py-4 pl-4"
                 />
-              }
-            >
-              <Terminal
-                instance={info.term}
-                fitAddon={info.fit}
-                onReady={() => info.term.focus()}
-                theme={THEME}
-                className="h-full min-w-0 flex-1 py-4 pl-4"
-              />
-            </TerminalLayout>
-          );
-        })()}
+              </TerminalLayout>
+            );
+          })()}
 
         {/* Page-level status bar */}
         <StatusBar label="[coopmux]" wsStatus={muxWsStatus} />

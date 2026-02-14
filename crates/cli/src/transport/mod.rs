@@ -9,7 +9,6 @@ pub mod grpc;
 pub mod handler;
 pub mod http;
 pub mod nats;
-pub mod nats_pub;
 pub mod state;
 pub mod ws;
 
@@ -375,9 +374,6 @@ fn build_router_inner(
             get(http::get_profile_mode).put(http::put_profile_mode),
         )
         .route("/api/v1/session/switch", post(http::switch_session))
-        .route("/api/v1/session/cwd", get(http::get_session_cwd))
-        .route("/api/v1/env", get(http::list_env))
-        .route("/api/v1/env/{key}", get(http::get_env).put(http::put_env).delete(http::delete_env))
         .route("/api/v1/shutdown", post(http::shutdown))
         .route("/api/v1/config/stop", get(http::get_stop_config).put(http::put_stop_config))
         .route("/api/v1/hooks/start", post(http::hooks_start))
@@ -390,11 +386,6 @@ fn build_router_inner(
         .route("/api/v1/recording/download", get(http::download_recording))
         .route("/api/v1/upload", post(http::upload))
         .route("/api/v1/transcripts/{number}", get(http::get_transcript))
-        .route("/api/v1/credentials/status", get(http::credentials_status))
-        .route("/api/v1/credentials/seed", post(http::credentials_seed))
-        .route("/api/v1/credentials/reauth", post(http::credentials_reauth))
-        .route("/api/v1/credentials/login-reauth", post(http::credentials_login_reauth))
-        .route("/api/v1/credentials/login-reauth/complete", post(http::credentials_login_reauth_complete))
         .route("/ws", get(ws::ws_handler))
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_layer))
         .layer(middleware::from_fn(compat::http_compat_layer))

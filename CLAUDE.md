@@ -97,20 +97,8 @@ crates/cli/               # Single crate (binary + lib)
 
 crates/web/                   # Web UI (Vite + React, built to single-file HTML)
 ├── src/
-│   ├── terminal/              # Standalone single-session page (/terminal.html)
-│   │   ├── App.tsx            # Full terminal with inspector sidebar
-│   │   └── main.tsx           # Entrypoint
-│   ├── mux/                   # Multi-session dashboard (/mux.html)
-│   │   ├── App.tsx            # Tile grid, expand/collapse, mux WS
-│   │   ├── MuxContext.tsx     # Sidebar state context
-│   │   ├── SessionSidebar.tsx # Session list sidebar
-│   │   └── main.tsx           # Entrypoint
-│   ├── components/            # Shared components
-│   │   ├── Terminal.tsx       # Xterm.js wrapper (mount, fit, theme)
-│   │   ├── TerminalPreview.tsx # Read-only preview for mux tiles
-│   │   ├── TerminalLayout.tsx # Layout shell (header, status bar, inspector)
-│   │   ├── inspector/         # Inspector sidebar panels
-│   │   └── ...                # AgentBadge, StatusBar, etc.
+│   ├── roots/                 # Entrypoints (terminal, mux pages)
+│   ├── components/            # Shared components (Terminal, inspector, etc.)
 │   ├── hooks/                 # useWebSocket, useApiClient, useFileUpload
 │   └── lib/                   # Shared types, constants, utilities
 └── dist/                      # Build output (committed)
@@ -138,6 +126,8 @@ make check    # fmt, clippy, quench, build, test
 Use conventional commit format: `type(scope): description`
 
 Types: feat, fix, chore, docs, test, refactor
+
+- `crates/web/dist/terminal.html` and `crates/web/dist/mux.html` are always rebuilt together — commit both even if only one page changed.
 
 ## Landing the Plane
 

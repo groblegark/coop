@@ -13,11 +13,47 @@ RUN case "$TARGETARCH" in \
       arm64) RUST_TARGET=aarch64-unknown-linux-musl ;; \
       *)     RUST_TARGET=x86_64-unknown-linux-musl ;; \
     esac \
-    && cargo build --release --target "$RUST_TARGET" \
+    && cargo build --release --target "$RUST_TARGET" -p coop -p coopmux \
     && strip "target/$RUST_TARGET/release/coop" \
-    && strip "target/$RUST_TARGET/release/coopmux" \
     && cp "target/$RUST_TARGET/release/coop" /coop-bin \
+    && strip "target/$RUST_TARGET/release/coopmux" \
     && cp "target/$RUST_TARGET/release/coopmux" /coopmux-bin
+
+# ---------------------------------------------------------------------------
+# Installer stages: cached independently of base image changes
+# ---------------------------------------------------------------------------
+
+FROM debian:bookworm-slim AS claude-install
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
+FROM debian:bookworm-slim AS gemini-install
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g @google/gemini-cli
+
+FROM debian:bookworm-slim AS claudeless-install
+ARG TARGETARCH
+ARG CLAUDELESS_VERSION=0.4.0
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN case "$TARGETARCH" in \
+      arm64) ARCH=aarch64 ;; \
+      *)     ARCH=x86_64 ;; \
+    esac \
+    && curl -fsSL "https://github.com/alfredjeanlab/claudeless/releases/download/v${CLAUDELESS_VERSION}/claudeless-linux-${ARCH}.tar.gz" \
+       -o /tmp/claudeless.tar.gz \
+    && tar -xzf /tmp/claudeless.tar.gz -C /usr/local/bin \
+    && rm /tmp/claudeless.tar.gz \
+    && chmod +x /usr/local/bin/claudeless
+
+FROM debian:bookworm-slim AS kubectl-install
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${TARGETARCH}/kubectl" \
+    -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl
 
 # ---------------------------------------------------------------------------
 # Base: common developer tools shared by all runtime stages
@@ -34,26 +70,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ---------------------------------------------------------------------------
 FROM base AS empty
 COPY --from=builder /coop-bin /coop
-COPY --from=builder /coopmux-bin /coopmux
 ENTRYPOINT ["/coop"]
 
 # ---------------------------------------------------------------------------
 # Claudeless: coop + claudeless + scenario fixtures (for testing)
 # ---------------------------------------------------------------------------
 FROM base AS claudeless
-ARG TARGETARCH
-ARG CLAUDELESS_VERSION=0.3.0
-RUN case "$TARGETARCH" in \
-      arm64) ARCH=aarch64 ;; \
-      *)     ARCH=x86_64 ;; \
-    esac \
-    && curl -fsSL "https://github.com/alfredjeanlab/claudeless/releases/download/v${CLAUDELESS_VERSION}/claudeless-linux-${ARCH}.tar.gz" \
-       -o /tmp/claudeless.tar.gz \
-    && tar -xzf /tmp/claudeless.tar.gz -C /usr/local/bin \
-    && rm /tmp/claudeless.tar.gz \
-    && chmod +x /usr/local/bin/claudeless
+COPY --from=claudeless-install /usr/local/bin/claudeless /usr/local/bin/claudeless
 COPY --from=builder /coop-bin /usr/local/bin/coop
-COPY --from=builder /coopmux-bin /usr/local/bin/coopmux
 COPY crates/cli/tests/scenarios/ /scenarios/
 ENTRYPOINT ["coop"]
 
@@ -62,16 +86,25 @@ ENTRYPOINT ["coop"]
 # ---------------------------------------------------------------------------
 
 FROM base AS claude
-RUN curl -fsSL https://claude.ai/install.sh | bash
+COPY --from=claude-install /root/.local/ /root/.local/
 ENV PATH="/root/.local/bin:$PATH"
 COPY --from=builder /coop-bin /usr/local/bin/coop
-COPY --from=builder /coopmux-bin /usr/local/bin/coopmux
 ENTRYPOINT ["coop"]
 
 FROM base AS gemini
-RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
-RUN npm install -g @google/gemini-cli
+COPY --from=gemini-install /usr/local/lib/node_modules/ /usr/local/lib/node_modules/
+RUN ln -s ../lib/node_modules/@google/gemini-cli/dist/src/cli.js /usr/local/bin/gemini
 COPY --from=builder /coop-bin /usr/local/bin/coop
-COPY --from=builder /coopmux-bin /usr/local/bin/coopmux
 ENTRYPOINT ["coop"]
+
+# ---------------------------------------------------------------------------
+# Coopmux: mux server with kubectl for launching session pods in Kubernetes
+# ---------------------------------------------------------------------------
+FROM base AS coopmux
+COPY --from=kubectl-install /usr/local/bin/kubectl /usr/local/bin/kubectl
+COPY --from=builder /coopmux-bin /usr/local/bin/coopmux
+COPY deploy/k8s-launch.sh /usr/local/bin/coop-launch
+RUN chmod +x /usr/local/bin/coop-launch
+ENTRYPOINT ["coopmux"]

@@ -145,10 +145,6 @@ impl Drop for WsBridge {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Run loop
-// ---------------------------------------------------------------------------
-
 async fn run_loop(
     url: String,
     entry_id: String,
@@ -252,10 +248,6 @@ async fn run_loop(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /// Lightweight routing info extracted from a JSON message without full deserialization.
 #[derive(Deserialize, Default)]
 struct RouteInfo<'a> {
@@ -276,18 +268,26 @@ struct StampedMessage {
     request_id: String,
 }
 
-/// Inject a unique `request_id` into a JSON object string.
+/// Replace (or insert) `request_id` in a JSON message with a bridge-assigned correlation ID.
 ///
-/// Avoids a full JSON parse/reserialize — uses string splicing for the common
-/// case of well-formed `{...}` input.
+/// Uses `serde_json::Value` to properly handle messages that already contain a `request_id`
+/// from the downstream client, avoiding duplicate keys.
 fn stamp_request_id(counter: &mut u64, json: &str) -> StampedMessage {
     *counter += 1;
     let rid = counter.to_string();
-    // Insert `"request_id":"N",` right after the opening `{`.
+
+    if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(json) {
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert("request_id".to_owned(), serde_json::Value::String(rid.clone()));
+        }
+        let text = serde_json::to_string(&value).unwrap_or_else(|_| json.to_owned());
+        return StampedMessage { text, request_id: rid };
+    }
+
+    // Fallback: string splice for non-JSON (shouldn't happen with well-formed messages).
     let text = if let Some(rest) = json.strip_prefix('{') {
         format!("{{\"request_id\":\"{rid}\",{rest}")
     } else {
-        // Fallback: wrap in an object (shouldn't happen with well-formed messages).
         format!("{{\"request_id\":\"{rid}\",\"_raw\":{json}}}")
     };
     StampedMessage { text, request_id: rid }

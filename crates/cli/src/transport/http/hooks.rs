@@ -194,6 +194,13 @@ pub async fn hooks_start(
     let injected = !script.is_empty();
     start.emit(source.clone(), session_id, injected);
 
+    // Clear stale last_message when the conversation is cleared.
+    // After `/clear`, Claude truncates the session log; the log watcher will
+    // eventually pick up new entries, but until then the old value is misleading.
+    if source == "clear" {
+        *s.driver.last_message.write().await = None;
+    }
+
     // Save a transcript snapshot before compaction wipes the session log.
     if source == "compact" {
         let transcript = Arc::clone(&s.transcript);

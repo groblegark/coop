@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiResult } from "@/lib/types";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
@@ -24,26 +24,36 @@ let nextId = 1;
  * Used by mux expanded view where we manage the WS manually.
  */
 export class WsRpc {
-  private pending = new Map<string, { resolve: (r: ApiResult) => void; timer: ReturnType<typeof setTimeout> }>();
+  private queue: Array<{
+    resolve: ((r: ApiResult) => void) | null;
+    timer: ReturnType<typeof setTimeout>;
+  }> = [];
 
-  constructor(private ws: WebSocket, private timeout = 10_000) {}
+  constructor(
+    private ws: WebSocket,
+    private timeout = 10_000,
+  ) {}
 
   /** Handle an incoming message. Returns true if it was a response (had request_id). */
   handleMessage(msg: Record<string, unknown>): boolean {
-    const rid = msg.request_id as string | undefined;
-    if (!rid) return false;
-    const entry = this.pending.get(rid);
-    if (!entry) return false;
-    clearTimeout(entry.timer);
-    this.pending.delete(rid);
-    const isError = msg.event === "error";
-    entry.resolve({
-      ok: !isError,
-      status: isError ? 400 : 200,
-      json: msg,
-      text: JSON.stringify(msg),
-    });
-    return true;
+    if (!("request_id" in msg)) return false;
+    // Pop entries, skipping any that already timed out (resolve nulled).
+    while (this.queue.length > 0) {
+      const entry = this.queue.shift()!;
+      clearTimeout(entry.timer);
+      if (entry.resolve) {
+        const isError = msg.event === "error";
+        entry.resolve({
+          ok: !isError,
+          status: isError ? 400 : 200,
+          json: msg,
+          text: JSON.stringify(msg),
+        });
+        return true;
+      }
+      // entry.resolve was nulled by timeout — this response is late, discard it.
+    }
+    return false;
   }
 
   request(msg: Record<string, unknown>): Promise<ApiResult> {
@@ -52,22 +62,22 @@ export class WsRpc {
         resolve({ ok: false, status: 0, json: null, text: "WebSocket not open" });
         return;
       }
-      const rid = `r${nextId++}`;
-      const timer = setTimeout(() => {
-        this.pending.delete(rid);
+      const entry: (typeof this.queue)[number] = { resolve, timer: 0 as never };
+      entry.timer = setTimeout(() => {
+        entry.resolve = null; // mark expired, leave in queue as placeholder
         resolve({ ok: false, status: 408, json: null, text: "Request timeout" });
       }, this.timeout);
-      this.pending.set(rid, { resolve, timer });
-      this.ws.send(JSON.stringify({ ...msg, request_id: rid }));
+      this.queue.push(entry);
+      this.ws.send(JSON.stringify({ ...msg, request_id: `r${nextId++}` }));
     });
   }
 
   dispose() {
-    for (const [, entry] of this.pending) {
+    for (const entry of this.queue) {
       clearTimeout(entry.timer);
-      entry.resolve({ ok: false, status: 0, json: null, text: "Disposed" });
+      entry.resolve?.({ ok: false, status: 0, json: null, text: "Disposed" });
     }
-    this.pending.clear();
+    this.queue = [];
   }
 }
 
@@ -93,7 +103,12 @@ export function useWebSocket({
   const request: WsRequest = useCallback((msg: Record<string, unknown>) => {
     const rpc = rpcRef.current;
     if (!rpc) {
-      return Promise.resolve({ ok: false, status: 0, json: null, text: "Not connected" } as ApiResult);
+      return Promise.resolve({
+        ok: false,
+        status: 0,
+        json: null,
+        text: "Not connected",
+      } as ApiResult);
     }
     return rpc.request(msg);
   }, []);

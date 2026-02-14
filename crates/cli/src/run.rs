@@ -19,7 +19,6 @@ use crate::backend::adapter::{AdapterSpec, TmuxBackend};
 use crate::backend::spawn::NativePty;
 use crate::backend::Backend;
 use crate::config::{self, Config, GroomLevel};
-use crate::credential::CredentialBroker;
 use crate::driver::claude::resume;
 use crate::driver::claude::setup as claude_setup;
 use crate::driver::gemini::setup as gemini_setup;
@@ -179,18 +178,6 @@ impl PreparedSession {
             }
         }
 
-        // 5b. Merge pending env vars (set via PUT /api/v1/env/:key).
-        {
-            let mut pending = self.store.pending_env.write().await;
-            for (k, v) in pending.drain() {
-                if let Some(existing) = env_vars.iter_mut().find(|(ek, _)| ek == &k) {
-                    existing.1 = v;
-                } else {
-                    env_vars.push((k, v));
-                }
-            }
-        }
-
         // 6. Build driver (detectors only — encoders already on SessionSettings).
         let sinks = || {
             DetectorSinks::default()
@@ -317,7 +304,6 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
     let start_config = agent_file_config.as_ref().and_then(|c| c.start.clone()).unwrap_or_default();
     let base_settings = agent_file_config.as_ref().and_then(|c| c.settings.clone());
     let mcp_config = agent_file_config.as_ref().and_then(|c| c.mcp.clone());
-    let credential_config = agent_file_config.as_ref().and_then(|c| c.credentials.clone());
 
     // 1. Handle --resume: discover session log and build resume state.
     let (resume_state, resume_log_path) = if let Some(ref resume_hint) = config.resume {
@@ -496,17 +482,6 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
         profile_state.set_mode(mode);
     }
 
-    // Credential broker (Epic 16): create if configured.
-    let (credential_broker, _credential_event_rx) = match credential_config.as_ref() {
-        Some(config) => {
-            let (broker, rx) = CredentialBroker::new(config);
-            // Load any persisted credentials from disk before starting refresh loops.
-            broker.load_persisted().await;
-            (Some(broker), Some(rx))
-        }
-        None => (None, None),
-    };
-
     let event_log = Arc::new(EventLog::new(setup.as_ref().map(|s| s.session_dir.as_path())));
 
     let record_state = Arc::new(RecordingState::new(
@@ -548,7 +523,6 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
         },
         session_id: RwLock::new(session_id),
         ready: Arc::new(AtomicBool::new(false)),
-        pending_env: tokio::sync::RwLock::new(std::collections::HashMap::new()),
         input_gate: Arc::new(crate::transport::state::InputGate::new(config.input_delay())),
         stop: stop_state,
         switch: switch_state,
@@ -558,7 +532,6 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
         profile: profile_state,
         input_activity: Arc::new(tokio::sync::Notify::new()),
         event_log: Arc::clone(&event_log),
-        credentials: credential_broker,
         record: Arc::clone(&record_state),
         session_dir: setup.as_ref().map(|s| s.session_dir.clone()),
     });
@@ -598,15 +571,6 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
                     }
                 }
             }
-        });
-    }
-
-    // Spawn credential broker refresh loops (Epic 16).
-    if let Some(ref broker) = store.credentials {
-        let broker = Arc::clone(broker);
-        let sd = shutdown.clone();
-        tokio::spawn(async move {
-            broker.run(sd).await;
         });
     }
 
@@ -720,41 +684,6 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
                 error!("gRPC server error: {e}");
             }
         });
-    }
-
-    // Spawn NATS publisher
-    {
-        use crate::transport::nats_pub::{NatsPubConfig, NatsPublisher};
-        use tokio::sync::broadcast;
-
-        let nats_config = config.nats_url.as_ref().map(|url| NatsPubConfig {
-            url: url.clone(),
-            token: config.nats_token.clone(),
-            prefix: config.nats_prefix.clone(),
-        });
-
-        if let Some(pub_config) = nats_config {
-            if !config.nats_publish_disable {
-                let state_rx = store.channels.state_tx.subscribe();
-                let stop_rx = store.stop.stop_tx.subscribe();
-                let cred_rx = match store.credentials.as_ref() {
-                    Some(broker) => broker.subscribe(),
-                    None => {
-                        let (_, rx) = broadcast::channel::<crate::credential::CredentialEvent>(1);
-                        rx
-                    }
-                };
-                let sd = shutdown.clone();
-                tokio::spawn(async move {
-                    match NatsPublisher::connect(&pub_config).await {
-                        Ok(publisher) => publisher.run(state_rx, stop_rx, cred_rx, sd).await,
-                        Err(e) => {
-                            tracing::warn!("NATS publisher failed to connect: {e}");
-                        }
-                    }
-                });
-            }
-        }
     }
 
     // Spawn health probe

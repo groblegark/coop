@@ -4,8 +4,6 @@
 //! HTTP request/response types and axum handler implementations.
 
 mod agent;
-mod credential;
-mod env;
 mod events;
 mod hooks;
 mod record;
@@ -16,8 +14,6 @@ mod upload;
 mod usage;
 
 pub use agent::*;
-pub use credential::*;
-pub use env::*;
 pub use events::*;
 pub use hooks::*;
 pub use record::*;
@@ -63,6 +59,3 @@ mod switch_tests;
 
 #[cfg(test)]
 mod usage_tests;
-
-#[cfg(test)]
-mod env_tests;

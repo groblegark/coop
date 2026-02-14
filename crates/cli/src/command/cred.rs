@@ -16,14 +16,40 @@ pub struct CredArgs {
 pub enum CredCommand {
     /// List all credential accounts and their status.
     List,
-    /// Seed initial tokens for an account.
-    Seed(SeedArgs),
-    /// Trigger device code re-authentication for an account.
+    /// Create a new credential account.
+    New(NewArgs),
+    /// Set tokens for an existing account.
+    Set(SetArgs),
+    /// Trigger OAuth re-authentication for an account.
     Reauth(ReauthArgs),
 }
 
 #[derive(Debug, clap::Args)]
-pub struct SeedArgs {
+pub struct NewArgs {
+    /// Account name.
+    pub name: String,
+    /// Provider identifier (e.g. "claude", "openai").
+    #[arg(long)]
+    pub provider: String,
+    /// Env var name for the credential (falls back to provider default).
+    #[arg(long)]
+    pub env_key: Option<String>,
+    /// Access token to set immediately.
+    #[arg(long)]
+    pub token: Option<String>,
+    /// Refresh token (optional).
+    #[arg(long)]
+    pub refresh_token: Option<String>,
+    /// Token TTL in seconds (optional).
+    #[arg(long)]
+    pub expires_in: Option<u64>,
+    /// Disable OAuth reauth/refresh for this account.
+    #[arg(long)]
+    pub no_reauth: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct SetArgs {
     /// Account name.
     pub account: String,
     /// Access token.
@@ -44,7 +70,7 @@ pub struct ReauthArgs {
 }
 
 /// Run the `coop cred` subcommand. Returns a process exit code.
-pub fn run(args: &CredArgs) -> i32 {
+pub async fn run(args: &CredArgs) -> i32 {
     let mux_url = match std::env::var("COOP_MUX_URL") {
         Ok(u) => u.trim_end_matches('/').to_owned(),
         Err(_) => {
@@ -54,31 +80,35 @@ pub fn run(args: &CredArgs) -> i32 {
     };
 
     let mux_token = std::env::var("COOP_MUX_TOKEN").ok();
-    let client = reqwest::blocking::Client::builder()
+    let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .unwrap_or_default();
 
     match &args.command {
-        CredCommand::List => cmd_list(&client, &mux_url, mux_token.as_deref()),
-        CredCommand::Seed(seed) => cmd_seed(&client, &mux_url, mux_token.as_deref(), seed),
-        CredCommand::Reauth(reauth) => cmd_reauth(&client, &mux_url, mux_token.as_deref(), reauth),
+        CredCommand::List => cmd_list(&client, &mux_url, mux_token.as_deref()).await,
+        CredCommand::New(new_args) => {
+            cmd_new(&client, &mux_url, mux_token.as_deref(), new_args).await
+        }
+        CredCommand::Set(set_args) => {
+            cmd_set(&client, &mux_url, mux_token.as_deref(), set_args).await
+        }
+        CredCommand::Reauth(reauth) => {
+            cmd_reauth(&client, &mux_url, mux_token.as_deref(), reauth).await
+        }
     }
 }
 
-fn apply_auth(
-    req: reqwest::blocking::RequestBuilder,
-    token: Option<&str>,
-) -> reqwest::blocking::RequestBuilder {
+fn apply_auth(req: reqwest::RequestBuilder, token: Option<&str>) -> reqwest::RequestBuilder {
     match token {
         Some(t) => req.bearer_auth(t),
         None => req,
     }
 }
 
-fn cmd_list(client: &reqwest::blocking::Client, mux_url: &str, token: Option<&str>) -> i32 {
+async fn cmd_list(client: &reqwest::Client, mux_url: &str, token: Option<&str>) -> i32 {
     let url = format!("{mux_url}/api/v1/credentials/status");
-    let resp = match apply_auth(client.get(&url), token).send() {
+    let resp = match apply_auth(client.get(&url), token).send().await {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: {e}");
@@ -87,7 +117,7 @@ fn cmd_list(client: &reqwest::blocking::Client, mux_url: &str, token: Option<&st
     };
 
     let status = resp.status();
-    let text = resp.text().unwrap_or_default();
+    let text = resp.text().await.unwrap_or_default();
 
     if status.is_success() {
         // Pretty-print the JSON table.
@@ -120,21 +150,24 @@ fn cmd_list(client: &reqwest::blocking::Client, mux_url: &str, token: Option<&st
     }
 }
 
-fn cmd_seed(
-    client: &reqwest::blocking::Client,
+async fn cmd_new(
+    client: &reqwest::Client,
     mux_url: &str,
     token: Option<&str>,
-    args: &SeedArgs,
+    args: &NewArgs,
 ) -> i32 {
-    let url = format!("{mux_url}/api/v1/credentials/seed");
+    let url = format!("{mux_url}/api/v1/credentials/new");
     let body = serde_json::json!({
-        "account": args.account,
+        "name": args.name,
+        "provider": args.provider,
+        "env_key": args.env_key,
         "token": args.token,
         "refresh_token": args.refresh_token,
         "expires_in": args.expires_in,
+        "reauth": !args.no_reauth,
     });
 
-    let resp = match apply_auth(client.post(&url), token).json(&body).send() {
+    let resp = match apply_auth(client.post(&url), token).json(&body).send().await {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: {e}");
@@ -143,10 +176,10 @@ fn cmd_seed(
     };
 
     let status = resp.status();
-    let text = resp.text().unwrap_or_default();
+    let text = resp.text().await.unwrap_or_default();
 
     if status.is_success() {
-        println!("Seeded account '{}'.", args.account);
+        println!("Created account '{}'.", args.name);
         0
     } else {
         eprintln!("error ({status}): {text}");
@@ -154,8 +187,42 @@ fn cmd_seed(
     }
 }
 
-fn cmd_reauth(
-    client: &reqwest::blocking::Client,
+async fn cmd_set(
+    client: &reqwest::Client,
+    mux_url: &str,
+    token: Option<&str>,
+    args: &SetArgs,
+) -> i32 {
+    let url = format!("{mux_url}/api/v1/credentials/set");
+    let body = serde_json::json!({
+        "account": args.account,
+        "token": args.token,
+        "refresh_token": args.refresh_token,
+        "expires_in": args.expires_in,
+    });
+
+    let resp = match apply_auth(client.post(&url), token).json(&body).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return 1;
+        }
+    };
+
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+
+    if status.is_success() {
+        println!("Set token for account '{}'.", args.account);
+        0
+    } else {
+        eprintln!("error ({status}): {text}");
+        1
+    }
+}
+
+async fn cmd_reauth(
+    client: &reqwest::Client,
     mux_url: &str,
     token: Option<&str>,
     args: &ReauthArgs,
@@ -165,7 +232,7 @@ fn cmd_reauth(
         "account": args.account,
     });
 
-    let resp = match apply_auth(client.post(&url), token).json(&body).send() {
+    let resp = match apply_auth(client.post(&url), token).json(&body).send().await {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: {e}");
@@ -174,15 +241,42 @@ fn cmd_reauth(
     };
 
     let status = resp.status();
-    let text = resp.text().unwrap_or_default();
+    let text = resp.text().await.unwrap_or_default();
 
     if status.is_success() {
-        // Try to extract device code info.
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
-            if let Some(auth_url) = val.get("auth_url").and_then(|v| v.as_str()) {
-                let user_code = val.get("user_code").and_then(|v| v.as_str()).unwrap_or("?");
-                println!("Visit: {auth_url}");
-                println!("Code:  {user_code}");
+            let auth_url = val.get("auth_url").and_then(|v| v.as_str());
+            let user_code = val.get("user_code").and_then(|v| v.as_str());
+
+            if let Some(code) = user_code {
+                // Device code flow — show the code and verification URL.
+                if let Some(url) = auth_url {
+                    println!("Enter this code: {code}");
+                    println!("  {url}");
+                    #[cfg(target_os = "macos")]
+                    {
+                        let _ = std::process::Command::new("open").arg(url).spawn();
+                    }
+                    #[cfg(target_os = "linux")]
+                    {
+                        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+                    }
+                } else {
+                    println!("Enter this code: {code}");
+                }
+                return 0;
+            } else if let Some(url) = auth_url {
+                // PKCE flow — open authorization URL.
+                println!("Open this URL to authenticate:");
+                println!("  {url}");
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = std::process::Command::new("open").arg(url).spawn();
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+                }
                 return 0;
             }
         }

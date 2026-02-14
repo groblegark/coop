@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
-import type { PromptContext, EventEntry, WsMessage } from "@/lib/types";
+import { useEffect, useState } from "react";
 import type { WsRequest } from "@/hooks/useWebSocket";
-import { StatePanel } from "./StatePanel";
+import type { EventEntry, PromptContext, WsMessage } from "@/lib/types";
 import { ActionsPanel } from "./ActionsPanel";
 import { ConfigPanel } from "./ConfigPanel";
+import { StatePanel } from "./StatePanel";
 
 type InspectorTab = "state" | "actions" | "config";
 
@@ -28,8 +28,6 @@ export function InspectorSidebar({
   onTabClick,
 }: InspectorSidebarProps) {
   const [activeTab, setActiveTab] = useState<InspectorTab>("state");
-
-  // ── API polling (owned here, not in parent) ──
 
   const [health, setHealth] = useState<unknown>(null);
   const [status, setStatus] = useState<unknown>(null);
@@ -64,8 +62,6 @@ export function InspectorSidebar({
     };
   }, [wsRequest]);
 
-  // ── Event log (owned here, fed via WS subscription) ──
-
   const [events, setEvents] = useState<EventEntry[]>([]);
 
   useEffect(() => {
@@ -85,6 +81,7 @@ export function InspectorSidebar({
       <div className="flex shrink-0 border-b border-[#333] bg-[#151515]">
         {(["state", "actions", "config"] as const).map((tab) => (
           <button
+            type="button"
             key={tab}
             className={`flex-1 border-b-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide transition-colors ${
               activeTab === tab
@@ -103,13 +100,7 @@ export function InspectorSidebar({
 
       {/* Panels */}
       {activeTab === "state" && (
-        <StatePanel
-          health={health}
-          status={status}
-          agent={agent}
-          usage={usage}
-          events={events}
-        />
+        <StatePanel health={health} status={status} agent={agent} usage={usage} events={events} />
       )}
       {activeTab === "actions" && (
         <ActionsPanel
@@ -123,8 +114,6 @@ export function InspectorSidebar({
     </>
   );
 }
-
-// ── Event log accumulator ──
 
 function appendEvent(
   msg: WsMessage,
@@ -169,17 +158,10 @@ function appendEvent(
       if (last?.type === "pong") {
         return [
           ...next.slice(0, -1),
-          {
-            ...last,
-            ts,
-            detail: `${(last.count ?? 1) + 1}x`,
-            count: (last.count ?? 1) + 1,
-          },
+          { ...last, ts, detail: `${(last.count ?? 1) + 1}x`, count: (last.count ?? 1) + 1 },
         ];
       }
-      return [...next, { ts, type: "pong", detail: "1x", count: 1 }].slice(
-        -200,
-      );
+      return [...next, { ts, type: "pong", detail: "1x", count: 1 }].slice(-200);
     }
 
     // Other events
@@ -187,13 +169,9 @@ function appendEvent(
     if (msg.event === "transition") {
       detail = `${msg.prev} -> ${msg.next}`;
       if (msg.cause) detail += ` [${msg.cause}]`;
-      if (msg.error_detail)
-        detail += ` (${msg.error_category || "error"})`;
+      if (msg.error_detail) detail += ` (${msg.error_category || "error"})`;
     } else if (msg.event === "exit") {
-      detail =
-        msg.signal != null
-          ? `signal ${msg.signal}`
-          : `code ${msg.code ?? "?"}`;
+      detail = msg.signal != null ? `signal ${msg.signal}` : `code ${msg.code ?? "?"}`;
     } else if (msg.event === "error") {
       detail = `${msg.code}: ${msg.message}`;
     } else if (msg.event === "resize") {

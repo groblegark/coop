@@ -28,7 +28,7 @@ pub struct MuxWsQuery {
     pub token: Option<String>,
 }
 
-/// Client -> server messages on `/ws/mux`.
+/// Client → server messages on `/ws/mux`.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 enum MuxClientMessage {
@@ -48,7 +48,7 @@ enum MuxClientMessage {
     Resize { session: String, cols: u16, rows: u16 },
 }
 
-/// Server -> client messages on `/ws/mux`.
+/// Server → client messages on `/ws/mux`.
 ///
 /// Uses manual serialization because `MuxEvent` uses its own `#[serde(tag)]`
 /// and cannot be nested as `#[serde(untagged)]` inside a tagged enum.
@@ -118,10 +118,9 @@ struct ScreenThumbnail {
 pub async fn ws_mux_handler(
     State(state): State<Arc<MuxState>>,
     Query(query): Query<MuxWsQuery>,
-    headers: axum::http::HeaderMap,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    // Validate auth: query param `?token=` first, then Authorization header fallback.
+    // Validate auth.
     if state.config.auth_token.is_some() {
         if let Some(ref token) = query.token {
             if auth::validate_ws_query(token, state.config.auth_token.as_deref()).is_err() {
@@ -131,7 +130,7 @@ pub async fn ws_mux_handler(
                     .unwrap_or_default()
                     .into_response();
             }
-        } else if auth::validate_bearer(&headers, state.config.auth_token.as_deref()).is_err() {
+        } else {
             return axum::http::Response::builder()
                 .status(401)
                 .body(axum::body::Body::from("token required"))

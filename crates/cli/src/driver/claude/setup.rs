@@ -230,11 +230,14 @@ pub fn write_credentials_file(access_token: &str) -> anyhow::Result<PathBuf> {
         .or_insert_with(|| {
             serde_json::json!({
                 "accessToken": "",
-                "refreshToken": null,
-                "expiresAt": null,
-                "scopes": ["user:inference"],
-                "subscriptionType": null,
-                "rateLimitTier": null
+                "refreshToken": "",
+                "expiresAt": 9999999999999u64,
+                "scopes": [
+                    "user:inference",
+                    "user:profile",
+                    "user:sessions:claude_code",
+                    "user:mcp_servers",
+                ],
             })
         });
 

@@ -95,10 +95,11 @@ impl UsageState {
 
 /// Extract a [`UsageDelta`] from a Claude session log JSONL entry.
 ///
-/// Looks for `json["usage"]` with at least one non-zero token field.
-/// Returns `None` if the entry has no usage data.
+/// Looks for usage data at `json["usage"]` (legacy/result entries) or
+/// `json["message"]["usage"]` (assistant entries). Returns `None` if
+/// the entry has no usage data.
 pub fn extract_usage_delta(json: &Value) -> Option<UsageDelta> {
-    let usage = json.get("usage")?;
+    let usage = json.get("usage").or_else(|| json.get("message").and_then(|m| m.get("usage")))?;
 
     let input = usage.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
     let output = usage.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);

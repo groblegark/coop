@@ -95,9 +95,11 @@ pub async fn register_session(
     let metadata = req.metadata.unwrap_or(serde_json::Value::Null);
     let cancel = CancellationToken::new();
 
-    // Clone values needed for the SessionOnline event before moving into entry.
+    // Clone values needed for the SessionOnline event and credential push before moving into entry.
     let event_url = url.clone();
     let event_metadata = metadata.clone();
+    let cred_url = url.clone();
+    let cred_token = req.auth_token.clone();
 
     let entry = Arc::new(SessionEntry {
         id: id.clone(),
@@ -132,6 +134,37 @@ pub async fn register_session(
             url: event_url,
             metadata: event_metadata,
         });
+
+        // Push all healthy account profiles to the new session.
+        if let Some(ref broker) = s.credential_broker {
+            let broker = Arc::clone(broker);
+            let session_url = cred_url;
+            let session_token = cred_token;
+            tokio::spawn(async move {
+                let status_list = broker.status_list().await;
+                for acct in &status_list {
+                    if acct.status != crate::credential::AccountStatus::Healthy {
+                        continue;
+                    }
+                    let Some(credentials) = broker.get_credentials(&acct.name).await else {
+                        continue;
+                    };
+                    let client = UpstreamClient::new(session_url.clone(), session_token.clone());
+                    let profile_body = serde_json::json!({
+                        "profiles": [{
+                            "name": acct.name,
+                            "credentials": credentials,
+                        }]
+                    });
+                    if let Err(e) =
+                        client.post_json("/api/v1/session/profiles", &profile_body).await
+                    {
+                        tracing::debug!(account = %acct.name, err = %e, "failed to push profile to new session");
+                    }
+                }
+            });
+        }
+
         tracing::info!(session_id = %id, "session registered");
     } else {
         tracing::debug!(session_id = %id, "session re-registered (heartbeat)");
@@ -297,6 +330,20 @@ pub async fn launch_session(State(s): State<Arc<MuxState>>) -> impl IntoResponse
     cmd.env("COOP_MUX_URL", &mux_url);
     if let Some(token) = &s.config.auth_token {
         cmd.env("COOP_MUX_TOKEN", token);
+    }
+    // Inject healthy account credentials so the agent CLI has them at startup.
+    if let Some(ref broker) = s.credential_broker {
+        let status_list = broker.status_list().await;
+        for acct in &status_list {
+            if acct.status != crate::credential::AccountStatus::Healthy {
+                continue;
+            }
+            if let Some(credentials) = broker.get_credentials(&acct.name).await {
+                for (key, value) in &credentials {
+                    cmd.env(key, value);
+                }
+            }
+        }
     }
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::inherit());

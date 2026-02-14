@@ -15,7 +15,7 @@ pub struct TokenResponse {
     pub token_type: Option<String>,
 }
 
-/// RFC 8628 device authorization response.
+/// OAuth 2.0 Device Authorization Response (RFC 8628).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceCodeResponse {
     pub device_code: String,

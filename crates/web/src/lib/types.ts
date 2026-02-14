@@ -38,7 +38,16 @@ export interface PromptContext {
 export type WsMessage =
   | { event: "pty"; data: string; offset: number }
   | { event: "replay"; data: string; offset: number }
-  | { event: "transition"; prev: string; next: string; cause?: string; error_detail?: string; error_category?: string; prompt?: PromptContext; last_message?: string }
+  | {
+      event: "transition";
+      prev: string;
+      next: string;
+      cause?: string;
+      error_detail?: string;
+      error_category?: string;
+      prompt?: PromptContext;
+      last_message?: string;
+    }
   | { event: "exit"; code?: number; signal?: number }
   | { event: "error"; code: string; message: string }
   | { event: "resize"; cols: number; rows: number }
@@ -65,13 +74,26 @@ export interface HookData {
 // WebSocket messages (mux multi-session)
 export type MuxWsMessage =
   | { event: "sessions"; sessions: MuxSession[] }
-  | { event: "transition"; session: string; prev: string; next: string; seq: number; cause?: string; last_message?: string; prompt?: PromptContext; error_detail?: string; error_category?: string; parked_reason?: string; resume_at_epoch_ms?: number }
+  | {
+      event: "transition";
+      session: string;
+      prev: string;
+      next: string;
+      seq: number;
+      cause?: string;
+      last_message?: string;
+      prompt?: PromptContext;
+      error_detail?: string;
+      error_category?: string;
+      parked_reason?: string;
+      resume_at_epoch_ms?: number;
+    }
   | { event: "session:online"; session: string; url: string; metadata?: MuxMetadata }
   | { event: "session:offline"; session: string }
   | { event: "screen_batch"; screens: MuxScreen[] }
   | { event: "credential:refreshed"; account: string }
   | { event: "credential:refresh:failed"; account: string }
-  | { event: "credential:reauth:required"; account: string }
+  | { event: "credential:reauth:required"; account: string; auth_url?: string; user_code?: string }
   // Expanded session messages (forwarded from per-session ws)
   | { event: "pty"; data: string }
   | { event: "replay"; data: string };

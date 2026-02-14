@@ -1,47 +1,52 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-//! RFC 8628 device code flow for re-authentication.
+//! OAuth 2.0 Device Authorization Grant (RFC 8628) helpers.
 
 use std::time::Duration;
 
 use crate::credential::oauth::{DeviceCodeResponse, TokenResponse};
 
-/// Initiate the device authorization request.
-pub async fn initiate_reauth(
+/// Initiate device authorization by POSTing to the device auth endpoint.
+pub async fn initiate_device_auth(
     client: &reqwest::Client,
     device_auth_url: &str,
     client_id: &str,
+    scope: &str,
 ) -> anyhow::Result<DeviceCodeResponse> {
-    let resp = client.post(device_auth_url).form(&[("client_id", client_id)]).send().await?;
+    let resp = client
+        .post(device_auth_url)
+        .form(&[("client_id", client_id), ("scope", scope)])
+        .send()
+        .await?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
-        anyhow::bail!("device auth failed ({status}): {text}");
+        anyhow::bail!("device authorization failed ({status}): {text}");
     }
 
     let device: DeviceCodeResponse = resp.json().await?;
     Ok(device)
 }
 
-/// Poll for the device code to be authorized, returning tokens when ready.
+/// Poll the token endpoint until the user completes authorization or the code expires.
 pub async fn poll_device_code(
     client: &reqwest::Client,
     token_url: &str,
     client_id: &str,
     device_code: &str,
-    interval_secs: u64,
-    timeout_secs: u64,
+    interval: u64,
+    expires_in: u64,
 ) -> anyhow::Result<TokenResponse> {
-    let interval = Duration::from_secs(interval_secs.max(1));
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_secs);
+    let mut poll_interval = Duration::from_secs(interval.max(1));
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(expires_in);
 
     loop {
-        tokio::time::sleep(interval).await;
+        tokio::time::sleep(poll_interval).await;
 
-        if tokio::time::Instant::now() > deadline {
-            anyhow::bail!("device code polling timed out");
+        if tokio::time::Instant::now() >= deadline {
+            anyhow::bail!("device code expired before user completed authorization");
         }
 
         let resp = client
@@ -61,16 +66,14 @@ pub async fn poll_device_code(
 
         let text = resp.text().await.unwrap_or_default();
 
-        // RFC 8628: "authorization_pending" means keep polling.
         if text.contains("authorization_pending") {
             continue;
         }
-        // "slow_down" means increase interval (we just continue at same pace).
         if text.contains("slow_down") {
-            tokio::time::sleep(Duration::from_secs(5)).await;
+            poll_interval += Duration::from_secs(5);
             continue;
         }
-        // Other errors are fatal.
-        anyhow::bail!("device code poll error: {text}");
+
+        anyhow::bail!("device code token request failed: {text}");
     }
 }

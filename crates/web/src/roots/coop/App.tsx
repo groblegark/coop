@@ -1,42 +1,35 @@
-import {
-  useState,
-  useRef,
-  useCallback,
-  useEffect,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
+import { DropOverlay } from "@/components/DropOverlay";
+import { InspectorSidebar, type WsEventListener } from "@/components/inspector/InspectorSidebar";
+import { OAuthToast } from "@/components/OAuthToast";
 import { Terminal, type TerminalHandle } from "@/components/Terminal";
 import { TerminalLayout } from "@/components/TerminalLayout";
-import { InspectorSidebar, type WsEventListener } from "@/components/inspector/InspectorSidebar";
-import { DropOverlay } from "@/components/DropOverlay";
-import { useWebSocket } from "@/hooks/useWebSocket";
 import { useFileUpload } from "@/hooks/useFileUpload";
+import { useWebSocket } from "@/hooks/useWebSocket";
 import { b64decode, b64encode } from "@/lib/base64";
-import { THEME, TERMINAL_FONT_SIZE } from "@/lib/constants";
-import type { WsMessage, PromptContext } from "@/lib/types";
-
-// ── App ──
+import { TERMINAL_FONT_SIZE, THEME } from "@/lib/constants";
+import type { PromptContext, WsMessage } from "@/lib/types";
 
 export function App() {
   const termRef = useRef<TerminalHandle>(null);
-  const [wsStatus, setWsStatus] = useState<
-    "connecting" | "connected" | "disconnected"
-  >("connecting");
+  const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">(
+    "connecting",
+  );
   const [agentState, setAgentState] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<PromptContext | null>(null);
   const [lastMessage, setLastMessage] = useState<string | null>(null);
   const [ptyOffset, setPtyOffset] = useState(0);
-
-  // ── WS event subscription (for InspectorSidebar) ──
+  const [oauthUrl, setOauthUrl] = useState<string | null>(null);
 
   const wsListenersRef = useRef(new Set<WsEventListener>());
 
   const subscribeWsEvents = useCallback((listener: WsEventListener) => {
     wsListenersRef.current.add(listener);
-    return () => { wsListenersRef.current.delete(listener); };
+    return () => {
+      wsListenersRef.current.delete(listener);
+    };
   }, []);
-
-  // ── WebSocket ──
 
   const onMessage = useCallback((raw: unknown) => {
     const msg = raw as WsMessage;
@@ -58,10 +51,11 @@ export function App() {
     }
   }, []);
 
-  const { send, request, status: connectionStatus } = useWebSocket({
-    path: "/ws?subscribe=pty,state,usage,hooks",
-    onMessage,
-  });
+  const {
+    send,
+    request,
+    status: connectionStatus,
+  } = useWebSocket({ path: "/ws?subscribe=pty,state,usage,hooks", onMessage });
 
   useEffect(() => {
     setWsStatus(connectionStatus);
@@ -85,6 +79,15 @@ export function App() {
     }
   }, [connectionStatus, send, request]);
 
+  // OAuth auto-prompt
+  useEffect(() => {
+    if (prompt?.subtype === "oauth_login" && prompt.input) {
+      setOauthUrl(prompt.input);
+    } else {
+      setOauthUrl(null);
+    }
+  }, [prompt]);
+
   // Keep-alive ping
   useEffect(() => {
     if (connectionStatus !== "connected") return;
@@ -92,15 +95,10 @@ export function App() {
     return () => clearInterval(id);
   }, [connectionStatus, send]);
 
-  // ── Terminal callbacks ──
-
   const onTermData = useCallback(
     (data: string) => {
       const encoder = new TextEncoder();
-      send({
-        event: "input:send:raw",
-        data: b64encode(encoder.encode(data)),
-      });
+      send({ event: "input:send:raw", data: b64encode(encoder.encode(data)) });
     },
     [send],
   );
@@ -121,24 +119,18 @@ export function App() {
     [send],
   );
 
-  // ── File upload ──
-
   const { dragActive } = useFileUpload({
     uploadPath: "/api/v1/upload",
     onUploaded: (paths) => {
-      const text = paths.join(" ") + " ";
+      const text = `${paths.join(" ")} `;
       const encoder = new TextEncoder();
       send({ event: "input:send:raw", data: b64encode(encoder.encode(text)) });
       termRef.current?.terminal?.focus();
     },
     onError: (msg) => {
-      termRef.current?.terminal?.write(
-        `\r\n\x1b[31m[${msg}]\x1b[0m\r\n`,
-      );
+      termRef.current?.terminal?.write(`\r\n\x1b[31m[${msg}]\x1b[0m\r\n`);
     },
   });
-
-  // ── Interaction callback (refocus terminal) ──
 
   const focusTerminal = useCallback(() => {
     termRef.current?.terminal?.focus();
@@ -164,6 +156,7 @@ export function App() {
       }
     >
       <DropOverlay active={dragActive} />
+      {oauthUrl && <OAuthToast url={oauthUrl} onDismiss={() => setOauthUrl(null)} />}
       <Terminal
         ref={termRef}
         fontSize={TERMINAL_FONT_SIZE}

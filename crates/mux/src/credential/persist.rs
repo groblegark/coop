@@ -8,10 +8,15 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::credential::AccountConfig;
+
 /// Persisted credential state for all accounts.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct PersistedCredentials {
     pub accounts: HashMap<String, PersistedAccount>,
+    /// Configs for accounts added dynamically at runtime (not in static config file).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dynamic_accounts: Vec<AccountConfig>,
 }
 
 /// Persisted state for a single account.

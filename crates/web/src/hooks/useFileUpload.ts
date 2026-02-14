@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { readFileAsBase64 } from "@/lib/base64";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiPost } from "@/hooks/useApiClient";
+import { readFileAsBase64 } from "@/lib/base64";
 
 interface UseFileUploadOptions {
   /** API path for upload (e.g. "/api/v1/upload" or per-session) */
@@ -11,11 +11,7 @@ interface UseFileUploadOptions {
   onError?: (msg: string) => void;
 }
 
-export function useFileUpload({
-  uploadPath,
-  onUploaded,
-  onError,
-}: UseFileUploadOptions) {
+export function useFileUpload({ uploadPath, onUploaded, onError }: UseFileUploadOptions) {
   const [dragActive, setDragActive] = useState(false);
   const dragCounterRef = useRef(0);
 
@@ -46,9 +42,7 @@ export function useFileUpload({
             onError?.(`upload error: ${msg}`);
           }
         } catch (err) {
-          onError?.(
-            `upload error: ${err instanceof Error ? err.message : String(err)}`,
-          );
+          onError?.(`upload error: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
 

@@ -63,6 +63,29 @@ fn extract_from_result_entry() {
 }
 
 #[test]
+fn extract_from_assistant_entry() {
+    let entry = json!({
+        "type": "assistant",
+        "message": {
+            "role": "assistant",
+            "usage": {
+                "input_tokens": 3,
+                "cache_creation_input_tokens": 7801,
+                "cache_read_input_tokens": 17897,
+                "output_tokens": 2,
+                "service_tier": "standard"
+            }
+        },
+        "requestId": "req_abc"
+    });
+    let d = extract_usage_delta(&entry).unwrap();
+    assert_eq!(d.input_tokens, 3);
+    assert_eq!(d.output_tokens, 2);
+    assert_eq!(d.cache_creation_input_tokens, 7801);
+    assert_eq!(d.cache_read_input_tokens, 17897);
+}
+
+#[test]
 fn missing_usage_key_returns_none() {
     let entry = json!({ "type": "assistant", "message": {} });
     assert!(extract_usage_delta(&entry).is_none());

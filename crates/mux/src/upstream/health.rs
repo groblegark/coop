@@ -31,12 +31,22 @@ pub fn spawn_health_checker(state: Arc<MuxState>) {
             };
 
             for entry in &entries {
+                // Skip sessions deregistered since the snapshot was taken.
+                if entry.cancel.is_cancelled() {
+                    continue;
+                }
+
                 let client = UpstreamClient::new(entry.url.clone(), entry.auth_token.clone());
                 match client.health().await {
                     Ok(_) => {
                         entry.health_failures.store(0, Ordering::Relaxed);
                     }
                     Err(e) => {
+                        // Re-check: session may have been deregistered during the request.
+                        if entry.cancel.is_cancelled() {
+                            continue;
+                        }
+
                         let prev = entry.health_failures.fetch_add(1, Ordering::Relaxed);
                         let count = prev + 1;
                         tracing::warn!(
