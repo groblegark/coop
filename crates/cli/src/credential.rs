@@ -1048,14 +1048,15 @@ impl CredentialBroker {
         redirect_uri: &str,
         client_id: &str,
     ) -> Result<(), String> {
-        // Retrieve the PKCE code_verifier from the pending reauth session.
-        let code_verifier = self
-            .pending_reauth
-            .read()
-            .await
-            .get(account_name)
-            .map(|s| s.code_verifier.clone())
-            .unwrap_or_default();
+        // Retrieve the PKCE code_verifier and state from the pending reauth session.
+        let (code_verifier, state) = {
+            let pending = self.pending_reauth.read().await;
+            let session = pending.get(account_name);
+            (
+                session.map(|s| s.code_verifier.clone()).unwrap_or_default(),
+                session.map(|s| s.state.clone()).unwrap_or_default(),
+            )
+        };
 
         let token_url = {
             let accounts = self.accounts.read().await;
@@ -1076,6 +1077,7 @@ impl CredentialBroker {
             "code": code,
             "redirect_uri": redirect_uri,
             "code_verifier": code_verifier,
+            "state": state,
         });
 
         let resp = self
