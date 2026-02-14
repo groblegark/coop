@@ -46,12 +46,10 @@ tasks:
       # Disable sccache wrapper (set by rwx/base) — we use RWX content caching instead
       echo "" | tee $RWX_ENV/RUSTC_WRAPPER
 
-  # ── Cargo fetch (cached by Cargo.lock) ────────────────────────────────
+  # ── Cargo fetch ────────────────────────────────────────────────────────
   - key: cargo-deps
     use: rust
     run: cargo fetch
-    filter:
-      - Cargo.lock
 
   # ── Format check (parallel) ──────────────────────────────────────────
   - key: fmt
