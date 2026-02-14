@@ -60,9 +60,8 @@ pub fn build_auth_url(
 
 /// Exchange an authorization code for tokens.
 ///
-/// Anthropic's token endpoint (platform.claude.com/v1/oauth/token) requires
-/// form-encoded (application/x-www-form-urlencoded), NOT JSON.
-/// Verified empirically: JSON returns 400 "Invalid request format".
+/// Claude Code sends JSON with Content-Type: application/json and includes
+/// the `state` parameter. We match that exactly.
 pub async fn exchange_code(
     client: &reqwest::Client,
     token_url: &str,
@@ -70,16 +69,19 @@ pub async fn exchange_code(
     code: &str,
     code_verifier: &str,
     redirect_uri: &str,
+    state: &str,
 ) -> anyhow::Result<TokenResponse> {
     let resp = client
         .post(token_url)
-        .form(&[
-            ("grant_type", "authorization_code"),
-            ("client_id", client_id),
-            ("code", code),
-            ("redirect_uri", redirect_uri),
-            ("code_verifier", code_verifier),
-        ])
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "client_id": client_id,
+            "code_verifier": code_verifier,
+            "state": state,
+        }))
         .send()
         .await?;
 
