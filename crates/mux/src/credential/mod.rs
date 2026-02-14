@@ -120,29 +120,34 @@ pub fn provider_default_env_key(provider: &str) -> &str {
     }
 }
 
-/// Resolve the default OAuth token URL for device code exchange and refresh.
-pub fn provider_default_token_url(provider: &str) -> Option<&'static str> {
+/// Device code flow: authorization endpoint (RFC 8628).
+pub fn provider_default_device_auth_url(provider: &str) -> Option<&'static str> {
+    match provider.to_lowercase().as_str() {
+        "claude" | "anthropic" => Some("https://console.anthropic.com/v1/oauth/device/code"),
+        _ => None,
+    }
+}
+
+/// Device code flow: token endpoint (also used for refresh).
+pub fn provider_default_device_token_url(provider: &str) -> Option<&'static str> {
     match provider.to_lowercase().as_str() {
         "claude" | "anthropic" => Some("https://platform.claude.com/v1/oauth/token"),
         _ => None,
     }
 }
 
-/// Resolve the OAuth token URL for authorization code (PKCE) exchange.
-///
-/// Claude's PKCE flow uses `claude.ai` (matching the authorize endpoint),
-/// while device code and refresh use `platform.claude.com`.
-pub fn provider_default_auth_code_token_url(provider: &str) -> Option<&'static str> {
+/// PKCE flow: authorization endpoint.
+pub fn provider_default_pkce_auth_url(provider: &str) -> Option<&'static str> {
     match provider.to_lowercase().as_str() {
-        "claude" | "anthropic" => Some("https://claude.ai/oauth/token"),
+        "claude" | "anthropic" => Some("https://claude.ai/oauth/authorize"),
         _ => None,
     }
 }
 
-/// Resolve the default OAuth device authorization URL for a provider (RFC 8628).
-pub fn provider_default_device_auth_url(provider: &str) -> Option<&'static str> {
+/// PKCE flow: token endpoint.
+pub fn provider_default_pkce_token_url(provider: &str) -> Option<&'static str> {
     match provider.to_lowercase().as_str() {
-        "claude" | "anthropic" => Some("https://console.anthropic.com/v1/oauth/device/code"),
+        "claude" | "anthropic" => Some("https://claude.ai/oauth/token"),
         _ => None,
     }
 }
@@ -151,14 +156,6 @@ pub fn provider_default_device_auth_url(provider: &str) -> Option<&'static str> 
 pub fn provider_default_client_id(provider: &str) -> Option<&'static str> {
     match provider.to_lowercase().as_str() {
         "claude" | "anthropic" => Some("9d1c250a-e61b-44d9-88ed-5944d1962f5e"),
-        _ => None,
-    }
-}
-
-/// Resolve the default OAuth authorization URL for a provider.
-pub fn provider_default_auth_url(provider: &str) -> Option<&'static str> {
-    match provider.to_lowercase().as_str() {
-        "claude" | "anthropic" => Some("https://claude.ai/oauth/authorize"),
         _ => None,
     }
 }

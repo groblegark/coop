@@ -12,9 +12,9 @@ use tokio::sync::{broadcast, RwLock};
 use crate::credential::persist::{PersistedAccount, PersistedCredentials};
 use crate::credential::refresh::refresh_with_retries;
 use crate::credential::{
-    provider_default_auth_code_token_url, provider_default_auth_url, provider_default_client_id,
-    provider_default_device_auth_url, provider_default_env_key, provider_default_scopes,
-    provider_default_token_url, AccountConfig, AccountStatus, CredentialConfig, CredentialEvent,
+    provider_default_client_id, provider_default_device_auth_url, provider_default_device_token_url,
+    provider_default_env_key, provider_default_pkce_auth_url, provider_default_pkce_token_url,
+    provider_default_scopes, AccountConfig, AccountStatus, CredentialConfig, CredentialEvent,
 };
 
 /// Set of account names that were defined in the original static config file
@@ -327,7 +327,7 @@ impl CredentialBroker {
             let token_url = cfg
                 .token_url
                 .clone()
-                .or_else(|| provider_default_token_url(&cfg.provider).map(String::from))
+                .or_else(|| provider_default_device_token_url(&cfg.provider).map(String::from))
                 .ok_or_else(|| anyhow::anyhow!("no token_url configured for {account_name}"))?;
             let scope = provider_default_scopes(&cfg.provider).to_owned();
             (device_auth_url, client_id, token_url, scope)
@@ -415,7 +415,7 @@ impl CredentialBroker {
             let auth_url = cfg
                 .auth_url
                 .clone()
-                .or_else(|| provider_default_auth_url(&cfg.provider).map(String::from))
+                .or_else(|| provider_default_pkce_auth_url(&cfg.provider).map(String::from))
                 .ok_or_else(|| anyhow::anyhow!("no auth_url configured for {account_name}"))?;
             let client_id = cfg
                 .client_id
@@ -425,8 +425,8 @@ impl CredentialBroker {
             let token_url = cfg
                 .token_url
                 .clone()
-                .or_else(|| provider_default_auth_code_token_url(&cfg.provider).map(String::from))
-                .or_else(|| provider_default_token_url(&cfg.provider).map(String::from))
+                .or_else(|| provider_default_pkce_token_url(&cfg.provider).map(String::from))
+                .or_else(|| provider_default_device_token_url(&cfg.provider).map(String::from))
                 .ok_or_else(|| anyhow::anyhow!("no token_url configured for {account_name}"))?;
             let scope = provider_default_scopes(&cfg.provider).to_owned();
             let redirect_uri = provider_default_redirect_uri(&cfg.provider)
@@ -543,7 +543,7 @@ impl CredentialBroker {
                     .config
                     .token_url
                     .as_deref()
-                    .or_else(|| provider_default_token_url(&state.config.provider))
+                    .or_else(|| provider_default_device_token_url(&state.config.provider))
                 {
                     Some(u) => u.to_owned(),
                     None => {
