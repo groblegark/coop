@@ -1,6 +1,6 @@
 # OCI image build for coop (empty, claude, gemini variants)
-# Rust builds natively with musl for static binaries, then docker: true tasks
-# assemble and push minimal runtime images to GHCR.
+# Rust builds natively, then docker: true tasks assemble and push
+# minimal runtime images to GHCR.
 
 on:
   github:
@@ -29,16 +29,16 @@ base:
 
 tasks:
   # ═══════════════════════════════════════════════════════════════════════
-  # Build — native Rust compile with musl, outputs static binary artifact
+  # Build — native Rust compile, outputs binary artifact
   # ═══════════════════════════════════════════════════════════════════════
 
-  # ── System deps (protobuf, musl toolchain) ─────────────────────────────
+  # ── System deps (protobuf compiler for tonic) ──────────────────────────
   - key: build-deps
     filter:
       - .rwx/docker.yml
     run: |
       sudo apt-get update
-      sudo apt-get install -y protobuf-compiler musl-tools
+      sudo apt-get install -y protobuf-compiler
 
   # ── Clone ──────────────────────────────────────────────────────────────
   - key: code
@@ -47,15 +47,13 @@ tasks:
       repository: https://github.com/groblegark/coop.git
       ref: ${{ init.commit-sha }}
 
-  # ── Rust toolchain with musl target (cached) ───────────────────────────
+  # ── Rust toolchain (cached) ─────────────────────────────────────────────
   - key: rust
     filter:
       - .rwx/docker.yml
     run: |
       curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
         | sh -s -- -y --default-toolchain stable
-      . "$HOME/.cargo/env"
-      rustup target add x86_64-unknown-linux-musl
       echo "$HOME/.cargo/bin" | tee -a $RWX_ENV/PATH
       echo "" | tee $RWX_ENV/RUSTC_WRAPPER
 
@@ -68,9 +66,8 @@ tasks:
   - key: build-coop
     use: cargo-deps
     run: |
-      cargo build --release --target x86_64-unknown-linux-musl -p coop
-      strip target/x86_64-unknown-linux-musl/release/coop
-      cp target/x86_64-unknown-linux-musl/release/coop coop-bin
+      cargo build --release -p coop
+      cp target/release/coop coop-bin
     outputs:
       artifacts:
         - key: coop-binary
