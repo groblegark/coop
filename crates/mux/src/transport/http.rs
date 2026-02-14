@@ -123,11 +123,14 @@ pub async fn register_session(
             // reads.  Replacing the entry would orphan their writes.
             false
         } else {
-            sessions.insert(id.clone(), entry);
+            sessions.insert(id.clone(), Arc::clone(&entry));
             true
         }
     };
     if is_new {
+        // Start background screen/status pollers for this session.
+        crate::upstream::poller::spawn_screen_poller(entry, &s.config, cancel);
+
         // Notify connected dashboard clients about the new session.
         let _ = s.feed.event_tx.send(MuxEvent::SessionOnline {
             session: id.clone(),
