@@ -10,7 +10,7 @@ on:
       init:
         commit-sha: ${{ event.git.sha }}
       status-checks:
-        - tasks: [fmt, clippy, test-linux, docker-build-empty]
+        - tasks: [fmt, clippy, test-linux, smoke-test]
           name: CI
   cli:
     init:
@@ -80,10 +80,9 @@ tasks:
     use: [cargo-deps, clippy]
     run: cargo test --all
 
-  # ── Docker smoke test (parallel with tests) ──────────────────────────
-  - key: docker-build-empty
-    use: code
-    docker: true
+  # ── Smoke test (native binary, no Docker needed) ────────────────────
+  - key: smoke-test
+    use: cargo-deps
     run: |
-      docker build --target empty -t coop:empty .
-      docker run --rm coop:empty --help
+      cargo build -p coop
+      ./target/debug/coop --help
