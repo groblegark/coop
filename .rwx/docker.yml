@@ -34,6 +34,8 @@ tasks:
 
   # ── System deps (protobuf, musl toolchain) ─────────────────────────────
   - key: build-deps
+    filter:
+      - .rwx/docker.yml
     run: |
       sudo apt-get update
       sudo apt-get install -y protobuf-compiler musl-tools
