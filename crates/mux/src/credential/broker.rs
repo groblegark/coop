@@ -38,6 +38,7 @@ struct PendingAuth {
     redirect_uri: String,
     token_url: String,
     client_id: String,
+    state: String,
 }
 
 /// The credential broker manages token freshness for all configured accounts.
@@ -458,6 +459,7 @@ impl CredentialBroker {
                 redirect_uri,
                 token_url,
                 client_id,
+                state: state.clone(),
             },
         );
 
@@ -495,6 +497,7 @@ impl CredentialBroker {
             code,
             &pending.code_verifier,
             &pending.redirect_uri,
+            &pending.state,
         )
         .await?;
 
