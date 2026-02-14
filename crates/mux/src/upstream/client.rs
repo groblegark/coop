@@ -70,8 +70,11 @@ impl UpstreamClient {
         body: &serde_json::Value,
     ) -> anyhow::Result<serde_json::Value> {
         let req = self.client.post(self.url(path)).json(body);
-        let resp = self.apply_auth(req).send().await?;
-        let value = resp.error_for_status()?.json().await?;
-        Ok(value)
+        let resp = self.apply_auth(req).send().await?.error_for_status()?;
+        let bytes = resp.bytes().await?;
+        if bytes.is_empty() {
+            return Ok(serde_json::Value::Null);
+        }
+        Ok(serde_json::from_slice(&bytes)?)
     }
 }
