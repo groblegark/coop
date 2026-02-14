@@ -41,6 +41,7 @@ tasks:
 
   # Zig is used as a C/C++ cross-linker for macOS targets from Linux
   - key: zig
+    use: rust
     run: |
       mkdir -p "$HOME/.local/zig"
       curl -sSfL https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz \
