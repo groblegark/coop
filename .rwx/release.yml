@@ -42,9 +42,10 @@ tasks:
   # Zig is used as a C/C++ cross-linker for macOS targets from Linux
   - key: zig
     run: |
+      mkdir -p "$HOME/.local/zig"
       curl -sSfL https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz \
-        | tar xJ -C /opt
-      ln -s /opt/zig-linux-x86_64-0.13.0/zig /usr/local/bin/zig
+        | tar xJ -C "$HOME/.local/zig"
+      echo "$HOME/.local/zig/zig-linux-x86_64-0.13.0" >> $RWX_ENV/PATH
       # Install cargo-zigbuild for seamless Rust + Zig cross-compilation
       cargo install cargo-zigbuild
 
