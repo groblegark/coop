@@ -46,7 +46,9 @@ pub async fn spawn_if_configured(
         .unwrap_or_else(|_| format!("http://127.0.0.1:{}", default_port.unwrap_or(0)));
     let reg = MuxRegistration {
         mux_url,
-        mux_token: std::env::var("COOP_MUX_TOKEN").ok(),
+        mux_token: std::env::var("COOP_MUX_TOKEN")
+            .or_else(|_| std::env::var("COOP_BROKER_TOKEN"))
+            .ok(),
         session_id: session_id.to_owned(),
         coop_url,
         coop_token: auth_token.map(str::to_owned),
