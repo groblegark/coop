@@ -173,7 +173,17 @@ fn detect_metadata_with(get_env: impl Fn(&str) -> Option<String>) -> Value {
         }
     }
 
-    serde_json::json!({ "k8s": k8s })
+    let mut meta = serde_json::Map::new();
+    meta.insert("k8s".to_owned(), Value::Object(k8s));
+
+    // Include application-level labels (e.g. Gas Town role/agent) when present.
+    for &(field, var) in &[("role", "GT_ROLE"), ("agent", "GT_AGENT")] {
+        if let Some(val) = get_env(var) {
+            meta.insert(field.to_owned(), Value::String(val));
+        }
+    }
+
+    Value::Object(meta)
 }
 
 /// POST /api/v1/sessions to register this coop instance.
