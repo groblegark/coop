@@ -116,7 +116,6 @@ impl SessionFeed {
     }
 }
 
-
 /// Shared mux state.
 pub struct MuxState {
     pub sessions: RwLock<HashMap<String, Arc<SessionEntry>>>,

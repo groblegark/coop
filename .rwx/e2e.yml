@@ -23,6 +23,8 @@ base:
 tasks:
   # ── System deps ────────────────────────────────────────────────────────
   - key: system-deps
+    filter:
+      - .rwx/e2e.yml
     run: |
       sudo apt-get update
       sudo apt-get install -y protobuf-compiler curl pkg-config libssl-dev
@@ -35,9 +37,11 @@ tasks:
       repository: https://github.com/groblegark/coop.git
       ref: ${{ init.commit-sha }}
 
-  # ── Rust toolchain ────────────────────────────────────────────────────
+  # ── Rust toolchain (cached across workflow runs) ──────────────────────
   - key: rust
     use: code
+    filter:
+      - .rwx/e2e.yml
     run: |
       curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
       . "$HOME/.cargo/env"
@@ -52,6 +56,8 @@ tasks:
   # ── Node.js + Playwright ──────────────────────────────────────────────
   - key: node
     use: code
+    filter:
+      - .rwx/e2e.yml
     run: |
       curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
       sudo apt-get install -y nodejs

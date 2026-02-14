@@ -12,9 +12,10 @@ use tokio::sync::{broadcast, RwLock};
 use crate::credential::persist::{PersistedAccount, PersistedCredentials};
 use crate::credential::refresh::refresh_with_retries;
 use crate::credential::{
-    provider_default_client_id, provider_default_device_auth_url, provider_default_device_token_url,
-    provider_default_env_key, provider_default_pkce_auth_url, provider_default_pkce_token_url,
-    provider_default_scopes, AccountConfig, AccountStatus, CredentialConfig, CredentialEvent,
+    provider_default_client_id, provider_default_device_auth_url,
+    provider_default_device_token_url, provider_default_env_key, provider_default_pkce_auth_url,
+    provider_default_pkce_token_url, provider_default_scopes, AccountConfig, AccountStatus,
+    CredentialConfig, CredentialEvent,
 };
 
 /// Set of account names that were defined in the original static config file
@@ -634,7 +635,7 @@ impl CredentialBroker {
                         if let Some(s) = accounts.get_mut(account_name) {
                             s.status = AccountStatus::Expired;
                         }
-                        accounts.get(account_name).map_or(false, |s| {
+                        accounts.get(account_name).is_some_and(|s| {
                             s.config.device_auth_url.is_some()
                                 || provider_default_device_auth_url(&s.config.provider).is_some()
                         })

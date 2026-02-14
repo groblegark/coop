@@ -23,6 +23,8 @@ base:
 tasks:
   # ── System deps ────────────────────────────────────────────────────────
   - key: system-deps
+    filter:
+      - .rwx/ci.yml
     run: |
       sudo apt-get update
       sudo apt-get install -y protobuf-compiler tmux curl pkg-config libssl-dev
@@ -35,9 +37,11 @@ tasks:
       repository: https://github.com/groblegark/coop.git
       ref: ${{ init.commit-sha }}
 
-  # ── Rust toolchain ────────────────────────────────────────────────────
+  # ── Rust toolchain (cached across workflow runs) ──────────────────────
   - key: rust
     use: code
+    filter:
+      - .rwx/ci.yml
     run: |
       curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
       . "$HOME/.cargo/env"
@@ -78,7 +82,7 @@ tasks:
   # ── Tests ─────────────────────────────────────────────────────────────
   - key: test-linux
     use: [cargo-deps, clippy]
-    run: cargo test --all
+    run: cargo test --all --lib --bins
 
   # ── Smoke test (native binary, no Docker needed) ────────────────────
   - key: smoke-test
