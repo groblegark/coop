@@ -12,6 +12,19 @@ struct Cli {
     #[command(flatten)]
     config: MuxConfig,
 
+    /// NATS server URL for credential event publishing (e.g. "nats://nats:4222").
+    /// When set, credential events are published to NATS.
+    #[arg(long, env = "COOP_MUX_NATS_URL")]
+    nats_url: Option<String>,
+
+    /// Auth token for the NATS connection.
+    #[arg(long, env = "COOP_MUX_NATS_TOKEN")]
+    nats_token: Option<String>,
+
+    /// Subject prefix for NATS credential event publishing (default: "coop").
+    #[arg(long, default_value = "coop", env = "COOP_MUX_NATS_PREFIX")]
+    nats_prefix: String,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -45,7 +58,13 @@ async fn main() {
                 )
                 .init();
 
-            if let Err(e) = coopmux::run(cli.config).await {
+            let nats = cli.nats_url.map(|url| coopmux::NatsConfig {
+                url,
+                token: cli.nats_token,
+                prefix: cli.nats_prefix,
+            });
+
+            if let Err(e) = coopmux::run(cli.config, nats).await {
                 error!("fatal: {e:#}");
                 std::process::exit(1);
             }
