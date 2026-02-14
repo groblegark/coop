@@ -34,8 +34,6 @@ tasks:
 
   # ── System deps (protobuf, musl toolchain) ─────────────────────────────
   - key: build-deps
-    filter:
-      - .rwx/docker.yml
     run: |
       sudo apt-get update
       sudo apt-get install -y protobuf-compiler musl-tools
@@ -47,10 +45,8 @@ tasks:
       repository: https://github.com/groblegark/coop.git
       ref: ${{ init.commit-sha }}
 
-  # ── Rust toolchain with musl target (cached by filter) ─────────────────
+  # ── Rust toolchain with musl target ────────────────────────────────────
   - key: rust
-    filter:
-      - .rwx/docker.yml
     run: |
       curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
         | sh -s -- -y --default-toolchain stable
