@@ -1,0 +1,27 @@
+test-suites:
+  coop-e2e-playwright:
+    command: >-
+      bash -c 'cd tests/e2e &&
+      PLAYWRIGHT_JSON_OUTPUT_NAME=results/playwright.json
+      npx playwright test --reporter=json'
+    results:
+      path: tests/e2e/results/playwright.json
+      language: JavaScript
+      framework: Playwright
+    output:
+      print-summary: true
+      reporters:
+        rwx-v1-json: tests/e2e/results/captain.json
+    retries:
+      attempts: 2
+      command: >-
+        bash -c 'cd tests/e2e &&
+        PLAYWRIGHT_JSON_OUTPUT_NAME=results/playwright.json
+        npx playwright test {{ tests }} --project "{{ project }}" --reporter=json'
+    partition:
+      command: >-
+        bash -c 'cd tests/e2e &&
+        PLAYWRIGHT_JSON_OUTPUT_NAME=results/playwright.json
+        npx playwright test {{ testFiles }} --reporter=json'
+      globs:
+        - tests/e2e/specs/**/*.spec.ts

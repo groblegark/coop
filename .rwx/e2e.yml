@@ -1,0 +1,97 @@
+on:
+  github:
+    push:
+      if: ${{ event.git.branch == 'main' }}
+      init:
+        commit-sha: ${{ event.git.sha }}
+      status-checks:
+        name: E2E
+    pull_request:
+      init:
+        commit-sha: ${{ event.git.sha }}
+      status-checks:
+        - tasks: [e2e-tests]
+          name: E2E
+  cli:
+    init:
+      commit-sha: ${{ event.git.sha }}
+
+base:
+  image: ubuntu:24.04
+  config: rwx/base 1.0.0
+
+tasks:
+  # ── System deps ────────────────────────────────────────────────────────
+  - key: system-deps
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y protobuf-compiler curl pkg-config libssl-dev
+
+  # ── Clone ──────────────────────────────────────────────────────────────
+  - key: code
+    use: system-deps
+    call: git/clone 2.0.3
+    with:
+      repository: https://github.com/groblegark/coop.git
+      ref: ${{ init.commit-sha }}
+
+  # ── Rust toolchain ────────────────────────────────────────────────────
+  - key: rust
+    use: code
+    run: |
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+      . "$HOME/.cargo/env"
+      echo "$HOME/.cargo/bin" | tee -a $RWX_ENV/PATH
+      echo "" | tee $RWX_ENV/RUSTC_WRAPPER
+
+  # ── Build coop + coopmux binaries ─────────────────────────────────────
+  - key: build
+    use: rust
+    run: cargo build -p coop -p coop-mux
+
+  # ── Node.js + Playwright ──────────────────────────────────────────────
+  - key: node
+    use: code
+    run: |
+      curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
+      sudo apt-get install -y nodejs
+      echo "Node $(node --version)"
+      echo "npm $(npm --version)"
+
+  - key: playwright-deps
+    use: node
+    run: |
+      cd tests/e2e
+      npm ci
+      npx playwright install --with-deps chromium
+
+  # ── Captain ───────────────────────────────────────────────────────────
+  - key: captain
+    call: rwx/install-captain 1.1.3
+
+  # ── E2E tests ─────────────────────────────────────────────────────────
+  - key: e2e-tests
+    use: [build, playwright-deps, captain]
+    background-processes:
+      - key: coopmux
+        run: |
+          ./target/debug/coopmux \
+            --host 0.0.0.0 \
+            --port 9800 \
+            --screen-poll-ms 500 \
+            --status-poll-ms 1000 \
+            --health-check-ms 5000 \
+            --max-health-failures 3
+        ready-check: curl -sf http://localhost:9800/api/v1/health
+    run: |
+      export CI=true
+      export MUX_PORT=9800
+      captain run coop-e2e-playwright --print-summary
+    outputs:
+      test-results:
+        - path: tests/e2e/results/captain.json
+      artifacts:
+        - key: playwright-traces
+          path: tests/e2e/results/artifacts
+        - key: playwright-results
+          path: tests/e2e/results
