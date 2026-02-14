@@ -47,7 +47,7 @@ tasks:
   # ── Build coop + coopmux binaries ─────────────────────────────────────
   - key: build
     use: rust
-    run: cargo build -p coop -p coop-mux
+    run: cargo build -p coop -p coopmux
 
   # ── Node.js + Playwright ──────────────────────────────────────────────
   - key: node
