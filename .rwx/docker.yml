@@ -39,14 +39,18 @@ tasks:
       - .rwx/docker.yml
     run: |
       apt-get update
-      apt-get install -y protobuf-compiler curl build-essential pkg-config libssl-dev
+      apt-get install -y git protobuf-compiler curl build-essential pkg-config libssl-dev
 
-  # ── Clone (parallel with build-deps and rust) ─────────────────────────
+  # ── Clone (parallel with build-deps) ──────────────────────────────────
   - key: code
-    call: git/clone 2.0.3
-    with:
-      repository: https://github.com/groblegark/coop.git
-      ref: ${{ init.commit-sha }}
+    use: build-deps
+    run: |
+      git init
+      git remote add origin https://github.com/groblegark/coop.git
+      git fetch --depth 1 origin "$COMMIT_SHA"
+      git checkout FETCH_HEAD
+    env:
+      COMMIT_SHA: ${{ init.commit-sha }}
 
   # ── Rust toolchain ─────────────────────────────────────────────────────
   - key: rust
