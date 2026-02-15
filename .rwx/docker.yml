@@ -1,6 +1,7 @@
 # OCI image build for coop (empty, claude, gemini variants)
-# Rust builds natively, then docker: true tasks assemble and push
-# minimal runtime images to GHCR.
+# Build uses rwx/base (for toolchain), image assembly uses config: none
+# (for clean OCI output), connected via embedded runs (call:).
+# Push to GHCR via rwx image push — no Docker daemon needed.
 
 on:
   github:
@@ -16,7 +17,7 @@ on:
         commit-sha: ${{ event.git.sha }}
         ref-name: pr
       status-checks:
-        - tasks: [build-coop]
+        - tasks: [build]
           name: Docker
   cli:
     init:
@@ -32,197 +33,102 @@ tool-cache:
 
 tasks:
   # ═══════════════════════════════════════════════════════════════════════
-  # Build — native Rust compile, outputs binary artifact
+  # Build — native Rust compile via embedded run (rwx/base for toolchain)
   # ═══════════════════════════════════════════════════════════════════════
-
-  # ── System deps (protobuf compiler for tonic) ──────────────────────────
-  - key: build-deps
-    filter:
-      - .rwx/docker.yml
-    run: |
-      sudo apt-get update
-      sudo apt-get install -y protobuf-compiler
-
-  # ── Clone (parallel with build-deps and rust) ─────────────────────────
-  - key: code
-    call: git/clone 2.0.3
-    with:
-      repository: https://github.com/groblegark/coop.git
-      ref: ${{ init.commit-sha }}
-
-  # ── Rust toolchain (cached) ─────────────────────────────────────────────
-  - key: rust
-    filter:
-      - .rwx/docker.yml
-    run: |
-      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-        | sh -s -- -y --default-toolchain stable
-      echo "$HOME/.cargo/bin" | tee -a $RWX_ENV/PATH
-      echo "" | tee $RWX_ENV/RUSTC_WRAPPER
-
-  # ── Cargo fetch ────────────────────────────────────────────────────────
-  - key: cargo-deps
-    use: [code, rust, build-deps]
-    run: cargo fetch
-
-  # ── Build coop binary → artifact ──────────────────────────────────────
-  - key: build-coop
-    use: cargo-deps
-    agent:
-      cpus: 8
-    tool-cache: docker-build-coop
-    run: |
-      cargo build --release -p coop
-      cp target/release/coop coop-bin
-    outputs:
-      artifacts:
-        - key: coop-binary
-          path: coop-bin
+  - key: build
+    call: ${{ run.dir }}/build.yml
+    init:
+      commit-sha: ${{ init.commit-sha }}
 
   # ═══════════════════════════════════════════════════════════════════════
-  # Push — assemble runtime images from artifact, push to GHCR
-  # Skipped on PRs (build-coop validates the build).
+  # Image assembly — embedded run with config: none for clean OCI output
+  # ═══════════════════════════════════════════════════════════════════════
+  - key: images
+    call: ${{ run.dir }}/image.yml
+    after: build
+    init:
+      coop-binary-path: ${{ tasks.build.tasks.build-coop.artifacts.coop-binary }}
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Push — rwx image push to GHCR (skipped on PRs)
   # ═══════════════════════════════════════════════════════════════════════
 
-  # ── empty: coop + common dev tools ─────────────────────────────────────
+  - key: rwx-cli
+    after: images
+    if: ${{ init.ref-name != 'pr' }}
+    call: rwx/install-cli 4.0.1
+
+  # ── GHCR auth (write Docker credential file for rwx image push) ──────
+  - key: ghcr-auth
+    use: rwx-cli
+    if: ${{ init.ref-name != 'pr' }}
+    run: |
+      mkdir -p ~/.docker
+      AUTH=$(printf '%s:%s' "$GITHUB_USER" "$GHCR_TOKEN" | base64 -w0)
+      printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "$AUTH" > ~/.docker/config.json
+    env:
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GITHUB_USER: ${{ secrets.GITHUB_USER }}
+
+  # ── push-empty ────────────────────────────────────────────────────────
   - key: push-empty
-    use: build-coop
+    use: ghcr-auth
     if: ${{ init.ref-name != 'pr' }}
-    docker: true
     run: |
       REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
       SHORT_SHA="${COMMIT_SHA:0:7}"
 
-      mkdir -p /tmp/image-ctx
-      cp ${{ tasks.build-coop.artifacts.coop-binary }} /tmp/image-ctx/coop
+      rwx image push $IMAGE_TASK_ID \
+        --to ghcr.io/groblegark/coop:empty-sha-${SHORT_SHA} \
+        --to ghcr.io/groblegark/coop:empty
 
-      printf '%s\n' \
-        'FROM ubuntu:24.04' \
-        'RUN apt-get update && apt-get install -y --no-install-recommends \' \
-        '        git python3 build-essential openssh-client \' \
-        '        jq ripgrep fd-find tree \' \
-        '        ca-certificates curl \' \
-        '    && rm -rf /var/lib/apt/lists/*' \
-        'COPY coop /coop' \
-        'ENTRYPOINT ["/coop"]' \
-        > /tmp/image-ctx/Dockerfile
-
-      docker build \
-        -t ghcr.io/groblegark/coop:empty-sha-${SHORT_SHA} \
-        -t ghcr.io/groblegark/coop:empty \
-        /tmp/image-ctx
-      docker run --rm ghcr.io/groblegark/coop:empty-sha-${SHORT_SHA} --help
-
-      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
-      docker push ghcr.io/groblegark/coop:empty-sha-${SHORT_SHA}
-      docker push ghcr.io/groblegark/coop:empty
       if [[ "$REF_NAME" == v* ]]; then
         VERSION="${REF_NAME#v}"
-        docker tag ghcr.io/groblegark/coop:empty-sha-${SHORT_SHA} ghcr.io/groblegark/coop:empty-${VERSION}
-        docker push ghcr.io/groblegark/coop:empty-${VERSION}
+        rwx image push $IMAGE_TASK_ID --to ghcr.io/groblegark/coop:empty-${VERSION}
       fi
     env:
       COMMIT_SHA: ${{ init.commit-sha }}
       REF_NAME: ${{ init.ref-name }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-      GITHUB_USER: ${{ secrets.GITHUB_USER }}
+      IMAGE_TASK_ID: ${{ tasks.images.tasks.image-empty.id }}
 
-  # ── claude: coop + Claude CLI ──────────────────────────────────────────
+  # ── push-claude ───────────────────────────────────────────────────────
   - key: push-claude
-    use: build-coop
+    use: ghcr-auth
     if: ${{ init.ref-name != 'pr' }}
-    docker: true
     run: |
       REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
       SHORT_SHA="${COMMIT_SHA:0:7}"
 
-      mkdir -p /tmp/image-ctx
-      cp ${{ tasks.build-coop.artifacts.coop-binary }} /tmp/image-ctx/coop
+      rwx image push $IMAGE_TASK_ID \
+        --to ghcr.io/groblegark/coop:claude-sha-${SHORT_SHA} \
+        --to ghcr.io/groblegark/coop:claude
 
-      printf '%s\n' \
-        'FROM ubuntu:24.04 AS claude-install' \
-        'RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \' \
-        '    && rm -rf /var/lib/apt/lists/*' \
-        'RUN curl -fsSL https://claude.ai/install.sh | bash' \
-        '' \
-        'FROM ubuntu:24.04' \
-        'RUN apt-get update && apt-get install -y --no-install-recommends \' \
-        '        git python3 build-essential openssh-client \' \
-        '        jq ripgrep fd-find tree \' \
-        '        ca-certificates curl \' \
-        '    && rm -rf /var/lib/apt/lists/*' \
-        'COPY --from=claude-install /root/.local/ /root/.local/' \
-        'ENV PATH="/root/.local/bin:$PATH"' \
-        'COPY coop /usr/local/bin/coop' \
-        'ENTRYPOINT ["coop"]' \
-        > /tmp/image-ctx/Dockerfile
-
-      docker build \
-        -t ghcr.io/groblegark/coop:claude-sha-${SHORT_SHA} \
-        -t ghcr.io/groblegark/coop:claude \
-        /tmp/image-ctx
-      docker run --rm ghcr.io/groblegark/coop:claude-sha-${SHORT_SHA} --help
-
-      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
-      docker push ghcr.io/groblegark/coop:claude-sha-${SHORT_SHA}
-      docker push ghcr.io/groblegark/coop:claude
       if [[ "$REF_NAME" == v* ]]; then
         VERSION="${REF_NAME#v}"
-        docker tag ghcr.io/groblegark/coop:claude-sha-${SHORT_SHA} ghcr.io/groblegark/coop:claude-${VERSION}
-        docker push ghcr.io/groblegark/coop:claude-${VERSION}
+        rwx image push $IMAGE_TASK_ID --to ghcr.io/groblegark/coop:claude-${VERSION}
       fi
     env:
       COMMIT_SHA: ${{ init.commit-sha }}
       REF_NAME: ${{ init.ref-name }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-      GITHUB_USER: ${{ secrets.GITHUB_USER }}
+      IMAGE_TASK_ID: ${{ tasks.images.tasks.image-claude.id }}
 
-  # ── gemini: coop + Gemini CLI ──────────────────────────────────────────
+  # ── push-gemini ───────────────────────────────────────────────────────
   - key: push-gemini
-    use: build-coop
+    use: ghcr-auth
     if: ${{ init.ref-name != 'pr' }}
-    docker: true
     run: |
       REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
       SHORT_SHA="${COMMIT_SHA:0:7}"
 
-      mkdir -p /tmp/image-ctx
-      cp ${{ tasks.build-coop.artifacts.coop-binary }} /tmp/image-ctx/coop
+      rwx image push $IMAGE_TASK_ID \
+        --to ghcr.io/groblegark/coop:gemini-sha-${SHORT_SHA} \
+        --to ghcr.io/groblegark/coop:gemini
 
-      printf '%s\n' \
-        'FROM ubuntu:24.04 AS gemini-install' \
-        'RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm ca-certificates \' \
-        '    && rm -rf /var/lib/apt/lists/*' \
-        'RUN npm install -g @google/gemini-cli' \
-        '' \
-        'FROM ubuntu:24.04' \
-        'RUN apt-get update && apt-get install -y --no-install-recommends \' \
-        '        git python3 build-essential openssh-client \' \
-        '        jq ripgrep fd-find tree \' \
-        '        ca-certificates curl nodejs \' \
-        '    && rm -rf /var/lib/apt/lists/*' \
-        'COPY --from=gemini-install /usr/local/lib/node_modules/ /usr/local/lib/node_modules/' \
-        'RUN ln -s ../lib/node_modules/@google/gemini-cli/dist/src/cli.js /usr/local/bin/gemini' \
-        'COPY coop /usr/local/bin/coop' \
-        'ENTRYPOINT ["coop"]' \
-        > /tmp/image-ctx/Dockerfile
-
-      docker build \
-        -t ghcr.io/groblegark/coop:gemini-sha-${SHORT_SHA} \
-        -t ghcr.io/groblegark/coop:gemini \
-        /tmp/image-ctx
-      docker run --rm ghcr.io/groblegark/coop:gemini-sha-${SHORT_SHA} --help
-
-      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
-      docker push ghcr.io/groblegark/coop:gemini-sha-${SHORT_SHA}
-      docker push ghcr.io/groblegark/coop:gemini
       if [[ "$REF_NAME" == v* ]]; then
         VERSION="${REF_NAME#v}"
-        docker tag ghcr.io/groblegark/coop:gemini-sha-${SHORT_SHA} ghcr.io/groblegark/coop:gemini-${VERSION}
-        docker push ghcr.io/groblegark/coop:gemini-${VERSION}
+        rwx image push $IMAGE_TASK_ID --to ghcr.io/groblegark/coop:gemini-${VERSION}
       fi
     env:
       COMMIT_SHA: ${{ init.commit-sha }}
       REF_NAME: ${{ init.ref-name }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-      GITHUB_USER: ${{ secrets.GITHUB_USER }}
+      IMAGE_TASK_ID: ${{ tasks.images.tasks.image-gemini.id }}

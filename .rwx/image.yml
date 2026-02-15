@@ -1,0 +1,49 @@
+# OCI image assembly — config: none for pristine base.
+# Called by docker.yml via embedded run.
+# Receives coop-binary-path init param pointing to the build artifact.
+
+base:
+  image: ubuntu:24.04
+  config: none
+
+tasks:
+  # ── image-empty: coop + common dev tools ─────────────────────────────
+  - key: image-empty
+    run: |
+      apt-get update && apt-get install -y --no-install-recommends \
+        git python3 build-essential openssh-client \
+        jq ripgrep fd-find tree \
+        ca-certificates curl \
+        && rm -rf /var/lib/apt/lists/*
+      cp ${{ init.coop-binary-path }} /coop
+      chmod +x /coop
+      jq -n '["/coop"]' > $RWX_IMAGE/entrypoint.json
+
+  # ── image-claude: coop + Claude CLI ──────────────────────────────────
+  - key: image-claude
+    run: |
+      apt-get update && apt-get install -y --no-install-recommends \
+        git python3 build-essential openssh-client \
+        jq ripgrep fd-find tree \
+        ca-certificates curl \
+        && rm -rf /var/lib/apt/lists/*
+      curl -fsSL https://claude.ai/install.sh | bash
+      cp ${{ init.coop-binary-path }} /usr/local/bin/coop
+      chmod +x /usr/local/bin/coop
+      jq -n '["coop"]' > $RWX_IMAGE/entrypoint.json
+    env:
+      PATH: /root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+  # ── image-gemini: coop + Gemini CLI + Node.js ────────────────────────
+  - key: image-gemini
+    run: |
+      apt-get update && apt-get install -y --no-install-recommends \
+        git python3 build-essential openssh-client \
+        jq ripgrep fd-find tree \
+        ca-certificates curl nodejs npm \
+        && rm -rf /var/lib/apt/lists/*
+      npm install -g @google/gemini-cli
+      ln -sf ../lib/node_modules/@google/gemini-cli/dist/src/cli.js /usr/local/bin/gemini
+      cp ${{ init.coop-binary-path }} /usr/local/bin/coop
+      chmod +x /usr/local/bin/coop
+      jq -n '["coop"]' > $RWX_IMAGE/entrypoint.json

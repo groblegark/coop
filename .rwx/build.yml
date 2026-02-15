@@ -1,0 +1,55 @@
+# Native Rust build — outputs coop binary artifact.
+# Called by docker.yml via embedded run.
+
+base:
+  image: ubuntu:24.04
+  config: rwx/base 1.0.0
+
+tool-cache:
+  vault: default
+
+tasks:
+  # ── System deps (protobuf compiler for tonic) ──────────────────────────
+  - key: build-deps
+    filter:
+      - .rwx/build.yml
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y protobuf-compiler
+
+  # ── Clone (parallel with build-deps and rust) ─────────────────────────
+  - key: code
+    call: git/clone 2.0.3
+    with:
+      repository: https://github.com/groblegark/coop.git
+      ref: ${{ init.commit-sha }}
+
+  # ── Rust toolchain (cached) ─────────────────────────────────────────────
+  - key: rust
+    use: [code, build-deps]
+    filter:
+      - .rwx/build.yml
+    run: |
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --default-toolchain stable
+      echo "$HOME/.cargo/bin" | tee -a $RWX_ENV/PATH
+      echo "" | tee $RWX_ENV/RUSTC_WRAPPER
+
+  # ── Cargo fetch ────────────────────────────────────────────────────────
+  - key: cargo-deps
+    use: rust
+    run: cargo fetch
+
+  # ── Build coop binary → artifact ──────────────────────────────────────
+  - key: build-coop
+    use: cargo-deps
+    agent:
+      cpus: 8
+    tool-cache: build-coop
+    run: |
+      cargo build --release -p coop
+      cp target/release/coop coop-bin
+    outputs:
+      artifacts:
+        - key: coop-binary
+          path: coop-bin
