@@ -145,7 +145,7 @@ Once all images are built natively by RWX:
 - [x] Migrate `push-gemini` → native OCI (needs Node.js + Gemini CLI)
 - [x] Add `image-coopmux` (kubectl + k8s-launch.sh)
 - [x] Add `image-claudeless` (for E2E testing)
-- [ ] Investigate and fix E2E workflow failure
+- [x] Investigate and fix E2E workflow failure
 - [x] Delete `Dockerfile`
 - [x] Update docs and Makefile
 
