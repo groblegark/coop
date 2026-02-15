@@ -188,7 +188,7 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
   return (
     <div
       ref={panelRef}
-      className="absolute right-0 top-full z-50 mt-1 w-80 rounded border border-[#21262d] bg-[#161b22] shadow-xl"
+      className="absolute right-0 top-full z-[200] mt-1 w-80 rounded border border-[#21262d] bg-[#161b22] shadow-xl"
     >
       {/* Device code alerts */}
       {alerts && [...alerts.entries()].some(([, a]) => a.user_code) && (
