@@ -6,7 +6,7 @@
 on:
   github:
     push:
-      if: ${{ event.git.branch == 'main' || starts-with(event.git.tag, 'v') }}
+      if: ${{ event.git.branch == 'main' }}
       init:
         commit-sha: ${{ event.git.sha }}
         ref-name: ${{ event.git.ref }}
@@ -66,6 +66,9 @@ tasks:
   # ── Cargo fetch ────────────────────────────────────────────────────────
   - key: cargo-deps
     use: [code, rust]
+    filter:
+      - Cargo.lock
+      - Cargo.toml
     run: cargo fetch
 
   # ── Build coop + coopmux binaries → artifacts ────────────────────────
@@ -73,6 +76,12 @@ tasks:
     use: cargo-deps
     agent:
       cpus: 8
+    filter:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - Cargo.lock
+      - "deploy/k8s-launch.sh"
+      - "crates/cli/tests/scenarios/**"
     run: |
       cargo build --release -p coop -p coopmux
       cp target/release/coop coop-bin
@@ -99,6 +108,8 @@ tasks:
   # ── image-empty: coop + common dev tools ─────────────────────────────
   - key: image-empty
     after: build-coop
+    filter:
+      - .rwx/docker.yml
     run: |
       apt-get update && apt-get install -y --no-install-recommends \
         git python3 build-essential openssh-client \
@@ -112,6 +123,8 @@ tasks:
   # ── image-claude: coop + Claude CLI ──────────────────────────────────
   - key: image-claude
     after: build-coop
+    filter:
+      - .rwx/docker.yml
     run: |
       apt-get update && apt-get install -y --no-install-recommends \
         git python3 build-essential openssh-client \
@@ -128,6 +141,8 @@ tasks:
   # ── image-gemini: coop + Gemini CLI + Node.js ────────────────────────
   - key: image-gemini
     after: build-coop
+    filter:
+      - .rwx/docker.yml
     run: |
       apt-get update && apt-get install -y --no-install-recommends \
         git python3 build-essential openssh-client \
@@ -143,6 +158,8 @@ tasks:
   # ── image-coopmux: coopmux + kubectl + k8s-launch.sh ──────────────────
   - key: image-coopmux
     after: build-coop
+    filter:
+      - .rwx/docker.yml
     run: |
       apt-get update && apt-get install -y --no-install-recommends \
         git python3 build-essential openssh-client \
@@ -165,6 +182,8 @@ tasks:
   # ── image-claudeless: coop + claudeless + test scenarios ─────────────
   - key: image-claudeless
     after: build-coop
+    filter:
+      - .rwx/docker.yml
     run: |
       apt-get update && apt-get install -y --no-install-recommends \
         git python3 build-essential openssh-client \
