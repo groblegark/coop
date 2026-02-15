@@ -43,7 +43,11 @@ pub async fn spawn_if_configured(
     };
     let coop_url = match (std::env::var("COOP_URL"), default_port) {
         (Ok(url), _) => url,
-        (Err(_), Some(port)) => format!("http://127.0.0.1:{port}"),
+        (Err(_), Some(port)) => {
+            // In Kubernetes, use POD_IP so the mux can reach us across pods.
+            let host = std::env::var("POD_IP").unwrap_or_else(|_| "127.0.0.1".to_owned());
+            format!("http://{host}:{port}")
+        }
         (Err(_), None) => return, // no HTTP server, nothing to register
     };
     let reg = MuxRegistration {
