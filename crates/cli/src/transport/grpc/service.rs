@@ -96,6 +96,9 @@ impl proto::coop_server::Coop for CoopGrpc {
         // Replay buffered data from ring buffer
         {
             let ring = self.state.terminal.ring.read().await;
+            // Clamp to oldest available offset so wrapped ring buffers
+            // still return the most recent data instead of empty.
+            let from_offset = from_offset.max(ring.oldest_offset());
             let data = read_ring_combined(&ring, from_offset);
             if !data.is_empty() {
                 let _ = tx.send(Ok(proto::OutputChunk { data, offset: from_offset })).await;

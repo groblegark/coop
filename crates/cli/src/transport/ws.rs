@@ -32,8 +32,8 @@ use crate::transport::handler::{
     handle_input_raw, handle_keys, handle_nudge, handle_resize, handle_respond, handle_signal,
     resolve_switch_profile,
 };
-use crate::transport::read_ring_combined;
 use crate::transport::state::Store;
+use crate::transport::{read_ring_combined, read_ring_replay};
 
 /// Short-circuit: return an auth error if the client has not authenticated.
 macro_rules! require_auth {
@@ -390,6 +390,8 @@ async fn handle_connection(
         }
     }
 
+    let _ = ws_tx.send(Message::Close(None)).await;
+
     // Cleanup
     state.lifecycle.ws_client_count.fetch_sub(1, Ordering::Relaxed);
 }
@@ -445,18 +447,12 @@ async fn handle_client_message(
         ClientMessage::GetReplay { offset, limit } => {
             require_auth!(authed);
             let ring = state.terminal.ring.read().await;
-            let total_written = ring.total_written();
-            let mut combined = read_ring_combined(&ring, offset);
-            if let Some(limit) = limit {
-                combined.truncate(limit);
-            }
-            let read_len = combined.len() as u64;
-            let encoded = base64::engine::general_purpose::STANDARD.encode(&combined);
+            let r = read_ring_replay(&ring, offset, limit);
             Some(ServerMessage::Replay {
-                data: encoded,
-                offset,
-                next_offset: offset + read_len,
-                total_written,
+                data: r.data,
+                offset: r.offset,
+                next_offset: r.next_offset,
+                total_written: r.total_written,
             })
         }
 

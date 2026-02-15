@@ -18,7 +18,7 @@ use crate::transport::handler::{
     compute_health, compute_status, handle_input, handle_input_raw, handle_keys, handle_resize,
     handle_signal,
 };
-use crate::transport::read_ring_combined;
+use crate::transport::read_ring_replay;
 use crate::transport::state::Store;
 
 // -- Types --------------------------------------------------------------------
@@ -189,22 +189,13 @@ pub async fn output(
     Query(q): Query<OutputQuery>,
 ) -> impl IntoResponse {
     let ring = s.terminal.ring.read().await;
-    let total = ring.total_written();
-
-    let mut combined = read_ring_combined(&ring, q.offset);
-
-    if let Some(limit) = q.limit {
-        combined.truncate(limit);
-    }
-
-    let read_len = combined.len() as u64;
-    let encoded = base64::engine::general_purpose::STANDARD.encode(&combined);
+    let r = read_ring_replay(&ring, q.offset, q.limit);
 
     Json(OutputResponse {
-        data: encoded,
-        offset: q.offset,
-        next_offset: q.offset + read_len,
-        total_written: total,
+        data: r.data,
+        offset: r.offset,
+        next_offset: r.next_offset,
+        total_written: r.total_written,
     })
 }
 
