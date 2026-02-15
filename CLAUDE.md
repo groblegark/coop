@@ -6,7 +6,7 @@ Coop is a terminal session manager for AI coding agents. It wraps agent CLIs in 
 
 ```bash
 make check    # fmt + clippy + quench + build + test
-make ci       # full pre-release (adds audit + deny)
+make ci       # full pre-release (adds e2e, audit, deny)
 cargo test    # unit tests only
 ```
 
@@ -94,6 +94,13 @@ crates/cli/               # Single crate (binary + lib)
     ├── pty_backend.rs           # PTY backend tests
     ├── tmux_backend.rs          # Tmux adapter tests
     └── scenarios/               # Claudeless scenario fixtures
+
+tests/specs/                  # Binary smoke tests (spawn real coop, exercise transports)
+tests/e2e/                    # Playwright mux dashboard tests (mock coop servers)
+├── specs/                    # Test files (sessions, state, screen, keyboard, health)
+├── lib/                      # Harness + mock coop server
+├── run.sh                    # Runner script (bun or npm)
+└── playwright.config.ts      # Auto-starts isolated coopmux via webServer
 
 crates/web/                   # Web UI (Vite + React, built to single-file HTML)
 ├── src/
