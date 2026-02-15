@@ -20,6 +20,9 @@ base:
   image: ubuntu:24.04
   config: rwx/base 1.0.0
 
+tool-cache:
+  vault: coop_main
+
 tasks:
   # ── System deps ────────────────────────────────────────────────────────
   - key: system-deps
@@ -29,9 +32,8 @@ tasks:
       sudo apt-get update
       sudo apt-get install -y protobuf-compiler tmux curl pkg-config libssl-dev
 
-  # ── Clone ──────────────────────────────────────────────────────────────
+  # ── Clone (parallel with system-deps) ─────────────────────────────────
   - key: code
-    use: system-deps
     call: git/clone 2.0.3
     with:
       repository: https://github.com/groblegark/coop.git
@@ -39,7 +41,7 @@ tasks:
 
   # ── Rust toolchain (cached across workflow runs) ──────────────────────
   - key: rust
-    use: code
+    use: [code, system-deps]
     filter:
       - .rwx/ci.yml
     run: |
@@ -60,33 +62,50 @@ tasks:
     use: cargo-deps
     run: cargo fmt --all -- --check
 
-  # ── Clippy (parallel with fmt) ────────────────────────────────────────
+  # ── Clippy (parallel with fmt, tests, smoke-test) ──────────────────────
   - key: clippy
     use: cargo-deps
+    agent:
+      cpus: 8
+    tool-cache: ci-clippy
     run: cargo clippy --all -- -D warnings
+
+  # ── Install cargo-audit (cached) ───────────────────────────────────────
+  - key: install-audit
+    use: rust
+    filter:
+      - .rwx/ci.yml
+    run: cargo install cargo-audit
+
+  # ── Install cargo-deny (cached) ───────────────────────────────────────
+  - key: install-deny
+    use: rust
+    filter:
+      - .rwx/ci.yml
+    run: cargo install cargo-deny
 
   # ── Audit (parallel) ─────────────────────────────────────────────────
   - key: audit
-    use: cargo-deps
-    run: |
-      cargo install cargo-audit
-      cargo audit
+    use: [cargo-deps, install-audit]
+    run: cargo audit
 
   # ── Deny (parallel) ──────────────────────────────────────────────────
   - key: deny
-    use: cargo-deps
-    run: |
-      cargo install cargo-deny
-      cargo deny check licenses bans sources
+    use: [cargo-deps, install-deny]
+    run: cargo deny check licenses bans sources
 
-  # ── Tests ─────────────────────────────────────────────────────────────
+  # ── Tests (parallel with clippy) ─────────────────────────────────────
   - key: test-linux
-    use: [cargo-deps, clippy]
+    use: cargo-deps
+    agent:
+      cpus: 8
+    tool-cache: ci-test
     run: cargo test --all --lib --bins
 
   # ── Smoke test (native binary, no Docker needed) ────────────────────
   - key: smoke-test
     use: cargo-deps
+    tool-cache: ci-smoke
     run: |
       cargo build -p coop
       ./target/debug/coop --help

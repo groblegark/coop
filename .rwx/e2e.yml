@@ -20,6 +20,9 @@ base:
   image: ubuntu:24.04
   config: rwx/base 1.0.0
 
+tool-cache:
+  vault: coop_main
+
 tasks:
   # ── System deps ────────────────────────────────────────────────────────
   - key: system-deps
@@ -29,9 +32,8 @@ tasks:
       sudo apt-get update
       sudo apt-get install -y protobuf-compiler curl pkg-config libssl-dev
 
-  # ── Clone ──────────────────────────────────────────────────────────────
+  # ── Clone (parallel with system-deps) ─────────────────────────────────
   - key: code
-    use: system-deps
     call: git/clone 2.0.3
     with:
       repository: https://github.com/groblegark/coop.git
@@ -39,7 +41,7 @@ tasks:
 
   # ── Rust toolchain (cached across workflow runs) ──────────────────────
   - key: rust
-    use: code
+    use: [code, system-deps]
     filter:
       - .rwx/e2e.yml
     run: |
@@ -51,9 +53,12 @@ tasks:
   # ── Build coop + coopmux binaries ─────────────────────────────────────
   - key: build
     use: rust
+    agent:
+      cpus: 8
+    tool-cache: e2e-build
     run: cargo build -p coop -p coopmux
 
-  # ── Node.js + Playwright ──────────────────────────────────────────────
+  # ── Node.js + Playwright (parallel with build) ────────────────────────
   - key: node
     use: code
     filter:

@@ -27,6 +27,9 @@ base:
   image: ubuntu:24.04
   config: rwx/base 1.0.0
 
+tool-cache:
+  vault: coop_main
+
 tasks:
   # ═══════════════════════════════════════════════════════════════════════
   # Build — native Rust compile, outputs binary artifact
@@ -40,7 +43,7 @@ tasks:
       sudo apt-get update
       sudo apt-get install -y protobuf-compiler
 
-  # ── Clone ──────────────────────────────────────────────────────────────
+  # ── Clone (parallel with build-deps and rust) ─────────────────────────
   - key: code
     call: git/clone 2.0.3
     with:
@@ -65,6 +68,9 @@ tasks:
   # ── Build coop binary → artifact ──────────────────────────────────────
   - key: build-coop
     use: cargo-deps
+    agent:
+      cpus: 8
+    tool-cache: docker-build-coop
     run: |
       cargo build --release -p coop
       cp target/release/coop coop-bin

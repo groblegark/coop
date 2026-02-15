@@ -16,6 +16,9 @@ base:
   image: ubuntu:24.04
   config: rwx/base 1.0.0
 
+tool-cache:
+  vault: coop_main
+
 tasks:
   - key: system-deps
     filter:
@@ -24,15 +27,15 @@ tasks:
       sudo apt-get update
       sudo apt-get install -y protobuf-compiler libssl-dev gcc-aarch64-linux-gnu
 
+  # ── Clone (parallel with system-deps) ─────────────────────────────────
   - key: code
-    use: system-deps
     call: git/clone 2.0.3
     with:
       repository: https://github.com/groblegark/coop.git
       ref: ${{ init.commit-sha }}
 
   - key: rust
-    use: code
+    use: [code, system-deps]
     filter:
       - .rwx/release.yml
     run: |
@@ -73,6 +76,9 @@ tasks:
   # Parallel builds for all targets
   - key: build-linux-amd64
     use: set-version
+    agent:
+      cpus: 8
+    tool-cache: release-linux-amd64
     run: |
       cargo build --release --target x86_64-unknown-linux-gnu
       strip target/x86_64-unknown-linux-gnu/release/coop 2>/dev/null || true
@@ -83,6 +89,9 @@ tasks:
 
   - key: build-linux-arm64
     use: set-version
+    agent:
+      cpus: 8
+    tool-cache: release-linux-arm64
     run: |
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
         cargo build --release --target aarch64-unknown-linux-gnu
@@ -94,6 +103,9 @@ tasks:
 
   - key: build-darwin-amd64
     use: [set-version, zig]
+    agent:
+      cpus: 8
+    tool-cache: release-darwin-amd64
     run: |
       cargo zigbuild --release --target x86_64-apple-darwin
       cd target/x86_64-apple-darwin/release
@@ -102,6 +114,9 @@ tasks:
 
   - key: build-darwin-arm64
     use: [set-version, zig]
+    agent:
+      cpus: 8
+    tool-cache: release-darwin-arm64
     run: |
       cargo zigbuild --release --target aarch64-apple-darwin
       cd target/aarch64-apple-darwin/release
