@@ -316,12 +316,23 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
         (None, None)
     };
 
+    // 1b. Resolve port 0 → real port early, before agent setup needs the URL.
+    //     Bind immediately so the OS assigns an ephemeral port; we keep the
+    //     listener and hand it to axum later (no TOCTOU race).
+    let mut pre_bound_http = None;
+    if config.port == Some(0) {
+        let addr = format!("{}:0", config.host);
+        let listener = TcpListener::bind(&addr).await?;
+        let real_port = listener.local_addr()?.port();
+        config.port = Some(real_port);
+        pre_bound_http = Some(listener);
+        info!("resolved port 0 → {real_port}");
+    }
+
     // 2. Prepare agent session setup. Each agent's setup module produces a
     //    unified `SessionSetup` containing env vars, CLI args, and paths.
     //    In pristine mode, hooks/FIFO are omitted but Tier 2 paths are kept.
     let working_dir = std::env::current_dir()?;
-    // Compute coop_url early so it's available for setup.
-    // Uses port 0 as placeholder if no HTTP port configured.
     let coop_url_for_setup = format!("http://127.0.0.1:{}", config.port.unwrap_or(0));
     let pristine = config.groom_level()? == GroomLevel::Pristine;
 
@@ -607,18 +618,18 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
 
     // Spawn HTTP server
     if let Some(port) = config.port {
-        // Resolve port 0 → random available port so downstream consumers
-        // (mux registration, COOP_URL) see the real port.
-        let port = if port == 0 { resolve_random_port(&config.host).await? } else { port };
-        config.port = Some(port);
-
         #[cfg(debug_assertions)]
         let router = build_router_hot(Arc::clone(&store), config.hot);
         #[cfg(not(debug_assertions))]
         let router = build_router(Arc::clone(&store));
-        let addr = format!("{}:{}", config.host, port);
-        let listener = TcpListener::bind(&addr).await?;
-        info!("HTTP listening on {addr}");
+        let listener = match pre_bound_http.take() {
+            Some(l) => l,
+            None => {
+                let addr = format!("{}:{}", config.host, port);
+                TcpListener::bind(&addr).await?
+            }
+        };
+        info!("HTTP listening on {}", listener.local_addr()?);
         let sd = shutdown.clone();
         tokio::spawn(async move {
             let result =
@@ -774,23 +785,6 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
     drop(setup);
 
     Ok(PreparedSession { store, session: Some(session), config, consumer_input_rx, switch_rx })
-}
-
-/// Pick a random port in the ephemeral range and verify it's bindable.
-/// Retries up to 10 times if the chosen port is already in use.
-async fn resolve_random_port(host: &str) -> anyhow::Result<u16> {
-    use rand::Rng;
-    let mut rng = rand::rng();
-    for _ in 0..10 {
-        let port: u16 = rng.random_range(10000..=65000);
-        let addr = format!("{host}:{port}");
-        match TcpListener::bind(&addr).await {
-            Ok(_listener) => return Ok(port),
-            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => continue,
-            Err(e) => return Err(e.into()),
-        }
-    }
-    anyhow::bail!("failed to find an available random port after 10 attempts");
 }
 
 #[cfg(test)]
