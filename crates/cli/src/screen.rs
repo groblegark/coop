@@ -156,7 +156,14 @@ impl Screen {
     pub fn snapshot(&self) -> ScreenSnapshot {
         let (cols, rows) = self.vt.size();
         let cursor = self.vt.cursor();
-        let lines: Vec<String> = self.vt.view().map(|line| line.text()).collect();
+        let lines: Vec<String> = self
+            .vt
+            .view()
+            .map(|line| {
+                let t = line.text();
+                t.trim_end().to_owned()
+            })
+            .collect();
         let ansi: Vec<String> = self.vt.view().map(line_to_ansi).collect();
 
         ScreenSnapshot {
@@ -296,6 +303,8 @@ fn line_to_ansi(line: &avt::Line) -> String {
     if styled {
         s.push_str("\x1b[0m");
     }
+    let trimmed_len = s.trim_end().len();
+    s.truncate(trimmed_len);
     s
 }
 

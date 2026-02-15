@@ -217,7 +217,7 @@ function AppInner() {
       cursorBlink: false,
       cursorInactiveStyle: "none",
       disableStdin: false,
-      convertEol: true,
+      convertEol: false,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
