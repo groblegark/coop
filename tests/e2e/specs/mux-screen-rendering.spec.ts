@@ -30,7 +30,7 @@ test.afterAll(async () => {
 });
 
 test.describe("screen rendering", () => {
-	test("tile renders xterm terminal container", async ({ page }) => {
+	test("tile renders terminal preview", async ({ page }) => {
 		const mock = new MockCoop({
 			port: MOCK_BASE_PORT,
 			sessionId: "scrn-1",
@@ -53,11 +53,10 @@ test.describe("screen rendering", () => {
 			timeout: 10_000,
 		});
 
-		// xterm.js creates a DOM element with class "xterm" when opened.
-		// In headless Chromium, canvas may not render visibly, so check
-		// for the xterm container div instead.
-		const xtermContainer = page.locator(".xterm").first();
-		await expect(xtermContainer).toBeAttached({ timeout: 15_000 });
+		// Tiles use a lightweight TerminalPreview (HTML <pre>) instead of
+		// xterm.js. Wait for screen content to be polled and rendered.
+		const preview = page.locator("pre").first();
+		await expect(preview).toBeAttached({ timeout: 15_000 });
 	});
 
 	test("screen_batch delivers content via WebSocket", async ({ page }) => {
@@ -140,10 +139,10 @@ test.describe("screen rendering", () => {
 			timeout: 10_000,
 		});
 
-		// Both sessions should have xterm containers
+		// Both sessions should have terminal preview elements
 		await sleep(3000);
-		const xtermCount = await page.locator(".xterm").count();
-		expect(xtermCount).toBeGreaterThanOrEqual(2);
+		const previewCount = await page.locator("pre").count();
+		expect(previewCount).toBeGreaterThanOrEqual(2);
 	});
 
 	test("screen API returns cached content after dashboard opens", async ({
