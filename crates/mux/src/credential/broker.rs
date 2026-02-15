@@ -679,7 +679,7 @@ impl CredentialBroker {
         };
         let path = dir.join("credentials.json");
         if !dir.exists() {
-            if let Err(e) = std::fs::create_dir_all(&dir) {
+            if let Err(e) = std::fs::create_dir_all(dir) {
                 tracing::warn!(err = %e, "failed to create state dir");
                 return;
             }
