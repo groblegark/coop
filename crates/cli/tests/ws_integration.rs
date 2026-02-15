@@ -144,7 +144,7 @@ async fn ws_subscription_mode_raw() -> anyhow::Result<()> {
     );
 
     // Push a ScreenUpdate — should NOT be forwarded in raw mode
-    let _ = store.channels.output_tx.send(OutputEvent::ScreenUpdate { seq: 1 });
+    let _ = store.channels.screen_tx.send(1);
 
     // Try to read — should timeout (no message)
     let result =
@@ -209,7 +209,7 @@ async fn ws_subscription_mode_screen() -> anyhow::Result<()> {
     let (mut _tx, mut rx) = ws_connect(&addr, "subscribe=screen").await?;
 
     // Push screen update
-    let _ = store.channels.output_tx.send(OutputEvent::ScreenUpdate { seq: 42 });
+    let _ = store.channels.screen_tx.send(42);
 
     // Should receive Screen message
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;

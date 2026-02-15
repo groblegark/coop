@@ -117,9 +117,6 @@ impl proto::coop_server::Coop for CoopGrpc {
                             break;
                         }
                     }
-                    Ok(OutputEvent::ScreenUpdate { .. }) => {
-                        // Skip screen-update events in raw output stream
-                    }
                     Err(broadcast::error::RecvError::Lagged(_)) => {
                         // Skip missed messages
                     }
@@ -138,13 +135,13 @@ impl proto::coop_server::Coop for CoopGrpc {
         _request: Request<proto::StreamScreenRequest>,
     ) -> Result<Response<Self::StreamScreenStream>, Status> {
         let (tx, rx) = mpsc::channel(16);
-        let mut output_rx = self.state.channels.output_tx.subscribe();
+        let mut screen_rx = self.state.channels.screen_tx.subscribe();
         let terminal = Arc::clone(&self.state.terminal);
 
         tokio::spawn(async move {
             loop {
-                match output_rx.recv().await {
-                    Ok(OutputEvent::ScreenUpdate { .. }) => {
+                match screen_rx.recv().await {
+                    Ok(_seq) => {
                         let s = terminal.screen.read().await;
                         let snap = s.snapshot();
                         drop(s);
@@ -153,7 +150,6 @@ impl proto::coop_server::Coop for CoopGrpc {
                             break;
                         }
                     }
-                    Ok(OutputEvent::Raw { .. }) => {}
                     Err(broadcast::error::RecvError::Lagged(_)) => {}
                     Err(broadcast::error::RecvError::Closed) => break,
                 }

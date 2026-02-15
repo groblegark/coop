@@ -3,6 +3,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { InspectorSidebar, type WsEventListener } from "@/components/inspector/InspectorSidebar";
+import { StreamAlert } from "@/components/StreamAlert";
 import { Terminal } from "@/components/Terminal";
 import { TerminalLayout } from "@/components/TerminalLayout";
 import { sessionSubtitle, sessionTitle } from "@/components/Tile";
@@ -13,6 +14,7 @@ import { b64decode, textToB64 } from "@/lib/base64";
 import { EXPANDED_FONT_SIZE, MONO_FONT, THEME } from "@/lib/constants";
 import { ReplayGate } from "@/lib/replay-gate";
 import type { PromptContext, WsMessage } from "@/lib/types";
+import { WsMessageHarness } from "@/lib/ws-harness";
 import type { SessionInfo } from "./App";
 
 interface ExpandedSessionProps {
@@ -40,10 +42,14 @@ export function ExpandedSession({
   const wsRef = useRef<WebSocket | null>(null);
   const rpcRef = useRef<WsRpc | null>(null);
   const gateRef = useRef(new ReplayGate());
+  const harnessRef = useRef(new WsMessageHarness());
+  const lastDiagnoseCountRef = useRef(0);
+  const diagnoseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [wsStatus, setWsStatus] = useState<ConnectionStatus>("disconnected");
   const [ready, setReady] = useState(false);
   const [prompt, setPrompt] = useState<PromptContext | null>(null);
   const [lastMessage, setLastMessage] = useState<string | null>(null);
+  const [showStreamAlert, setShowStreamAlert] = useState<string | null>(null);
   const wsListenersRef = useRef(new Set<WsEventListener>());
   const onTransitionRef = useLatest(onTransition);
 
@@ -68,6 +74,7 @@ export function ExpandedSession({
 
   // Initialize handlers (runs once during first render)
   useInit(() => {
+    (window as unknown as Record<string, unknown>).__wsHarness = harnessRef.current;
     info.term = term;
     info.fit = fit;
 
@@ -94,6 +101,7 @@ export function ExpandedSession({
     };
 
     cleanupRef.current = () => {
+      (window as unknown as Record<string, unknown>).__wsHarness = undefined;
       dataDisp.dispose();
       resizeDisp.dispose();
       rpcRef.current?.dispose();
@@ -114,8 +122,24 @@ export function ExpandedSession({
   // Cleanup on unmount
   useEffect(() => () => cleanupRef.current?.(), []);
 
+  function scheduleDiagnose() {
+    if (diagnoseTimerRef.current !== null) return;
+    diagnoseTimerRef.current = setTimeout(() => {
+      diagnoseTimerRef.current = null;
+      const issues = harnessRef.current.diagnose();
+      if (issues.length > lastDiagnoseCountRef.current) {
+        lastDiagnoseCountRef.current = issues.length;
+        setShowStreamAlert(issues[0].message);
+        setTimeout(() => setShowStreamAlert(null), 10_000);
+      }
+    }, 2_000);
+  }
+
   function connectWs() {
     gateRef.current.reset();
+    harnessRef.current.reconnect();
+    lastDiagnoseCountRef.current = 0;
+    setShowStreamAlert(null);
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const params = new URLSearchParams(location.search);
     let url = `${proto}//${location.host}/ws/${info.id}?subscribe=pty,state,usage,hooks`;
@@ -157,6 +181,7 @@ export function ExpandedSession({
 
         if (msg.event === "replay") {
           const bytes = b64decode(msg.data);
+          harnessRef.current.replay(bytes, msg.offset, msg.next_offset);
           const action = gateRef.current.onReplay(bytes.length, msg.offset, msg.next_offset);
           if (!action) return;
           if (action.isFirst) {
@@ -164,11 +189,14 @@ export function ExpandedSession({
             handleReplayReady(term, setReady);
           }
           term.write(action.skip > 0 ? bytes.subarray(action.skip) : bytes);
+          scheduleDiagnose();
         } else if (msg.event === "pty") {
           const bytes = b64decode(msg.data);
+          harnessRef.current.pty(bytes, msg.offset);
           const skip = gateRef.current.onPty(bytes.length, msg.offset);
           if (skip === null) return;
           term.write(skip > 0 ? bytes.subarray(skip) : bytes);
+          scheduleDiagnose();
         } else if (msg.event === "transition") {
           setPrompt(msg.prompt ?? null);
           setLastMessage(msg.last_message ?? null);
@@ -274,6 +302,9 @@ export function ExpandedSession({
         />
       }
     >
+      {showStreamAlert && (
+        <StreamAlert message={showStreamAlert} onDismiss={() => setShowStreamAlert(null)} />
+      )}
       <div className="relative min-w-0 flex-1">
         <Terminal
           instance={term}

@@ -6,11 +6,10 @@ use bytes::Bytes;
 use nix::sys::signal::Signal;
 use serde::{Deserialize, Serialize};
 
-/// Raw or rendered output from the terminal backend.
+/// Raw output from the terminal backend.
 #[derive(Debug, Clone)]
 pub enum OutputEvent {
     Raw { data: Bytes, offset: u64 },
-    ScreenUpdate { seq: u64 },
 }
 
 /// Agent state transition with sequence number for ordering.

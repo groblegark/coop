@@ -459,6 +459,7 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
     // Create shared channels
     let (input_tx, consumer_input_rx) = mpsc::channel(256);
     let (output_tx, _) = broadcast::channel(256);
+    let (screen_tx, _) = broadcast::channel::<u64>(16);
     let (state_tx, _) = broadcast::channel(64);
     let (prompt_tx, _) = broadcast::channel(64);
 
@@ -513,6 +514,7 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
         channels: TransportChannels {
             input_tx,
             output_tx,
+            screen_tx,
             state_tx,
             prompt_tx,
             hook_tx,

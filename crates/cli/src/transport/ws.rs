@@ -91,6 +91,7 @@ async fn handle_connection(
 
     let (mut ws_tx, mut ws_rx) = socket.split();
     let mut output_rx = state.channels.output_tx.subscribe();
+    let mut screen_rx = state.channels.screen_tx.subscribe();
     let mut state_rx = state.channels.state_tx.subscribe();
     let mut prompt_rx = state.channels.prompt_tx.subscribe();
     let mut stop_rx = state.stop.stop_tx.subscribe();
@@ -229,12 +230,6 @@ async fn handle_connection(
                             break;
                         }
                     }
-                    Ok(OutputEvent::ScreenUpdate { seq }) if flags.screen => {
-                        let snap = state.terminal.screen.read().await.snapshot();
-                        if send_json(&mut ws_tx, &snapshot_to_msg(snap, seq)).await.is_err() {
-                            break;
-                        }
-                    }
                     Ok(_) => {}
                     Err(RecvError::Lagged(n)) => {
                         if flags.pty {
@@ -267,6 +262,19 @@ async fn handle_connection(
                             );
                         }
                     }
+                    Err(RecvError::Closed) => break,
+                }
+            }
+            seq = screen_rx.recv() => {
+                match seq {
+                    Ok(seq) if flags.screen => {
+                        let snap = state.terminal.screen.read().await.snapshot();
+                        if send_json(&mut ws_tx, &snapshot_to_msg(snap, seq)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(RecvError::Lagged(_)) => {}
                     Err(RecvError::Closed) => break,
                 }
             }

@@ -3,14 +3,17 @@ import "@xterm/xterm/css/xterm.css";
 import { DropOverlay } from "@/components/DropOverlay";
 import { InspectorSidebar, type WsEventListener } from "@/components/inspector/InspectorSidebar";
 import { OAuthToast } from "@/components/OAuthToast";
+import { StreamAlert } from "@/components/StreamAlert";
 import { Terminal, type TerminalHandle } from "@/components/Terminal";
 import { TerminalLayout } from "@/components/TerminalLayout";
 import { useFileUpload } from "@/hooks/useFileUpload";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { useInit } from "@/hooks/utils";
 import { b64decode, b64encode } from "@/lib/base64";
 import { TERMINAL_FONT_SIZE, THEME } from "@/lib/constants";
 import { ReplayGate } from "@/lib/replay-gate";
 import type { PromptContext, WsMessage } from "@/lib/types";
+import { WsMessageHarness } from "@/lib/ws-harness";
 
 export function App() {
   const termRef = useRef<TerminalHandle>(null);
@@ -22,7 +25,14 @@ export function App() {
   const [lastMessage, setLastMessage] = useState<string | null>(null);
   const [ptyOffset, setPtyOffset] = useState(0);
   const [oauthUrl, setOauthUrl] = useState<string | null>(null);
+  const [showStreamAlert, setShowStreamAlert] = useState<string | null>(null);
   const gateRef = useRef(new ReplayGate());
+  const harnessRef = useRef(new WsMessageHarness());
+  const lastDiagnoseCountRef = useRef(0);
+  const diagnoseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useInit(() => {
+    (window as any).__wsHarness = harnessRef.current;
+  });
 
   const wsListenersRef = useRef(new Set<WsEventListener>());
 
@@ -39,8 +49,22 @@ export function App() {
     // Notify subscribers (inspector events + usage)
     for (const fn of wsListenersRef.current) fn(msg);
 
+    function scheduleDiagnose() {
+      if (diagnoseTimerRef.current !== null) return;
+      diagnoseTimerRef.current = setTimeout(() => {
+        diagnoseTimerRef.current = null;
+        const issues = harnessRef.current.diagnose();
+        if (issues.length > lastDiagnoseCountRef.current) {
+          lastDiagnoseCountRef.current = issues.length;
+          setShowStreamAlert(issues[0].message);
+          setTimeout(() => setShowStreamAlert(null), 10_000);
+        }
+      }, 2_000);
+    }
+
     if (msg.event === "replay") {
       const bytes = b64decode(msg.data);
+      harnessRef.current.replay(bytes, msg.offset, msg.next_offset);
       const action = gateRef.current.onReplay(bytes.length, msg.offset, msg.next_offset);
       if (!action) return;
       const term = termRef.current?.terminal;
@@ -48,14 +72,17 @@ export function App() {
       if (action.isFirst) term.reset();
       term.write(action.skip > 0 ? bytes.subarray(action.skip) : bytes);
       setPtyOffset(gateRef.current.offset());
+      scheduleDiagnose();
     } else if (msg.event === "pty") {
       const bytes = b64decode(msg.data);
+      harnessRef.current.pty(bytes, msg.offset);
       const skip = gateRef.current.onPty(bytes.length, msg.offset);
       if (skip === null) return;
       const term = termRef.current?.terminal;
       if (!term) return;
       term.write(skip > 0 ? bytes.subarray(skip) : bytes);
       setPtyOffset(gateRef.current.offset());
+      scheduleDiagnose();
     } else if (msg.event === "transition") {
       setAgentState(msg.next);
       setPrompt(msg.prompt ?? null);
@@ -76,6 +103,9 @@ export function App() {
     setWsStatus(connectionStatus);
     if (connectionStatus === "connected") {
       gateRef.current.reset();
+      harnessRef.current.reconnect();
+      lastDiagnoseCountRef.current = 0;
+      setShowStreamAlert(null);
       // Resize before replay so the PTY dimensions match XTerm when the
       // ring buffer snapshot is captured. WS messages are ordered, so the
       // server processes resize before replay:get — no need to await.
@@ -176,6 +206,9 @@ export function App() {
     >
       <DropOverlay active={dragActive} />
       {oauthUrl && <OAuthToast url={oauthUrl} onDismiss={() => setOauthUrl(null)} />}
+      {showStreamAlert && (
+        <StreamAlert message={showStreamAlert} onDismiss={() => setShowStreamAlert(null)} />
+      )}
       <Terminal
         ref={termRef}
         fontSize={TERMINAL_FONT_SIZE}

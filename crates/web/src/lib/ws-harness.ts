@@ -34,6 +34,12 @@ export interface Overlap {
   to: number;
 }
 
+export interface StreamIssue {
+  kind: "gaps" | "overlaps" | "stale_leak" | "large_drop_rate";
+  message: string;
+  count: number;
+}
+
 /** Range of bytes actually committed to the output buffer. */
 interface WrittenRange {
   from: number;
@@ -156,6 +162,74 @@ export class WsMessageHarness {
       }
     }
     return mergeRanges(result) as Overlap[];
+  }
+
+  /** Diagnose all detectable stream health issues. Empty array = healthy. */
+  diagnose(): StreamIssue[] {
+    const issues: StreamIssue[] = [];
+
+    const g = this.gaps();
+    if (g.length > 0) {
+      const totalBytes = g.reduce((sum, gap) => sum + (gap.to - gap.from), 0);
+      issues.push({
+        kind: "gaps",
+        message: `${g.length} gap(s) detected — ${totalBytes} bytes missing from PTY stream`,
+        count: g.length,
+      });
+    }
+
+    const o = this.overlaps();
+    if (o.length > 0) {
+      issues.push({
+        kind: "overlaps",
+        message: `${o.length} overlap(s) detected — duplicate data written (stale-gate race)`,
+        count: o.length,
+      });
+    }
+
+    // Stale leak: non-dropped PTY writes that occurred before the most recent
+    // isFirst replay (writes accepted by stale gate before reconnect reset).
+    let lastResetIdx = -1;
+    for (let i = this.writes.length - 1; i >= 0; i--) {
+      if (this.writes[i].isFirst) {
+        lastResetIdx = i;
+        break;
+      }
+    }
+    if (lastResetIdx > 0) {
+      const leaked = this.writes.filter(
+        (w: WriteRecord, i: number) => i < lastResetIdx && !w.dropped && w.kind === "pty",
+      );
+      // Only flag PTY writes whose offset would be covered by the post-reset replay
+      const resetReplay = this.writes[lastResetIdx];
+      const replayEnd = resetReplay.offset + resetReplay.dataLen;
+      const staleLeaks = leaked.filter(
+        (w) => w.offset + w.written > resetReplay.offset && w.offset < replayEnd,
+      );
+      if (staleLeaks.length > 0) {
+        issues.push({
+          kind: "stale_leak",
+          message: `${staleLeaks.length} PTY write(s) leaked through stale gate before reconnect reset`,
+          count: staleLeaks.length,
+        });
+      }
+    }
+
+    // Large drop rate: if >20% of PTY writes were dropped, something is wrong.
+    const ptyWrites = this.writes.filter((w) => w.kind === "pty");
+    if (ptyWrites.length >= 5) {
+      const dropped = ptyWrites.filter((w) => w.dropped).length;
+      const rate = dropped / ptyWrites.length;
+      if (rate > 0.2) {
+        issues.push({
+          kind: "large_drop_rate",
+          message: `${Math.round(rate * 100)}% of PTY writes dropped (${dropped}/${ptyWrites.length})`,
+          count: dropped,
+        });
+      }
+    }
+
+    return issues;
   }
 }
 
