@@ -45,10 +45,11 @@ pub async fn run(config: MuxConfig) -> anyhow::Result<()> {
 
     let (event_tx, event_rx) = broadcast::channel(64);
     let cred_bridge_rx = event_tx.subscribe();
-    let broker = CredentialBroker::new(cred_config, event_tx);
+    let state_dir = config.state_dir();
+    let broker = CredentialBroker::new(cred_config, event_tx, Some(state_dir.clone()));
 
     // Load persisted credentials (including dynamic accounts) if available.
-    let persist_path = crate::credential::state_dir().join("credentials.json");
+    let persist_path = state_dir.join("credentials.json");
     if persist_path.exists() {
         match crate::credential::persist::load(&persist_path) {
             Ok(persisted) => broker.load_persisted(&persisted).await,

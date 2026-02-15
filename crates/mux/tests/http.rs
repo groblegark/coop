@@ -32,6 +32,7 @@ fn test_config() -> MuxConfig {
         credential_config: None,
         prewarm_capacity: 64,
         prewarm_poll_ms: 15000,
+        state_dir: Some(std::env::temp_dir().join(format!("coopmux-test-{}", std::process::id()))),
         #[cfg(debug_assertions)]
         hot: false,
     }
@@ -42,10 +43,11 @@ fn test_state() -> Arc<MuxState> {
 }
 
 fn test_state_with_broker(accounts: Vec<AccountConfig>) -> Arc<MuxState> {
-    let config = CredentialConfig { accounts };
+    let cred_config = CredentialConfig { accounts };
     let (event_tx, _rx) = tokio::sync::broadcast::channel(64);
-    let broker = CredentialBroker::new(config, event_tx);
-    let mut state = MuxState::new(test_config(), CancellationToken::new());
+    let mux_config = test_config();
+    let broker = CredentialBroker::new(cred_config, event_tx, Some(mux_config.state_dir()));
+    let mut state = MuxState::new(mux_config, CancellationToken::new());
     state.credential_broker = Some(broker);
     Arc::new(state)
 }
