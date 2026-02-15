@@ -714,7 +714,7 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
         });
     }
 
-    // Spawn mux self-registration client if COOP_MUX_URL is set.
+    // Spawn mux self-registration client if configured.
     // Placed after all server binds so we never register a session that isn't
     // reachable, and never orphan a registration if a bind fails.
     {
@@ -723,6 +723,7 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
             &sid,
             config.port,
             config.auth_token.as_deref(),
+            config.mux_url(),
             shutdown.clone(),
         )
         .await;

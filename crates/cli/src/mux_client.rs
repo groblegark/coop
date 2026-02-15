@@ -28,19 +28,18 @@ pub struct MuxRegistration {
 
 /// Spawn the mux registration client.
 ///
-/// Reads configuration from environment variables and spawns a background task.
-/// Falls back to the default mux URL (`http://127.0.0.1:9800`) when
-/// `COOP_MUX_URL` is not set. Set `COOP_MUX_URL=""` to disable registration.
+/// `mux_url` is the resolved URL from `Config::mux_url()`. Pass `None` to
+/// disable registration (e.g. in tests).
 pub async fn spawn_if_configured(
     session_id: &str,
     default_port: Option<u16>,
     auth_token: Option<&str>,
+    mux_url: Option<String>,
     shutdown: CancellationToken,
 ) {
-    let mux_url = match std::env::var("COOP_MUX_URL") {
-        Ok(v) if v.is_empty() => return, // explicit disable
-        Ok(v) => v,
-        Err(_) => "http://127.0.0.1:9800".to_owned(), // default coopmux port
+    let mux_url = match mux_url {
+        Some(url) => url,
+        None => return,
     };
     let coop_url = match (std::env::var("COOP_URL"), default_port) {
         (Ok(url), _) => url,
