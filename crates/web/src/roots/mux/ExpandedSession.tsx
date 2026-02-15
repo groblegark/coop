@@ -329,7 +329,7 @@ export function ExpandedSession({
  *  Focus is deferred to the next animation frame so React can first
  *  render the terminal visible (removing the `invisible` CSS class). */
 export function handleReplayReady(
-  term: { options: { disableStdin: boolean }; focus: () => void },
+  term: { options: { disableStdin?: boolean }; focus: () => void },
   setReady: (v: boolean) => void,
 ) {
   term.options.disableStdin = false;
