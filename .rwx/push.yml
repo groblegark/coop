@@ -79,3 +79,43 @@ tasks:
       COMMIT_SHA: ${{ init.commit-sha }}
       REF_NAME: ${{ init.ref-name }}
       IMAGE_TASK_ID: ${{ init.image-gemini-task-id }}
+
+  # ── push-coopmux ─────────────────────────────────────────────────────
+  - key: push-coopmux
+    use: ghcr-auth
+    run: |
+      REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
+      SHORT_SHA="${COMMIT_SHA:0:7}"
+
+      rwx image push $IMAGE_TASK_ID \
+        --to ghcr.io/groblegark/coop:coopmux-sha-${SHORT_SHA} \
+        --to ghcr.io/groblegark/coop:coopmux
+
+      if [[ "$REF_NAME" == v* ]]; then
+        VERSION="${REF_NAME#v}"
+        rwx image push $IMAGE_TASK_ID --to ghcr.io/groblegark/coop:coopmux-${VERSION}
+      fi
+    env:
+      COMMIT_SHA: ${{ init.commit-sha }}
+      REF_NAME: ${{ init.ref-name }}
+      IMAGE_TASK_ID: ${{ init.image-coopmux-task-id }}
+
+  # ── push-claudeless ──────────────────────────────────────────────────
+  - key: push-claudeless
+    use: ghcr-auth
+    run: |
+      REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
+      SHORT_SHA="${COMMIT_SHA:0:7}"
+
+      rwx image push $IMAGE_TASK_ID \
+        --to ghcr.io/groblegark/coop:claudeless-sha-${SHORT_SHA} \
+        --to ghcr.io/groblegark/coop:claudeless
+
+      if [[ "$REF_NAME" == v* ]]; then
+        VERSION="${REF_NAME#v}"
+        rwx image push $IMAGE_TASK_ID --to ghcr.io/groblegark/coop:claudeless-${VERSION}
+      fi
+    env:
+      COMMIT_SHA: ${{ init.commit-sha }}
+      REF_NAME: ${{ init.ref-name }}
+      IMAGE_TASK_ID: ${{ init.image-claudeless-task-id }}
