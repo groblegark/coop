@@ -1,4 +1,4 @@
-# OCI image build for coop (empty, claude, gemini, coopmux, claudeless)
+# OCI image build for coop (claude, coopmux)
 # Single workflow with config: none for clean OCI output.
 # Build tasks install toolchain manually; image tasks start from clean
 # base (no use:) for proper layer isolation. Push via rwx image push.
@@ -81,13 +81,11 @@ tasks:
       - "**/Cargo.toml"
       - Cargo.lock
       - "deploy/k8s-launch.sh"
-      - "crates/cli/tests/scenarios/**"
     run: |
       cargo build --release -p coop -p coopmux
       cp target/release/coop coop-bin
       cp target/release/coopmux coopmux-bin
       cp deploy/k8s-launch.sh k8s-launch.sh
-      tar czf scenarios.tar.gz -C crates/cli/tests scenarios
     outputs:
       artifacts:
         - key: coop-binary
@@ -96,29 +94,12 @@ tasks:
           path: coopmux-bin
         - key: k8s-launch
           path: k8s-launch.sh
-        - key: scenarios
-          path: scenarios.tar.gz
 
   # ═══════════════════════════════════════════════════════════════════════
   # Image assembly — no use: = clean filesystem (multi-stage equivalent)
   # Each task starts fresh from base image and installs only runtime deps.
   # Artifact references work within the same run regardless of use: chain.
   # ═══════════════════════════════════════════════════════════════════════
-
-  # ── image-empty: coop + common dev tools ─────────────────────────────
-  - key: image-empty
-    after: build-coop
-    filter:
-      - .rwx/docker.yml
-    run: |
-      apt-get update && apt-get install -y --no-install-recommends \
-        git python3 build-essential openssh-client \
-        jq ripgrep fd-find tree \
-        ca-certificates curl \
-        && rm -rf /var/lib/apt/lists/*
-      cp ${{ tasks.build-coop.artifacts.coop-binary }} /coop
-      chmod +x /coop
-      jq -n '["/coop"]' > $RWX_IMAGE/entrypoint.json
 
   # ── image-claude: coop + Claude CLI ──────────────────────────────────
   - key: image-claude
@@ -137,23 +118,6 @@ tasks:
       jq -n '["coop"]' > $RWX_IMAGE/entrypoint.json
     env:
       PATH: /root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-
-  # ── image-gemini: coop + Gemini CLI + Node.js ────────────────────────
-  - key: image-gemini
-    after: build-coop
-    filter:
-      - .rwx/docker.yml
-    run: |
-      apt-get update && apt-get install -y --no-install-recommends \
-        git python3 build-essential openssh-client \
-        jq ripgrep fd-find tree \
-        ca-certificates curl nodejs npm \
-        && rm -rf /var/lib/apt/lists/*
-      npm install -g @google/gemini-cli
-      ln -sf ../lib/node_modules/@google/gemini-cli/dist/src/cli.js /usr/local/bin/gemini
-      cp ${{ tasks.build-coop.artifacts.coop-binary }} /usr/local/bin/coop
-      chmod +x /usr/local/bin/coop
-      jq -n '["coop"]' > $RWX_IMAGE/entrypoint.json
 
   # ── image-coopmux: coopmux + kubectl + k8s-launch.sh ──────────────────
   - key: image-coopmux
@@ -179,44 +143,15 @@ tasks:
 
       jq -n '["coopmux"]' > $RWX_IMAGE/entrypoint.json
 
-  # ── image-claudeless: coop + claudeless + test scenarios ─────────────
-  - key: image-claudeless
-    after: build-coop
-    filter:
-      - .rwx/docker.yml
-    run: |
-      apt-get update && apt-get install -y --no-install-recommends \
-        git python3 build-essential openssh-client \
-        jq ripgrep fd-find tree \
-        ca-certificates curl \
-        && rm -rf /var/lib/apt/lists/*
-
-      CLAUDELESS_VERSION=0.4.0
-      curl -fsSL "https://github.com/alfredjeanlab/claudeless/releases/download/v${CLAUDELESS_VERSION}/claudeless-linux-x86_64.tar.gz" \
-        -o /tmp/claudeless.tar.gz
-      tar -xzf /tmp/claudeless.tar.gz -C /usr/local/bin
-      rm /tmp/claudeless.tar.gz
-      chmod +x /usr/local/bin/claudeless
-
-      cp ${{ tasks.build-coop.artifacts.coop-binary }} /usr/local/bin/coop
-      chmod +x /usr/local/bin/coop
-
-      mkdir -p /scenarios
-      tar xzf ${{ tasks.build-coop.artifacts.scenarios }} -C /
-      jq -n '["coop"]' > $RWX_IMAGE/entrypoint.json
-
   # ═══════════════════════════════════════════════════════════════════════
   # Push — embedded run with rwx/base for CLI + package access
   # ═══════════════════════════════════════════════════════════════════════
   - key: push
     if: ${{ init.ref-name != 'pr' }}
     call: ${{ run.dir }}/push.yml
-    after: [image-empty, image-claude, image-gemini, image-coopmux, image-claudeless]
+    after: [image-claude, image-coopmux]
     init:
       commit-sha: ${{ init.commit-sha }}
       ref-name: ${{ init.ref-name }}
-      image-empty-task-id: ${{ tasks.image-empty.id }}
       image-claude-task-id: ${{ tasks.image-claude.id }}
-      image-gemini-task-id: ${{ tasks.image-gemini.id }}
       image-coopmux-task-id: ${{ tasks.image-coopmux.id }}
-      image-claudeless-task-id: ${{ tasks.image-claudeless.id }}
