@@ -11,6 +11,7 @@ import { useInit, useLatest } from "@/hooks/utils";
 import { parseAnsiLine, spanStyle } from "@/lib/ansi";
 import { b64decode, textToB64 } from "@/lib/base64";
 import { EXPANDED_FONT_SIZE, MONO_FONT, THEME } from "@/lib/constants";
+import { ReplayGate } from "@/lib/replay-gate";
 import type { PromptContext, WsMessage } from "@/lib/types";
 import type { SessionInfo } from "./App";
 
@@ -38,7 +39,7 @@ export function ExpandedSession({
 }: ExpandedSessionProps) {
   const wsRef = useRef<WebSocket | null>(null);
   const rpcRef = useRef<WsRpc | null>(null);
-  const nextOffsetRef = useRef(-1);
+  const gateRef = useRef(new ReplayGate());
   const [wsStatus, setWsStatus] = useState<ConnectionStatus>("disconnected");
   const [ready, setReady] = useState(false);
   const [prompt, setPrompt] = useState<PromptContext | null>(null);
@@ -114,7 +115,7 @@ export function ExpandedSession({
   useEffect(() => () => cleanupRef.current?.(), []);
 
   function connectWs() {
-    nextOffsetRef.current = -1;
+    gateRef.current.reset();
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const params = new URLSearchParams(location.search);
     let url = `${proto}//${location.host}/ws/${info.id}?subscribe=pty,state,usage,hooks`;
@@ -156,33 +157,18 @@ export function ExpandedSession({
 
         if (msg.event === "replay") {
           const bytes = b64decode(msg.data);
-          if (nextOffsetRef.current === -1) {
-            // First replay after connect: reset terminal + write full replay
+          const action = gateRef.current.onReplay(bytes.length, msg.offset, msg.next_offset);
+          if (!action) return;
+          if (action.isFirst) {
             term.reset();
-            term.write(bytes);
-            nextOffsetRef.current = msg.next_offset;
             handleReplayReady(term, setReady);
-          } else {
-            // Lag-recovery replay: offset-gated dedup
-            if (msg.next_offset <= nextOffsetRef.current) return;
-            if (msg.offset < nextOffsetRef.current) {
-              term.write(bytes.subarray(nextOffsetRef.current - msg.offset));
-            } else {
-              term.write(bytes);
-            }
-            nextOffsetRef.current = msg.next_offset;
           }
+          term.write(action.skip > 0 ? bytes.subarray(action.skip) : bytes);
         } else if (msg.event === "pty") {
-          if (nextOffsetRef.current === -1) return; // Pre-replay: drop
           const bytes = b64decode(msg.data);
-          const msgEnd = msg.offset + bytes.length;
-          if (msgEnd <= nextOffsetRef.current) return; // Duplicate: skip
-          if (msg.offset < nextOffsetRef.current) {
-            term.write(bytes.subarray(nextOffsetRef.current - msg.offset));
-          } else {
-            term.write(bytes);
-          }
-          nextOffsetRef.current = msgEnd;
+          const skip = gateRef.current.onPty(bytes.length, msg.offset);
+          if (skip === null) return;
+          term.write(skip > 0 ? bytes.subarray(skip) : bytes);
         } else if (msg.event === "transition") {
           setPrompt(msg.prompt ?? null);
           setLastMessage(msg.last_message ?? null);
