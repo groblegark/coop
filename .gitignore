@@ -1,6 +1,7 @@
 # Build
 /target/
 node_modules/
+test-results/
 
 # Editor
 .idea/

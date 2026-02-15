@@ -56,7 +56,8 @@ fn thinking_ellipsis_emits_working() {
 
 #[test]
 fn thought_for_ellipsis_emits_working() {
-    let snap = snapshot(&["\u{2026} (2m 19s \u{00b7} \u{2191} 4.7k tokens \u{00b7} thought for 9s)", ""]);
+    let snap =
+        snapshot(&["\u{2026} (2m 19s \u{00b7} \u{2191} 4.7k tokens \u{00b7} thought for 9s)", ""]);
     assert_eq!(state(&snap), Some(AgentState::Working));
     assert_eq!(cause(&snap).as_deref(), Some("screen:thinking"));
 }
