@@ -223,3 +223,148 @@ fn interleaved_stream() {
     h.pty(b"BC", 1); // late duplicate — fully covered
     assert_eq!(h.output_str(), "ABC");
 }
+
+// ===== WsSimHarness ==========================================================
+//
+// Simulates the server's ring + broadcast path, including the offset race
+// that occurs when another writer sneaks bytes between ring.write() and the
+// offset read.
+
+use crate::ring::RingBuffer;
+
+struct WsSimHarness {
+    ring: RingBuffer,
+    gate: ReplayGate,
+    output: Vec<u8>,
+    resets: usize,
+    /// Extra bytes injected between the ring write and offset read,
+    /// simulating a concurrent writer.
+    race_bytes: usize,
+}
+
+impl WsSimHarness {
+    fn new(race_bytes: usize) -> Self {
+        Self {
+            ring: RingBuffer::new(65536),
+            gate: ReplayGate::new(),
+            output: Vec::new(),
+            resets: 0,
+            race_bytes,
+        }
+    }
+
+    /// Simulate the server writing data, computing the offset the racy way
+    /// (total_written - data.len() AFTER a possible concurrent write).
+    fn server_write(&mut self, data: &[u8]) -> u64 {
+        self.ring.write(data);
+        // Simulate a concurrent writer injecting extra bytes.
+        if self.race_bytes > 0 {
+            let filler = vec![0u8; self.race_bytes];
+            self.ring.write(&filler);
+        }
+        // Racy offset computation (the old server bug):
+        let msg_offset = self.ring.total_written().saturating_sub(data.len() as u64);
+        msg_offset
+    }
+
+    /// Feed data through the gate as a PTY message with the given offset.
+    fn feed_pty(&mut self, data: &[u8], offset: u64) {
+        if let Some(skip) = self.gate.on_pty(data.len(), offset) {
+            self.output.extend_from_slice(&data[skip..]);
+        }
+    }
+
+    /// Request a replay from offset 0 (simulates full reconnect replay).
+    fn request_replay(&mut self, from_offset: u64) {
+        if let Some((a, b)) = self.ring.read_from(from_offset) {
+            let mut combined = Vec::with_capacity(a.len() + b.len());
+            combined.extend_from_slice(a);
+            combined.extend_from_slice(b);
+            let total = self.ring.total_written();
+            let replay_offset = total - combined.len() as u64;
+            if let Some(action) = self.gate.on_replay(combined.len(), replay_offset, total) {
+                if action.is_first {
+                    self.output.clear();
+                    self.resets += 1;
+                }
+                self.output.extend_from_slice(&combined[action.skip..]);
+            }
+        }
+    }
+
+    fn output_str(&self) -> &str {
+        std::str::from_utf8(&self.output).unwrap_or("<invalid utf-8>")
+    }
+}
+
+// ===== WsSimHarness tests ====================================================
+
+#[test]
+fn server_race_inflates_offset() {
+    let mut h = WsSimHarness::new(5);
+    let offset = h.server_write(b"AB");
+    // With race_bytes=5: ring has 7 bytes, msg_offset = 7 - 2 = 5, not 0.
+    assert_eq!(offset, 5, "racy offset should be inflated");
+}
+
+#[test]
+fn server_race_causes_gap() {
+    let mut h = WsSimHarness::new(3);
+    // Sync the gate with an empty replay.
+    h.request_replay(0);
+
+    // Write "AB" — racy offset = (2+3) - 2 = 3 instead of 0.
+    let offset = h.server_write(b"AB");
+    assert_eq!(offset, 3, "racy: first write offset inflated");
+    h.feed_pty(b"AB", offset);
+
+    // Gate jumped to offset 5, but real data only covers [0,2).
+    // Bytes [0,3) were never delivered to the client — that's the gap.
+    assert_eq!(h.gate.offset(), Some(5));
+
+    // Write "CD" — racy offset = (2+3+2+3) - 2 = 8 instead of 2.
+    let offset2 = h.server_write(b"CD");
+    assert_eq!(offset2, 8, "racy: second write offset inflated");
+    h.feed_pty(b"CD", offset2);
+
+    // Gate jumped to 10, but real data only covers [0,2) + [2,4) = [0,4).
+    // Client thinks it has [3,5) + [8,10) — gaps at [5,8).
+    assert_eq!(h.gate.offset(), Some(10));
+}
+
+#[test]
+fn no_race_clean_stream() {
+    let mut h = WsSimHarness::new(0); // No race
+    h.request_replay(0);
+    let offset = h.server_write(b"AB");
+    assert_eq!(offset, 0, "no race: offset should be 0");
+    h.feed_pty(b"AB", offset);
+    let offset2 = h.server_write(b"CD");
+    assert_eq!(offset2, 2, "no race: offset should be 2");
+    h.feed_pty(b"CD", offset2);
+    assert_eq!(h.output_str(), "ABCD");
+    // Gate matches ring exactly.
+    assert_eq!(h.gate.offset(), Some(4));
+    assert_eq!(h.ring.total_written(), 4);
+}
+
+#[test]
+fn race_then_replay_recovery() {
+    let mut h = WsSimHarness::new(5);
+    // Sync with empty replay.
+    h.request_replay(0);
+    // Racy server write — offset is inflated.
+    let offset = h.server_write(b"AB");
+    assert_eq!(offset, 5, "racy offset");
+    h.feed_pty(b"AB", offset);
+    // Gate is at 7 (wrong), ring has 7 bytes.
+    assert_eq!(h.gate.offset(), Some(7));
+
+    // Replay recovers: reads all ring data from offset 0.
+    h.gate.reset();
+    h.output.clear();
+    h.request_replay(0);
+    // After replay, output contains the full ring contents (AB + 5 filler).
+    assert_eq!(h.output.len(), 7, "replay should recover all ring data");
+    assert_eq!(h.resets, 2, "two resets: initial + recovery");
+}

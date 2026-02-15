@@ -264,7 +264,8 @@ mod ws_integration {
             for chunk in &output_chunks {
                 let data = Bytes::from(chunk.as_bytes().to_vec());
                 ring.write(&data);
-                let _ = state.channels.output_tx.send(OutputEvent::Raw(data));
+                let offset = ring.total_written() - data.len() as u64;
+                let _ = state.channels.output_tx.send(OutputEvent::Raw { data, offset });
             }
         }
 
@@ -480,7 +481,8 @@ mod ws_integration {
             let mut ring = state.terminal.ring.write().await;
             let data = Bytes::from(b"AAAA".to_vec());
             ring.write(&data);
-            let _ = state.channels.output_tx.send(OutputEvent::Raw(data));
+            let offset = ring.total_written() - data.len() as u64;
+            let _ = state.channels.output_tx.send(OutputEvent::Raw { data, offset });
         }
 
         let (addr, _handle) = crate::test_support::spawn_http_server(std::sync::Arc::clone(&state))
@@ -500,7 +502,8 @@ mod ws_integration {
             let mut ring = state.terminal.ring.write().await;
             let data = Bytes::from(b"BBBB".to_vec());
             ring.write(&data);
-            let _ = state.channels.output_tx.send(OutputEvent::Raw(data));
+            let offset = ring.total_written() - data.len() as u64;
+            let _ = state.channels.output_tx.send(OutputEvent::Raw { data, offset });
         }
 
         // Small delay for the broadcast to queue ahead of any replay response.
@@ -613,7 +616,8 @@ mod uds_integration {
             for chunk in &output_chunks {
                 let data = Bytes::from(chunk.as_bytes().to_vec());
                 ring.write(&data);
-                let _ = state.channels.output_tx.send(OutputEvent::Raw(data));
+                let offset = ring.total_written() - data.len() as u64;
+                let _ = state.channels.output_tx.send(OutputEvent::Raw { data, offset });
             }
         }
 

@@ -107,15 +107,11 @@ impl proto::coop_server::Coop for CoopGrpc {
 
         // Subscribe to live output
         let mut output_rx = self.state.channels.output_tx.subscribe();
-        let terminal = Arc::clone(&self.state.terminal);
 
         tokio::spawn(async move {
             loop {
                 match output_rx.recv().await {
-                    Ok(OutputEvent::Raw(data)) => {
-                        let r = terminal.ring.read().await;
-                        let offset = r.total_written() - data.len() as u64;
-                        drop(r);
+                    Ok(OutputEvent::Raw { data, offset }) => {
                         let chunk = proto::OutputChunk { data: data.to_vec(), offset };
                         if tx.send(Ok(chunk)).await.is_err() {
                             break;
@@ -157,7 +153,7 @@ impl proto::coop_server::Coop for CoopGrpc {
                             break;
                         }
                     }
-                    Ok(OutputEvent::Raw(_)) => {}
+                    Ok(OutputEvent::Raw { .. }) => {}
                     Err(broadcast::error::RecvError::Lagged(_)) => {}
                     Err(broadcast::error::RecvError::Closed) => break,
                 }

@@ -37,10 +37,12 @@ pub enum DetectAction {
 
 /// Feed raw backend output into the ring buffer, screen, and broadcast channel.
 pub async fn feed_output(store: &Store, bytes: &Bytes) {
-    // Write to ring buffer
+    // Write to ring buffer and stamp offset while holding the lock.
+    let offset;
     {
         let mut ring = store.terminal.ring.write().await;
         ring.write(bytes);
+        offset = ring.total_written() - bytes.len() as u64;
         store
             .terminal
             .ring_total_written
@@ -51,8 +53,8 @@ pub async fn feed_output(store: &Store, bytes: &Bytes) {
         let mut screen = store.terminal.screen.write().await;
         screen.feed(bytes);
     }
-    // Broadcast raw output
-    let _ = store.channels.output_tx.send(OutputEvent::Raw(bytes.clone()));
+    // Broadcast raw output with stamped offset
+    let _ = store.channels.output_tx.send(OutputEvent::Raw { data: bytes.clone(), offset });
 }
 
 /// Process a detected state change from the composite detector.

@@ -217,10 +217,7 @@ async fn handle_connection(
             }
             event = output_rx.recv() => {
                 match event {
-                    Ok(OutputEvent::Raw(data)) if flags.pty => {
-                        let ring = state.terminal.ring.read().await;
-                        let msg_offset = ring.total_written().saturating_sub(data.len() as u64);
-                        drop(ring);
+                    Ok(OutputEvent::Raw { data, offset: msg_offset }) if flags.pty => {
                         // Skip if already covered by a prior replay.
                         if msg_offset + data.len() as u64 <= next_offset {
                             continue;

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// Raw or rendered output from the terminal backend.
 #[derive(Debug, Clone)]
 pub enum OutputEvent {
-    Raw(Bytes),
+    Raw { data: Bytes, offset: u64 },
     ScreenUpdate { seq: u64 },
 }
 
