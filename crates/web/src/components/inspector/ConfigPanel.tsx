@@ -340,14 +340,34 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
     refresh();
   }, [refresh]);
 
-  const downloadTranscript = useCallback(async (url: string, filename: string) => {
+  const downloadTranscriptCatchup = useCallback(async () => {
     try {
-      const response = await fetch(url, { headers: { Accept: "text/plain" } });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const blob = await response.blob();
+      const res = await wsRequest({
+        event: "transcript:catchup",
+        since_transcript: 0,
+        since_line: 0,
+      });
+      if (!res.ok || !res.json) {
+        throw new Error(res.text || "Request failed");
+      }
+      const data = res.json as {
+        transcripts?: Array<{ lines: string[] }>;
+        live_lines?: string[];
+      };
+      const allLines: string[] = [];
+      if (data.transcripts) {
+        for (const transcript of data.transcripts) {
+          allLines.push(...transcript.lines);
+        }
+      }
+      if (data.live_lines) {
+        allLines.push(...data.live_lines);
+      }
+      const content = allLines.join("\n");
+      const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = filename;
+      link.download = "transcript.txt";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -355,7 +375,33 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
     } catch (err) {
       setResult({ ok: false, text: `Download failed: ${err}` });
     }
-  }, []);
+  }, [wsRequest]);
+
+  const downloadTranscriptSnapshot = useCallback(
+    async (number: number) => {
+      try {
+        const res = await wsRequest({ event: "transcript:get", number });
+        if (!res.ok || !res.json) {
+          throw new Error(res.text || "Request failed");
+        }
+        const data = res.json as { content?: string };
+        if (!data.content) {
+          throw new Error("No content in response");
+        }
+        const blob = new Blob([data.content], { type: "text/plain;charset=utf-8" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `transcript-${number}.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+      } catch (err) {
+        setResult({ ok: false, text: `Download failed: ${err}` });
+      }
+    },
+    [wsRequest],
+  );
 
   return (
     <Section
@@ -369,15 +415,7 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
       {activeLine != null && (
         <div className="mt-1 text-[10px] text-zinc-500">
           <span className="text-green-500">active</span> {activeLine} lines{" "}
-          <ActionBtn
-            onClick={() =>
-              downloadTranscript(
-                `${location.origin}/api/v1/transcripts/catchup?since_transcript=0&since_line=0`,
-                "transcript.txt",
-              )
-            }
-            className="!px-1.5 !py-px !text-[10px]"
-          >
+          <ActionBtn onClick={downloadTranscriptCatchup} className="!px-1.5 !py-px !text-[10px]">
             Download
           </ActionBtn>
         </div>
@@ -398,12 +436,7 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
                   {time} · {t.line_count} lines · {formatBytes(t.byte_size)}
                 </span>
                 <ActionBtn
-                  onClick={() =>
-                    downloadTranscript(
-                      `${location.origin}/api/v1/transcripts/${t.number}`,
-                      `transcript-${t.number}.txt`,
-                    )
-                  }
+                  onClick={() => downloadTranscriptSnapshot(t.number)}
                   className="!px-1.5 !py-px !text-[10px]"
                 >
                   Download
