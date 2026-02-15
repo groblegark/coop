@@ -127,8 +127,10 @@ export function ExpandedSession({
 
     ws.onopen = () => {
       setWsStatus("connected");
-      ws.send(JSON.stringify({ event: "replay:get", offset: 0 }));
-      ws.send(JSON.stringify({ event: "resize", cols: term.cols, rows: term.rows }));
+      // Resize first so PTY dimensions match XTerm before replay snapshot
+      rpc.request({ event: "resize", cols: term.cols, rows: term.rows }).then(() => {
+        ws.send(JSON.stringify({ event: "replay:get", offset: 0 }));
+      });
 
       rpc.request({ event: "agent:get" }).then((res) => {
         if (res.ok && res.json) {
@@ -281,7 +283,7 @@ export function ExpandedSession({
               <style>{`@keyframes shimmer { 0% { left: -33% } 100% { left: 100% } }`}</style>
             </div>
             {/* Cached screen preview */}
-            <div className="py-4 pl-4">
+            <div className="mr-[14px] overflow-hidden py-4 pl-4">
               {info.lastScreenLines ? (
                 <pre
                   style={{

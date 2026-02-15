@@ -60,10 +60,14 @@ export function App() {
   useEffect(() => {
     setWsStatus(connectionStatus);
     if (connectionStatus === "connected") {
-      send({ event: "replay:get", offset: 0 });
+      // Resize first so PTY dimensions match XTerm before replay snapshot
       const term = termRef.current?.terminal;
       if (term) {
-        send({ event: "resize", cols: term.cols, rows: term.rows });
+        request({ event: "resize", cols: term.cols, rows: term.rows })
+          .then(() => send({ event: "replay:get", offset: 0 }))
+          .catch(() => send({ event: "replay:get", offset: 0 }));
+      } else {
+        send({ event: "replay:get", offset: 0 });
       }
       // Initial agent state poll
       request({ event: "agent:get" })

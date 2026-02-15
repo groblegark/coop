@@ -367,6 +367,12 @@ async fn handle_connection(
                         };
 
                         if let Some(reply) = handle_client_message(&state, envelope.message, &client_id, &mut authed).await {
+                            // Advance next_offset after replay to avoid duplicate pty events.
+                            if let ServerMessage::Replay { next_offset: replay_next, .. } = &reply {
+                                if *replay_next > next_offset {
+                                    next_offset = *replay_next;
+                                }
+                            }
                             if envelope.request_id.is_some() {
                                 let wrapped = ServerEnvelope { message: reply, request_id: envelope.request_id };
                                 if send_json(&mut ws_tx, &wrapped).await.is_err() {
