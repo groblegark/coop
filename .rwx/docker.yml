@@ -132,85 +132,15 @@ tasks:
       jq -n '["coop"]' > $RWX_IMAGE/entrypoint.json
 
   # ═══════════════════════════════════════════════════════════════════════
-  # Push — rwx image push to GHCR (skipped on PRs)
-  # Install rwx CLI manually since config: none has no packages.
+  # Push — embedded run with rwx/base for CLI + package access
   # ═══════════════════════════════════════════════════════════════════════
-
-  - key: push-deps
+  - key: push
+    if: ${{ init.ref-name != 'pr' }}
+    call: ${{ run.dir }}/push.yml
     after: [image-empty, image-claude, image-gemini]
-    if: ${{ init.ref-name != 'pr' }}
-    run: |
-      apt-get update && apt-get install -y --no-install-recommends ca-certificates curl
-      curl -fsSL https://install.rwx.com/rwx -o /tmp/install-rwx
-      bash /tmp/install-rwx
-      rm /tmp/install-rwx
-      echo "$HOME/.rwx/bin" | tee -a $RWX_ENV/PATH
-      mkdir -p ~/.docker
-      AUTH=$(printf '%s:%s' "$GITHUB_USER" "$GHCR_TOKEN" | base64 -w0)
-      printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "$AUTH" > ~/.docker/config.json
-    env:
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-      GITHUB_USER: ${{ secrets.GITHUB_USER }}
-
-  # ── push-empty ────────────────────────────────────────────────────────
-  - key: push-empty
-    use: push-deps
-    if: ${{ init.ref-name != 'pr' }}
-    run: |
-      REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
-      SHORT_SHA="${COMMIT_SHA:0:7}"
-
-      rwx image push $IMAGE_TASK_ID \
-        --to ghcr.io/groblegark/coop:empty-sha-${SHORT_SHA} \
-        --to ghcr.io/groblegark/coop:empty
-
-      if [[ "$REF_NAME" == v* ]]; then
-        VERSION="${REF_NAME#v}"
-        rwx image push $IMAGE_TASK_ID --to ghcr.io/groblegark/coop:empty-${VERSION}
-      fi
-    env:
-      COMMIT_SHA: ${{ init.commit-sha }}
-      REF_NAME: ${{ init.ref-name }}
-      IMAGE_TASK_ID: ${{ tasks.image-empty.id }}
-
-  # ── push-claude ───────────────────────────────────────────────────────
-  - key: push-claude
-    use: push-deps
-    if: ${{ init.ref-name != 'pr' }}
-    run: |
-      REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
-      SHORT_SHA="${COMMIT_SHA:0:7}"
-
-      rwx image push $IMAGE_TASK_ID \
-        --to ghcr.io/groblegark/coop:claude-sha-${SHORT_SHA} \
-        --to ghcr.io/groblegark/coop:claude
-
-      if [[ "$REF_NAME" == v* ]]; then
-        VERSION="${REF_NAME#v}"
-        rwx image push $IMAGE_TASK_ID --to ghcr.io/groblegark/coop:claude-${VERSION}
-      fi
-    env:
-      COMMIT_SHA: ${{ init.commit-sha }}
-      REF_NAME: ${{ init.ref-name }}
-      IMAGE_TASK_ID: ${{ tasks.image-claude.id }}
-
-  # ── push-gemini ───────────────────────────────────────────────────────
-  - key: push-gemini
-    use: push-deps
-    if: ${{ init.ref-name != 'pr' }}
-    run: |
-      REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
-      SHORT_SHA="${COMMIT_SHA:0:7}"
-
-      rwx image push $IMAGE_TASK_ID \
-        --to ghcr.io/groblegark/coop:gemini-sha-${SHORT_SHA} \
-        --to ghcr.io/groblegark/coop:gemini
-
-      if [[ "$REF_NAME" == v* ]]; then
-        VERSION="${REF_NAME#v}"
-        rwx image push $IMAGE_TASK_ID --to ghcr.io/groblegark/coop:gemini-${VERSION}
-      fi
-    env:
-      COMMIT_SHA: ${{ init.commit-sha }}
-      REF_NAME: ${{ init.ref-name }}
-      IMAGE_TASK_ID: ${{ tasks.image-gemini.id }}
+    init:
+      commit-sha: ${{ init.commit-sha }}
+      ref-name: ${{ init.ref-name }}
+      image-empty-task-id: ${{ tasks.image-empty.id }}
+      image-claude-task-id: ${{ tasks.image-claude.id }}
+      image-gemini-task-id: ${{ tasks.image-gemini.id }}
