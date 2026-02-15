@@ -7,6 +7,9 @@
   height: 100%;
   width: 100%;
 }
+.xterm .xterm-viewport {
+  background-color: inherit !important;
+}
 .xterm-cursor-layer {
   display: none !important;
 }
