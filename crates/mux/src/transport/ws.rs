@@ -33,11 +33,14 @@ pub async fn ws_handler(
     State(state): State<Arc<MuxState>>,
     Path(session_id): Path<String>,
     Query(query): Query<MuxWsQuery>,
+    headers: axum::http::HeaderMap,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    // Validate auth via query param.
+    // Validate auth: accept token from query param or Authorization header.
     let query_str = query.token.as_ref().map(|t| format!("token={t}")).unwrap_or_default();
-    if let Err(_code) = auth::validate_ws_query(&query_str, state.config.auth_token.as_deref()) {
+    let query_ok = auth::validate_ws_query(&query_str, state.config.auth_token.as_deref()).is_ok();
+    let header_ok = auth::validate_bearer(&headers, state.config.auth_token.as_deref()).is_ok();
+    if !query_ok && !header_ok {
         return axum::http::Response::builder()
             .status(401)
             .body(axum::body::Body::from("unauthorized"))
