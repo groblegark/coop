@@ -21,7 +21,7 @@ base:
   config: rwx/base 1.0.0
 
 tool-cache:
-  vault: coop_main
+  vault: default
 
 tasks:
   # ── System deps ────────────────────────────────────────────────────────
