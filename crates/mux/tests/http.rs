@@ -30,6 +30,8 @@ fn test_config() -> MuxConfig {
         max_health_failures: 3,
         launch: None,
         credential_config: None,
+        prewarm_capacity: 64,
+        prewarm_poll_ms: 15000,
         #[cfg(debug_assertions)]
         hot: false,
     }

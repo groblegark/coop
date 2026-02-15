@@ -40,6 +40,14 @@ pub struct MuxConfig {
     #[arg(long, env = "COOP_MUX_CREDENTIAL_CONFIG")]
     pub credential_config: Option<std::path::PathBuf>,
 
+    /// Pre-warm LRU cache capacity (number of sessions to slow-poll).
+    #[arg(long, default_value_t = 64, env = "COOP_MUX_PREWARM_CAPACITY")]
+    pub prewarm_capacity: usize,
+
+    /// Pre-warm poll interval in milliseconds.
+    #[arg(long, default_value_t = 15000, env = "COOP_MUX_PREWARM_POLL_MS")]
+    pub prewarm_poll_ms: u64,
+
     /// Serve web assets from disk instead of embedded (for live reload during dev).
     #[cfg(debug_assertions)]
     #[arg(long, hide = true, env = "COOP_HOT")]
@@ -57,5 +65,9 @@ impl MuxConfig {
 
     pub fn health_check_interval(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.health_check_ms)
+    }
+
+    pub fn prewarm_poll_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.prewarm_poll_ms)
     }
 }

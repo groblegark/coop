@@ -6,13 +6,14 @@ use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use std::time::Instant;
 
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::MuxConfig;
 use crate::credential::broker::CredentialBroker;
 use crate::credential::CredentialEvent;
 use crate::upstream::bridge::WsBridge;
+use crate::upstream::prewarm::PrewarmCache;
 
 /// Events emitted by the mux for aggregation consumers.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -123,12 +124,15 @@ pub struct MuxState {
     pub shutdown: CancellationToken,
     pub feed: SessionFeed,
     pub credential_broker: Option<Arc<CredentialBroker>>,
+    pub prewarm: Arc<Mutex<PrewarmCache>>,
 }
 
 impl MuxState {
     pub fn new(config: MuxConfig, shutdown: CancellationToken) -> Self {
+        let prewarm = Arc::new(Mutex::new(PrewarmCache::new(config.prewarm_capacity)));
         Self {
             sessions: RwLock::new(HashMap::new()),
+            prewarm,
             config,
             shutdown,
             feed: SessionFeed::new(),
@@ -149,6 +153,8 @@ impl MuxState {
             ws.feed_cancel.cancel();
             ws.poller_cancel.cancel();
         }
+        drop(watchers);
+        self.prewarm.lock().await.remove(id);
         Some(entry)
     }
 }

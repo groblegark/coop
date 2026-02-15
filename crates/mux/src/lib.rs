@@ -25,6 +25,7 @@ use crate::transport::build_router;
 #[cfg(debug_assertions)]
 use crate::transport::build_router_hot;
 use crate::upstream::health::spawn_health_checker;
+use crate::upstream::prewarm::spawn_prewarm_task;
 
 /// Run the mux server until shutdown.
 pub async fn run(config: MuxConfig) -> anyhow::Result<()> {
@@ -86,6 +87,12 @@ pub async fn run(config: MuxConfig) -> anyhow::Result<()> {
         tracing::info!("coopmux listening on {addr}");
     }
     spawn_health_checker(Arc::clone(&state));
+    spawn_prewarm_task(
+        Arc::clone(&state),
+        Arc::clone(&state.prewarm),
+        config.prewarm_poll_interval(),
+        shutdown.clone(),
+    );
     #[cfg(debug_assertions)]
     let router = build_router_hot(state, config.hot);
     #[cfg(not(debug_assertions))]

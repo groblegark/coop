@@ -147,18 +147,18 @@ pub async fn register_session(
         cached_screen: tokio::sync::RwLock::new(None),
         cached_status: tokio::sync::RwLock::new(None),
         health_failures: std::sync::atomic::AtomicU32::new(0),
-        cancel: cancel.clone(),
+        cancel,
         ws_bridge: tokio::sync::RwLock::new(None),
     });
 
-    let is_new = {
+    let (is_new, stale) = {
         let mut sessions = s.sessions.write().await;
         if sessions.contains_key(&id) {
             // Heartbeat re-registration: keep the existing entry so that
             // pollers/feeds (which hold Arc clones of the old entry) continue
             // writing to the same cached_screen/cached_status that screen_batch
             // reads.  Replacing the entry would orphan their writes.
-            false
+            (false, vec![])
         } else {
             // Evict any stale session(s) pointing to the same URL (e.g. after a
             // pod restart generated a new session UUID for the same coop instance).
@@ -183,12 +183,28 @@ pub async fn register_session(
                 }
             }
             sessions.insert(id.clone(), Arc::clone(&entry));
-            true
+            (true, stale)
         }
     };
     if is_new {
-        // Start background screen/status pollers for this session.
-        crate::upstream::poller::spawn_screen_poller(entry, &s.config, cancel);
+        // Clean up watchers + prewarm for evicted stale sessions.
+        if !stale.is_empty() {
+            let mut watchers = s.feed.watchers.write().await;
+            for stale_id in &stale {
+                if let Some(ws) = watchers.remove(stale_id) {
+                    ws.feed_cancel.cancel();
+                    ws.poller_cancel.cancel();
+                }
+            }
+            drop(watchers);
+            let mut prewarm = s.prewarm.lock().await;
+            for stale_id in &stale {
+                prewarm.remove(stale_id);
+            }
+        }
+
+        // Add to pre-warm cache for slow-poll background updates.
+        s.prewarm.lock().await.touch(&id);
 
         // Notify connected dashboard clients about the new session.
         let _ = s.feed.event_tx.send(MuxEvent::SessionOnline {

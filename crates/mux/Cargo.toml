@@ -21,6 +21,7 @@ bytes.workspace = true
 clap.workspace = true
 futures-util.workspace = true
 hyper-util.workspace = true
+indexmap.workspace = true
 rand.workspace = true
 reqwest.workspace = true
 sha2.workspace = true
