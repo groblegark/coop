@@ -21,6 +21,7 @@ export function App() {
   const [lastMessage, setLastMessage] = useState<string | null>(null);
   const [ptyOffset, setPtyOffset] = useState(0);
   const [oauthUrl, setOauthUrl] = useState<string | null>(null);
+  const nextOffsetRef = useRef(-1);
 
   const wsListenersRef = useRef(new Set<WsEventListener>());
 
@@ -37,10 +38,40 @@ export function App() {
     // Notify subscribers (inspector events + usage)
     for (const fn of wsListenersRef.current) fn(msg);
 
-    if (msg.event === "pty" || msg.event === "replay") {
+    if (msg.event === "replay") {
       const bytes = b64decode(msg.data);
-      termRef.current?.terminal?.write(bytes);
-      setPtyOffset(msg.offset + bytes.length);
+      const term = termRef.current?.terminal;
+      if (!term) return;
+      if (nextOffsetRef.current === -1) {
+        // First replay after connect: reset terminal + write full replay
+        term.reset();
+        term.write(bytes);
+        nextOffsetRef.current = msg.next_offset;
+      } else {
+        // Lag-recovery replay: offset-gated dedup
+        if (msg.next_offset <= nextOffsetRef.current) return;
+        if (msg.offset < nextOffsetRef.current) {
+          term.write(bytes.subarray(nextOffsetRef.current - msg.offset));
+        } else {
+          term.write(bytes);
+        }
+        nextOffsetRef.current = msg.next_offset;
+      }
+      setPtyOffset(nextOffsetRef.current);
+    } else if (msg.event === "pty") {
+      if (nextOffsetRef.current === -1) return; // Pre-replay: drop
+      const bytes = b64decode(msg.data);
+      const msgEnd = msg.offset + bytes.length;
+      if (msgEnd <= nextOffsetRef.current) return; // Duplicate: skip
+      const term = termRef.current?.terminal;
+      if (!term) return;
+      if (msg.offset < nextOffsetRef.current) {
+        term.write(bytes.subarray(nextOffsetRef.current - msg.offset));
+      } else {
+        term.write(bytes);
+      }
+      nextOffsetRef.current = msgEnd;
+      setPtyOffset(msgEnd);
     } else if (msg.event === "transition") {
       setAgentState(msg.next);
       setPrompt(msg.prompt ?? null);
@@ -60,6 +91,7 @@ export function App() {
   useEffect(() => {
     setWsStatus(connectionStatus);
     if (connectionStatus === "connected") {
+      nextOffsetRef.current = -1;
       // Resize before replay so the PTY dimensions match XTerm when the
       // ring buffer snapshot is captured. WS messages are ordered, so the
       // server processes resize before replay:get — no need to await.

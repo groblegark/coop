@@ -37,7 +37,7 @@ export interface PromptContext {
 // WebSocket messages (terminal single-session)
 export type WsMessage =
   | { event: "pty"; data: string; offset: number }
-  | { event: "replay"; data: string; offset: number }
+  | { event: "replay"; data: string; offset: number; next_offset: number }
   | {
       event: "transition";
       prev: string;
@@ -95,8 +95,8 @@ export type MuxWsMessage =
   | { event: "credential:refresh:failed"; account: string }
   | { event: "credential:reauth:required"; account: string; auth_url?: string; user_code?: string }
   // Expanded session messages (forwarded from per-session ws)
-  | { event: "pty"; data: string }
-  | { event: "replay"; data: string };
+  | { event: "pty"; data: string; offset: number }
+  | { event: "replay"; data: string; offset: number; next_offset: number };
 
 export interface MuxSession {
   id: string;
