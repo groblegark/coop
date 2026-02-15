@@ -189,4 +189,3 @@ Session pods use a minimal service account (`coop-session`) with no special perm
 ## See Also
 
 - [Coopmux README](../crates/mux/README.md) — Launch API documentation
-- [Coop CLI](../crates/cli/README.md) — Session configuration

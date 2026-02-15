@@ -128,4 +128,3 @@ See `deploy/README.md` for Kubernetes-specific configuration and the `k8s-launch
 ## See Also
 
 - [Deploy README](../../deploy/README.md) — Kubernetes deployment and k8s-launch.sh documentation
-- [Coop CLI](../cli/README.md) — Individual session configuration
