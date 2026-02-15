@@ -340,6 +340,23 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
     refresh();
   }, [refresh]);
 
+  const downloadTranscript = useCallback(async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url, { headers: { Accept: "text/plain" } });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+    } catch (err) {
+      setResult({ ok: false, text: `Download failed: ${err}` });
+    }
+  }, []);
+
   return (
     <Section
       label="Transcripts"
@@ -354,14 +371,14 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
           <span className="text-green-500">active</span> {activeLine} lines{" "}
           <ActionBtn
             onClick={() =>
-              window.open(
+              downloadTranscript(
                 `${location.origin}/api/v1/transcripts/catchup?since_transcript=0&since_line=0`,
-                "_blank",
+                "transcript.txt",
               )
             }
             className="!px-1.5 !py-px !text-[10px]"
           >
-            Open
+            Download
           </ActionBtn>
         </div>
       )}
@@ -382,11 +399,14 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
                 </span>
                 <ActionBtn
                   onClick={() =>
-                    window.open(`${location.origin}/api/v1/transcripts/${t.number}`, "_blank")
+                    downloadTranscript(
+                      `${location.origin}/api/v1/transcripts/${t.number}`,
+                      `transcript-${t.number}.txt`,
+                    )
                   }
                   className="!px-1.5 !py-px !text-[10px]"
                 >
-                  Open
+                  Download
                 </ActionBtn>
               </div>
             );
