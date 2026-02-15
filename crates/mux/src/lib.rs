@@ -25,6 +25,7 @@ use crate::transport::build_router;
 #[cfg(debug_assertions)]
 use crate::transport::build_router_hot;
 use crate::upstream::health::spawn_health_checker;
+use crate::upstream::prewarm::spawn_prewarm_task;
 
 /// Optional NATS event publishing configuration.
 ///
@@ -37,7 +38,7 @@ pub struct NatsConfig {
 }
 
 /// Run the mux server until shutdown.
-pub async fn run(config: MuxConfig, nats: Option<NatsConfig>) -> anyhow::Result<()> {
+pub async fn run(config: MuxConfig, _nats: Option<NatsConfig>) -> anyhow::Result<()> {
     let addr = format!("{}:{}", config.host, config.port);
     let shutdown = CancellationToken::new();
 
@@ -54,11 +55,11 @@ pub async fn run(config: MuxConfig, nats: Option<NatsConfig>) -> anyhow::Result<
 
     let (event_tx, event_rx) = broadcast::channel(64);
     let cred_bridge_rx = event_tx.subscribe();
-    let nats_cred_rx = if nats.is_some() { Some(event_tx.subscribe()) } else { None };
-    let broker = CredentialBroker::new(cred_config, event_tx);
+    let state_dir = config.state_dir();
+    let broker = CredentialBroker::new(cred_config, event_tx, Some(state_dir.clone()));
 
     // Load persisted credentials (including dynamic accounts) if available.
-    let persist_path = crate::credential::state_dir().join("credentials.json");
+    let persist_path = state_dir.join("credentials.json");
     if persist_path.exists() {
         match crate::credential::persist::load(&persist_path) {
             Ok(persisted) => broker.load_persisted(&persisted).await,
@@ -90,19 +91,6 @@ pub async fn run(config: MuxConfig, nats: Option<NatsConfig>) -> anyhow::Result<
         });
     }
 
-    // Optionally spawn NATS credential event publisher.
-    if let (Some(nats_cfg), Some(cred_rx)) = (nats, nats_cred_rx) {
-        let nats_shutdown = shutdown.clone();
-        match crate::transport::nats_pub::NatsPublisher::connect(&nats_cfg).await {
-            Ok(publisher) => {
-                tokio::spawn(publisher.run(cred_rx, nats_shutdown));
-            }
-            Err(e) => {
-                tracing::error!(err = %e, "failed to connect NATS publisher");
-            }
-        }
-    }
-
     let has_creds = config.credential_config.is_some();
     if has_creds {
         tracing::info!("coopmux listening on {addr} (credentials enabled)");
@@ -110,6 +98,12 @@ pub async fn run(config: MuxConfig, nats: Option<NatsConfig>) -> anyhow::Result<
         tracing::info!("coopmux listening on {addr}");
     }
     spawn_health_checker(Arc::clone(&state));
+    spawn_prewarm_task(
+        Arc::clone(&state),
+        Arc::clone(&state.prewarm),
+        config.prewarm_poll_interval(),
+        shutdown.clone(),
+    );
     #[cfg(debug_assertions)]
     let router = build_router_hot(state, config.hot);
     #[cfg(not(debug_assertions))]

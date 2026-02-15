@@ -125,7 +125,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       cursorBlink,
       cursorInactiveStyle: "none",
       disableStdin,
-      convertEol: true,
+      convertEol: false,
     });
 
     const fit = new FitAddon();

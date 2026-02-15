@@ -17,7 +17,7 @@ pub struct MuxConfig {
     pub auth_token: Option<String>,
 
     /// Screen poll interval in milliseconds.
-    #[arg(long, default_value_t = 500, env = "COOP_MUX_SCREEN_POLL_MS")]
+    #[arg(long, default_value_t = 1000, env = "COOP_MUX_SCREEN_POLL_MS")]
     pub screen_poll_ms: u64,
 
     /// Status poll interval in milliseconds.
@@ -40,6 +40,18 @@ pub struct MuxConfig {
     #[arg(long, env = "COOP_MUX_CREDENTIAL_CONFIG")]
     pub credential_config: Option<std::path::PathBuf>,
 
+    /// Pre-warm LRU cache capacity (number of sessions to slow-poll).
+    #[arg(long, default_value_t = 64, env = "COOP_MUX_PREWARM_CAPACITY")]
+    pub prewarm_capacity: usize,
+
+    /// Pre-warm poll interval in milliseconds.
+    #[arg(long, default_value_t = 15000, env = "COOP_MUX_PREWARM_POLL_MS")]
+    pub prewarm_poll_ms: u64,
+
+    /// State directory for persistent data (credentials, etc.).
+    #[arg(skip)]
+    pub state_dir: Option<std::path::PathBuf>,
+
     /// Serve web assets from disk instead of embedded (for live reload during dev).
     #[cfg(debug_assertions)]
     #[arg(long, hide = true, env = "COOP_HOT")]
@@ -57,5 +69,17 @@ impl MuxConfig {
 
     pub fn health_check_interval(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.health_check_ms)
+    }
+
+    pub fn prewarm_poll_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.prewarm_poll_ms)
+    }
+
+    /// Resolve the state directory for persistent data.
+    ///
+    /// Uses the explicit `state_dir` if set, otherwise falls back to
+    /// `COOP_MUX_STATE_DIR` env → `$XDG_STATE_HOME/coop/mux` → `$HOME/.local/state/coop/mux`.
+    pub fn state_dir(&self) -> std::path::PathBuf {
+        self.state_dir.clone().unwrap_or_else(crate::credential::state_dir)
     }
 }

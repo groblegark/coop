@@ -164,7 +164,10 @@ pub struct Config {
     #[arg(long, env = "COOP_PROFILE", default_value = "auto")]
     pub profile: String,
 
-    // -- Duration overrides (skip from CLI; set in Config::test()) --------
+    // -- Knobs (set via env var only, sane testing defaults in Config::test()) --------
+    /// Mux registration URL (default http://127.0.0.1:9800)
+    #[clap(skip)]
+    pub mux_url: Option<String>,
     /// Drain timeout in ms (0 = disabled, immediate kill on shutdown).
     #[clap(skip)]
     pub drain_timeout_ms: Option<u64>,
@@ -268,6 +271,22 @@ impl Config {
 
     // -- Tuning knobs (field override → env var → compiled default) --------
 
+    /// Resolve the mux URL. Returns `None` when disabled (empty string),
+    /// `Some(url)` when enabled. Checks field → `COOP_MUX_URL` → default.
+    pub fn mux_url(&self) -> Option<String> {
+        let raw = match self.mux_url {
+            Some(ref v) => v.clone(),
+            None => {
+                std::env::var("COOP_MUX_URL").unwrap_or_else(|_| "http://127.0.0.1:9800".to_owned())
+            }
+        };
+        if raw.is_empty() {
+            None
+        } else {
+            Some(raw)
+        }
+    }
+
     duration_field!(shutdown_timeout, shutdown_timeout_ms, "COOP_SHUTDOWN_TIMEOUT_MS", 10_000);
     duration_field!(screen_debounce, screen_debounce_ms, "COOP_SCREEN_DEBOUNCE_MS", 50);
     duration_field!(process_poll, process_poll_ms, "COOP_PROCESS_POLL_MS", 10_000);
@@ -324,6 +343,7 @@ impl Config {
             hot: false,
             profile: "auto".into(),
             command: vec!["echo".into()],
+            mux_url: Some(String::new()), // Disable mux registration in tests
             drain_timeout_ms: Some(100),
             shutdown_timeout_ms: Some(100),
             screen_debounce_ms: Some(10),

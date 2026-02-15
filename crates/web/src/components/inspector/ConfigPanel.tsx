@@ -340,6 +340,66 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
     refresh();
   }, [refresh]);
 
+  const downloadTranscriptCatchup = useCallback(async () => {
+    try {
+      const res = await wsRequest({
+        event: "transcript:catchup",
+        since_transcript: 0,
+        since_line: 0,
+      });
+      if (!res.ok || !res.json) {
+        throw new Error(res.text || "Request failed");
+      }
+      const data = res.json as { transcripts?: Array<{ lines: string[] }>; live_lines?: string[] };
+      const allLines: string[] = [];
+      if (data.transcripts) {
+        for (const transcript of data.transcripts) {
+          allLines.push(...transcript.lines);
+        }
+      }
+      if (data.live_lines) {
+        allLines.push(...data.live_lines);
+      }
+      const content = allLines.join("\n");
+      const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "transcript.txt";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+    } catch (err) {
+      setResult({ ok: false, text: `Download failed: ${err}` });
+    }
+  }, [wsRequest]);
+
+  const downloadTranscriptSnapshot = useCallback(
+    async (number: number) => {
+      try {
+        const res = await wsRequest({ event: "transcript:get", number });
+        if (!res.ok || !res.json) {
+          throw new Error(res.text || "Request failed");
+        }
+        const data = res.json as { content?: string };
+        if (!data.content) {
+          throw new Error("No content in response");
+        }
+        const blob = new Blob([data.content], { type: "text/plain;charset=utf-8" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `transcript-${number}.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+      } catch (err) {
+        setResult({ ok: false, text: `Download failed: ${err}` });
+      }
+    },
+    [wsRequest],
+  );
+
   return (
     <Section
       label="Transcripts"
@@ -352,16 +412,8 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
       {activeLine != null && (
         <div className="mt-1 text-[10px] text-zinc-500">
           <span className="text-green-500">active</span> {activeLine} lines{" "}
-          <ActionBtn
-            onClick={() =>
-              window.open(
-                `${location.origin}/api/v1/transcripts/catchup?since_transcript=0&since_line=0`,
-                "_blank",
-              )
-            }
-            className="!px-1.5 !py-px !text-[10px]"
-          >
-            Open
+          <ActionBtn onClick={downloadTranscriptCatchup} className="!px-1.5 !py-px !text-[10px]">
+            Download
           </ActionBtn>
         </div>
       )}
@@ -381,12 +433,10 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
                   {time} · {t.line_count} lines · {formatBytes(t.byte_size)}
                 </span>
                 <ActionBtn
-                  onClick={() =>
-                    window.open(`${location.origin}/api/v1/transcripts/${t.number}`, "_blank")
-                  }
+                  onClick={() => downloadTranscriptSnapshot(t.number)}
                   className="!px-1.5 !py-px !text-[10px]"
                 >
-                  Open
+                  Download
                 </ActionBtn>
               </div>
             );

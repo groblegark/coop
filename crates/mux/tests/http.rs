@@ -30,6 +30,9 @@ fn test_config() -> MuxConfig {
         max_health_failures: 3,
         launch: None,
         credential_config: None,
+        prewarm_capacity: 64,
+        prewarm_poll_ms: 15000,
+        state_dir: Some(std::env::temp_dir().join(format!("coopmux-test-{}", std::process::id()))),
         #[cfg(debug_assertions)]
         hot: false,
     }
@@ -40,10 +43,11 @@ fn test_state() -> Arc<MuxState> {
 }
 
 fn test_state_with_broker(accounts: Vec<AccountConfig>) -> Arc<MuxState> {
-    let config = CredentialConfig { accounts };
+    let cred_config = CredentialConfig { accounts };
     let (event_tx, _rx) = tokio::sync::broadcast::channel(64);
-    let broker = CredentialBroker::new(config, event_tx);
-    let mut state = MuxState::new(test_config(), CancellationToken::new());
+    let mux_config = test_config();
+    let broker = CredentialBroker::new(cred_config, event_tx, Some(mux_config.state_dir()));
+    let mut state = MuxState::new(mux_config, CancellationToken::new());
     state.credential_broker = Some(broker);
     Arc::new(state)
 }
@@ -271,5 +275,71 @@ async fn credentials_reauth_without_broker_returns_400() -> anyhow::Result<()> {
     let server = test_server(state);
     let resp = server.post("/api/v1/credentials/reauth").json(&serde_json::json!({})).await;
     resp.assert_status(axum::http::StatusCode::BAD_REQUEST);
+    Ok(())
+}
+
+#[tokio::test]
+async fn launch_without_command_returns_400() -> anyhow::Result<()> {
+    // No launch command configured.
+    let state = test_state();
+    let server = test_server(state);
+    let resp = server.post("/api/v1/sessions/launch").await;
+    resp.assert_status(axum::http::StatusCode::BAD_REQUEST);
+    Ok(())
+}
+
+#[tokio::test]
+async fn launch_with_empty_body() -> anyhow::Result<()> {
+    // Backward compatibility — empty body should work.
+    let mut cfg = test_config();
+    cfg.launch = Some("echo 'launched'".into());
+    let state = Arc::new(MuxState::new(cfg, CancellationToken::new()));
+    let server = test_server(state);
+
+    let resp = server.post("/api/v1/sessions/launch").await;
+    resp.assert_status_ok();
+
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["launched"], true);
+    Ok(())
+}
+
+#[tokio::test]
+async fn launch_with_env_vars() -> anyhow::Result<()> {
+    // Launch with user-supplied env vars in request body.
+    let mut cfg = test_config();
+    cfg.launch = Some("echo 'launched with env'".into());
+    let state = Arc::new(MuxState::new(cfg, CancellationToken::new()));
+    let server = test_server(state);
+
+    let resp = server
+        .post("/api/v1/sessions/launch")
+        .json(&serde_json::json!({
+            "env": {
+                "GIT_REPO": "https://github.com/user/repo",
+                "WORKING_DIR": "/workspace"
+            }
+        }))
+        .await;
+    resp.assert_status_ok();
+
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["launched"], true);
+    Ok(())
+}
+
+#[tokio::test]
+async fn launch_with_empty_env_object() -> anyhow::Result<()> {
+    // Empty env object should behave the same as no body.
+    let mut cfg = test_config();
+    cfg.launch = Some("echo 'launched'".into());
+    let state = Arc::new(MuxState::new(cfg, CancellationToken::new()));
+    let server = test_server(state);
+
+    let resp = server.post("/api/v1/sessions/launch").json(&serde_json::json!({ "env": {} })).await;
+    resp.assert_status_ok();
+
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["launched"], true);
     Ok(())
 }

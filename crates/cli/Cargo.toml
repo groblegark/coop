@@ -40,7 +40,6 @@ tonic.workspace = true
 tonic-prost.workspace = true
 futures-util.workspace = true
 parking_lot = "0.12.5"
-rand = "0.9"
 tempfile.workspace = true
 uuid.workspace = true
 reqwest = { workspace = true, features = ["blocking"] }

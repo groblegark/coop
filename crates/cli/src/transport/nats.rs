@@ -29,22 +29,28 @@ pub struct NatsAuth {
 /// Each published message is a JSON object with the `ServerMessage` fields
 /// plus injected identity fields:
 /// - `session_id` — current agent session ID (tracks switches)
+/// - `agent` — agent type (e.g. "claude", "gemini")
 /// - `k8s` — optional Kubernetes pod metadata (when running in K8s)
+/// - Any `COOP_LABEL_*` env vars as lowercase keys.
 pub struct NatsPublisher {
     client: async_nats::Client,
     prefix: String,
-    /// Static K8s metadata detected at construction time.
-    /// `Value::Null` when not running in Kubernetes.
-    k8s_metadata: Value,
+    /// Static session metadata detected at construction time.
+    metadata: Value,
 }
 
 impl NatsPublisher {
     /// Connect to the NATS server at `url` with optional authentication.
-    pub async fn connect(url: &str, prefix: &str, auth: NatsAuth) -> anyhow::Result<Self> {
+    pub async fn connect(
+        url: &str,
+        prefix: &str,
+        agent: &str,
+        auth: NatsAuth,
+    ) -> anyhow::Result<Self> {
         let opts = build_connect_options(auth).await?;
         let client = opts.connect(url).await?;
-        let k8s_metadata = crate::mux_client::detect_metadata();
-        Ok(Self { client, prefix: prefix.to_owned(), k8s_metadata })
+        let metadata = crate::mux_client::detect_metadata(agent);
+        Ok(Self { client, prefix: prefix.to_owned(), metadata })
     }
 
     /// Subscribe to all broadcast channels and publish events until shutdown.
@@ -130,8 +136,8 @@ impl NatsPublisher {
                 let session_id = store.session_id.read().await.clone();
                 obj.insert("session_id".to_owned(), Value::String(session_id));
 
-                // Inject K8s metadata when available.
-                if let Value::Object(ref meta) = self.k8s_metadata {
+                // Inject session metadata (agent type, labels, k8s).
+                if let Value::Object(ref meta) = self.metadata {
                     for (k, v) in meta {
                         obj.insert(k.clone(), v.clone());
                     }

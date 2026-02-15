@@ -3,7 +3,7 @@
 
 FROM rust:1.92-bookworm AS builder
 ARG TARGETARCH
-RUN apt-get update && apt-get install -y protobuf-compiler musl-tools \
+RUN apt-get update && apt-get install -y protobuf-compiler musl-tools linux-headers-amd64 \
     && rustup target add x86_64-unknown-linux-musl \
     && rustup target add aarch64-unknown-linux-musl
 ENV RUSTC_WRAPPER=""
