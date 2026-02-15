@@ -17,7 +17,7 @@ pub struct MuxConfig {
     pub auth_token: Option<String>,
 
     /// Screen poll interval in milliseconds.
-    #[arg(long, default_value_t = 500, env = "COOP_MUX_SCREEN_POLL_MS")]
+    #[arg(long, default_value_t = 1000, env = "COOP_MUX_SCREEN_POLL_MS")]
     pub screen_poll_ms: u64,
 
     /// Status poll interval in milliseconds.
