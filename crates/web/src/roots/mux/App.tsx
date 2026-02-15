@@ -12,6 +12,7 @@ import { LaunchCard, sessionSubtitle, sessionTitle, Tile } from "@/components/Ti
 import { apiGet } from "@/hooks/useApiClient";
 import { useFileUpload } from "@/hooks/useFileUpload";
 import { type ConnectionStatus, useWebSocket, WsRpc } from "@/hooks/useWebSocket";
+import { parseAnsiLine, spanStyle } from "@/lib/ansi";
 import { b64decode, b64encode } from "@/lib/base64";
 import { EXPANDED_FONT_SIZE, MONO_FONT, THEME } from "@/lib/constants";
 import type { MuxMetadata, MuxWsMessage, PromptContext, WsMessage } from "@/lib/types";
@@ -52,6 +53,7 @@ function AppInner() {
   const expandedWsRef = useRef<WebSocket | null>(null);
   const expandedRpcRef = useRef<WsRpc | null>(null);
   const [expandedWsStatus, setExpandedWsStatus] = useState<ConnectionStatus>("disconnected");
+  const [expandedReady, setExpandedReady] = useState(false);
 
   // Prompt/lastMessage for expanded inspector (from WS stream)
   const [expandedPrompt, setExpandedPrompt] = useState<PromptContext | null>(null);
@@ -186,6 +188,12 @@ function AppInner() {
 
         if (msg.event === "pty" || msg.event === "replay") {
           info.term?.write(b64decode(msg.data));
+          if (msg.event === "replay") {
+            // Replay received — switch from HTML preview to live terminal
+            if (info.term) info.term.options.disableStdin = false;
+            info.term?.focus();
+            setExpandedReady(true);
+          }
         } else if (msg.event === "transition") {
           info.state = msg.next;
           setSessions((prev) => new Map(prev));
@@ -216,7 +224,7 @@ function AppInner() {
       theme: THEME,
       cursorBlink: false,
       cursorInactiveStyle: "none",
-      disableStdin: false,
+      disableStdin: true,
       convertEol: false,
     });
     const fit = new FitAddon();
@@ -240,21 +248,9 @@ function AppInner() {
       }
     });
 
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => {
-        webgl.dispose();
-        if (info.webgl === webgl) info.webgl = null;
-      });
-      term.loadAddon(webgl);
-      info.webgl = webgl;
-    } catch {
-      // canvas fallback
-    }
-
     info.term = term;
     info.fit = fit;
-    // fit + WS connect deferred to onReady (after Terminal mounts xterm in overlay)
+    // WebGL, fit, and WS connect deferred to onReady (after Terminal mounts xterm in overlay)
   }, []);
 
   const toggleExpand = useCallback(
@@ -264,6 +260,7 @@ function AppInner() {
         setExpandedSession(null);
       } else {
         if (expandedRef.current) collapseSession(expandedRef.current);
+        setExpandedReady(false);
         setExpandedSession(id);
         setFocusedSession(id);
         expandSession(id);
@@ -571,7 +568,7 @@ function AppInner() {
         {expandedSession &&
           (() => {
             const info = sessions.get(expandedSession);
-            if (!info?.term || !info.fit) return null;
+            if (!info) return null;
             return (
               <TerminalLayout
                 className="absolute inset-y-0 right-0 z-[100] transition-[left] duration-200"
@@ -616,17 +613,68 @@ function AppInner() {
                   />
                 }
               >
-                <Terminal
-                  instance={info.term}
-                  fitAddon={info.fit}
-                  onReady={() => {
-                    info.fit?.fit();
-                    info.term?.focus();
-                    connectExpandedWs(info.id, info);
-                  }}
-                  theme={THEME}
-                  className="h-full min-w-0 flex-1 py-4 pl-4"
-                />
+                <div className="relative min-w-0 flex-1">
+                  {info.term && info.fit && (
+                    <Terminal
+                      instance={info.term}
+                      fitAddon={info.fit}
+                      onReady={() => {
+                        if (info.term && !info.webgl) {
+                          try {
+                            const webgl = new WebglAddon();
+                            webgl.onContextLoss(() => {
+                              webgl.dispose();
+                              if (info.webgl === webgl) info.webgl = null;
+                            });
+                            info.term.loadAddon(webgl);
+                            info.webgl = webgl;
+                          } catch {
+                            // canvas fallback
+                          }
+                        }
+                        info.fit?.fit();
+                        connectExpandedWs(info.id, info);
+                      }}
+                      theme={THEME}
+                      className={`h-full py-4 pl-4 ${expandedReady ? "" : "invisible"}`}
+                    />
+                  )}
+                  {!expandedReady && (
+                    <div
+                      className="absolute inset-0 overflow-hidden py-4 pl-4"
+                      style={{ background: THEME.background }}
+                    >
+                      {info.lastScreenLines && (
+                        <pre
+                          style={{
+                            margin: 0,
+                            fontFamily: MONO_FONT,
+                            fontSize: EXPANDED_FONT_SIZE,
+                            lineHeight: 1.2,
+                            whiteSpace: "pre",
+                            color: THEME.foreground,
+                          }}
+                        >
+                          {info.lastScreenLines.map((line, i) => (
+                            <div key={i}>
+                              {parseAnsiLine(line).map((span, j) => {
+                                const s = spanStyle(span, THEME);
+                                return s ? (
+                                  <span key={j} style={s}>
+                                    {span.text}
+                                  </span>
+                                ) : (
+                                  <span key={j}>{span.text}</span>
+                                );
+                              })}
+                              {"\n"}
+                            </div>
+                          ))}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                </div>
               </TerminalLayout>
             );
           })()}

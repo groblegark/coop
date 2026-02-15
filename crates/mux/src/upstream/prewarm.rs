@@ -134,30 +134,19 @@ pub fn spawn_prewarm_task(
                             .unwrap_or("unknown")
                             .to_owned(),
                         pid: value.get("pid").and_then(|v| v.as_i64()).map(|v| v as i32),
-                        uptime_secs: value
-                            .get("uptime_secs")
-                            .and_then(|v| v.as_i64())
-                            .unwrap_or(0),
+                        uptime_secs: value.get("uptime_secs").and_then(|v| v.as_i64()).unwrap_or(0),
                         exit_code: value
                             .get("exit_code")
                             .and_then(|v| v.as_i64())
                             .map(|v| v as i32),
-                        screen_seq: value
-                            .get("screen_seq")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0),
-                        bytes_read: value
-                            .get("bytes_read")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0),
+                        screen_seq: value.get("screen_seq").and_then(|v| v.as_u64()).unwrap_or(0),
+                        bytes_read: value.get("bytes_read").and_then(|v| v.as_u64()).unwrap_or(0),
                         bytes_written: value
                             .get("bytes_written")
                             .and_then(|v| v.as_u64())
                             .unwrap_or(0),
-                        ws_clients: value
-                            .get("ws_clients")
-                            .and_then(|v| v.as_i64())
-                            .unwrap_or(0) as i32,
+                        ws_clients: value.get("ws_clients").and_then(|v| v.as_i64()).unwrap_or(0)
+                            as i32,
                         fetched_at: epoch_ms(),
                     };
                     *entry.cached_status.write().await = Some(status);
