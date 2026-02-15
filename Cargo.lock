@@ -470,7 +470,6 @@ dependencies = [
  "parking_lot",
  "proptest",
  "prost",
- "rand 0.9.2",
  "regex",
  "reqwest",
  "rustix",
@@ -512,10 +511,9 @@ dependencies = [
 
 [[package]]
 name = "coopmux"
-version = "0.11.22"
+version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-nats",
  "axum",
  "axum-test",
  "base64",
@@ -523,6 +521,7 @@ dependencies = [
  "clap",
  "futures-util",
  "hyper-util",
+ "indexmap",
  "rand 0.9.2",
  "reqwest",
  "serde",

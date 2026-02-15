@@ -123,11 +123,9 @@ pub async fn ws_mux_handler(
 ) -> impl IntoResponse {
     // Validate auth: accept token from query param or Authorization header.
     if state.config.auth_token.is_some() {
-        let query_ok = query
-            .token
-            .as_ref()
-            .map(|t| auth::validate_ws_query(t, state.config.auth_token.as_deref()).is_ok())
-            .unwrap_or(false);
+        let query_str = query.token.as_ref().map(|t| format!("token={t}")).unwrap_or_default();
+        let query_ok =
+            auth::validate_ws_query(&query_str, state.config.auth_token.as_deref()).is_ok();
         let header_ok = auth::validate_bearer(&headers, state.config.auth_token.as_deref()).is_ok();
 
         if !query_ok && !header_ok {

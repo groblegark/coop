@@ -4,6 +4,7 @@
 //! Credential broker: manages account states, runs refresh loops, emits events.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -50,13 +51,19 @@ pub struct CredentialBroker {
     pending_auths: RwLock<HashMap<String, PendingAuth>>,
     event_tx: broadcast::Sender<CredentialEvent>,
     http: reqwest::Client,
+    /// Directory for credential persistence. `None` disables persistence (used in tests).
+    persist_dir: Option<PathBuf>,
 }
 
 impl CredentialBroker {
     /// Create a new broker from config.
+    ///
+    /// `persist_dir` controls where credentials are saved to disk. Pass `None`
+    /// to disable persistence entirely (useful in tests).
     pub fn new(
         config: CredentialConfig,
         event_tx: broadcast::Sender<CredentialEvent>,
+        persist_dir: Option<PathBuf>,
     ) -> Arc<Self> {
         let mut accounts = HashMap::new();
         let mut static_names = StaticNames::new();
@@ -83,6 +90,7 @@ impl CredentialBroker {
                 .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
                 .build()
                 .unwrap_or_default(),
+            persist_dir,
         })
     }
 
@@ -666,10 +674,12 @@ impl CredentialBroker {
 
     /// Persist current credentials to disk.
     async fn persist(&self, accounts: &HashMap<String, AccountState>) {
-        let dir = crate::credential::state_dir();
+        let Some(ref dir) = self.persist_dir else {
+            return;
+        };
         let path = dir.join("credentials.json");
         if !dir.exists() {
-            if let Err(e) = std::fs::create_dir_all(&dir) {
+            if let Err(e) = std::fs::create_dir_all(dir) {
                 tracing::warn!(err = %e, "failed to create state dir");
                 return;
             }

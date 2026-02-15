@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
-import { apiPost } from "@/hooks/useApiClient";
 import type { SessionInfo } from "./App";
+import { LaunchDialog } from "./LaunchDialog";
 import { useMux } from "./MuxContext";
 
 export interface SessionSidebarProps {
@@ -62,12 +62,10 @@ export function SessionSidebar({
 }: SessionSidebarProps) {
   const { sidebarCollapsed: collapsed } = useMux();
   const sorted = useMemo(() => sortByAttention(sessions), [sessions]);
-  const [launching, setLaunching] = useState(false);
+  const [showLaunchDialog, setShowLaunchDialog] = useState(false);
 
-  const handleLaunch = useCallback(async () => {
-    setLaunching(true);
-    await apiPost("/api/v1/sessions/launch");
-    setTimeout(() => setLaunching(false), 2000);
+  const handleLaunchClick = useCallback(() => {
+    setShowLaunchDialog(true);
   }, []);
 
   if (sessions.length === 0 && !launchAvailable) return null;
@@ -129,24 +127,25 @@ export function SessionSidebar({
         (collapsed ? (
           <button
             type="button"
-            className="flex w-full items-center justify-center border-t border-[#21262d] py-2 text-zinc-500 hover:bg-[#1a1f26] hover:text-blue-400 disabled:opacity-50"
-            onClick={handleLaunch}
-            disabled={launching}
+            className="flex w-full items-center justify-center border-t border-[#21262d] py-2 text-zinc-500 hover:bg-[#1a1f26] hover:text-blue-400"
+            onClick={handleLaunchClick}
             title="New session"
           >
-            <span className="text-base leading-none">{launching ? "\u2026" : "+"}</span>
+            <span className="text-base leading-none">+</span>
           </button>
         ) : (
           <button
             type="button"
-            className="flex w-full items-center gap-2 border-t border-[#21262d] px-3 py-2 text-[12px] text-zinc-500 hover:bg-[#1a1f26] hover:text-blue-400 disabled:opacity-50"
-            onClick={handleLaunch}
-            disabled={launching}
+            className="flex w-full items-center gap-2 border-t border-[#21262d] px-3 py-2 text-[12px] text-zinc-500 hover:bg-[#1a1f26] hover:text-blue-400"
+            onClick={handleLaunchClick}
           >
-            <span className="text-base leading-none">{launching ? "\u2026" : "+"}</span>
+            <span className="text-base leading-none">+</span>
             <span>New Session</span>
           </button>
         ))}
+
+      {/* Launch dialog */}
+      {showLaunchDialog && <LaunchDialog onClose={() => setShowLaunchDialog(false)} />}
     </div>
   );
 }

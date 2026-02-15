@@ -85,7 +85,28 @@ pub fn parse_claude_state(json: &Value) -> Option<AgentState> {
     // "[Request interrupted by user]"; rejecting a tool use writes an entry
     // with `toolUseResult: "User rejected tool use"`. Both are turn
     // boundaries — the agent is idle. Other user messages → working.
+    //
+    // Local commands (e.g. `/model`, `/help`) write meta entries and
+    // entries whose content is a plain string with XML-like tags
+    // (`<command-name>`, `<local-command-stdout>`, `<local-command-caveat>`).
+    // These never trigger an API turn, so emitting Working would leave
+    // the session stuck — ignore them.
     if entry_type == Some("user") {
+        // Meta entries (e.g. local-command-caveat wrappers) are not real turns.
+        if json.get("isMeta").and_then(|v| v.as_bool()).unwrap_or(false) {
+            return None;
+        }
+
+        // Local command entries have string content with XML-like markers.
+        if let Some(content_str) =
+            json.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_str())
+        {
+            let trimmed = content_str.trim_start();
+            if trimmed.starts_with("<command-name>") || trimmed.starts_with("<local-command-") {
+                return None;
+            }
+        }
+
         let is_interrupt = json
             .get("toolUseResult")
             .and_then(|v| v.as_str())

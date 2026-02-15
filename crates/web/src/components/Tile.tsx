@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
 import { AgentBadge } from "@/components/AgentBadge";
 import { TerminalPreview } from "@/components/TerminalPreview";
-import { apiPost } from "@/hooks/useApiClient";
 import type { SessionInfo } from "@/roots/mux/App";
+import { LaunchDialog } from "@/roots/mux/LaunchDialog";
 
 export function sessionTitle(info: SessionInfo): string {
   if (info.metadata?.k8s?.pod) return info.metadata.k8s.pod;
@@ -63,33 +63,30 @@ export function Tile({
         </div>
       </div>
 
-      <TerminalPreview
-        instance={info.term}
-        lastScreenLines={info.lastScreenLines}
-        sourceCols={info.sourceCols}
-      />
+      <TerminalPreview lastScreenLines={info.lastScreenLines} sourceCols={info.sourceCols} />
     </div>
   );
 }
 
 export function LaunchCard() {
-  const [status, setStatus] = useState<"idle" | "launching">("idle");
+  const [showDialog, setShowDialog] = useState(false);
 
-  const handleLaunch = useCallback(async () => {
-    setStatus("launching");
-    await apiPost("/api/v1/sessions/launch");
-    setTimeout(() => setStatus("idle"), 2000);
+  const handleClick = useCallback(() => {
+    setShowDialog(true);
   }, []);
 
   return (
-    <button
-      type="button"
-      className="flex h-[280px] cursor-pointer items-center justify-center rounded-lg border border-dashed border-[#21262d] text-zinc-500 transition-colors hover:border-[#444c56] hover:text-blue-400 disabled:opacity-50"
-      onClick={handleLaunch}
-      disabled={status === "launching"}
-      title="Launch new session"
-    >
-      <span className="text-3xl">{status === "launching" ? "\u2026" : "+"}</span>
-    </button>
+    <>
+      <button
+        type="button"
+        className="flex h-[280px] cursor-pointer items-center justify-center rounded-lg border border-dashed border-[#21262d] text-zinc-500 transition-colors hover:border-[#444c56] hover:text-blue-400"
+        onClick={handleClick}
+        title="Launch new session"
+      >
+        <span className="text-3xl">+</span>
+      </button>
+
+      {showDialog && <LaunchDialog onClose={() => setShowDialog(false)} />}
+    </>
   );
 }

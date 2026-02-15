@@ -155,8 +155,11 @@ async fn run_loop(
     let mut backoff_ms = 100u64;
     let max_backoff_ms = 5000u64;
     let mut rid_counter: u64 = 0;
-    // Pending correlation IDs: request_id -> originating ClientId.
-    let mut pending: HashMap<String, ClientId> = HashMap::new();
+    // Pending correlation IDs: request_id -> (originating ClientId, client_had_request_id).
+    // The bool tracks whether the downstream client included a `request_id` in its message.
+    // When false, we strip the bridge-assigned `request_id` from the response so the client
+    // sees it as a streaming event rather than an RPC response.
+    let mut pending: HashMap<String, (ClientId, bool)> = HashMap::new();
 
     loop {
         if cancel.is_cancelled() {
@@ -184,10 +187,18 @@ async fn run_loop(
 
                                     if let Some(rid) = info.request_id {
                                         // Response: route to originator only.
-                                        if let Some(cid) = pending.remove(rid) {
+                                        if let Some((cid, client_had_rid)) = pending.remove(rid) {
                                             let guard = clients.read().await;
                                             if let Some(slot) = guard.get(&cid) {
-                                                let _ = slot.tx.send(shared);
+                                                // If the client sent a fire-and-forget (no request_id),
+                                                // strip the bridge-assigned request_id so the client
+                                                // sees it as a streaming event.
+                                                let msg = if client_had_rid {
+                                                    shared
+                                                } else {
+                                                    Arc::from(strip_request_id(&text))
+                                                };
+                                                let _ = slot.tx.send(msg);
                                             }
                                         }
                                     } else {
@@ -216,8 +227,9 @@ async fn run_loop(
                         msg = downstream_rx.recv() => {
                             match msg {
                                 Some((client_id, text)) => {
+                                    let client_had_rid = extract_route_info(&text).request_id.is_some();
                                     let stamped = stamp_request_id(&mut rid_counter, &text);
-                                    pending.insert(stamped.request_id.clone(), client_id);
+                                    pending.insert(stamped.request_id.clone(), (client_id, client_had_rid));
                                     if write.send(Message::Text(stamped.text.into())).await.is_err() {
                                         tracing::debug!(session_id = %entry_id, "upstream WS write failed");
                                         break;
@@ -292,6 +304,25 @@ fn stamp_request_id(counter: &mut u64, json: &str) -> StampedMessage {
     };
     StampedMessage { text, request_id: rid }
 }
+
+/// Remove the `request_id` field from a JSON message.
+///
+/// Used when forwarding a response to a client that sent the original message without
+/// a `request_id` (fire-and-forget). Stripping the bridge-assigned ID ensures the client
+/// sees the response as a streaming event rather than an RPC response.
+fn strip_request_id(json: &str) -> String {
+    if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(json) {
+        if let Some(obj) = value.as_object_mut() {
+            obj.remove("request_id");
+        }
+        return serde_json::to_string(&value).unwrap_or_else(|_| json.to_owned());
+    }
+    json.to_owned()
+}
+
+#[cfg(test)]
+#[path = "bridge_tests.rs"]
+mod tests;
 
 /// Build the upstream WebSocket URL from an HTTP base URL.
 fn build_ws_url(base_url: &str, auth_token: Option<&str>, subscribe: &str) -> String {

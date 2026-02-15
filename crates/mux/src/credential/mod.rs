@@ -147,6 +147,8 @@ pub fn provider_default_pkce_auth_url(provider: &str) -> Option<&'static str> {
 /// PKCE flow: token endpoint.
 pub fn provider_default_pkce_token_url(provider: &str) -> Option<&'static str> {
     match provider.to_lowercase().as_str() {
+        // TODO(validate): platform.claude.com works (fork-tested); claude.ai may not
+        // "claude" | "anthropic" => Some("https://claude.ai/oauth/token"),
         "claude" | "anthropic" => Some("https://platform.claude.com/v1/oauth/token"),
         _ => None,
     }

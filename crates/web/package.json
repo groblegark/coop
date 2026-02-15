@@ -5,6 +5,7 @@
   "scripts": {
     "build": "bun run build.ts",
     "check": "tsc --noEmit && biome check src",
+    "test": "vitest run",
     "fix": "biome check --fix src",
     "dev:terminal": "vite --config vite.config.terminal.ts",
     "dev:mux": "vite --config vite.config.mux.ts"
@@ -25,6 +26,7 @@
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3",
     "vite": "7.3.1",
-    "vite-plugin-singlefile": "^2.3.0"
+    "vite-plugin-singlefile": "^2.3.0",
+    "vitest": "^4.0.18"
   }
 }

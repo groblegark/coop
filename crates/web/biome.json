@@ -25,7 +25,8 @@
         "useLiteralKeys": "off"
       },
       "suspicious": {
-        "noArrayIndexKey": "off"
+        "noArrayIndexKey": "off",
+        "noFocusedTests": "off"
       },
       "style": {
         "noNonNullAssertion": "off"

@@ -3,6 +3,7 @@
 
 //! HTTP handlers for the mux proxy.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
@@ -67,6 +68,42 @@ pub struct LaunchResponse {
     pub launched: bool,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct LaunchRequest {
+    /// Optional environment variables to inject into the launched session.
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+}
+
+// -- Helpers ------------------------------------------------------------------
+
+/// Environment variable keys that are reserved by the system and cannot be
+/// overridden by user-supplied env vars in launch requests.
+const RESERVED_ENV_KEYS: &[&str] = &[
+    // Coop system vars
+    "COOP_MUX_URL",
+    "COOP_MUX_TOKEN",
+    "COOP_URL",
+    "COOP_SESSION_ID",
+    // K8s vars (injected by downward API)
+    "POD_NAME",
+    "POD_NAMESPACE",
+    "POD_IP",
+    "POD_UID",
+    // Credential vars (managed by broker)
+    "ANTHROPIC_API_KEY",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+];
+
+/// Filter out reserved env vars from user-supplied map.
+fn filter_user_env(env: HashMap<String, String>) -> HashMap<String, String> {
+    env.into_iter()
+        .filter(|(k, _)| !RESERVED_ENV_KEYS.iter().any(|reserved| k == *reserved))
+        .collect()
+}
+
 // -- Handlers -----------------------------------------------------------------
 
 /// `GET /api/v1/health`
@@ -110,19 +147,18 @@ pub async fn register_session(
         cached_screen: tokio::sync::RwLock::new(None),
         cached_status: tokio::sync::RwLock::new(None),
         health_failures: std::sync::atomic::AtomicU32::new(0),
-        cancel: cancel.clone(),
+        cancel,
         ws_bridge: tokio::sync::RwLock::new(None),
     });
 
-    // Check if this is a heartbeat re-registration or a new session.
-    let is_new = {
+    let (is_new, stale) = {
         let mut sessions = s.sessions.write().await;
         if sessions.contains_key(&id) {
             // Heartbeat re-registration: keep the existing entry so that
             // pollers/feeds (which hold Arc clones of the old entry) continue
             // writing to the same cached_screen/cached_status that screen_batch
             // reads.  Replacing the entry would orphan their writes.
-            false
+            (false, vec![])
         } else {
             // Evict any stale session(s) pointing to the same URL (e.g. after a
             // pod restart generated a new session UUID for the same coop instance).
@@ -147,7 +183,7 @@ pub async fn register_session(
                 }
             }
             sessions.insert(id.clone(), Arc::clone(&entry));
-            true
+            (true, stale)
         }
     };
     // Clean up watchers for any evicted sessions (separate lock to avoid
@@ -155,8 +191,24 @@ pub async fn register_session(
     // Note: evicted sessions already had their cancel tokens triggered above,
     // so their pollers/feeds will stop. This just cleans the watchers map.
     if is_new {
-        // Start background screen/status pollers for this session.
-        crate::upstream::poller::spawn_screen_poller(entry, &s.config, cancel);
+        // Clean up watchers + prewarm for evicted stale sessions.
+        if !stale.is_empty() {
+            let mut watchers = s.feed.watchers.write().await;
+            for stale_id in &stale {
+                if let Some(ws) = watchers.remove(stale_id) {
+                    ws.feed_cancel.cancel();
+                    ws.poller_cancel.cancel();
+                }
+            }
+            drop(watchers);
+            let mut prewarm = s.prewarm.lock().await;
+            for stale_id in &stale {
+                prewarm.remove(stale_id);
+            }
+        }
+
+        // Add to pre-warm cache for slow-poll background updates.
+        s.prewarm.lock().await.touch(&id);
 
         // Notify connected dashboard clients about the new session.
         let _ = s.feed.event_tx.send(MuxEvent::SessionOnline {
@@ -343,7 +395,21 @@ pub async fn launch_config(State(s): State<Arc<MuxState>>) -> impl IntoResponse 
 }
 
 /// `POST /api/v1/sessions/launch` — spawn a new session via the configured launch command.
-pub async fn launch_session(State(s): State<Arc<MuxState>>) -> impl IntoResponse {
+///
+/// Accepts optional JSON body with environment variables:
+/// ```json
+/// {
+///   "env": {
+///     "GIT_REPO": "https://github.com/user/repo",
+///     "WORKING_DIR": "/workspace/project",
+///     "GIT_BRANCH": "feature-branch"
+///   }
+/// }
+/// ```
+pub async fn launch_session(
+    State(s): State<Arc<MuxState>>,
+    body: Option<Json<LaunchRequest>>,
+) -> impl IntoResponse {
     let launch = match &s.config.launch {
         Some(cmd) => cmd.clone(),
         None => {
@@ -357,11 +423,22 @@ pub async fn launch_session(State(s): State<Arc<MuxState>>) -> impl IntoResponse
 
     let mut cmd = tokio::process::Command::new("sh");
     cmd.args(["-c", &launch]);
+
+    // 1. First, inject user-supplied env vars (if any), filtered for safety.
+    if let Some(Json(req)) = body {
+        let filtered = filter_user_env(req.env);
+        for (key, value) in filtered {
+            cmd.env(key, value);
+        }
+    }
+
+    // 2. Then inject system vars (can override user vars if needed).
     cmd.env("COOP_MUX_URL", &mux_url);
     if let Some(token) = &s.config.auth_token {
         cmd.env("COOP_MUX_TOKEN", token);
     }
-    // Inject healthy account credentials so the agent CLI has them at startup.
+
+    // 3. Finally inject credentials (highest priority — cannot be overridden).
     if let Some(ref broker) = s.credential_broker {
         let status_list = broker.status_list().await;
         for acct in &status_list {
@@ -375,6 +452,7 @@ pub async fn launch_session(State(s): State<Arc<MuxState>>) -> impl IntoResponse
             }
         }
     }
+
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::inherit());
     cmd.stderr(std::process::Stdio::inherit());

@@ -85,7 +85,11 @@ pub async fn distribute_to_sessions(
             }
         }
 
-        tracing::info!(session = %entry.id, account, "distributor: credentials pushed and switch triggered");
+        if switch {
+            tracing::info!(session = %entry.id, account, "distributor: credentials pushed and switch triggered");
+        } else {
+            tracing::info!(session = %entry.id, account, "distributor: credentials pushed");
+        }
         ok += 1;
     }
     tracing::info!(account, ok, failed, "distributor: distribution complete");

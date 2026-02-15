@@ -24,13 +24,14 @@ use super::prompt::extract_ask_user_from_tool_input;
 
 /// Map a Claude hook event to an `(AgentState, cause)` pair.
 ///
+/// - `TurnStart` → `Working` (agent begins processing)
 /// - `TurnEnd` / `SessionEnd` → `Idle`
 /// - `Notification(idle_prompt)` → `Idle`
 /// - `Notification(permission_prompt)` → `Prompt(Permission)`
 /// - `ToolBefore(AskUserQuestion)` → `Prompt(Question)` with context
 /// - `ToolBefore(ExitPlanMode)` → `Prompt(Plan)`
 /// - `ToolBefore(EnterPlanMode)` → `Working`
-/// - `ToolAfter` → `Working`
+/// - `ToolAfter` → ignored (doesn't indicate agent state; could be command mode or mid-turn)
 ///
 /// Returns `None` for events that should be ignored (e.g. `SessionStart`, unrecognised notifications).
 pub fn map_claude_hook(event: HookEvent) -> Option<(AgentState, String)> {
@@ -38,7 +39,7 @@ pub fn map_claude_hook(event: HookEvent) -> Option<(AgentState, String)> {
         HookEvent::TurnEnd | HookEvent::SessionEnd => {
             Some((AgentState::Idle, "hook:idle".to_owned()))
         }
-        HookEvent::ToolAfter { .. } => Some((AgentState::Working, "hook:working".into())),
+        HookEvent::ToolAfter { .. } => None, // ignore: doesn't indicate agent state
         HookEvent::Notification { notification_type } => match notification_type.as_str() {
             "idle_prompt" => Some((AgentState::Idle, "hook:idle".into())),
             "permission_prompt" => Some((
