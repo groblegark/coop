@@ -144,8 +144,12 @@ impl CoopBuilder {
         ]);
         args.extend(cmd.iter().map(|s| s.to_string()));
 
+        let state_dir = std::env::temp_dir().join(format!("coop-spec-{}", std::process::id()));
+
         let child = Command::new(&binary)
             .args(&args)
+            .env("COOP_MUX_URL", "") // Disable mux registration in tests
+            .env("COOP_MUX_STATE_DIR", &state_dir) // Isolate credential persistence
             .env("COOP_DRAIN_TIMEOUT_MS", "5000")
             .env("COOP_SHUTDOWN_TIMEOUT_MS", "2000")
             .stdout(Stdio::null())
