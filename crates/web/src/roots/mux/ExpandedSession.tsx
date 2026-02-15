@@ -127,10 +127,11 @@ export function ExpandedSession({
 
     ws.onopen = () => {
       setWsStatus("connected");
-      // Resize first so PTY dimensions match XTerm before replay snapshot
-      rpc.request({ event: "resize", cols: term.cols, rows: term.rows }).then(() => {
-        ws.send(JSON.stringify({ event: "replay:get", offset: 0 }));
-      });
+      // Resize before replay so the PTY dimensions match XTerm when the
+      // ring buffer snapshot is captured. WS messages are ordered, so the
+      // server processes resize before replay:get — no need to await.
+      ws.send(JSON.stringify({ event: "resize", cols: term.cols, rows: term.rows }));
+      ws.send(JSON.stringify({ event: "replay:get", offset: 0 }));
 
       rpc.request({ event: "agent:get" }).then((res) => {
         if (res.ok && res.json) {

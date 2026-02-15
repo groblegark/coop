@@ -60,15 +60,14 @@ export function App() {
   useEffect(() => {
     setWsStatus(connectionStatus);
     if (connectionStatus === "connected") {
-      // Resize first so PTY dimensions match XTerm before replay snapshot
+      // Resize before replay so the PTY dimensions match XTerm when the
+      // ring buffer snapshot is captured. WS messages are ordered, so the
+      // server processes resize before replay:get — no need to await.
       const term = termRef.current?.terminal;
       if (term) {
-        request({ event: "resize", cols: term.cols, rows: term.rows })
-          .then(() => send({ event: "replay:get", offset: 0 }))
-          .catch(() => send({ event: "replay:get", offset: 0 }));
-      } else {
-        send({ event: "replay:get", offset: 0 });
+        send({ event: "resize", cols: term.cols, rows: term.rows });
       }
+      send({ event: "replay:get", offset: 0 });
       // Initial agent state poll
       request({ event: "agent:get" })
         .then((res) => {
