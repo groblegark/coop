@@ -24,6 +24,8 @@ pub struct MuxRegistration {
     pub coop_url: String,
     /// Auth token for this coop instance (passed to mux for upstream calls).
     pub coop_token: Option<String>,
+    /// Agent type (e.g. "claude", "gemini").
+    pub agent: String,
 }
 
 /// Spawn the mux registration client.
@@ -35,6 +37,7 @@ pub async fn spawn_if_configured(
     session_id: &str,
     default_port: Option<u16>,
     auth_token: Option<&str>,
+    agent: &str,
     shutdown: CancellationToken,
 ) {
     let mux_url = match std::env::var("COOP_MUX_URL") {
@@ -55,6 +58,7 @@ pub async fn spawn_if_configured(
         session_id: session_id.to_owned(),
         coop_url,
         coop_token: auth_token.map(str::to_owned),
+        agent: agent.to_owned(),
     };
     tokio::spawn(async move {
         run(reg, shutdown).await;
@@ -139,48 +143,58 @@ pub async fn run(config: MuxRegistration, shutdown: CancellationToken) {
     }
 }
 
-/// Detect optional Kubernetes metadata from environment variables.
+/// Detect session metadata from the agent type, `COOP_LABEL_*` env vars,
+/// and (when running in Kubernetes) pod environment variables.
 ///
-/// Returns `Value::Null` when not running in Kubernetes (i.e. `KUBERNETES_SERVICE_HOST`
-/// is not set). When running in K8s, returns a JSON object with available pod metadata.
-pub fn detect_metadata() -> Value {
-    detect_metadata_with(|name| std::env::var(name).ok())
+/// Always returns a JSON object with at least `"agent"`.
+pub fn detect_metadata(agent: &str) -> Value {
+    detect_metadata_with(agent, |name| std::env::var(name).ok(), std::env::vars())
 }
 
-/// Inner implementation that accepts a lookup function for testability.
-fn detect_metadata_with(get_env: impl Fn(&str) -> Option<String>) -> Value {
-    if get_env("KUBERNETES_SERVICE_HOST").is_none() {
-        return Value::Null;
-    }
-
-    let env_fields: &[(&str, &str)] = &[
-        ("pod", "POD_NAME"),
-        ("pod", "HOSTNAME"),
-        ("namespace", "POD_NAMESPACE"),
-        ("node", "NODE_NAME"),
-        ("ip", "POD_IP"),
-        ("service_account", "POD_SERVICE_ACCOUNT"),
-    ];
-
-    let mut k8s = serde_json::Map::new();
-    for &(field, var) in env_fields {
-        // Skip if we already have this field (POD_NAME takes priority over HOSTNAME for "pod").
-        if k8s.contains_key(field) {
-            continue;
-        }
-        if let Some(val) = get_env(var) {
-            k8s.insert(field.to_owned(), Value::String(val));
-        }
-    }
-
+/// Inner implementation that accepts a lookup function and env iterator for testability.
+fn detect_metadata_with(
+    agent: &str,
+    get_env: impl Fn(&str) -> Option<String>,
+    env_iter: impl Iterator<Item = (String, String)>,
+) -> Value {
     let mut meta = serde_json::Map::new();
-    meta.insert("k8s".to_owned(), Value::Object(k8s));
 
-    // Include application-level labels (e.g. Gas Town role/agent) when present.
-    for &(field, var) in &[("role", "GT_ROLE"), ("agent", "GT_AGENT")] {
-        if let Some(val) = get_env(var) {
-            meta.insert(field.to_owned(), Value::String(val));
+    // Always inject agent type.
+    meta.insert("agent".to_owned(), Value::String(agent.to_owned()));
+
+    // Scan COOP_LABEL_* env vars → lowercase suffix as key.
+    // e.g. COOP_LABEL_ROLE=worker → "role": "worker"
+    for (key, val) in env_iter {
+        if let Some(suffix) = key.strip_prefix("COOP_LABEL_") {
+            if !suffix.is_empty() {
+                meta.insert(suffix.to_lowercase(), Value::String(val));
+            }
         }
+    }
+
+    // K8s metadata (only when running in Kubernetes).
+    if get_env("KUBERNETES_SERVICE_HOST").is_some() {
+        let env_fields: &[(&str, &str)] = &[
+            ("pod", "POD_NAME"),
+            ("pod", "HOSTNAME"),
+            ("namespace", "POD_NAMESPACE"),
+            ("node", "NODE_NAME"),
+            ("ip", "POD_IP"),
+            ("service_account", "POD_SERVICE_ACCOUNT"),
+        ];
+
+        let mut k8s = serde_json::Map::new();
+        for &(field, var) in env_fields {
+            // Skip if we already have this field (POD_NAME takes priority over HOSTNAME for "pod").
+            if k8s.contains_key(field) {
+                continue;
+            }
+            if let Some(val) = get_env(var) {
+                k8s.insert(field.to_owned(), Value::String(val));
+            }
+        }
+
+        meta.insert("k8s".to_owned(), Value::Object(k8s));
     }
 
     Value::Object(meta)
@@ -193,7 +207,7 @@ async fn register(
     config: &MuxRegistration,
 ) -> anyhow::Result<()> {
     let url = format!("{base}/api/v1/sessions");
-    let metadata = detect_metadata();
+    let metadata = detect_metadata(&config.agent);
     let body = serde_json::json!({
         "url": config.coop_url,
         "auth_token": config.coop_token,

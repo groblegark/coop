@@ -595,6 +595,7 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
         let publisher = crate::transport::nats::NatsPublisher::connect(
             nats_url,
             &config.nats_prefix,
+            &agent_enum.to_string(),
             nats_auth,
         )
         .await?;
@@ -712,6 +713,7 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
             &sid,
             config.port,
             config.auth_token.as_deref(),
+            &agent_enum.to_string(),
             shutdown.clone(),
         )
         .await;
