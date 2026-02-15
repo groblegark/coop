@@ -13,7 +13,7 @@ import { apiGet } from "@/hooks/useApiClient";
 import { useFileUpload } from "@/hooks/useFileUpload";
 import { type ConnectionStatus, useWebSocket, WsRpc } from "@/hooks/useWebSocket";
 import { b64decode, b64encode } from "@/lib/base64";
-import { EXPANDED_FONT_SIZE, MONO_FONT, PREVIEW_FONT_SIZE, THEME } from "@/lib/constants";
+import { EXPANDED_FONT_SIZE, MONO_FONT, THEME } from "@/lib/constants";
 import type { MuxMetadata, MuxWsMessage, PromptContext, WsMessage } from "@/lib/types";
 import { type CredentialAlert, CredentialPanel } from "./CredentialPanel";
 import { MuxProvider, useMux } from "./MuxContext";
@@ -25,8 +25,8 @@ export interface SessionInfo {
   state: string | null;
   metadata: MuxMetadata | null;
   lastMessage: string | null;
-  term: XTerm;
-  fit: FitAddon;
+  term: XTerm | null;
+  fit: FitAddon | null;
   webgl: WebglAddon | null;
   sourceCols: number;
   sourceRows: number;
@@ -97,46 +97,14 @@ function AppInner() {
       state: string | null,
       metadata: MuxMetadata | null,
     ): SessionInfo => {
-      const term = new XTerm({
-        scrollback: 0,
-        fontSize: PREVIEW_FONT_SIZE,
-        fontFamily: MONO_FONT,
-        theme: THEME,
-        cursorBlink: false,
-        cursorInactiveStyle: "none",
-        disableStdin: true,
-        convertEol: true,
-      });
-      const fit = new FitAddon();
-      term.loadAddon(fit);
-
-      // Forward keyboard input
-      term.onData((data) => {
-        if (focusedRef.current !== id) return;
-        if (expandedRef.current === id && expandedWsRef.current?.readyState === WebSocket.OPEN) {
-          expandedWsRef.current.send(
-            JSON.stringify({ event: "input:send:raw", data: b64encode(encoder.encode(data)) }),
-          );
-        } else if (muxSendRef.current) {
-          muxSendRef.current({ event: "input:send", session: id, text: data });
-        }
-      });
-
-      // Forward resize when expanded
-      term.onResize(({ cols, rows }) => {
-        if (expandedRef.current === id && expandedWsRef.current?.readyState === WebSocket.OPEN) {
-          expandedWsRef.current.send(JSON.stringify({ event: "resize", cols, rows }));
-        }
-      });
-
       return {
         id,
         url,
         state,
         metadata,
         lastMessage: null,
-        term,
-        fit,
+        term: null,
+        fit: null,
         webgl: null,
         sourceCols: 80,
         sourceRows: 24,
@@ -165,13 +133,12 @@ function AppInner() {
       info.webgl.dispose();
       info.webgl = null;
     }
-    info.term.options.fontSize = PREVIEW_FONT_SIZE;
-    info.term.options.scrollback = 0;
-    info.term.options.disableStdin = true;
-    info.term.reset();
-    if (info.lastScreenLines) {
-      info.term.resize(info.sourceCols, info.lastScreenLines.length);
-      info.term.write(info.lastScreenLines.join("\r\n"));
+    if (info.term) {
+      info.term.dispose();
+      info.term = null;
+    }
+    if (info.fit) {
+      info.fit = null;
     }
   }, []);
 
@@ -191,7 +158,9 @@ function AppInner() {
     ws.onopen = () => {
       setExpandedWsStatus("connected");
       ws.send(JSON.stringify({ event: "replay:get", offset: 0 }));
-      ws.send(JSON.stringify({ event: "resize", cols: info.term.cols, rows: info.term.rows }));
+      if (info.term) {
+        ws.send(JSON.stringify({ event: "resize", cols: info.term.cols, rows: info.term.rows }));
+      }
       // Initial agent poll
       rpc.request({ event: "agent:get" }).then((res) => {
         if (res.ok && res.json) {
@@ -216,7 +185,7 @@ function AppInner() {
         for (const fn of expandedWsListenersRef.current) fn(msg as WsMessage);
 
         if (msg.event === "pty" || msg.event === "replay") {
-          info.term.write(b64decode(msg.data));
+          info.term?.write(b64decode(msg.data));
         } else if (msg.event === "transition") {
           info.state = msg.next;
           setSessions((prev) => new Map(prev));
@@ -239,26 +208,52 @@ function AppInner() {
   const expandSession = useCallback((id: string) => {
     const info = sessionsRef.current.get(id);
     if (!info) return;
-    info.term.options.fontSize = EXPANDED_FONT_SIZE;
-    info.term.options.scrollback = 10000;
-    info.term.reset();
-    // Restore cached screen immediately so user sees content while WS replay loads
-    if (info.lastScreenLines) {
-      info.term.resize(info.sourceCols, info.lastScreenLines.length);
-      info.term.write(info.lastScreenLines.join("\r\n"));
-    }
-    info.term.options.disableStdin = false;
+
+    const term = new XTerm({
+      scrollback: 10000,
+      fontSize: EXPANDED_FONT_SIZE,
+      fontFamily: MONO_FONT,
+      theme: THEME,
+      cursorBlink: false,
+      cursorInactiveStyle: "none",
+      disableStdin: false,
+      convertEol: true,
+    });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+
+    // Forward keyboard input
+    term.onData((data) => {
+      if (expandedRef.current === id && expandedWsRef.current?.readyState === WebSocket.OPEN) {
+        expandedWsRef.current.send(
+          JSON.stringify({ event: "input:send:raw", data: b64encode(encoder.encode(data)) }),
+        );
+      } else if (muxSendRef.current) {
+        muxSendRef.current({ event: "input:send", session: id, text: data });
+      }
+    });
+
+    // Forward resize when expanded
+    term.onResize(({ cols, rows }) => {
+      if (expandedRef.current === id && expandedWsRef.current?.readyState === WebSocket.OPEN) {
+        expandedWsRef.current.send(JSON.stringify({ event: "resize", cols, rows }));
+      }
+    });
+
     try {
       const webgl = new WebglAddon();
       webgl.onContextLoss(() => {
         webgl.dispose();
         if (info.webgl === webgl) info.webgl = null;
       });
-      info.term.loadAddon(webgl);
+      term.loadAddon(webgl);
       info.webgl = webgl;
     } catch {
       // canvas fallback
     }
+
+    info.term = term;
+    info.fit = fit;
     // fit + WS connect deferred to onReady (after Terminal mounts xterm in overlay)
   }, []);
 
@@ -289,7 +284,7 @@ function AppInner() {
         for (const s of msg.sessions) {
           ids.push(s.id);
           if (sessionsRef.current.has(s.id)) {
-            // Reuse existing SessionInfo (preserves XTerm instance)
+            // Reuse existing SessionInfo (preserves state + screen data)
             const existing = sessionsRef.current.get(s.id)!;
             // Update URL/state/metadata from backend (in case they changed)
             existing.url = s.url ?? null;
@@ -306,7 +301,7 @@ function AppInner() {
         // Dispose terminals for sessions that are no longer in the backend list
         for (const [id, info] of sessionsRef.current) {
           if (!newSessions.has(id)) {
-            info.term.dispose();
+            info.term?.dispose();
           }
         }
         sessionsRef.current = newSessions;
@@ -338,7 +333,7 @@ function AppInner() {
       } else if (msg.event === "session:offline") {
         const info = sessionsRef.current.get(msg.session);
         if (info) {
-          info.term.dispose();
+          info.term?.dispose();
           const newSessions = new Map(sessionsRef.current);
           newSessions.delete(msg.session);
           sessionsRef.current = newSessions;
@@ -382,13 +377,8 @@ function AppInner() {
           info.sourceCols = scr.cols;
           info.sourceRows = scr.rows;
           info.lastScreenLines = ansi;
-
-          if (scr.session === expandedRef.current) continue;
-
-          info.term.reset();
-          info.term.resize(scr.cols, lines.length);
-          info.term.write(ansi.join("\r\n"));
         }
+        setSessions((prev) => new Map(prev));
       }
     },
     [createSession],
@@ -437,13 +427,13 @@ function AppInner() {
       } else {
         muxSendRef.current?.({ event: "input:send", session: focused, text });
       }
-      sessionsRef.current.get(focused)?.term.focus();
+      sessionsRef.current.get(focused)?.term?.focus();
     },
     onError: (msg) => {
       const focused = focusedRef.current;
       if (focused) {
         const info = sessionsRef.current.get(focused);
-        info?.term.write(`\r\n\x1b[31m[${msg}]\x1b[0m\r\n`);
+        info?.term?.write(`\r\n\x1b[31m[${msg}]\x1b[0m\r\n`);
       }
     },
   });
@@ -468,7 +458,7 @@ function AppInner() {
 
   const handleTerminalFocus = useCallback(() => {
     const id = expandedRef.current;
-    if (id) sessionsRef.current.get(id)?.term.focus();
+    if (id) sessionsRef.current.get(id)?.term?.focus();
   }, []);
 
   useEffect(() => {
@@ -579,9 +569,9 @@ function AppInner() {
 
         {/* Expanded session overlay */}
         {expandedSession &&
-          sessions.get(expandedSession) &&
           (() => {
-            const info = sessions.get(expandedSession)!;
+            const info = sessions.get(expandedSession);
+            if (!info?.term || !info.fit) return null;
             return (
               <TerminalLayout
                 className="absolute inset-y-0 right-0 z-[100] transition-[left] duration-200"
@@ -630,8 +620,8 @@ function AppInner() {
                   instance={info.term}
                   fitAddon={info.fit}
                   onReady={() => {
-                    info.fit.fit();
-                    info.term.focus();
+                    info.fit?.fit();
+                    info.term?.focus();
                     connectExpandedWs(info.id, info);
                   }}
                   theme={THEME}

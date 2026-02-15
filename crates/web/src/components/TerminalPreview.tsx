@@ -1,35 +1,55 @@
-import type { Terminal as XTerm } from "@xterm/xterm";
-import { useCallback } from "react";
-import { Terminal } from "@/components/Terminal";
-import { THEME } from "@/lib/constants";
+import { useMemo } from "react";
+import { parseAnsiLine, spanStyle } from "@/lib/ansi";
+import { MONO_FONT, PREVIEW_FONT_SIZE, THEME } from "@/lib/constants";
 
 interface TerminalPreviewProps {
-  instance: XTerm;
-  /** Cached screen lines to replay after mount. */
+  /** Cached screen lines (ANSI-escaped) to render. */
   lastScreenLines: string[] | null;
   sourceCols: number;
 }
 
 /** Read-only, non-interactive terminal preview anchored to the bottom. */
-export function TerminalPreview({ instance, lastScreenLines, sourceCols }: TerminalPreviewProps) {
-  const handleReady = useCallback(() => {
-    // Re-render cached screen after open() to handle screen_batch that
-    // arrived before the terminal was mounted into the DOM.
-    if (lastScreenLines) {
-      instance.resize(sourceCols, lastScreenLines.length);
-      instance.reset();
-      instance.write(lastScreenLines.join("\r\n"));
-    }
-  }, [instance, lastScreenLines, sourceCols]);
+export function TerminalPreview({ lastScreenLines, sourceCols }: TerminalPreviewProps) {
+  const rendered = useMemo(() => {
+    if (!lastScreenLines) return null;
+    return lastScreenLines.map((line) => parseAnsiLine(line));
+  }, [lastScreenLines]);
 
   return (
     <div className="pointer-events-none relative flex-1 overflow-hidden">
-      <Terminal
-        instance={instance}
-        theme={THEME}
-        className="absolute bottom-0 left-0"
-        onReady={handleReady}
-      />
+      <pre
+        style={{
+          position: "absolute",
+          bottom: 0,
+          left: 0,
+          margin: 0,
+          padding: "2px 4px",
+          fontFamily: MONO_FONT,
+          fontSize: PREVIEW_FONT_SIZE,
+          lineHeight: 1.2,
+          whiteSpace: "pre",
+          color: THEME.foreground,
+          background: THEME.background,
+          width: `${sourceCols}ch`,
+          overflow: "hidden",
+        }}
+      >
+        {rendered?.map((spans, lineIdx) => (
+          <div key={lineIdx}>
+            {spans.map((span, spanIdx) => {
+              const s = spanStyle(span, THEME);
+              return s ? (
+                <span key={spanIdx} style={s}>
+                  {span.text}
+                </span>
+              ) : (
+                <span key={spanIdx}>{span.text}</span>
+              );
+            })}
+            {"\n"}
+          </div>
+        ))}
+      </pre>
     </div>
   );
 }
