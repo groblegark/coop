@@ -138,30 +138,37 @@ Once all images are built natively by RWX:
 
 ## Migration Checklist
 
-- [ ] Prototype `image-empty` with `$RWX_IMAGE` and `config: none`
-- [ ] Verify `rwx image push` works with GHCR authentication
-- [ ] Migrate `push-empty` → native OCI
-- [ ] Migrate `push-claude` → native OCI (needs Claude CLI install)
-- [ ] Migrate `push-gemini` → native OCI (needs Node.js + Gemini CLI)
-- [ ] Add `image-coopmux` (kubectl + k8s-launch.sh)
-- [ ] Add `image-claudeless` (for E2E testing)
+- [x] Prototype `image-empty` with `$RWX_IMAGE` and `config: none`
+- [x] Verify `rwx image push` works with GHCR authentication
+- [x] Migrate `push-empty` → native OCI
+- [x] Migrate `push-claude` → native OCI (needs Claude CLI install)
+- [x] Migrate `push-gemini` → native OCI (needs Node.js + Gemini CLI)
+- [x] Add `image-coopmux` (kubectl + k8s-launch.sh)
+- [x] Add `image-claudeless` (for E2E testing)
 - [ ] Investigate and fix E2E workflow failure
-- [ ] Delete `Dockerfile`
-- [ ] Update docs and Makefile
+- [x] Delete `Dockerfile`
+- [x] Update docs and Makefile
+
+## Resolved Questions
+
+1. **`config: none` vs `rwx/base`**: A single workflow uses `config: none` for
+   the entire file. Build tasks install toolchain manually (curl+rustup). Push
+   tasks use a separate `push.yml` embedded run with `config: rwx/base 1.0.0`.
+   Image tasks use `after:` (not `use:`) for clean filesystem isolation.
+
+2. **GHCR auth for `rwx image push`**: `rwx image push` reads `~/.docker/config.json`
+   for registry credentials. Manual base64-encoded auth token works. The push
+   embedded run uses `rwx/base` + `rwx/install-cli 4.0.1` for CLI access.
+
+3. **RWX packages with `config: none`**: Packages like `git/clone` require `rwx/base`
+   utilities (`rwx_os_package_manager`). With `config: none`, use manual commands
+   instead (e.g., `git init && git fetch --depth 1`).
 
 ## Open Questions
 
-1. **`config: none` vs `rwx/base`**: Can a single workflow file have tasks with
-   different base configs? Or do we need sub-workflows via `call:`?
-
-2. **GHCR auth for `rwx image push`**: The current approach uses
-   `docker login` + `docker push`. Does `rwx image push` support GHCR directly,
-   or do we still need `docker login` first? The docs show ECR with OIDC — need
-   to verify GHCR token-based auth works.
-
-3. **Image size**: RWX native images may have different layer structure than
+1. **Image size**: RWX native images may have different layer structure than
    Docker images. Need to verify the resulting image sizes are comparable.
 
-4. **Multi-arch**: The current `docker.yml` only builds linux/amd64 (via native
-   RWX agents). The `Dockerfile` supports multi-arch via TARGETARCH. RWX native
-   images are single-arch by default — may need parallel tasks per architecture.
+2. **Multi-arch**: The current pipeline only builds linux/amd64 (via native
+   RWX agents). RWX native images are single-arch by default — may need
+   parallel tasks per architecture if arm64 support is needed.

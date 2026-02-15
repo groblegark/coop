@@ -1,4 +1,4 @@
-.PHONY: check ci fmt web install coverage outdated try-claude try-claudeless try-gemini try-mux docker-claudeless try-docker-claudeless try-docker-claude try-docker-gemini try-k8s test-docker capture-claude
+.PHONY: check ci fmt web install coverage outdated try-claude try-claudeless try-gemini try-mux try-k8s capture-claude
 
 # Quick checks
 #
@@ -67,24 +67,6 @@ try-gemini:
 try-mux:
 	@bun tests/debug/start-mux.ts --launch claude
 
-# Build Docker claudeless image (for testing)
-docker-claudeless:
-	docker build --target claudeless -t coop:test .
-
-# Launch coop + claudeless in Docker with browser terminal
-# Usage: make try-docker-claudeless SCENARIO=claude_hello.toml
-try-docker-claudeless:
-	@bun tests/debug/start-docker.ts claudeless --scenario $(or $(SCENARIO),claude_hello.toml)
-
-# Launch coop + claude CLI in Docker with browser terminal
-# Usage: make try-docker-claude PROFILE=trusted
-try-docker-claude:
-	@bun tests/debug/start-docker.ts claude $(if $(PROFILE),--profile $(PROFILE))
-
-# Launch coop + gemini CLI in Docker with browser terminal
-try-docker-gemini:
-	@bun tests/debug/start-docker.ts gemini
-
 # Launch coopmux + claude in local k8s cluster (kind or k3d)
 try-k8s:
 	@bun tests/debug/start-k8s.ts
@@ -95,7 +77,3 @@ try-k8s:
 #        make capture-claude CONFIG=trusted   (skip to idle)
 capture-claude:
 	@bun tests/debug/capture-claude.ts --config $(or $(CONFIG),empty)
-
-# Run Docker e2e tests (builds test image first)
-test-docker: docker-claudeless
-	COOP_DOCKER_TESTS=1 cargo test --test docker_e2e -- --test-threads=1

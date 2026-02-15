@@ -15,11 +15,11 @@ import { parseArgs } from "node:util";
 import { $ } from "bun";
 import {
 	buildCoop,
-	buildDocker,
 	coopBin,
 	findAvailablePort,
 	onExit,
 	openBrowserUrl,
+	pullImage,
 	rootDir,
 	waitForHealth,
 } from "./lib/setup";
@@ -133,8 +133,8 @@ async function loadImage(tag: string): Promise<void> {
 
 if (!values["no-build"]) {
 	await buildCoop();
-	await buildDocker("coopmux", "coop:coopmux");
-	await buildDocker("claude", "coop:claude");
+	await pullImage("coopmux", "coop:coopmux");
+	await pullImage("claude", "coop:claude");
 }
 
 // -- Create cluster & deploy --------------------------------------------------

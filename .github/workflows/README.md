@@ -6,8 +6,8 @@ All CI/CD has moved to [RWX](https://www.rwx.com/). Workflow configs live in the
 
 | RWX workflow | Replaces | Purpose |
 |---|---|---|
-| `.rwx/ci.yml` | *(new)* | Lint (fmt, clippy), audit, deny, tests, Docker smoke test |
-| `.rwx/docker.yml` | `.github/workflows/build.yml` | Build and push Docker images to GHCR (empty, claude, gemini) |
+| `.rwx/ci.yml` | *(new)* | Lint (fmt, clippy), audit, deny, tests |
+| `.rwx/docker.yml` | `.github/workflows/build.yml` | Build native OCI images and push to GHCR (empty, claude, gemini, coopmux, claudeless) |
 | `.rwx/release.yml` | `.github/workflows/release.yml` | Cross-compile Linux binaries, create GitHub Release, dispatch gastown rebuild |
 
 ## Disabled Workflows

@@ -31,10 +31,10 @@ import {
 } from "./lib/credentials";
 import {
 	buildCoop,
-	buildDocker,
 	coopBin,
 	onExit,
 	openBrowser,
+	pullImage,
 	scriptDir,
 	waitForHealth,
 } from "./lib/setup";
@@ -344,7 +344,7 @@ onExit(() => {
 if (useDocker) {
 	const imageTag = "coop:claude";
 	if (!values["no-build"]) {
-		await buildDocker("claude", imageTag);
+		await pullImage("claude", imageTag);
 	}
 
 	console.log(`Starting container on port ${port}…`);

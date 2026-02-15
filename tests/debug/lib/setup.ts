@@ -44,9 +44,10 @@ export async function buildAll(): Promise<void> {
 	await $`cargo build -p coop -p coopmux --manifest-path ${rootDir()}/Cargo.toml`;
 }
 
-export async function buildDocker(target: string, tag: string): Promise<void> {
-	console.log(`Building ${tag} (target: ${target})…`);
-	await $`docker build --target ${target} -t ${tag} ${rootDir()}`;
+export async function pullImage(variant: string, tag: string): Promise<void> {
+	console.log(`Pulling ${tag} from GHCR…`);
+	await $`docker pull ghcr.io/groblegark/coop:${variant}`;
+	await $`docker tag ghcr.io/groblegark/coop:${variant} ${tag}`;
 }
 
 interface HealthCheckOpts {

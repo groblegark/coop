@@ -116,7 +116,7 @@ Agent states: `starting`, `working`, `idle`, `prompt`, `error`, `exited`, `unkno
 Optional:
 
 - **[Bun](https://bun.sh/)** — used by `tests/debug/` scripts for manual testing targets (`try-*`, `capture-*`)
-- **Docker** — used for `make test-docker` and `try-docker-*` targets
+- **Docker** — used for `make try-k8s` (local Kubernetes testing, pulls images from GHCR)
 - **Claude CLI** / **Gemini CLI** — only needed for `make try-claude` / `make try-gemini` manual testing
 
 ### Commands
@@ -138,13 +138,6 @@ make try-claudeless SCENARIO=crates/cli/tests/scenarios/claude_hello.toml
 # Launch coop + real agent CLI in a browser terminal
 make try-claude     # requires claude CLI
 make try-gemini     # requires gemini CLI
-
-# Docker variants (requires Docker)
-make try-docker-claudeless SCENARIO=claude_hello.toml
-make try-docker-claude                    # empty config
-make try-docker-claude PROFILE=trusted    # pre-seeded credentials
-make try-docker-gemini
-make test-docker    # run Docker e2e tests
 
 # Capture claude onboarding state changes
 make capture-claude                  # empty config, full onboarding
