@@ -38,7 +38,7 @@ pub struct NatsConfig {
 }
 
 /// Run the mux server until shutdown.
-pub async fn run(config: MuxConfig, nats: Option<NatsConfig>) -> anyhow::Result<()> {
+pub async fn run(config: MuxConfig, _nats: Option<NatsConfig>) -> anyhow::Result<()> {
     let addr = format!("{}:{}", config.host, config.port);
     let shutdown = CancellationToken::new();
 

@@ -58,7 +58,12 @@ async fn main() {
                 )
                 .init();
 
-            if let Err(e) = coopmux::run(cli.config).await {
+            let nats = cli.nats_url.map(|url| coopmux::NatsConfig {
+                url,
+                token: cli.nats_token,
+                prefix: cli.nats_prefix,
+            });
+            if let Err(e) = coopmux::run(cli.config, nats).await {
                 error!("fatal: {e:#}");
                 std::process::exit(1);
             }
