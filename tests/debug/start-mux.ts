@@ -55,7 +55,7 @@ if (!(await Bun.file(muxBin).exists())) {
 const muxArgs: string[] = ["--port", String(muxPort), "--hot"];
 
 if (launch) {
-	const launchCmd = `${coopBin()} --port 0 --log-format text --hot -- ${launch}`;
+	const launchCmd = `cd "\${WORKING_DIR:-.}" && ${coopBin()} --port 0 --log-format text --hot -- ${launch}`;
 	muxArgs.push("--launch", launchCmd);
 }
 
