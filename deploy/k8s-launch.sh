@@ -10,6 +10,9 @@
 #   COOP_MUX_TOKEN            - auth token for session registration
 #   ANTHROPIC_API_KEY         - credential from broker (if healthy)
 #   CLAUDE_CODE_OAUTH_TOKEN   - credential from broker (if healthy)
+#   GIT_REPO                  - git repository URL (optional, for git clone)
+#   GIT_BRANCH                - git branch to checkout (optional, default: main)
+#   WORKING_DIR               - working directory for session (optional, default: /workspace)
 #
 # Expected env (set in coopmux pod spec):
 #   POD_NAMESPACE        - namespace (downward API)
@@ -24,6 +27,11 @@ NAMESPACE="${POD_NAMESPACE:-coop}"
 IMAGE="${COOP_SESSION_IMAGE:-coop:claude}"
 MUX_URL="http://coopmux.${NAMESPACE}.svc.cluster.local:9800"
 MUX_TOKEN="${COOP_MUX_TOKEN:-}"
+
+# Optional user-supplied env vars (passed from launch dialog).
+GIT_REPO="${GIT_REPO:-}"
+GIT_BRANCH="${GIT_BRANCH:-main}"
+WORKING_DIR="${WORKING_DIR:-/workspace}"
 
 # Build credential env entries. Prefer values injected by the mux broker;
 # fall back to the k8s secret if no broker value is available.
@@ -56,6 +64,25 @@ else
               optional: true"
 fi
 
+# Build init container spec if GIT_REPO is set.
+INIT_CONTAINERS=""
+if [ -n "$GIT_REPO" ]; then
+  INIT_CONTAINERS="  initContainers:
+    - name: git-clone
+      image: alpine/git:latest
+      workingDir: /workspace
+      command: [\"sh\", \"-c\"]
+      args:
+        - |
+          set -e
+          echo \"Cloning ${GIT_REPO} (branch: ${GIT_BRANCH})...\"
+          git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${GIT_REPO}\" repo
+          echo \"Clone complete\"
+      volumeMounts:
+        - name: workspace
+          mountPath: /workspace"
+fi
+
 kubectl apply -n "$NAMESPACE" -f - <<EOF
 apiVersion: v1
 kind: Pod
@@ -67,10 +94,12 @@ metadata:
 spec:
   serviceAccountName: coop-session
   restartPolicy: Never
+${INIT_CONTAINERS}
   containers:
     - name: coop
       image: ${IMAGE}
       imagePullPolicy: Never
+      workingDir: ${WORKING_DIR}
       command: ["sh", "-c"]
       args:
         - |
@@ -103,6 +132,9 @@ spec:
               fieldPath: status.podIP${CRED_ENV}
       ports:
         - containerPort: 8080
+      volumeMounts:
+        - name: workspace
+          mountPath: /workspace
       livenessProbe:
         httpGet:
           path: /api/v1/health
@@ -115,6 +147,9 @@ spec:
           port: 8080
         initialDelaySeconds: 2
         periodSeconds: 5
+  volumes:
+    - name: workspace
+      emptyDir: {}
 EOF
 
 echo "Created session pod: ${POD_NAME}"
