@@ -54,7 +54,6 @@ function AppInner() {
   const expandedRpcRef = useRef<WsRpc | null>(null);
   const [expandedWsStatus, setExpandedWsStatus] = useState<ConnectionStatus>("disconnected");
   const [expandedReady, setExpandedReady] = useState(false);
-  const expandedReadyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Prompt/lastMessage for expanded inspector (from WS stream)
   const [expandedPrompt, setExpandedPrompt] = useState<PromptContext | null>(null);
@@ -132,10 +131,6 @@ function AppInner() {
     setExpandedWsStatus("disconnected");
     setExpandedPrompt(null);
     setExpandedLastMessage(null);
-    if (expandedReadyTimerRef.current) {
-      clearTimeout(expandedReadyTimerRef.current);
-      expandedReadyTimerRef.current = null;
-    }
     if (info.webgl) {
       info.webgl.dispose();
       info.webgl = null;
@@ -149,90 +144,73 @@ function AppInner() {
     }
   }, []);
 
-  /** Mark the expanded terminal as ready (replay done or timed out). */
-  const markExpandedReady = useCallback((info: SessionInfo) => {
-    if (expandedReadyTimerRef.current) {
-      clearTimeout(expandedReadyTimerRef.current);
-      expandedReadyTimerRef.current = null;
-    }
-    if (info.term) info.term.options.disableStdin = false;
-    info.term?.focus();
-    setExpandedReady(true);
-  }, []);
+  const connectExpandedWs = useCallback((id: string, info: SessionInfo) => {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const params = new URLSearchParams(location.search);
+    let url = `${proto}//${location.host}/ws/${id}?subscribe=pty,state,usage,hooks`;
+    const token = params.get("token");
+    if (token) url += `&token=${encodeURIComponent(token)}`;
 
-  const connectExpandedWs = useCallback(
-    (id: string, info: SessionInfo) => {
-      const proto = location.protocol === "https:" ? "wss:" : "ws:";
-      const params = new URLSearchParams(location.search);
-      let url = `${proto}//${location.host}/ws/${id}?subscribe=pty,state,usage,hooks`;
-      const token = params.get("token");
-      if (token) url += `&token=${encodeURIComponent(token)}`;
+    setExpandedWsStatus("connecting");
+    const ws = new WebSocket(url);
+    expandedWsRef.current = ws;
+    const rpc = new WsRpc(ws);
+    expandedRpcRef.current = rpc;
 
-      setExpandedWsStatus("connecting");
-      const ws = new WebSocket(url);
-      expandedWsRef.current = ws;
-      const rpc = new WsRpc(ws);
-      expandedRpcRef.current = rpc;
-
-      // Fallback: if replay never arrives, go interactive after 3s
-      expandedReadyTimerRef.current = setTimeout(() => {
-        expandedReadyTimerRef.current = null;
-        markExpandedReady(info);
-      }, 3000);
-
-      ws.onopen = () => {
-        setExpandedWsStatus("connected");
-        ws.send(JSON.stringify({ event: "replay:get", offset: 0 }));
-        if (info.term) {
-          ws.send(JSON.stringify({ event: "resize", cols: info.term.cols, rows: info.term.rows }));
-        }
-        // Initial agent poll
-        rpc.request({ event: "agent:get" }).then((res) => {
-          if (res.ok && res.json) {
-            const a = res.json as { state?: string; prompt?: PromptContext; last_message?: string };
-            if (a.state) {
-              info.state = a.state;
-              setSessions((prev) => new Map(prev));
-            }
-            setExpandedPrompt(a.prompt ?? null);
-            setExpandedLastMessage(a.last_message ?? null);
-          }
-        });
-      };
-
-      ws.onmessage = (evt) => {
-        try {
-          const msg = JSON.parse(evt.data);
-          // Check if it's a response to a pending request
-          if (rpc.handleMessage(msg)) return;
-
-          // Notify subscribers (inspector events + usage)
-          for (const fn of expandedWsListenersRef.current) fn(msg as WsMessage);
-
-          if (msg.event === "pty" || msg.event === "replay") {
-            info.term?.write(b64decode(msg.data));
-            // First replay or pty event means data is flowing — go interactive
-            if (!expandedReady) markExpandedReady(info);
-          } else if (msg.event === "transition") {
-            info.state = msg.next;
+    ws.onopen = () => {
+      setExpandedWsStatus("connected");
+      ws.send(JSON.stringify({ event: "replay:get", offset: 0 }));
+      if (info.term) {
+        ws.send(JSON.stringify({ event: "resize", cols: info.term.cols, rows: info.term.rows }));
+      }
+      // Initial agent poll
+      rpc.request({ event: "agent:get" }).then((res) => {
+        if (res.ok && res.json) {
+          const a = res.json as { state?: string; prompt?: PromptContext; last_message?: string };
+          if (a.state) {
+            info.state = a.state;
             setSessions((prev) => new Map(prev));
-            setExpandedPrompt(msg.prompt ?? null);
-            setExpandedLastMessage(msg.last_message ?? null);
           }
-        } catch {
-          // ignore parse errors
+          setExpandedPrompt(a.prompt ?? null);
+          setExpandedLastMessage(a.last_message ?? null);
         }
-      };
+      });
+    };
 
-      ws.onclose = () => {
-        expandedWsRef.current = null;
-        rpc.dispose();
-        expandedRpcRef.current = null;
-        setExpandedWsStatus("disconnected");
-      };
-    },
-    [expandedReady, markExpandedReady],
-  );
+    ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        // Check if it's a response to a pending request
+        if (rpc.handleMessage(msg)) return;
+
+        // Notify subscribers (inspector events + usage)
+        for (const fn of expandedWsListenersRef.current) fn(msg as WsMessage);
+
+        if (msg.event === "pty" || msg.event === "replay") {
+          info.term?.write(b64decode(msg.data));
+          if (msg.event === "replay") {
+            if (info.term) info.term.options.disableStdin = false;
+            info.term?.focus();
+            setExpandedReady(true);
+          }
+        } else if (msg.event === "transition") {
+          info.state = msg.next;
+          setSessions((prev) => new Map(prev));
+          setExpandedPrompt(msg.prompt ?? null);
+          setExpandedLastMessage(msg.last_message ?? null);
+        }
+      } catch {
+        // ignore parse errors
+      }
+    };
+
+    ws.onclose = () => {
+      expandedWsRef.current = null;
+      rpc.dispose();
+      expandedRpcRef.current = null;
+      setExpandedWsStatus("disconnected");
+    };
+  }, []);
 
   const expandSession = useCallback((id: string) => {
     const info = sessionsRef.current.get(id);
@@ -662,44 +640,55 @@ function AppInner() {
                   )}
                   {!expandedReady && (
                     <div
-                      className="absolute inset-0 overflow-hidden py-4 pl-4"
+                      className="absolute inset-0 overflow-hidden"
                       style={{ background: THEME.background }}
                     >
-                      {info.lastScreenLines ? (
-                        <pre
-                          style={{
-                            margin: 0,
-                            fontFamily: MONO_FONT,
-                            fontSize: EXPANDED_FONT_SIZE,
-                            lineHeight: 1.2,
-                            whiteSpace: "pre",
-                            color: THEME.foreground,
-                          }}
-                        >
-                          {info.lastScreenLines.map((line, i) => (
-                            <div key={i}>
-                              {parseAnsiLine(line).map((span, j) => {
-                                const s = spanStyle(span, THEME);
-                                return s ? (
-                                  <span key={j} style={s}>
-                                    {span.text}
-                                  </span>
-                                ) : (
-                                  <span key={j}>{span.text}</span>
-                                );
-                              })}
-                              {"\n"}
-                            </div>
-                          ))}
-                        </pre>
-                      ) : (
+                      {/* Loading bar */}
+                      <div className="relative h-0.5 w-full overflow-hidden bg-zinc-800">
                         <div
-                          className="flex h-full items-center justify-center text-sm text-zinc-500"
-                          style={{ fontFamily: MONO_FONT }}
-                        >
-                          Connecting&hellip;
-                        </div>
-                      )}
+                          className="absolute inset-y-0 w-1/3 animate-[shimmer_1.5s_ease-in-out_infinite] bg-blue-500/60"
+                          style={{ animation: "shimmer 1.5s ease-in-out infinite" }}
+                        />
+                        <style>{`@keyframes shimmer { 0% { left: -33% } 100% { left: 100% } }`}</style>
+                      </div>
+                      {/* Cached screen preview */}
+                      <div className="py-4 pl-4">
+                        {info.lastScreenLines ? (
+                          <pre
+                            style={{
+                              margin: 0,
+                              fontFamily: MONO_FONT,
+                              fontSize: EXPANDED_FONT_SIZE,
+                              lineHeight: 1.2,
+                              whiteSpace: "pre",
+                              color: THEME.foreground,
+                            }}
+                          >
+                            {info.lastScreenLines.map((line, i) => (
+                              <div key={i}>
+                                {parseAnsiLine(line).map((span, j) => {
+                                  const s = spanStyle(span, THEME);
+                                  return s ? (
+                                    <span key={j} style={s}>
+                                      {span.text}
+                                    </span>
+                                  ) : (
+                                    <span key={j}>{span.text}</span>
+                                  );
+                                })}
+                                {"\n"}
+                              </div>
+                            ))}
+                          </pre>
+                        ) : (
+                          <div
+                            className="flex items-center gap-2 text-sm text-zinc-500"
+                            style={{ fontFamily: MONO_FONT }}
+                          >
+                            Loading session&hellip;
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
