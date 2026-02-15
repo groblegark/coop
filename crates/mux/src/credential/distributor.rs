@@ -80,17 +80,19 @@ pub async fn distribute_to_sessions(
     }
 
     // Collect eligible sessions (filtering by profiles_needed metadata).
-    let eligible: Vec<_> = sessions
-        .values()
-        .filter(|entry| session_needs_account(entry, account))
-        .cloned()
-        .collect();
+    let eligible: Vec<_> =
+        sessions.values().filter(|entry| session_needs_account(entry, account)).cloned().collect();
     drop(sessions);
 
     let eligible_count = eligible.len();
     let skipped = count - eligible_count;
     if eligible_count == 0 {
-        tracing::info!(account, count, skipped, "distributor: no eligible sessions for this account");
+        tracing::info!(
+            account,
+            count,
+            skipped,
+            "distributor: no eligible sessions for this account"
+        );
         return;
     }
     tracing::info!(
@@ -207,9 +209,7 @@ async fn push_to_session(
     // Idle check: query upstream status to decide whether to switch now.
     let is_busy = match client.get_status().await {
         Ok(status) => {
-            status.get("state")
-                .and_then(|s| s.as_str())
-                .is_some_and(|s| BUSY_STATES.contains(&s))
+            status.get("state").and_then(|s| s.as_str()).is_some_and(|s| BUSY_STATES.contains(&s))
         }
         Err(e) => {
             tracing::debug!(
@@ -293,9 +293,7 @@ pub fn session_needs_account_metadata(metadata: &serde_json::Value, account: &st
         return true; // Empty array → receives everything.
     }
     let account_lower = account.to_lowercase();
-    arr.iter().any(|v| {
-        v.as_str().is_some_and(|s| s == "*" || s.to_lowercase() == account_lower)
-    })
+    arr.iter().any(|v| v.as_str().is_some_and(|s| s == "*" || s.to_lowercase() == account_lower))
 }
 
 #[cfg(test)]
