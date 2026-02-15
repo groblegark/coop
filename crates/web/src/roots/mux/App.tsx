@@ -242,6 +242,11 @@ function AppInner() {
     info.term.options.fontSize = EXPANDED_FONT_SIZE;
     info.term.options.scrollback = 10000;
     info.term.reset();
+    // Restore cached screen immediately so user sees content while WS replay loads
+    if (info.lastScreenLines) {
+      info.term.resize(info.sourceCols, info.lastScreenLines.length);
+      info.term.write(info.lastScreenLines.join("\r\n"));
+    }
     info.term.options.disableStdin = false;
     try {
       const webgl = new WebglAddon();
