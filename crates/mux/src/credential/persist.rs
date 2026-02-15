@@ -38,9 +38,23 @@ pub fn load(path: &Path) -> anyhow::Result<PersistedCredentials> {
 }
 
 /// Save persisted credentials to a JSON file atomically (write tmp + rename).
+///
+/// Uses a unique temp filename (PID + counter) to avoid corruption when
+/// concurrent saves race on the same `.tmp` file — a shorter write can leave
+/// trailing bytes from a longer previous write.
 pub fn save(path: &Path, creds: &PersistedCredentials) -> anyhow::Result<()> {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
     let json = serde_json::to_string_pretty(creds)?;
-    let tmp_path = path.with_extension("tmp");
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp_name = format!(
+        "{}.{}.{}.tmp",
+        path.file_name().unwrap_or_default().to_string_lossy(),
+        std::process::id(),
+        seq,
+    );
+    let tmp_path = path.with_file_name(tmp_name);
     std::fs::write(&tmp_path, json)?;
     std::fs::rename(&tmp_path, path)?;
     Ok(())
