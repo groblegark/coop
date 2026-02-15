@@ -6,7 +6,6 @@
 pub mod auth;
 pub mod http;
 pub mod http_cred;
-pub mod nats_pub;
 pub mod ws;
 pub mod ws_mux;
 
