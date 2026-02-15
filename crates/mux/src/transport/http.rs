@@ -123,11 +123,36 @@ pub async fn register_session(
             // reads.  Replacing the entry would orphan their writes.
             false
         } else {
-            sessions.insert(id.clone(), entry);
+            // Evict any stale session(s) pointing to the same URL (e.g. after a
+            // pod restart generated a new session UUID for the same coop instance).
+            let stale: Vec<String> = sessions
+                .iter()
+                .filter(|(k, v)| *k != &id && v.url == entry.url)
+                .map(|(k, _)| k.clone())
+                .collect();
+            for stale_id in &stale {
+                if let Some(old) = sessions.remove(stale_id) {
+                    old.cancel.cancel();
+                    let _ = s
+                        .feed
+                        .event_tx
+                        .send(MuxEvent::SessionOffline { session: stale_id.clone() });
+                    tracing::info!(
+                        old_session = %stale_id,
+                        new_session = %id,
+                        url = %entry.url,
+                        "evicted stale session with same URL"
+                    );
+                }
+            }
+            sessions.insert(id.clone(), Arc::clone(&entry));
             true
         }
     };
     if is_new {
+        // Start background screen/status pollers for this session.
+        crate::upstream::poller::spawn_screen_poller(entry, &s.config, cancel);
+
         // Notify connected dashboard clients about the new session.
         let _ = s.feed.event_tx.send(MuxEvent::SessionOnline {
             session: id.clone(),
