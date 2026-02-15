@@ -385,8 +385,8 @@ function AppInner() {
 
           if (scr.session === expandedRef.current) continue;
 
-          info.term.resize(scr.cols, lines.length);
           info.term.reset();
+          info.term.resize(scr.cols, lines.length);
           info.term.write(ansi.join("\r\n"));
         }
       }
