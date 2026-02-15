@@ -31,7 +31,7 @@ pub struct NatsAuth {
 /// - `session_id` — current agent session ID (tracks switches)
 /// - `agent` — agent type (e.g. "claude", "gemini")
 /// - `k8s` — optional Kubernetes pod metadata (when running in K8s)
-/// - Any `COOP_LABEL_*` env vars as lowercase keys.
+/// - Any `--label` CLI flags as metadata keys.
 pub struct NatsPublisher {
     client: async_nats::Client,
     prefix: String,
@@ -45,11 +45,12 @@ impl NatsPublisher {
         url: &str,
         prefix: &str,
         agent: &str,
+        labels: &[String],
         auth: NatsAuth,
     ) -> anyhow::Result<Self> {
         let opts = build_connect_options(auth).await?;
         let client = opts.connect(url).await?;
-        let metadata = crate::mux_client::detect_metadata(agent);
+        let metadata = crate::mux_client::detect_metadata(agent, labels);
         Ok(Self { client, prefix: prefix.to_owned(), metadata })
     }
 
