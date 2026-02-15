@@ -26,6 +26,8 @@ pub struct MuxRegistration {
     pub coop_token: Option<String>,
     /// Agent type (e.g. "claude", "gemini").
     pub agent: String,
+    /// Metadata labels from `--label` CLI flags.
+    pub labels: Vec<String>,
 }
 
 /// Spawn the mux registration client.
@@ -38,6 +40,7 @@ pub async fn spawn_if_configured(
     auth_token: Option<&str>,
     mux_url: Option<String>,
     agent: &str,
+    labels: &[String],
     shutdown: CancellationToken,
 ) {
     let mux_url = match mux_url {
@@ -60,6 +63,7 @@ pub async fn spawn_if_configured(
         coop_url,
         coop_token: auth_token.map(str::to_owned),
         agent: agent.to_owned(),
+        labels: labels.to_vec(),
     };
     tokio::spawn(async move {
         run(reg, shutdown).await;
@@ -144,33 +148,37 @@ pub async fn run(config: MuxRegistration, shutdown: CancellationToken) {
     }
 }
 
-/// Detect session metadata from the agent type, `COOP_LABEL_*` env vars,
+/// Detect session metadata from the agent type, `--label` CLI flags,
 /// and (when running in Kubernetes) pod environment variables.
 ///
 /// Always returns a JSON object with at least `"agent"`.
-pub fn detect_metadata(agent: &str) -> Value {
-    detect_metadata_with(agent, |name| std::env::var(name).ok(), std::env::vars())
+pub fn detect_metadata(agent: &str, labels: &[String]) -> Value {
+    detect_metadata_with(agent, labels, |name| std::env::var(name).ok())
 }
 
-/// Inner implementation that accepts a lookup function and env iterator for testability.
+/// Inner implementation that accepts a lookup function for testability.
 fn detect_metadata_with(
     agent: &str,
+    labels: &[String],
     get_env: impl Fn(&str) -> Option<String>,
-    env_iter: impl Iterator<Item = (String, String)>,
 ) -> Value {
     let mut meta = serde_json::Map::new();
 
     // Always inject agent type.
     meta.insert("agent".to_owned(), Value::String(agent.to_owned()));
 
-    // Scan COOP_LABEL_* env vars → lowercase suffix as key.
-    // e.g. COOP_LABEL_ROLE=worker → "role": "worker"
-    for (key, val) in env_iter {
-        if let Some(suffix) = key.strip_prefix("COOP_LABEL_") {
-            if !suffix.is_empty() {
-                meta.insert(suffix.to_lowercase(), Value::String(val));
-            }
+    // Parse --label flags. Dot-separated keys build nested objects:
+    //   "a.b.c=v" → {"a":{"b":{"c":"v"}}}
+    for label in labels {
+        let Some((key, val)) = label.split_once('=') else {
+            warn!(label, "ignoring malformed label (expected key=value)");
+            continue;
+        };
+        if key.is_empty() {
+            warn!(label, "ignoring label with empty key");
+            continue;
         }
+        insert_nested(&mut meta, key, val);
     }
 
     // K8s metadata (only when running in Kubernetes).
@@ -201,6 +209,24 @@ fn detect_metadata_with(
     Value::Object(meta)
 }
 
+/// Insert a value at a dot-separated key path, creating nested objects as needed.
+fn insert_nested(map: &mut serde_json::Map<String, Value>, key: &str, val: &str) {
+    let mut parts: Vec<&str> = key.split('.').collect();
+    let leaf = parts.pop().unwrap_or(key);
+
+    let mut current = map;
+    for part in parts {
+        // Ensure intermediate keys are objects.
+        let entry =
+            current.entry(part.to_owned()).or_insert_with(|| Value::Object(Default::default()));
+        current = match entry.as_object_mut() {
+            Some(obj) => obj,
+            None => return, // non-object at intermediate key, skip
+        };
+    }
+    current.insert(leaf.to_owned(), Value::String(val.to_owned()));
+}
+
 /// POST /api/v1/sessions to register this coop instance.
 async fn register(
     client: &reqwest::Client,
@@ -208,7 +234,7 @@ async fn register(
     config: &MuxRegistration,
 ) -> anyhow::Result<()> {
     let url = format!("{base}/api/v1/sessions");
-    let metadata = detect_metadata(&config.agent);
+    let metadata = detect_metadata(&config.agent, &config.labels);
     let body = serde_json::json!({
         "url": config.coop_url,
         "auth_token": config.coop_token,
