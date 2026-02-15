@@ -405,6 +405,7 @@ fn build_router_inner(
             get(http::get_profile_mode).put(http::put_profile_mode),
         )
         .route("/api/v1/session/switch", post(http::switch_session))
+        .route("/api/v1/session/restart", post(http::restart_session))
         .route("/api/v1/shutdown", post(http::shutdown))
         .route("/api/v1/config/stop", get(http::get_stop_config).put(http::put_stop_config))
         .route("/api/v1/hooks/start", post(http::hooks_start))

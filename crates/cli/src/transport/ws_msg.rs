@@ -153,6 +153,8 @@ pub enum ClientMessage {
     },
 
     // Lifecycle
+    #[serde(rename = "session:restart")]
+    RestartSession {},
     Shutdown {},
 
     // Connection
@@ -450,6 +452,10 @@ pub enum ServerMessage {
     },
 
     // Lifecycle
+    #[serde(rename = "session:restarted")]
+    SessionRestarted {
+        scheduled: bool,
+    },
     Shutdown {
         accepted: bool,
     },

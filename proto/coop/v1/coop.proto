@@ -120,6 +120,8 @@ service Coop {
 
   // Lifecycle
 
+  // Restart the agent process without changing credentials.
+  rpc RestartSession(RestartSessionRequest) returns (RestartSessionResponse);
   // Initiate graceful coop shutdown.
   rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
 }
@@ -722,6 +724,12 @@ message SwitchSessionResponse {
 
 
 // -- Lifecycle ----------------------------------------------------------------
+
+message RestartSessionRequest {}
+message RestartSessionResponse {
+  // Whether the restart was scheduled.
+  bool scheduled = 1;
+}
 
 message ShutdownRequest {}
 message ShutdownResponse {

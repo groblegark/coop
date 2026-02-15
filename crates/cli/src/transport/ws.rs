@@ -727,6 +727,21 @@ async fn handle_client_message(
         }
 
         // Lifecycle
+        ClientMessage::RestartSession {} => {
+            require_auth!(authed);
+            let req =
+                crate::switch::SwitchRequest { credentials: None, force: true, profile: None };
+            match state.switch.switch_tx.try_send(req) {
+                Ok(()) => Some(ServerMessage::SessionRestarted { scheduled: true }),
+                Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                    Some(ws_error(ErrorCode::SwitchInProgress, "a switch is already in progress"))
+                }
+                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                    Some(ws_error(ErrorCode::Internal, "switch channel closed"))
+                }
+            }
+        }
+
         ClientMessage::Shutdown {} => {
             require_auth!(authed);
             state.lifecycle.shutdown.cancel();

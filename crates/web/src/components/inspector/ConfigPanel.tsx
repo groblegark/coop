@@ -483,16 +483,26 @@ function SignalSection({ wsRequest }: { wsRequest: WsRequest }) {
 function ShutdownSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const handleShutdown = useCallback(async () => {
+  const handleRestart = async () => {
+    const res = await wsRequest({ event: "session:restart" });
+    setResult(showResult(res));
+  };
+
+  const handleShutdown = async () => {
     const res = await wsRequest({ event: "shutdown" });
     setResult(showResult(res));
-  }, [wsRequest]);
+  };
 
   return (
     <Section label="Lifecycle">
-      <ActionBtn variant="danger" onClick={handleShutdown}>
-        Shutdown
-      </ActionBtn>
+      <div className="flex items-center gap-1">
+        <ActionBtn variant="warn" onClick={handleRestart}>
+          Restart
+        </ActionBtn>
+        <ActionBtn variant="danger" onClick={handleShutdown}>
+          Shutdown
+        </ActionBtn>
+      </div>
       <ResultDisplay result={result} />
     </Section>
   );
