@@ -607,6 +607,7 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
             nats_url,
             &config.nats_prefix,
             &agent_enum.to_string(),
+            &config.label,
             nats_auth,
         )
         .await?;
@@ -726,6 +727,7 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
             config.auth_token.as_deref(),
             config.mux_url(),
             &agent_enum.to_string(),
+            &config.label,
             shutdown.clone(),
         )
         .await;
