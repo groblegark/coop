@@ -284,15 +284,29 @@ function AppInner() {
       const msg = raw as MuxWsMessage;
 
       if (msg.event === "sessions") {
-        const newSessions = new Map(sessionsRef.current);
+        const newSessions = new Map<string, SessionInfo>();
         const ids: string[] = [];
         for (const s of msg.sessions) {
           ids.push(s.id);
-          if (!newSessions.has(s.id)) {
+          if (sessionsRef.current.has(s.id)) {
+            // Reuse existing SessionInfo (preserves XTerm instance)
+            const existing = sessionsRef.current.get(s.id)!;
+            // Update URL/state/metadata from backend (in case they changed)
+            existing.url = s.url ?? null;
+            existing.state = s.state ?? null;
+            existing.metadata = s.metadata ?? null;
+            newSessions.set(s.id, existing);
+          } else {
             newSessions.set(
               s.id,
               createSession(s.id, s.url ?? null, s.state ?? null, s.metadata ?? null),
             );
+          }
+        }
+        // Dispose terminals for sessions that are no longer in the backend list
+        for (const [id, info] of sessionsRef.current) {
+          if (!newSessions.has(id)) {
+            info.term.dispose();
           }
         }
         sessionsRef.current = newSessions;
