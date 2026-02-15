@@ -47,6 +47,15 @@ pub async fn distribute_to_sessions(
     switch: bool,
 ) {
     let sessions = state.sessions.read().await;
+    let count = sessions.len();
+    if count == 0 {
+        tracing::info!(account, "distributor: no sessions registered, nothing to distribute");
+        return;
+    }
+    tracing::info!(account, count, "distributor: pushing credentials to sessions");
+
+    let mut ok = 0u32;
+    let mut failed = 0u32;
     for entry in sessions.values() {
         let client = UpstreamClient::new(entry.url.clone(), entry.auth_token.clone());
 
@@ -58,7 +67,8 @@ pub async fn distribute_to_sessions(
             }]
         });
         if let Err(e) = client.post_json("/api/v1/session/profiles", &profile_body).await {
-            tracing::debug!(session = %entry.id, account, err = %e, "failed to push profile");
+            tracing::warn!(session = %entry.id, account, err = %e, "distributor: failed to push profile");
+            failed += 1;
             continue;
         }
 
@@ -69,8 +79,14 @@ pub async fn distribute_to_sessions(
                 "force": false,
             });
             if let Err(e) = client.post_json("/api/v1/session/switch", &switch_body).await {
-                tracing::debug!(session = %entry.id, account, err = %e, "failed to trigger switch");
+                tracing::warn!(session = %entry.id, account, err = %e, "distributor: failed to trigger switch");
+                failed += 1;
+                continue;
             }
         }
+
+        tracing::info!(session = %entry.id, account, "distributor: credentials pushed and switch triggered");
+        ok += 1;
     }
+    tracing::info!(account, ok, failed, "distributor: distribution complete");
 }
