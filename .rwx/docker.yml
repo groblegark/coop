@@ -1,7 +1,7 @@
 # OCI image build for coop (empty, claude, gemini variants)
-# Build uses rwx/base (for toolchain), image assembly uses config: none
-# (for clean OCI output), connected via embedded runs (call:).
-# Push to GHCR via rwx image push — no Docker daemon needed.
+# Single workflow with config: none for clean OCI output.
+# Build tasks install toolchain manually; image tasks start from clean
+# base (no use:) for proper layer isolation. Push via rwx image push.
 
 on:
   github:
@@ -17,7 +17,7 @@ on:
         commit-sha: ${{ event.git.sha }}
         ref-name: pr
       status-checks:
-        - tasks: [build]
+        - tasks: [build-coop]
           name: Docker
   cli:
     init:
@@ -26,43 +26,121 @@ on:
 
 base:
   image: ubuntu:24.04
-  config: rwx/base 1.0.0
-
-tool-cache:
-  vault: default
+  config: none
 
 tasks:
   # ═══════════════════════════════════════════════════════════════════════
-  # Build — native Rust compile via embedded run (rwx/base for toolchain)
+  # Build — native Rust compile, outputs binary artifact
   # ═══════════════════════════════════════════════════════════════════════
-  - key: build
-    call: ${{ run.dir }}/build.yml
-    init:
-      commit-sha: ${{ init.commit-sha }}
+
+  # ── System deps (protobuf compiler for tonic) ──────────────────────────
+  - key: build-deps
+    filter:
+      - .rwx/docker.yml
+    run: |
+      apt-get update
+      apt-get install -y protobuf-compiler curl build-essential pkg-config libssl-dev
+
+  # ── Clone (parallel with build-deps and rust) ─────────────────────────
+  - key: code
+    call: git/clone 2.0.3
+    with:
+      repository: https://github.com/groblegark/coop.git
+      ref: ${{ init.commit-sha }}
+
+  # ── Rust toolchain ─────────────────────────────────────────────────────
+  - key: rust
+    use: build-deps
+    filter:
+      - .rwx/docker.yml
+    run: |
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --default-toolchain stable
+      echo "$HOME/.cargo/bin" | tee -a $RWX_ENV/PATH
+      echo "" | tee $RWX_ENV/RUSTC_WRAPPER
+
+  # ── Cargo fetch ────────────────────────────────────────────────────────
+  - key: cargo-deps
+    use: [code, rust]
+    run: cargo fetch
+
+  # ── Build coop binary → artifact ──────────────────────────────────────
+  - key: build-coop
+    use: cargo-deps
+    agent:
+      cpus: 8
+    run: |
+      cargo build --release -p coop
+      cp target/release/coop coop-bin
+    outputs:
+      artifacts:
+        - key: coop-binary
+          path: coop-bin
 
   # ═══════════════════════════════════════════════════════════════════════
-  # Image assembly — embedded run with config: none for clean OCI output
+  # Image assembly — no use: = clean filesystem (multi-stage equivalent)
+  # Each task starts fresh from base image and installs only runtime deps.
+  # Artifact references work within the same run regardless of use: chain.
   # ═══════════════════════════════════════════════════════════════════════
-  - key: images
-    call: ${{ run.dir }}/image.yml
-    after: build
-    init:
-      coop-binary-path: ${{ tasks.build.tasks.build-coop.artifacts.coop-binary }}
+
+  # ── image-empty: coop + common dev tools ─────────────────────────────
+  - key: image-empty
+    after: build-coop
+    run: |
+      apt-get update && apt-get install -y --no-install-recommends \
+        git python3 build-essential openssh-client \
+        jq ripgrep fd-find tree \
+        ca-certificates curl \
+        && rm -rf /var/lib/apt/lists/*
+      cp ${{ tasks.build-coop.artifacts.coop-binary }} /coop
+      chmod +x /coop
+      jq -n '["/coop"]' > $RWX_IMAGE/entrypoint.json
+
+  # ── image-claude: coop + Claude CLI ──────────────────────────────────
+  - key: image-claude
+    after: build-coop
+    run: |
+      apt-get update && apt-get install -y --no-install-recommends \
+        git python3 build-essential openssh-client \
+        jq ripgrep fd-find tree \
+        ca-certificates curl \
+        && rm -rf /var/lib/apt/lists/*
+      curl -fsSL https://claude.ai/install.sh | bash
+      cp ${{ tasks.build-coop.artifacts.coop-binary }} /usr/local/bin/coop
+      chmod +x /usr/local/bin/coop
+      jq -n '["coop"]' > $RWX_IMAGE/entrypoint.json
+    env:
+      PATH: /root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+  # ── image-gemini: coop + Gemini CLI + Node.js ────────────────────────
+  - key: image-gemini
+    after: build-coop
+    run: |
+      apt-get update && apt-get install -y --no-install-recommends \
+        git python3 build-essential openssh-client \
+        jq ripgrep fd-find tree \
+        ca-certificates curl nodejs npm \
+        && rm -rf /var/lib/apt/lists/*
+      npm install -g @google/gemini-cli
+      ln -sf ../lib/node_modules/@google/gemini-cli/dist/src/cli.js /usr/local/bin/gemini
+      cp ${{ tasks.build-coop.artifacts.coop-binary }} /usr/local/bin/coop
+      chmod +x /usr/local/bin/coop
+      jq -n '["coop"]' > $RWX_IMAGE/entrypoint.json
 
   # ═══════════════════════════════════════════════════════════════════════
   # Push — rwx image push to GHCR (skipped on PRs)
+  # Install rwx CLI manually since config: none has no packages.
   # ═══════════════════════════════════════════════════════════════════════
 
-  - key: rwx-cli
-    after: images
-    if: ${{ init.ref-name != 'pr' }}
-    call: rwx/install-cli 4.0.1
-
-  # ── GHCR auth (write Docker credential file for rwx image push) ──────
-  - key: ghcr-auth
-    use: rwx-cli
+  - key: push-deps
+    after: [image-empty, image-claude, image-gemini]
     if: ${{ init.ref-name != 'pr' }}
     run: |
+      apt-get update && apt-get install -y --no-install-recommends ca-certificates curl
+      curl -fsSL https://install.rwx.com/rwx -o /tmp/install-rwx
+      bash /tmp/install-rwx
+      rm /tmp/install-rwx
+      echo "$HOME/.rwx/bin" | tee -a $RWX_ENV/PATH
       mkdir -p ~/.docker
       AUTH=$(printf '%s:%s' "$GITHUB_USER" "$GHCR_TOKEN" | base64 -w0)
       printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "$AUTH" > ~/.docker/config.json
@@ -72,7 +150,7 @@ tasks:
 
   # ── push-empty ────────────────────────────────────────────────────────
   - key: push-empty
-    use: ghcr-auth
+    use: push-deps
     if: ${{ init.ref-name != 'pr' }}
     run: |
       REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
@@ -89,11 +167,11 @@ tasks:
     env:
       COMMIT_SHA: ${{ init.commit-sha }}
       REF_NAME: ${{ init.ref-name }}
-      IMAGE_TASK_ID: ${{ tasks.images.tasks.image-empty.id }}
+      IMAGE_TASK_ID: ${{ tasks.image-empty.id }}
 
   # ── push-claude ───────────────────────────────────────────────────────
   - key: push-claude
-    use: ghcr-auth
+    use: push-deps
     if: ${{ init.ref-name != 'pr' }}
     run: |
       REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
@@ -110,11 +188,11 @@ tasks:
     env:
       COMMIT_SHA: ${{ init.commit-sha }}
       REF_NAME: ${{ init.ref-name }}
-      IMAGE_TASK_ID: ${{ tasks.images.tasks.image-claude.id }}
+      IMAGE_TASK_ID: ${{ tasks.image-claude.id }}
 
   # ── push-gemini ───────────────────────────────────────────────────────
   - key: push-gemini
-    use: ghcr-auth
+    use: push-deps
     if: ${{ init.ref-name != 'pr' }}
     run: |
       REF_NAME="${REF_NAME#refs/tags/}"; REF_NAME="${REF_NAME#refs/heads/}"
@@ -131,4 +209,4 @@ tasks:
     env:
       COMMIT_SHA: ${{ init.commit-sha }}
       REF_NAME: ${{ init.ref-name }}
-      IMAGE_TASK_ID: ${{ tasks.images.tasks.image-gemini.id }}
+      IMAGE_TASK_ID: ${{ tasks.image-gemini.id }}
