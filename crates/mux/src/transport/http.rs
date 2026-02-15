@@ -61,6 +61,7 @@ pub struct DeregisterResponse {
 #[derive(Debug, Serialize)]
 pub struct LaunchConfigResponse {
     pub available: bool,
+    pub cwd: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -387,7 +388,8 @@ pub async fn session_upload(
 
 /// `GET /api/v1/config/launch` — whether launch is available.
 pub async fn launch_config(State(s): State<Arc<MuxState>>) -> impl IntoResponse {
-    Json(LaunchConfigResponse { available: s.config.launch.is_some() })
+    let cwd = std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    Json(LaunchConfigResponse { available: s.config.launch.is_some(), cwd })
 }
 
 /// `POST /api/v1/sessions/launch` — spawn a new session via the configured launch command.
