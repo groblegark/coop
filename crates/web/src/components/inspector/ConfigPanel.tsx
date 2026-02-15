@@ -350,10 +350,7 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
       if (!res.ok || !res.json) {
         throw new Error(res.text || "Request failed");
       }
-      const data = res.json as {
-        transcripts?: Array<{ lines: string[] }>;
-        live_lines?: string[];
-      };
+      const data = res.json as { transcripts?: Array<{ lines: string[] }>; live_lines?: string[] };
       const allLines: string[] = [];
       if (data.transcripts) {
         for (const transcript of data.transcripts) {
