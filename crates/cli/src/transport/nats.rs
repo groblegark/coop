@@ -171,7 +171,9 @@ impl NatsPublisher {
 /// 2. Token
 /// 3. Username/password
 /// 4. No auth
-async fn build_connect_options(auth: NatsAuth) -> anyhow::Result<async_nats::ConnectOptions> {
+pub(crate) async fn build_connect_options(
+    auth: NatsAuth,
+) -> anyhow::Result<async_nats::ConnectOptions> {
     if let Some(ref path) = auth.creds_path {
         return Ok(async_nats::ConnectOptions::with_credentials_file(path).await?);
     }

@@ -617,6 +617,42 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
         });
     }
 
+    // Spawn inbox JetStream consumer if configured (bd-xtahx.3).
+    // Requires both NATS URL and an agent name (explicit or from GT_ROLE).
+    if let Some(ref nats_url) = config.nats_url {
+        let inbox_agent = config.inbox_agent.clone().or_else(|| std::env::var("GT_ROLE").ok());
+        if let Some(agent_name) = inbox_agent {
+            let inject_dir =
+                config.inject_dir.clone().unwrap_or_else(|| PathBuf::from(".runtime/inject-queue"));
+            let nats_auth = crate::transport::nats::NatsAuth {
+                token: config.nats_token.clone(),
+                user: config.nats_user.clone(),
+                password: config.nats_password.clone(),
+                creds_path: config.nats_creds.as_deref().map(Into::into),
+            };
+            match crate::transport::inbox::InboxConsumer::connect(
+                nats_url,
+                &agent_name,
+                config.inbox_rig.as_deref(),
+                &inject_dir,
+                nats_auth,
+            )
+            .await
+            {
+                Ok(consumer) => {
+                    let store_ref = Arc::clone(&store);
+                    let sd = shutdown.clone();
+                    tokio::spawn(async move {
+                        consumer.run(store_ref, sd).await;
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!("inbox: failed to connect consumer: {e}");
+                }
+            }
+        }
+    }
+
     // Spawn HTTP server
     if let Some(port) = config.port {
         #[cfg(debug_assertions)]

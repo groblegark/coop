@@ -8,6 +8,7 @@ pub mod compat;
 pub mod grpc;
 pub mod handler;
 pub mod http;
+pub mod inbox;
 pub mod nats;
 pub mod state;
 pub mod ws;
