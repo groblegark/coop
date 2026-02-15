@@ -210,6 +210,9 @@ pub async fn register_session(
         // Add to pre-warm cache for slow-poll background updates.
         s.prewarm.lock().await.touch(&id);
 
+        // Clone metadata for credential filtering before moving into the event.
+        let cred_metadata = event_metadata.clone();
+
         // Notify connected dashboard clients about the new session.
         let _ = s.feed.event_tx.send(MuxEvent::SessionOnline {
             session: id.clone(),
@@ -217,15 +220,27 @@ pub async fn register_session(
             metadata: event_metadata,
         });
 
-        // Push all healthy account profiles to the new session.
+        // Push healthy account profiles to the new session (filtered by profiles_needed).
         if let Some(ref broker) = s.credential_broker {
             let broker = Arc::clone(broker);
             let session_url = cred_url;
             let session_token = cred_token;
+            let session_metadata = cred_metadata;
             tokio::spawn(async move {
                 let status_list = broker.status_list().await;
                 for acct in &status_list {
                     if acct.status != crate::credential::AccountStatus::Healthy {
+                        continue;
+                    }
+                    // Apply per-pod filtering: skip accounts this session doesn't need.
+                    if !crate::credential::distributor::session_needs_account_metadata(
+                        &session_metadata,
+                        &acct.name,
+                    ) {
+                        tracing::debug!(
+                            account = %acct.name,
+                            "skipping profile push to new session (not in profiles_needed)"
+                        );
                         continue;
                     }
                     let Some(credentials) = broker.get_credentials(&acct.name).await else {
