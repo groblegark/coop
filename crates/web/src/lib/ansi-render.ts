@@ -6,6 +6,22 @@ export interface AnsiPreOptions {
   background?: string;
 }
 
+/** Cached WebGL2 support probe — avoids creating a new context on every call. */
+let cachedHasWebGL2: boolean | null = null;
+function hasWebGL2(): boolean {
+  if (cachedHasWebGL2 === null) {
+    const canvas = document.createElement("canvas");
+    const gl = canvas.getContext("webgl2");
+    cachedHasWebGL2 = !!gl;
+    // Release the probing context immediately so it doesn't count against
+    // the browser's active WebGL context limit.
+    if (gl) gl.getExtension("WEBGL_lose_context")?.loseContext();
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+  return cachedHasWebGL2;
+}
+
 /**
  * Compute cell dimensions matching xterm.js renderer rounding.
  *
@@ -16,9 +32,17 @@ export interface AnsiPreOptions {
  *
  * On Retina (dpr=2) with WebGL, Source Code Pro 14px rounds from
  * 8.4→8.0px wide and 17.6→18.0px tall.
+ *
+ * Results are cached by (fontSize, dpr) since font metrics are stable.
  */
+const cellAdjustCache = new Map<string, { letterSpacing: string; lineHeight: string }>();
+
 function xtermCellAdjust(fontSize: number): { letterSpacing: string; lineHeight: string } {
   const dpr = window.devicePixelRatio || 1;
+  const key = `${fontSize}:${dpr}`;
+  const cached = cellAdjustCache.get(key);
+  if (cached) return cached;
+
   const ctx = document.createElement("canvas").getContext("2d");
   if (!ctx) return { letterSpacing: "0px", lineHeight: "normal" };
   ctx.font = `${fontSize}px ${MONO_FONT}`;
@@ -30,15 +54,16 @@ function xtermCellAdjust(fontSize: number): { letterSpacing: string; lineHeight:
 
   // Width: WebGL uses Math.floor, DOM uses raw value.
   // Match whichever renderer xterm.js will actually use.
-  const hasWebGL2 = !!document.createElement("canvas").getContext("webgl2");
   const naturalW = metrics.width;
-  const cellW = hasWebGL2 ? Math.floor(naturalW * dpr) / dpr : naturalW;
+  const cellW = hasWebGL2() ? Math.floor(naturalW * dpr) / dpr : naturalW;
   const spacing = cellW - naturalW;
 
-  return {
+  const result = {
     letterSpacing: Math.abs(spacing) > 0.001 ? `${spacing}px` : "0px",
     lineHeight: `${cellH}px`,
   };
+  cellAdjustCache.set(key, result);
+  return result;
 }
 
 /**
