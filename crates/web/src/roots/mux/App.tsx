@@ -1,7 +1,4 @@
-import type { FitAddon } from "@xterm/addon-fit";
-import type { WebglAddon } from "@xterm/addon-webgl";
-import type { Terminal as XTerm } from "@xterm/xterm";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DropOverlay } from "@/components/DropOverlay";
 import { OAuthToast } from "@/components/OAuthToast";
 import { StatusBar } from "@/components/StatusBar";
@@ -9,26 +6,12 @@ import { LaunchCard, Tile } from "@/components/Tile";
 import { apiGet } from "@/hooks/useApiClient";
 import { useFileUpload } from "@/hooks/useFileUpload";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import type { MuxMetadata, MuxWsMessage, PromptContext } from "@/lib/types";
+import { useInit } from "@/hooks/utils";
+import type { MuxMetadata, MuxWsMessage, PromptContext, SessionInfo } from "@/lib/types";
 import { type CredentialAlert, CredentialPanel } from "./CredentialPanel";
 import { ExpandedSession } from "./ExpandedSession";
 import { MuxProvider, useMux } from "./MuxContext";
 import { SessionSidebar } from "./SessionSidebar";
-
-export interface SessionInfo {
-  id: string;
-  url: string | null;
-  state: string | null;
-  metadata: MuxMetadata | null;
-  lastMessage: string | null;
-  term: XTerm | null;
-  fit: FitAddon | null;
-  webgl: WebglAddon | null;
-  sourceCols: number;
-  sourceRows: number;
-  lastScreenLines: string[] | null;
-  credAlert: boolean;
-}
 
 function AppInner() {
   const [sessions, setSessions] = useState<Map<string, SessionInfo>>(() => new Map());
@@ -55,18 +38,14 @@ function AppInner() {
 
   // Stats
   const sessionCount = sessions.size;
-  const healthyCount = useMemo(() => {
-    let c = 0;
-    for (const [, info] of sessions) {
-      const s = (info.state || "").toLowerCase();
-      if (s && s !== "exited" && !s.includes("error")) c++;
-    }
-    return c;
-  }, [sessions]);
-  const alertCount = useMemo(
-    () => [...credentialAlerts.values()].filter((a) => a.event !== "credential:refreshed").length,
-    [credentialAlerts],
-  );
+  let healthyCount = 0;
+  for (const [, info] of sessions) {
+    const s = (info.state || "").toLowerCase();
+    if (s && s !== "exited" && !s.includes("error")) healthyCount++;
+  }
+  const alertCount = [...credentialAlerts.values()].filter(
+    (a) => a.event !== "credential:refreshed",
+  ).length;
 
   function createSession(
     id: string,
@@ -230,11 +209,9 @@ function AppInner() {
   });
 
   // Keep muxSendRef in sync
-  useEffect(() => {
-    muxSendRef.current = muxSend;
-  }, [muxSend]);
+  muxSendRef.current = muxSend;
 
-  useEffect(() => {
+  useInit(() => {
     apiGet("/api/v1/config/launch").then((res) => {
       if (
         res.ok &&
@@ -245,7 +222,7 @@ function AppInner() {
         setLaunchAvailable((res.json as Record<string, unknown>).available === true);
       }
     });
-  }, []);
+  });
 
   const { dragActive } = useFileUpload({
     uploadPath: () => (focusedRef.current ? `/api/v1/sessions/${focusedRef.current}/upload` : null),
@@ -272,10 +249,14 @@ function AppInner() {
   const { sidebarCollapsed, toggleSidebar } = useMux();
   const sidebarWidth = sidebarCollapsed ? 40 : 220;
 
+  const credPanelOpenRef = useRef(credPanelOpen);
+  credPanelOpenRef.current = credPanelOpen;
+  const toggleSidebarRef = useRef(toggleSidebar);
+  toggleSidebarRef.current = toggleSidebar;
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (credPanelOpen) {
+        if (credPanelOpenRef.current) {
           setCredPanelOpen(false);
         } else if (expandedRef.current) {
           setExpandedSession(null);
@@ -283,14 +264,14 @@ function AppInner() {
       }
       if (e.key === "b" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        toggleSidebar();
+        toggleSidebarRef.current();
       }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [toggleSidebar, credPanelOpen]);
+  }, []);
 
-  const sessionArray = useMemo(() => [...sessions.values()], [sessions]);
+  const sessionArray = [...sessions.values()];
 
   return (
     <div className="flex h-screen flex-col bg-[#0d1117] font-sans text-[#c9d1d9]">

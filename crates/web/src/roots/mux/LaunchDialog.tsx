@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActionBtn } from "@/components/ActionBtn";
 import { ResultDisplay, showResult } from "@/components/ResultDisplay";
 import { Section } from "@/components/Section";
@@ -37,23 +37,20 @@ export function LaunchDialog({ onClose }: LaunchDialogProps) {
     });
   });
 
-  // Initialize env from preset
-  useEffect(() => {
-    setEnv({ ...PRESETS[selectedPreset].env });
-  }, [selectedPreset]);
-
   // Click outside closes dialog
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (dialogRef.current && !dialogRef.current.contains(e.target as Node)) {
-        onClose();
+        onCloseRef.current();
       }
     };
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
-  }, [onClose]);
+  }, []);
 
-  const handleLaunch = useCallback(async () => {
+  async function handleLaunch() {
     setLaunching(true);
     setResult(null);
 
@@ -67,7 +64,7 @@ export function LaunchDialog({ onClose }: LaunchDialogProps) {
     if (res.ok) {
       setTimeout(onClose, 1500);
     }
-  }, [env, onClose]);
+  }
 
   const updateEnvKey = (oldKey: string, newKey: string) => {
     const newEnv = { ...env };
@@ -120,7 +117,11 @@ export function LaunchDialog({ onClose }: LaunchDialogProps) {
               id="preset-select"
               className="w-full rounded border border-[#2a2a2a] bg-[#0d1117] px-2 py-1 text-[11px] font-mono text-zinc-300 outline-none"
               value={selectedPreset}
-              onChange={(e) => setSelectedPreset(Number(e.target.value))}
+              onChange={(e) => {
+                const idx = Number(e.target.value);
+                setSelectedPreset(idx);
+                setEnv({ ...PRESETS[idx].env });
+              }}
             >
               {PRESETS.map((preset, idx) => (
                 <option key={idx} value={idx}>

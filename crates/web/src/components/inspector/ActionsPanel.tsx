@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ActionBtn } from "@/components/ActionBtn";
 import { ResultDisplay, showResult } from "@/components/ResultDisplay";
 import { Section } from "@/components/Section";
@@ -30,11 +30,11 @@ function InputSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [enter, setEnter] = useState(true);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const handleSend = useCallback(async () => {
+  async function handleSend() {
     const res = await wsRequest({ event: "input:send", text, enter });
     setResult(showResult(res));
     setText("");
-  }, [text, enter, wsRequest]);
+  }
 
   return (
     <Section label="Input">
@@ -87,7 +87,7 @@ function ResizeSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [rows, setRows] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const handleResize = useCallback(async () => {
+  async function handleResize() {
     const c = parseInt(cols, 10);
     const r = parseInt(rows, 10);
     if (!c || !r || c < 1 || r < 1) {
@@ -96,7 +96,7 @@ function ResizeSection({ wsRequest }: { wsRequest: WsRequest }) {
     }
     const res = await wsRequest({ event: "resize", cols: c, rows: r });
     setResult(showResult(res));
-  }, [cols, rows, wsRequest]);
+  }
 
   return (
     <Section label="Resize">
@@ -127,11 +127,11 @@ function NudgeSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const handleNudge = useCallback(async () => {
+  async function handleNudge() {
     const res = await wsRequest({ event: "nudge", message });
     setResult(showResult(res));
     if (res.ok) setMessage("");
-  }, [message, wsRequest]);
+  }
 
   return (
     <Section label="Nudge">

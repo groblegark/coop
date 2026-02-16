@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiPost } from "@/hooks/useApiClient";
 import { readFileAsBase64 } from "@/lib/base64";
 
@@ -15,43 +15,43 @@ export function useFileUpload({ uploadPath, onUploaded, onError }: UseFileUpload
   const [dragActive, setDragActive] = useState(false);
   const dragCounterRef = useRef(0);
 
-  const getPath = useCallback(() => {
+  function getPath() {
     return typeof uploadPath === "function" ? uploadPath() : uploadPath;
-  }, [uploadPath]);
+  }
 
-  const uploadFiles = useCallback(
-    async (files: FileList) => {
-      const path = getPath();
-      if (!path) {
-        onError?.("No upload path available");
-        return;
-      }
+  async function uploadFiles(files: FileList) {
+    const path = getPath();
+    if (!path) {
+      onError?.("No upload path available");
+      return;
+    }
 
-      const paths: string[] = [];
-      for (const file of Array.from(files)) {
-        try {
-          const data = await readFileAsBase64(file);
-          const res = await apiPost(path, { filename: file.name, data });
-          if (res.ok && (res.json as { path?: string })?.path) {
-            paths.push((res.json as { path: string }).path);
-          } else {
-            const msg =
-              (res.json as { error?: { message?: string } })?.error?.message ||
-              res.text ||
-              "unknown error";
-            onError?.(`upload error: ${msg}`);
-          }
-        } catch (err) {
-          onError?.(`upload error: ${err instanceof Error ? err.message : String(err)}`);
+    const paths: string[] = [];
+    for (const file of Array.from(files)) {
+      try {
+        const data = await readFileAsBase64(file);
+        const res = await apiPost(path, { filename: file.name, data });
+        if (res.ok && (res.json as { path?: string })?.path) {
+          paths.push((res.json as { path: string }).path);
+        } else {
+          const msg =
+            (res.json as { error?: { message?: string } })?.error?.message ||
+            res.text ||
+            "unknown error";
+          onError?.(`upload error: ${msg}`);
         }
+      } catch (err) {
+        onError?.(`upload error: ${err instanceof Error ? err.message : String(err)}`);
       }
+    }
 
-      if (paths.length) {
-        onUploaded?.(paths);
-      }
-    },
-    [getPath, onUploaded, onError],
-  );
+    if (paths.length) {
+      onUploaded?.(paths);
+    }
+  }
+
+  const uploadFilesRef = useRef(uploadFiles);
+  uploadFilesRef.current = uploadFiles;
 
   useEffect(() => {
     const onDragEnter = (e: DragEvent) => {
@@ -79,7 +79,7 @@ export function useFileUpload({ uploadPath, onUploaded, onError }: UseFileUpload
       dragCounterRef.current = 0;
       setDragActive(false);
       if (e.dataTransfer?.files.length) {
-        uploadFiles(e.dataTransfer.files);
+        uploadFilesRef.current(e.dataTransfer.files);
       }
     };
 
@@ -94,7 +94,7 @@ export function useFileUpload({ uploadPath, onUploaded, onError }: UseFileUpload
       document.removeEventListener("dragover", onDragOver);
       document.removeEventListener("drop", onDrop);
     };
-  }, [uploadFiles]);
+  }, []);
 
   return { dragActive };
 }

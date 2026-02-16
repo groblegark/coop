@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ApiResult } from "@/lib/types";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
@@ -93,14 +93,14 @@ export function useWebSocket({
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
 
-  const send = useCallback((msg: unknown) => {
+  function send(msg: unknown) {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(msg));
     }
-  }, []);
+  }
 
-  const request: WsRequest = useCallback((msg: Record<string, unknown>) => {
+  const request: WsRequest = (msg: Record<string, unknown>) => {
     const rpc = rpcRef.current;
     if (!rpc) {
       return Promise.resolve({
@@ -111,7 +111,7 @@ export function useWebSocket({
       } as ApiResult);
     }
     return rpc.request(msg);
-  }, []);
+  };
 
   useEffect(() => {
     if (!enabled) return;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { EventEntry } from "@/lib/types";
 
 function renderRows(obj: unknown, prefix: string): { key: string; value: string }[] {
@@ -95,17 +95,19 @@ export function StatePanel({ health, status, agent, usage, events }: StatePanelP
   const logRef = useRef<HTMLDivElement>(null);
   const [apiHeight, setApiHeight] = useState<number | undefined>(undefined);
 
-  // Auto-scroll event log
+  // Auto-scroll event log when new events arrive
+  const eventCount = events.length;
   useEffect(() => {
+    if (!eventCount) return;
     const el = logRef.current;
     if (!el) return;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 60) {
       el.scrollTop = el.scrollHeight;
     }
-  }, []);
+  }, [eventCount]);
 
   // Horizontal resize handle
-  const handleHResize = useCallback((e: React.MouseEvent) => {
+  function handleHResize(e: React.MouseEvent) {
     e.preventDefault();
     const panel = e.currentTarget.closest("[data-state-panel]") as HTMLElement | null;
     if (!panel) return;
@@ -113,9 +115,9 @@ export function StatePanel({ health, status, agent, usage, events }: StatePanelP
     document.body.style.cursor = "row-resize";
     document.body.style.userSelect = "none";
 
-    const onMove = (e: MouseEvent) => {
+    const onMove = (ev: MouseEvent) => {
       const rect = panel.getBoundingClientRect();
-      const y = e.clientY - rect.top;
+      const y = ev.clientY - rect.top;
       const max = rect.height - 60 - 5;
       setApiHeight(Math.min(max, Math.max(80, y)));
     };
@@ -129,7 +131,7 @@ export function StatePanel({ health, status, agent, usage, events }: StatePanelP
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, []);
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-state-panel>

@@ -1,17 +1,24 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-export function useLatest<T>(value: T) {
-  const ref = useRef(value);
-  ref.current = value;
-  return ref;
-}
-
+/** Run `fn` once during the first render. */
 export function useInit(fn: () => void) {
   const ran = useRef(false);
   if (!ran.current) {
     ran.current = true;
     fn();
   }
+}
+
+/** Call `fn` every `delay` ms while `delay` is non-null. Calls immediately on start. */
+export function useInterval(fn: () => void, delay: number | null) {
+  const fnRef = useRef(fn);
+  fnRef.current = fn;
+  useEffect(() => {
+    if (delay === null) return;
+    fnRef.current();
+    const id = setInterval(() => fnRef.current(), delay);
+    return () => clearInterval(id);
+  }, [delay]);
 }
 
 export function useLocalStorage<T>(

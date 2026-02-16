@@ -8,7 +8,7 @@ import { Terminal } from "@/components/Terminal";
 import { TerminalLayout } from "@/components/TerminalLayout";
 import { formatLabels, sessionSubtitle, sessionTitle } from "@/components/Tile";
 import { type ConnectionStatus, WsRpc } from "@/hooks/useWebSocket";
-import { useInit, useLatest } from "@/hooks/utils";
+import { useInit } from "@/hooks/utils";
 import { renderAnsiPre } from "@/lib/ansi-render";
 import { b64decode, textToB64 } from "@/lib/base64";
 import { EXPANDED_FONT_SIZE, MONO_FONT, THEME } from "@/lib/constants";
@@ -50,7 +50,8 @@ export function ExpandedSession({
   const [lastMessage, setLastMessage] = useState<string | null>(null);
   const [showStreamAlert, setShowStreamAlert] = useState<string | null>(null);
   const wsListenersRef = useRef(new Set<WsEventListener>());
-  const onTransitionRef = useLatest(onTransition);
+  const onTransitionRef = useRef(onTransition);
+  onTransitionRef.current = onTransition;
 
   // Stable XTerm + FitAddon, created once on mount
   const [{ term, fit }] = useState(() => {

@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { AgentBadge } from "./AgentBadge";
 import { StatusBar } from "./StatusBar";
 
@@ -55,32 +55,29 @@ export function TerminalLayout({
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(450);
 
-  const handleToggle = useCallback(() => {
+  function handleToggle() {
     setSidebarVisible((v) => !v);
     onInteraction?.();
-  }, [onInteraction]);
+  }
 
-  const handleResize = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      const onMove = (ev: MouseEvent) => {
-        const right = window.innerWidth - ev.clientX;
-        setSidebarWidth(Math.min(600, Math.max(300, right)));
-      };
-      const onUp = () => {
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
-        onInteraction?.();
-      };
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
-    },
-    [onInteraction],
-  );
+  function handleResize(e: React.MouseEvent) {
+    e.preventDefault();
+    const onMove = (ev: MouseEvent) => {
+      const right = window.innerWidth - ev.clientX;
+      setSidebarWidth(Math.min(600, Math.max(300, right)));
+    };
+    const onUp = () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      onInteraction?.();
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
 
   return (
     <div
