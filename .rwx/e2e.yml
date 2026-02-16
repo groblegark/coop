@@ -34,7 +34,7 @@ tasks:
     filter:
       - .rwx/e2e.yml
     run: |
-      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+      curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0
       . "$HOME/.cargo/env"
       echo "$HOME/.cargo/bin" | tee -a $RWX_ENV/PATH
       echo "" | tee $RWX_ENV/RUSTC_WRAPPER
@@ -45,6 +45,11 @@ tasks:
     agent:
       cpus: 8
     tool-cache: e2e-build
+    filter:
+      - Cargo.lock
+      - Cargo.toml
+      - "crates/*/Cargo.toml"
+      - "**/*.rs"
     run: cargo build -p coop -p coopmux
 
   # ── Node.js + Playwright (parallel with build) ────────────────────────
@@ -53,8 +58,9 @@ tasks:
     filter:
       - .rwx/e2e.yml
     run: |
-      curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
-      sudo apt-get install -y nodejs
+      NODE_VERSION=22.14.0
+      curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+        | sudo tar xJ -C /usr/local --strip-components=1
       echo "Node $(node --version)"
       echo "npm $(npm --version)"
 

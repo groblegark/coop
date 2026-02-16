@@ -39,25 +39,11 @@ tasks:
     filter:
       - .rwx/release.yml
     run: |
-      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0
       . "$HOME/.cargo/env"
-      rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
-        x86_64-apple-darwin aarch64-apple-darwin
+      rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
       echo "$HOME/.cargo/bin" >> $RWX_ENV/PATH
       echo "" | tee $RWX_ENV/RUSTC_WRAPPER
-
-  # Zig is used as a C/C++ cross-linker for macOS targets from Linux
-  - key: zig
-    use: rust
-    filter:
-      - .rwx/release.yml
-    run: |
-      mkdir -p "$HOME/.local/zig"
-      curl -sSfL https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz \
-        | tar xJ -C "$HOME/.local/zig"
-      echo "$HOME/.local/zig/zig-linux-x86_64-0.13.0" >> $RWX_ENV/PATH
-      # Install cargo-zigbuild for seamless Rust + Zig cross-compilation
-      cargo install cargo-zigbuild
 
   - key: set-version
     use: rust
@@ -101,34 +87,15 @@ tasks:
       cp coopmux coop-mux 2>/dev/null || true
       tar czf /tmp/coop-linux-arm64.tar.gz coop coop-mux
 
-  - key: build-darwin-amd64
-    use: [set-version, zig]
-    agent:
-      cpus: 8
-    tool-cache: release-darwin-amd64
-    run: |
-      cargo zigbuild --release --target x86_64-apple-darwin
-      cd target/x86_64-apple-darwin/release
-      cp coopmux coop-mux 2>/dev/null || true
-      tar czf /tmp/coop-darwin-amd64.tar.gz coop coop-mux
-
-  - key: build-darwin-arm64
-    use: [set-version, zig]
-    agent:
-      cpus: 8
-    tool-cache: release-darwin-arm64
-    run: |
-      cargo zigbuild --release --target aarch64-apple-darwin
-      cd target/aarch64-apple-darwin/release
-      cp coopmux coop-mux 2>/dev/null || true
-      tar czf /tmp/coop-darwin-arm64.tar.gz coop coop-mux
+  # NOTE: Darwin builds removed — aws-lc-sys does not cross-compile from Linux.
+  # Re-add when native macOS runners are available or aws-lc-sys is replaced.
 
   - key: release
     use: [build-linux-amd64, build-linux-arm64]
     if: ${{ init.tag != 'dev' }}
     run: |
       # Install gh CLI
-      curl -sSfL https://github.com/cli/cli/releases/download/v2.65.0/gh_2.65.0_linux_amd64.tar.gz \
+      curl -fsSL https://github.com/cli/cli/releases/download/v2.65.0/gh_2.65.0_linux_amd64.tar.gz \
         | tar xz -C /tmp
       sudo cp /tmp/gh_2.65.0_linux_amd64/bin/gh /usr/local/bin/
 
@@ -136,7 +103,7 @@ tasks:
       cd /tmp
       sha256sum coop-linux-amd64.tar.gz coop-linux-arm64.tar.gz > checksums.txt
 
-      # Create GitHub release (Darwin builds temporarily skipped — aws-lc-sys cross-compile issue)
+      # Create GitHub release (Linux only — Darwin builds removed, see note above)
       gh release create "$TAG" \
         --repo groblegark/coop \
         --title "$TAG" \
@@ -152,7 +119,7 @@ tasks:
     use: release
     run: |
       # Trigger gastown agent image rebuild via RWX dispatch API
-      DISPATCH_ID=$(curl -sSf -X POST https://cloud.rwx.com/mint/api/runs/dispatches \
+      DISPATCH_ID=$(curl -fsSL -X POST https://cloud.rwx.com/mint/api/runs/dispatches \
         -H "Authorization: Bearer $RWX_TOKEN" \
         -H "Content-Type: application/json" \
         -d "{\"key\": \"gastown-agent-rebuild\", \"params\": {\"trigger-source\": \"coop-release-$TAG\", \"coop-version\": \"$TAG\"}, \"ref\": \"main\", \"title\": \"Agent rebuild (coop $TAG)\"}" \

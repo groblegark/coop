@@ -34,7 +34,7 @@ tasks:
     filter:
       - .rwx/ci.yml
     run: |
-      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+      curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0
       . "$HOME/.cargo/env"
       rustup component add rustfmt clippy
       echo "$HOME/.cargo/bin" | tee -a $RWX_ENV/PATH
@@ -44,6 +44,10 @@ tasks:
   # ── Cargo fetch ────────────────────────────────────────────────────────
   - key: cargo-deps
     use: rust
+    filter:
+      - Cargo.lock
+      - Cargo.toml
+      - "crates/*/Cargo.toml"
     run: cargo fetch
 
   # ── Format check (parallel) ──────────────────────────────────────────

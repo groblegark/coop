@@ -58,8 +58,8 @@ tasks:
     filter:
       - .rwx/docker.yml
     run: |
-      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-        | sh -s -- -y --default-toolchain stable
+      curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
+        | sh -s -- -y --default-toolchain 1.93.0
       echo "$HOME/.cargo/bin" | tee -a $RWX_ENV/PATH
       echo "" | tee $RWX_ENV/RUSTC_WRAPPER
 
@@ -106,6 +106,9 @@ tasks:
     after: build-coop
     filter:
       - .rwx/docker.yml
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - Cargo.lock
     run: |
       apt-get update && apt-get install -y --no-install-recommends \
         git python3 build-essential openssh-client \
@@ -124,6 +127,10 @@ tasks:
     after: build-coop
     filter:
       - .rwx/docker.yml
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - Cargo.lock
+      - "deploy/k8s-launch.sh"
     run: |
       apt-get update && apt-get install -y --no-install-recommends \
         git python3 build-essential openssh-client \
@@ -131,7 +138,7 @@ tasks:
         ca-certificates curl \
         && rm -rf /var/lib/apt/lists/*
 
-      curl -fsSL "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+      curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
         -o /usr/local/bin/kubectl
       chmod +x /usr/local/bin/kubectl
 
