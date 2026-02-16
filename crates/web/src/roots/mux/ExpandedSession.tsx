@@ -348,13 +348,15 @@ export function ExpandedSession({
 
 /** Render cached screen lines using the shared ANSI renderer. */
 function LoadingPreview({ lines }: { lines: string[] }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useInit(() => {
-    if (ref.current) {
-      ref.current.appendChild(renderAnsiPre(lines, { fontSize: EXPANDED_FONT_SIZE }));
-    }
-  });
-  return <div ref={ref} />;
+  return (
+    <div
+      ref={(el) => {
+        if (el && !el.firstChild) {
+          el.appendChild(renderAnsiPre(lines, { fontSize: EXPANDED_FONT_SIZE }));
+        }
+      }}
+    />
+  );
 }
 
 /** Enable input and focus the terminal after replay completes.
