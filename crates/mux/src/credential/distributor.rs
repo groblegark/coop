@@ -206,17 +206,21 @@ async fn push_to_session(
         return PushResult::Ok;
     }
 
-    // Idle check: query upstream status to decide whether to switch now.
-    let is_busy = match client.get_status().await {
+    // Status check: query upstream to decide whether/how to switch.
+    // - Busy agents (running/streaming/tool_use) → defer switch.
+    // - Errored agents → force switch (they won't recover without fresh creds).
+    // - Idle/unknown → normal switch.
+    let (is_busy, is_error) = match client.get_status().await {
         Ok(status) => {
-            status.get("state").and_then(|s| s.as_str()).is_some_and(|s| BUSY_STATES.contains(&s))
+            let state = status.get("state").and_then(|s| s.as_str()).unwrap_or("");
+            (BUSY_STATES.contains(&state), state == "error")
         }
         Err(e) => {
             tracing::debug!(
                 session = %entry.id, account, err = %e,
                 "distributor: could not check session status, assuming idle"
             );
-            false
+            (false, false)
         }
     };
 
@@ -228,10 +232,21 @@ async fn push_to_session(
         return PushResult::Deferred;
     }
 
+    // Force switch for errored agents — they're stuck and won't transition
+    // to idle on their own, so a normal (non-force) switch would be stored
+    // as pending but never executed.
+    let force = is_error;
+    if force {
+        tracing::info!(
+            session = %entry.id, account,
+            "distributor: agent in error state, using force switch"
+        );
+    }
+
     // Trigger profile switch with retry.
     let switch_body = serde_json::json!({
         "profile": account,
-        "force": false,
+        "force": force,
     });
 
     backoff = INITIAL_BACKOFF;
