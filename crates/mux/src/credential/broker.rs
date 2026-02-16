@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -55,6 +56,9 @@ pub struct CredentialBroker {
     http: reqwest::Client,
     /// Directory for credential persistence. `None` disables persistence (used in tests).
     persist_dir: Option<PathBuf>,
+    /// Per-account session counts for pool load balancing.
+    /// Key: account name, Value: number of sessions assigned to this account.
+    session_counts: RwLock<HashMap<String, AtomicU32>>,
 }
 
 impl CredentialBroker {
@@ -82,6 +86,10 @@ impl CredentialBroker {
                 },
             );
         }
+        // Initialize session counts for each account.
+        let session_counts: HashMap<String, AtomicU32> =
+            accounts.keys().map(|name| (name.clone(), AtomicU32::new(0))).collect();
+
         Arc::new(Self {
             accounts: RwLock::new(accounts),
             static_names,
@@ -93,6 +101,7 @@ impl CredentialBroker {
                 .build()
                 .unwrap_or_default(),
             persist_dir,
+            session_counts: RwLock::new(session_counts),
         })
     }
 
@@ -225,6 +234,13 @@ impl CredentialBroker {
             self.persist(&accounts).await;
         }
 
+        // Initialize pool session count for the new account.
+        self.session_counts
+            .write()
+            .await
+            .entry(name.clone())
+            .or_insert_with(|| AtomicU32::new(0));
+
         // Spawn a refresh loop for the new account.
         let broker = Arc::clone(self);
         let loop_name = name.clone();
@@ -281,6 +297,127 @@ impl CredentialBroker {
             })
             .collect()
     }
+
+    // ── Pool load balancing ─────────────────────────────────────────────
+
+    /// Pick the least-loaded healthy account for a new session.
+    ///
+    /// If `preferred` is given and the account is healthy, return it.
+    /// Otherwise, select the healthy account with the fewest assigned sessions.
+    /// Returns `None` only if no healthy accounts exist.
+    pub async fn assign_account(&self, preferred: Option<&str>) -> Option<String> {
+        let accounts = self.accounts.read().await;
+        let counts = self.session_counts.read().await;
+
+        // Check preferred account first.
+        if let Some(pref) = preferred {
+            if let Some(state) = accounts.get(pref) {
+                if state.status == AccountStatus::Healthy {
+                    return Some(pref.to_owned());
+                }
+            }
+        }
+
+        // Find healthy account with lowest session count.
+        let mut best: Option<(String, u32)> = None;
+        for (name, state) in accounts.iter() {
+            if state.status != AccountStatus::Healthy {
+                continue;
+            }
+            let count = counts
+                .get(name)
+                .map(|c| c.load(Ordering::Relaxed))
+                .unwrap_or(0);
+            match &best {
+                None => best = Some((name.clone(), count)),
+                Some((_, best_count)) if count < *best_count => {
+                    best = Some((name.clone(), count));
+                }
+                _ => {}
+            }
+        }
+        best.map(|(name, _)| name)
+    }
+
+    /// Record that a session has been assigned to an account.
+    pub async fn session_assigned(&self, account: &str) {
+        let counts = self.session_counts.read().await;
+        if let Some(counter) = counts.get(account) {
+            counter.fetch_add(1, Ordering::Relaxed);
+        } else {
+            drop(counts);
+            let mut counts = self.session_counts.write().await;
+            counts
+                .entry(account.to_owned())
+                .or_insert_with(|| AtomicU32::new(0))
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        tracing::debug!(account, "pool: session assigned");
+    }
+
+    /// Record that a session has been unassigned from an account.
+    pub async fn session_unassigned(&self, account: &str) {
+        let counts = self.session_counts.read().await;
+        if let Some(counter) = counts.get(account) {
+            // Saturating subtract to avoid underflow.
+            let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+                if v > 0 { Some(v - 1) } else { None }
+            });
+        }
+        tracing::debug!(account, "pool: session unassigned");
+    }
+
+    /// Get the pool status: per-account utilization info.
+    pub async fn pool_status(&self) -> Vec<PoolAccountInfo> {
+        let accounts = self.accounts.read().await;
+        let counts = self.session_counts.read().await;
+        let now = epoch_secs();
+
+        accounts
+            .iter()
+            .map(|(name, state)| {
+                let session_count = counts
+                    .get(name)
+                    .map(|c| c.load(Ordering::Relaxed))
+                    .unwrap_or(0);
+                let expires_in = if state.expires_at > now {
+                    Some(state.expires_at - now)
+                } else {
+                    None
+                };
+                PoolAccountInfo {
+                    name: name.clone(),
+                    provider: state.config.provider.clone(),
+                    status: state.status,
+                    session_count,
+                    expires_in_secs: expires_in,
+                    has_refresh_token: state.refresh_token.is_some(),
+                }
+            })
+            .collect()
+    }
+
+    /// List accounts that have gone unhealthy, with the sessions that need reassignment.
+    pub async fn unhealthy_accounts(&self) -> Vec<String> {
+        let accounts = self.accounts.read().await;
+        accounts
+            .iter()
+            .filter(|(_, state)| state.status == AccountStatus::Expired)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    /// Get all healthy account names.
+    pub async fn healthy_accounts(&self) -> Vec<String> {
+        let accounts = self.accounts.read().await;
+        accounts
+            .iter()
+            .filter(|(_, state)| state.status == AccountStatus::Healthy)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    // ── OAuth reauth ──────────────────────────────────────────────────────
 
     /// Initiate OAuth reauth flow for an account.
     ///
@@ -754,6 +891,18 @@ pub struct AccountStatusInfo {
     pub expires_in_secs: Option<u64>,
     pub has_refresh_token: bool,
     pub reauth: bool,
+}
+
+/// Pool utilization info for an account (returned by the pool API).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PoolAccountInfo {
+    pub name: String,
+    pub provider: String,
+    pub status: AccountStatus,
+    pub session_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_in_secs: Option<u64>,
+    pub has_refresh_token: bool,
 }
 
 /// Response from initiating a reauth flow.

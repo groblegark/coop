@@ -171,6 +171,9 @@ pub struct SessionEntry {
     pub health_failures: AtomicU32,
     pub cancel: CancellationToken,
     pub ws_bridge: RwLock<Option<Arc<WsBridge>>>,
+    /// The credential account assigned to this session by the pool.
+    /// Set during registration, used for unassignment on removal.
+    pub assigned_account: RwLock<Option<String>>,
 }
 
 /// Cached screen snapshot from upstream.

@@ -53,7 +53,12 @@ pub fn spawn_distributor(state: Arc<MuxState>, mut event_rx: broadcast::Receiver
                 CredentialEvent::Refreshed { account, credentials } => {
                     distribute_to_sessions(&state, &account, &credentials, true).await;
                 }
-                CredentialEvent::RefreshFailed { .. } | CredentialEvent::ReauthRequired { .. } => {
+                CredentialEvent::RefreshFailed { ref account, .. } => {
+                    // Auto-rebalance: reassign sessions from the failed account
+                    // to a healthy one so agents don't lose API access.
+                    rebalance_from_account(&state, account).await;
+                }
+                CredentialEvent::ReauthRequired { .. } => {
                     // No action needed for distribution.
                 }
             }
@@ -143,6 +148,102 @@ pub async fn distribute_to_sessions(
     let failed = failed.load(std::sync::atomic::Ordering::Relaxed);
     let deferred = deferred.load(std::sync::atomic::Ordering::Relaxed);
     tracing::info!(account, ok, failed, deferred, "distributor: distribution complete");
+}
+
+/// Rebalance sessions from a failed/degraded account to a healthy one.
+///
+/// Called automatically when a credential refresh fails. Finds all sessions
+/// assigned to the degraded account and reassigns them to the least-loaded
+/// healthy account, switching their active profile.
+pub async fn rebalance_from_account(state: &MuxState, failed_account: &str) {
+    let broker = match state.credential_broker.as_ref() {
+        Some(b) => b,
+        None => return,
+    };
+
+    // Find a healthy target account.
+    let target = broker.assign_account(None).await;
+    let Some(target_name) = target else {
+        tracing::warn!(
+            account = failed_account,
+            "pool rebalance: no healthy accounts available for reassignment"
+        );
+        return;
+    };
+
+    // Don't rebalance to the same failed account.
+    if target_name == failed_account {
+        tracing::debug!(
+            account = failed_account,
+            "pool rebalance: only account is the failed one, skipping"
+        );
+        return;
+    }
+
+    // Get credentials for the target account.
+    let Some(target_creds) = broker.get_credentials(&target_name).await else {
+        tracing::warn!(
+            account = %target_name,
+            "pool rebalance: target account has no credentials"
+        );
+        return;
+    };
+
+    let sessions = state.sessions.read().await;
+    let mut reassigned = 0u32;
+
+    for entry in sessions.values() {
+        let current = entry.assigned_account.read().await.clone();
+        if current.as_deref() != Some(failed_account) {
+            continue;
+        }
+
+        // Reassign.
+        broker.session_unassigned(failed_account).await;
+        broker.session_assigned(&target_name).await;
+        *entry.assigned_account.write().await = Some(target_name.clone());
+
+        // Push credentials and switch profile.
+        let client = crate::upstream::client::UpstreamClient::new(
+            entry.url.clone(),
+            entry.auth_token.clone(),
+        );
+        let profile_body = serde_json::json!({
+            "profiles": [{
+                "name": &target_name,
+                "credentials": &target_creds,
+            }]
+        });
+        let _ = client.post_json("/api/v1/session/profiles", &profile_body).await;
+        let switch_body = serde_json::json!({ "profile": &target_name });
+        match client.post_json("/api/v1/session/switch", &switch_body).await {
+            Ok(_) => {
+                tracing::info!(
+                    session = %entry.id,
+                    from = failed_account,
+                    to = %target_name,
+                    "pool: auto-rebalanced session from failed account"
+                );
+                reassigned += 1;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    session = %entry.id,
+                    err = %e,
+                    "pool: auto-rebalance switch failed"
+                );
+            }
+        }
+    }
+
+    if reassigned > 0 {
+        tracing::info!(
+            from = failed_account,
+            to = %target_name,
+            count = reassigned,
+            "pool: auto-rebalanced sessions away from failed account"
+        );
+    }
 }
 
 /// Result of pushing credentials to a single session.
@@ -331,6 +432,7 @@ mod tests {
             health_failures: AtomicU32::new(0),
             cancel: CancellationToken::new(),
             ws_bridge: RwLock::new(None),
+            assigned_account: RwLock::new(None),
         }
     }
 
