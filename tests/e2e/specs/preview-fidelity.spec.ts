@@ -25,7 +25,11 @@ test.afterAll(async () => {
 });
 
 test.describe("preview fidelity", () => {
-	test("preview matches xterm.js rendering", async ({ page }) => {
+	test("preview matches xterm.js rendering", async ({ browser }) => {
+		// Use dpr=2 to match Retina displays where rounding differences emerge
+		const context = await browser.newContext({ deviceScaleFactor: 2 });
+		const page = await context.newPage();
+
 		// Capture browser console for debugging cell height measurements
 		page.on("console", (msg) => console.log(`[browser] ${msg.text()}`));
 
@@ -66,6 +70,6 @@ test.describe("preview fidelity", () => {
 
 		console.log(`Preview fidelity diff: ${diffPercent.toFixed(2)}%`);
 
-		expect(diffPercent).toBeLessThan(8);
+		expect(diffPercent).toBeLessThan(2);
 	});
 });

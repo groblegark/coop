@@ -89,6 +89,15 @@ export class FidelityServer {
 			return;
 		}
 
+		if (url.pathname === "/vendor/addon-webgl.js") {
+			const content = readFileSync(
+				resolve(WEB_NODE_MODULES, "@xterm/addon-webgl/lib/addon-webgl.js"),
+			);
+			res.writeHead(200, { "Content-Type": "application/javascript" });
+			res.end(content);
+			return;
+		}
+
 		if (url.pathname === "/vendor/xterm.css") {
 			const content = readFileSync(
 				resolve(WEB_NODE_MODULES, "@xterm/xterm/css/xterm.css"),

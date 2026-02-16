@@ -17,7 +17,15 @@ import { MONO_FONT, THEME, TERMINAL_FONT_SIZE } from "../../../crates/web/src/li
 declare const Terminal: new (opts: Record<string, unknown>) => {
 	open(el: HTMLElement): void;
 	write(data: string): void;
+	loadAddon(addon: unknown): void;
 	element: HTMLElement | undefined;
+};
+
+declare const WebglAddon: {
+	WebglAddon: new () => {
+		onContextLoss(cb: () => void): void;
+		dispose(): void;
+	};
 };
 
 /** Ensure the bundled font is fully loaded before any rendering. */
@@ -63,6 +71,16 @@ async function main() {
 	});
 
 	term.open(xtermContainer);
+
+	// Load WebGL renderer to match the real app (ExpandedSession.tsx)
+	try {
+		const webgl = new WebglAddon.WebglAddon();
+		webgl.onContextLoss(() => webgl.dispose());
+		term.loadAddon(webgl);
+		console.log("WebGL addon loaded");
+	} catch (e) {
+		console.log("WebGL addon failed, using canvas fallback:", e);
+	}
 
 	for (let i = 0; i < lines.length; i++) {
 		term.write(lines[i]);
