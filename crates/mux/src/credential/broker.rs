@@ -40,6 +40,8 @@ struct PendingAuth {
     token_url: String,
     client_id: String,
     state: String,
+    /// Full authorization URL (for reuse when same account is requested again).
+    auth_url: String,
 }
 
 /// The credential broker manages token freshness for all configured accounts.
@@ -445,6 +447,25 @@ impl CredentialBroker {
             (auth_url, client_id, token_url, scope, redirect_uri)
         };
 
+        // Reuse existing pending auth for the same account if one exists.
+        // This prevents creating multiple PKCE sessions — the user would open
+        // auth_url_A (with challenge_A) but the exchange would use verifier_B,
+        // causing "Code challenge failed".
+        {
+            let existing = self.pending_auths.read().await;
+            for pending in existing.values() {
+                if pending.account == account_name {
+                    tracing::debug!(account = %account_name, state = %pending.state, "reusing existing PKCE session");
+                    return Ok(ReauthResponse {
+                        account: account_name.to_owned(),
+                        auth_url: pending.auth_url.clone(),
+                        user_code: None,
+                        state: Some(pending.state.clone()),
+                    });
+                }
+            }
+        }
+
         let code_verifier = pkce::generate_code_verifier();
         let code_challenge = pkce::compute_code_challenge(&code_verifier);
         let state = pkce::generate_state();
@@ -468,6 +489,7 @@ impl CredentialBroker {
                 token_url,
                 client_id,
                 state: state.clone(),
+                auth_url: full_auth_url.clone(),
             },
         );
 
