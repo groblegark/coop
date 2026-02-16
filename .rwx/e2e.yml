@@ -1,17 +1,6 @@
+# E2E tests — manual only (no auto-trigger on push/PR).
+# Run manually: rwx run .rwx/e2e.yml --init commit-sha=$(git rev-parse HEAD) --wait
 on:
-  github:
-    push:
-      if: ${{ event.git.branch == 'main' }}
-      init:
-        commit-sha: ${{ event.git.sha }}
-      status-checks:
-        name: E2E
-    pull_request:
-      init:
-        commit-sha: ${{ event.git.sha }}
-      status-checks:
-        - tasks: [e2e-tests]
-          name: E2E
   cli:
     init:
       commit-sha: ${{ event.git.sha }}

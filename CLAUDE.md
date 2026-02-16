@@ -10,6 +10,23 @@ make ci       # full pre-release (adds audit + deny)
 cargo test    # unit tests only
 ```
 
+### Running CI in RWX (Manual)
+
+CI does **not** auto-run on push or PR. Run it yourself before releasing:
+
+```bash
+# Full CI (fmt + clippy + test + smoke)
+rwx run .rwx/ci.yml --init commit-sha=$(git rev-parse HEAD) --wait
+
+# E2E tests (Playwright)
+rwx run .rwx/e2e.yml --init commit-sha=$(git rev-parse HEAD) --wait
+
+# Single CI task (e.g., just clippy)
+rwx run .rwx/ci.yml --init commit-sha=$(git rev-parse HEAD) --target clippy --wait
+```
+
+Release (`release.yml`) and Docker image (`docker.yml`) workflows still auto-trigger on `v*` tags and push to main respectively.
+
 ### Manual testing with claudeless
 
 ```bash
