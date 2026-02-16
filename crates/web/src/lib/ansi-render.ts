@@ -18,8 +18,9 @@ export function renderAnsiPre(lines: string[], opts: AnsiPreOptions): HTMLPreEle
     margin: "0",
     fontFamily: MONO_FONT,
     fontSize: `${opts.fontSize}px`,
-    lineHeight: "1.2",
+    lineHeight: "normal",
     whiteSpace: "pre",
+    fontKerning: "none",
     color: THEME.foreground,
     ...(opts.background ? { background: opts.background } : {}),
   });
