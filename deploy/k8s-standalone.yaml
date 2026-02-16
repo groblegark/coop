@@ -33,7 +33,7 @@ spec:
         - { containerPort: 8080, name: api }
         - { containerPort: 9090, name: health }
       livenessProbe:
-        httpGet: { path: /api/v1/health, port: health }
+        httpGet: { path: /api/v1/livez, port: health }
         initialDelaySeconds: 5
         periodSeconds: 10
       readinessProbe:
