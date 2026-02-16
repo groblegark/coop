@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
-import type { SessionInfo } from "./App";
+import { formatLabels } from "@/components/Tile";
+import type { SessionInfo } from "@/lib/types";
 import { LaunchDialog } from "./LaunchDialog";
 import { useMux } from "./MuxContext";
 
@@ -117,6 +118,11 @@ export function SessionSidebar({
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[12px] text-zinc-300">{sessionLabel(info)}</div>
                 <div className="text-[10px] uppercase text-zinc-500">{info.state || "unknown"}</div>
+                {formatLabels(info.metadata) && (
+                  <div className="truncate text-[10px] text-zinc-500">
+                    {formatLabels(info.metadata)}
+                  </div>
+                )}
                 {lastMessageCache.current.get(info.id) && (
                   <div className="mt-0.5 line-clamp-2 text-[10px] leading-tight text-zinc-500">
                     {lastMessageCache.current.get(info.id)}

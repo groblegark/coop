@@ -6,16 +6,15 @@ import { InspectorSidebar, type WsEventListener } from "@/components/inspector/I
 import { StreamAlert } from "@/components/StreamAlert";
 import { Terminal } from "@/components/Terminal";
 import { TerminalLayout } from "@/components/TerminalLayout";
-import { sessionSubtitle, sessionTitle } from "@/components/Tile";
+import { formatLabels, sessionSubtitle, sessionTitle } from "@/components/Tile";
 import { type ConnectionStatus, WsRpc } from "@/hooks/useWebSocket";
 import { useInit, useLatest } from "@/hooks/utils";
 import { renderAnsiPre } from "@/lib/ansi-render";
 import { b64decode, textToB64 } from "@/lib/base64";
 import { EXPANDED_FONT_SIZE, MONO_FONT, THEME } from "@/lib/constants";
 import { ReplayGate } from "@/lib/replay-gate";
-import type { PromptContext, WsMessage } from "@/lib/types";
+import type { PromptContext, SessionInfo, WsMessage } from "@/lib/types";
 import { WsMessageHarness } from "@/lib/ws-harness";
-import type { SessionInfo } from "./App";
 
 interface ExpandedSessionProps {
   info: SessionInfo;
@@ -263,7 +262,9 @@ export function ExpandedSession({
       className="absolute inset-y-0 right-0 z-[100] transition-[left] duration-200"
       style={{ left: sidebarWidth }}
       title={sessionTitle(info)}
-      subtitle={sessionSubtitle(info)}
+      subtitle={[sessionSubtitle(info), formatLabels(info.metadata)]
+        .filter(Boolean)
+        .join(" \u00b7 ")}
       credAlert={info.credAlert}
       headerRight={
         <button

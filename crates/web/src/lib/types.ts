@@ -107,7 +107,9 @@ export interface MuxSession {
 }
 
 export interface MuxMetadata {
+  agent?: string;
   k8s?: { pod?: string; namespace?: string };
+  [key: string]: unknown;
 }
 
 export interface MuxScreen {
@@ -131,4 +133,19 @@ export interface EventEntry {
   detail: string;
   count?: number;
   bytes?: number;
+}
+
+export interface SessionInfo {
+  id: string;
+  url: string | null;
+  state: string | null;
+  metadata: MuxMetadata | null;
+  lastMessage: string | null;
+  term: import("@xterm/xterm").Terminal | null;
+  fit: import("@xterm/addon-fit").FitAddon | null;
+  webgl: import("@xterm/addon-webgl").WebglAddon | null;
+  sourceCols: number;
+  sourceRows: number;
+  lastScreenLines: string[] | null;
+  credAlert: boolean;
 }
