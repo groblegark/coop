@@ -9,6 +9,7 @@ export type AgentState =
   | "question_prompt"
   | "error"
   | "parked"
+  | "restarting"
   | "exited"
   | "unknown";
 

@@ -172,7 +172,7 @@ conflicts with these rules:
 State priority (lowest to highest):
 
 ```
-Starting/Unknown(0) < Idle(1) < Error/Parked(2) < Working(3) < Prompt(4) < Switching/Exited(5)
+Starting/Unknown(0) < Idle(1) < Error/Parked(2) < Working(3) < Prompt(4) < Restarting/Exited(5)
 ```
 
 
@@ -203,7 +203,7 @@ The full set of agent states:
 | `Prompt` | `prompt` | Presenting a prompt (permission, plan, question, or setup) |
 | `Error` | `error` | Error occurred (rate limit, auth, etc.) |
 | `Parked` | `parked` | Rate-limited and waiting; carries `reason` and `resume_at_epoch_ms` |
-| `Switching` | `switching` | Credential switch in progress (PTY respawn) |
+| `Restarting` | `restarting` | Credential switch or restart in progress (PTY respawn) |
 | `Exited` | `exited` | Child process exited |
 | `Unknown` | `unknown` | State cannot be determined |
 

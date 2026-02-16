@@ -243,16 +243,17 @@ impl PreparedSession {
         }
 
         // 11. Broadcast Starting transition.
+        let cause = if request.credentials.is_some() { "switch" } else { "restart" };
         let last_message = self.store.driver.last_message.read().await.clone();
         let _ = self.store.channels.state_tx.send(crate::event::TransitionEvent {
-            prev: AgentState::Switching,
+            prev: AgentState::Restarting,
             next: AgentState::Starting,
             seq: 0,
-            cause: "switch".to_owned(),
+            cause: cause.to_owned(),
             last_message,
         });
 
-        info!("session switched");
+        info!("session {cause}ed");
         Ok(())
     }
 }

@@ -49,7 +49,7 @@ Nine states classify the agent process:
 | Prompt | `prompt` | prompt context | Permission, plan, question, or setup dialog |
 | Error | `error` | `detail` | API error detected in log or hook |
 | Parked | `parked` | `reason`, `resume_at_epoch_ms` | All profiles rate-limited; waiting for cooldown |
-| Switching | `switching` | -- | Credential switch initiated |
+| Restarting | `restarting` | -- | Credential switch or restart initiated |
 | Exited | `exited` | `code`, `signal` | Child process terminated |
 | Unknown | `unknown` | -- | State cannot be determined |
 
@@ -83,7 +83,7 @@ The state endpoint (`GET /api/v1/agent`) always returns 200 with the current sta
                   error       exited
                     │
                     ▼ (rate_limited + profiles)
-                  parked ──▶ switching ──▶ starting
+                  parked ──▶ restarting ──▶ starting
 ```
 
 ## 3. Shutdown
@@ -132,7 +132,7 @@ returns `SWITCH_IN_PROGRESS` (409).
 
 1. **Wait for idle** (or force): if agent is already `idle`, `exited`, or
    `force: true`, proceed immediately. Otherwise queue and wait for `idle`.
-2. **Broadcast** `switching` state to all subscribers
+2. **Broadcast** `restarting` state to all subscribers
 3. **SIGHUP** the child process group — child exits
 4. **Respawn** a new child with the updated credentials merged into its
    environment. The session resets to `starting` (ready flag clears) and a

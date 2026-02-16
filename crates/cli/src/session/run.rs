@@ -226,8 +226,9 @@ impl Session {
                                 break;
                             }
                             if req.force || matches!(state.last_state, AgentState::Idle) {
+                                let cause = if req.credentials.is_some() { "switch" } else { "restart" };
                                 state.pending_switch = Some(req);
-                                transition::broadcast_switching(&self.store, &mut state).await;
+                                transition::broadcast_restarting(&self.store, &mut state, cause).await;
                                 transition::sighup_child_group(&self.store);
                             } else {
                                 state.pending_switch = Some(req);
