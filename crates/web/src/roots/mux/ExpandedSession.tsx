@@ -9,7 +9,7 @@ import { TerminalLayout } from "@/components/TerminalLayout";
 import { sessionSubtitle, sessionTitle } from "@/components/Tile";
 import { type ConnectionStatus, WsRpc } from "@/hooks/useWebSocket";
 import { useInit, useLatest } from "@/hooks/utils";
-import { parseAnsiLine, spanStyle } from "@/lib/ansi";
+import { renderAnsiPre } from "@/lib/ansi-render";
 import { b64decode, textToB64 } from "@/lib/base64";
 import { EXPANDED_FONT_SIZE, MONO_FONT, THEME } from "@/lib/constants";
 import { ReplayGate } from "@/lib/replay-gate";
@@ -329,32 +329,7 @@ export function ExpandedSession({
             {/* Cached screen preview */}
             <div className="mr-[14px] overflow-hidden py-4 pl-4">
               {info.lastScreenLines ? (
-                <pre
-                  style={{
-                    margin: 0,
-                    fontFamily: MONO_FONT,
-                    fontSize: EXPANDED_FONT_SIZE,
-                    lineHeight: 1.2,
-                    whiteSpace: "pre",
-                    color: THEME.foreground,
-                  }}
-                >
-                  {info.lastScreenLines.map((line, i) => (
-                    <div key={i}>
-                      {parseAnsiLine(line).map((span, j) => {
-                        const s = spanStyle(span, THEME);
-                        return s ? (
-                          <span key={j} style={s}>
-                            {span.text}
-                          </span>
-                        ) : (
-                          <span key={j}>{span.text}</span>
-                        );
-                      })}
-                      {"\n"}
-                    </div>
-                  ))}
-                </pre>
+                <LoadingPreview lines={info.lastScreenLines} />
               ) : (
                 <div
                   className="flex items-center gap-2 text-sm text-zinc-500"
@@ -369,6 +344,19 @@ export function ExpandedSession({
       </div>
     </TerminalLayout>
   );
+}
+
+/** Render cached screen lines using the shared ANSI renderer. */
+function LoadingPreview({ lines }: { lines: string[] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useInit(() => {
+    if (ref.current) {
+      ref.current.appendChild(
+        renderAnsiPre(lines, { fontSize: EXPANDED_FONT_SIZE }),
+      );
+    }
+  });
+  return <div ref={ref} />;
 }
 
 /** Enable input and focus the terminal after replay completes.

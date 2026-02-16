@@ -47,6 +47,7 @@ pub fn classify_error_detail(detail: &str) -> ErrorCategory {
         || lower.contains("invalid api key")
         || lower.contains("invalid_api_key")
         || lower.contains("permission_error")
+        || lower.contains("authentication_failed")
     {
         return ErrorCategory::Unauthorized;
     }

@@ -8,6 +8,7 @@ use super::{classify_error_detail, ErrorCategory};
     invalid_key = { "invalid api key", ErrorCategory::Unauthorized },
     invalid_key_snake = { "invalid_api_key", ErrorCategory::Unauthorized },
     permission = { "permission_error", ErrorCategory::Unauthorized },
+    auth_failed = { "authentication_failed", ErrorCategory::Unauthorized },
     billing = { "billing", ErrorCategory::OutOfCredits },
     insufficient_credits = { "insufficient_credits", ErrorCategory::OutOfCredits },
     insufficient_credits_space = { "insufficient credits", ErrorCategory::OutOfCredits },

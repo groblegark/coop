@@ -17,6 +17,7 @@
  * - GET /vendor/xterm.js  → xterm.js library
  * - GET /vendor/xterm.css → xterm.js styles
  * - GET /fixture.json     → screen snapshot fixture
+ * - GET /font/*           → bundled font files
  */
 
 import {
@@ -35,6 +36,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, "../../..");
 const WEB_NODE_MODULES = resolve(PROJECT_ROOT, "crates/web/node_modules");
 const FIXTURES_DIR = resolve(__dirname, "../fixtures");
+const WEB_FONTS_DIR = resolve(PROJECT_ROOT, "crates/web/src/fonts");
 const ENTRY_FILE = resolve(__dirname, "fidelity-entry.ts");
 
 export class FidelityServer {
@@ -93,6 +95,19 @@ export class FidelityServer {
 			);
 			res.writeHead(200, { "Content-Type": "text/css" });
 			res.end(content);
+			return;
+		}
+
+		if (url.pathname.startsWith("/font/")) {
+			const filename = url.pathname.slice("/font/".length);
+			try {
+				const content = readFileSync(resolve(WEB_FONTS_DIR, filename));
+				res.writeHead(200, { "Content-Type": "font/ttf" });
+				res.end(content);
+			} catch {
+				res.writeHead(404);
+				res.end("not found");
+			}
 			return;
 		}
 

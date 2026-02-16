@@ -2,6 +2,21 @@
 
 @source "../";
 
+@font-face {
+  font-family: 'Fira Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/FiraMono-Regular.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Fira Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/FiraMono-Bold.ttf') format('truetype');
+}
+
 /* xterm.js overrides */
 .xterm {
   height: 100%;

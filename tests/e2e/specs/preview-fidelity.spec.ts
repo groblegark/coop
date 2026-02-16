@@ -26,6 +26,9 @@ test.afterAll(async () => {
 
 test.describe("preview fidelity", () => {
 	test("preview matches xterm.js rendering", async ({ page }) => {
+		// Capture browser console for debugging cell height measurements
+		page.on("console", (msg) => console.log(`[browser] ${msg.text()}`));
+
 		await page.goto(`http://localhost:${FIDELITY_PORT}/`);
 
 		// Wait for both renderers to signal completion
@@ -63,7 +66,6 @@ test.describe("preview fidelity", () => {
 
 		console.log(`Preview fidelity diff: ${diffPercent.toFixed(2)}%`);
 
-		// Generous threshold — tighten over time as we improve parity
-		expect(diffPercent).toBeLessThan(15);
+		expect(diffPercent).toBeLessThan(5);
 	});
 });

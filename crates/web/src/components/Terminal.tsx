@@ -4,7 +4,7 @@ import type { ITheme } from "@xterm/xterm";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
-import { THEME } from "@/lib/constants";
+import { MONO_FONT, THEME } from "@/lib/constants";
 
 export interface TerminalHandle {
   terminal: XTerm | null;
@@ -36,7 +36,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     fitAddon: externalFit,
     onReady,
     fontSize,
-    fontFamily = "'SF Mono', 'Cascadia Code', 'Fira Code', Menlo, Monaco, monospace",
+    fontFamily = MONO_FONT,
     theme,
     scrollback = 10000,
     cursorBlink = false,
