@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActionBtn } from "@/components/ActionBtn";
 import { ResultDisplay, showResult } from "@/components/ResultDisplay";
 import { Section } from "@/components/Section";
-import { apiPost } from "@/hooks/useApiClient";
+import { apiGet, apiPost } from "@/hooks/useApiClient";
+import { useInit } from "@/hooks/utils";
 
 interface LaunchDialogProps {
   onClose: () => void;
@@ -14,35 +15,42 @@ interface EnvPreset {
 }
 
 const PRESETS: EnvPreset[] = [
-  { label: "Empty (default)", env: {} },
-  { label: "Git Clone", env: { GIT_REPO: "", GIT_BRANCH: "main", WORKING_DIR: "/workspace/repo" } },
   { label: "Local Directory", env: { WORKING_DIR: "" } },
+  { label: "Git Clone", env: { GIT_REPO: "", GIT_BRANCH: "main", WORKING_DIR: "/workspace/repo" } },
+  { label: "Empty", env: {} },
 ];
 
 export function LaunchDialog({ onClose }: LaunchDialogProps) {
   const [selectedPreset, setSelectedPreset] = useState(0);
-  const [env, setEnv] = useState<Record<string, string>>({});
+  const [env, setEnv] = useState<Record<string, string>>({ WORKING_DIR: "" });
+  const [cwd, setCwd] = useState("");
   const [launching, setLaunching] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Initialize env from preset
-  useEffect(() => {
-    setEnv({ ...PRESETS[selectedPreset].env });
-  }, [selectedPreset]);
+  useInit(() => {
+    apiGet("/api/v1/config/launch").then((res) => {
+      if (res.ok && res.json && typeof res.json === "object") {
+        const json = res.json as Record<string, unknown>;
+        if (typeof json.cwd === "string") setCwd(json.cwd);
+      }
+    });
+  });
 
   // Click outside closes dialog
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (dialogRef.current && !dialogRef.current.contains(e.target as Node)) {
-        onClose();
+        onCloseRef.current();
       }
     };
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
-  }, [onClose]);
+  }, []);
 
-  const handleLaunch = useCallback(async () => {
+  async function handleLaunch() {
     setLaunching(true);
     setResult(null);
 
@@ -56,7 +64,7 @@ export function LaunchDialog({ onClose }: LaunchDialogProps) {
     if (res.ok) {
       setTimeout(onClose, 1500);
     }
-  }, [env, onClose]);
+  }
 
   const updateEnvKey = (oldKey: string, newKey: string) => {
     const newEnv = { ...env };
@@ -109,7 +117,11 @@ export function LaunchDialog({ onClose }: LaunchDialogProps) {
               id="preset-select"
               className="w-full rounded border border-[#2a2a2a] bg-[#0d1117] px-2 py-1 text-[11px] font-mono text-zinc-300 outline-none"
               value={selectedPreset}
-              onChange={(e) => setSelectedPreset(Number(e.target.value))}
+              onChange={(e) => {
+                const idx = Number(e.target.value);
+                setSelectedPreset(idx);
+                setEnv({ ...PRESETS[idx].env });
+              }}
             >
               {PRESETS.map((preset, idx) => (
                 <option key={idx} value={idx}>
@@ -142,7 +154,7 @@ export function LaunchDialog({ onClose }: LaunchDialogProps) {
                   />
                   <input
                     className="flex-1 rounded border border-[#2a2a2a] bg-[#0d1117] px-2 py-1 text-[11px] font-mono text-zinc-300 placeholder-zinc-600 outline-none focus:border-zinc-500"
-                    placeholder="value"
+                    placeholder={key === "WORKING_DIR" && cwd ? cwd : "value"}
                     value={value}
                     onChange={(e) => updateEnvValue(key, e.target.value)}
                   />

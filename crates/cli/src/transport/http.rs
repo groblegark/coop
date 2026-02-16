@@ -33,6 +33,22 @@ use crate::transport::state::Store;
 
 // -- Lifecycle ----------------------------------------------------------------
 
+/// `POST /api/v1/session/restart` — kill and respawn the agent process (202 Accepted).
+pub async fn restart_session(State(s): State<Arc<Store>>) -> impl IntoResponse {
+    let req = crate::switch::SwitchRequest { credentials: None, force: true, profile: None };
+    match s.switch.switch_tx.try_send(req) {
+        Ok(()) => axum::http::StatusCode::ACCEPTED.into_response(),
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+            crate::error::ErrorCode::SwitchInProgress
+                .to_http_response("a switch is already in progress")
+                .into_response()
+        }
+        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => crate::error::ErrorCode::Internal
+            .to_http_response("switch channel closed")
+            .into_response(),
+    }
+}
+
 /// `POST /api/v1/shutdown` — initiate graceful coop shutdown.
 pub async fn shutdown(State(s): State<Arc<Store>>) -> impl IntoResponse {
     s.lifecycle.shutdown.cancel();

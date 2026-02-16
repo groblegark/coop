@@ -202,6 +202,10 @@ pub struct DriverState {
 pub struct TransportChannels {
     pub input_tx: mpsc::Sender<InputEvent>,
     pub output_tx: broadcast::Sender<OutputEvent>,
+    /// Dedicated channel for screen-update sequence numbers, separated from
+    /// `output_tx` so that ScreenUpdate events cannot evict Raw PTY events
+    /// from the broadcast ring (which caused silent 1024-byte gaps).
+    pub screen_tx: broadcast::Sender<u64>,
     pub state_tx: broadcast::Sender<TransitionEvent>,
     pub prompt_tx: broadcast::Sender<PromptOutcome>,
     pub hook_tx: broadcast::Sender<RawHookEvent>,

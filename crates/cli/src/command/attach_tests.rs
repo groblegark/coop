@@ -160,7 +160,7 @@ fn builtin_statusline_format() {
         cols: 120,
         rows: 40,
         started: Instant::now(),
-        next_offset: 0,
+        gate: ReplayGate::new(),
         sync_pending: false,
     };
     let line = builtin_statusline(&state);
@@ -176,7 +176,7 @@ fn builtin_statusline_uptime_increases() {
         cols: 80,
         rows: 24,
         started: Instant::now() - Duration::from_secs(42),
-        next_offset: 0,
+        gate: ReplayGate::new(),
         sync_pending: false,
     };
     let line = builtin_statusline(&state);
@@ -214,7 +214,7 @@ async fn run_statusline_cmd_expands_uptime() {
         cols: 80,
         rows: 24,
         started: Instant::now() - Duration::from_secs(99),
-        next_offset: 0,
+        gate: ReplayGate::new(),
         sync_pending: false,
     };
     let result = run_statusline_cmd("echo {uptime}", &state).await;
@@ -264,7 +264,8 @@ mod ws_integration {
             for chunk in &output_chunks {
                 let data = Bytes::from(chunk.as_bytes().to_vec());
                 ring.write(&data);
-                let _ = state.channels.output_tx.send(OutputEvent::Raw(data));
+                let offset = ring.total_written() - data.len() as u64;
+                let _ = state.channels.output_tx.send(OutputEvent::Raw { data, offset });
             }
         }
 
@@ -470,6 +471,92 @@ mod ws_integration {
     }
 
     #[tokio::test]
+    async fn replay_gate_dedup_no_duplicates() {
+        use crate::replay_gate::ReplayGate;
+
+        let StoreCtx { store: state, .. } = StoreBuilder::new().ring_size(65536).build();
+
+        // Pre-load ring with initial data "AAAA".
+        {
+            let mut ring = state.terminal.ring.write().await;
+            let data = Bytes::from(b"AAAA".to_vec());
+            ring.write(&data);
+            let offset = ring.total_written() - data.len() as u64;
+            let _ = state.channels.output_tx.send(OutputEvent::Raw { data, offset });
+        }
+
+        let (addr, _handle) = crate::test_support::spawn_http_server(std::sync::Arc::clone(&state))
+            .await
+            .unwrap_or_else(|e| panic!("server: {e}"));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Connect with pty subscription to receive broadcast events.
+        let url = format!("ws://{addr}/ws?subscribe=pty");
+        let (stream, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .unwrap_or_else(|e| panic!("ws connect failed: {e}"));
+        let (mut tx, mut rx) = stream.split();
+
+        // Inject new PTY data "BBBB" via broadcast.
+        {
+            let mut ring = state.terminal.ring.write().await;
+            let data = Bytes::from(b"BBBB".to_vec());
+            ring.write(&data);
+            let offset = ring.total_written() - data.len() as u64;
+            let _ = state.channels.output_tx.send(OutputEvent::Raw { data, offset });
+        }
+
+        // Small delay for the broadcast to queue ahead of any replay response.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        // Request full replay.
+        let msg = ClientMessage::GetReplay { offset: 0, limit: None };
+        let json = serde_json::to_string(&msg).unwrap_or_default();
+        let _ = tx.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await;
+
+        // Collect all messages for up to 500ms, then feed through ReplayGate.
+        let mut gate = ReplayGate::new();
+        let mut output = Vec::<u8>::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+        loop {
+            match tokio::time::timeout_at(deadline, rx.next()).await {
+                Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text)))) => {
+                    match serde_json::from_str::<ServerMessage>(&text) {
+                        Ok(ServerMessage::Replay { data, offset, next_offset, .. }) => {
+                            if let Ok(decoded) =
+                                base64::engine::general_purpose::STANDARD.decode(&data)
+                            {
+                                if let Some(action) =
+                                    gate.on_replay(decoded.len(), offset, next_offset)
+                                {
+                                    if action.is_first {
+                                        output.clear();
+                                    }
+                                    output.extend_from_slice(&decoded[action.skip..]);
+                                }
+                            }
+                        }
+                        Ok(ServerMessage::Pty { data, offset, .. }) => {
+                            if let Ok(decoded) =
+                                base64::engine::general_purpose::STANDARD.decode(&data)
+                            {
+                                if let Some(skip) = gate.on_pty(decoded.len(), offset) {
+                                    output.extend_from_slice(&decoded[skip..]);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                _ => break,
+            }
+        }
+
+        let text = String::from_utf8_lossy(&output);
+        assert_eq!(text, "AAAABBBB", "expected no duplicates, got: {text}");
+    }
+
+    #[tokio::test]
     async fn auth_then_input_raw_succeeds() {
         let StoreCtx { store: state, mut input_rx, .. } =
             StoreBuilder::new().ring_size(4096).auth_token("secret123").build();
@@ -529,7 +616,8 @@ mod uds_integration {
             for chunk in &output_chunks {
                 let data = Bytes::from(chunk.as_bytes().to_vec());
                 ring.write(&data);
-                let _ = state.channels.output_tx.send(OutputEvent::Raw(data));
+                let offset = ring.total_written() - data.len() as u64;
+                let _ = state.channels.output_tx.send(OutputEvent::Raw { data, offset });
             }
         }
 

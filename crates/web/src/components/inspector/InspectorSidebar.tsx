@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { WsRequest } from "@/hooks/useWebSocket";
+import { useInterval } from "@/hooks/utils";
 import type { EventEntry, PromptContext, WsMessage } from "@/lib/types";
 import { ActionsPanel } from "./ActionsPanel";
 import { ConfigPanel } from "./ConfigPanel";
@@ -34,38 +35,25 @@ export function InspectorSidebar({
   const [agent, setAgent] = useState<unknown>(null);
   const [usage, setUsage] = useState<unknown>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      if (cancelled) return;
-      try {
-        const [h, st, ag, u] = await Promise.all([
-          wsRequest({ event: "health:get" }).catch(() => null),
-          wsRequest({ event: "status:get" }).catch(() => null),
-          wsRequest({ event: "agent:get" }).catch(() => null),
-          wsRequest({ event: "usage:get" }).catch(() => null),
-        ]);
-        if (cancelled) return;
-        if (h?.ok) setHealth(h.json);
-        if (st?.ok) setStatus(st.json);
-        if (ag?.ok) setAgent(ag.json);
-        if (u?.ok) setUsage(u.json);
-      } catch {
-        // ignore
-      }
-    };
-    poll();
-    const id = setInterval(poll, 2000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [wsRequest]);
+  useInterval(async () => {
+    const [h, st, ag, u] = await Promise.all([
+      wsRequest({ event: "health:get" }).catch(() => null),
+      wsRequest({ event: "status:get" }).catch(() => null),
+      wsRequest({ event: "agent:get" }).catch(() => null),
+      wsRequest({ event: "usage:get" }).catch(() => null),
+    ]);
+    if (h?.ok) setHealth(h.json);
+    if (st?.ok) setStatus(st.json);
+    if (ag?.ok) setAgent(ag.json);
+    if (u?.ok) setUsage(u.json);
+  }, 2000);
 
   const [events, setEvents] = useState<EventEntry[]>([]);
 
+  const subscribeRef = useRef(subscribeWsEvents);
+  subscribeRef.current = subscribeWsEvents;
   useEffect(() => {
-    return subscribeWsEvents((msg) => {
+    return subscribeRef.current((msg) => {
       // Live usage updates
       if (msg.event === "usage:update" && msg.cumulative) {
         setUsage({ ...msg.cumulative, uptime_secs: "(live)" });
@@ -73,7 +61,7 @@ export function InspectorSidebar({
       // Append to event log
       appendEvent(msg, setEvents);
     });
-  }, [subscribeWsEvents]);
+  }, []);
 
   return (
     <>

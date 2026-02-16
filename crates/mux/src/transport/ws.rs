@@ -104,7 +104,17 @@ async fn handle_ws(socket: WebSocket, entry: Arc<SessionEntry>, subscribe: Strin
         }
     }
 
+    // Complete the WebSocket close handshake so the browser doesn't
+    // report "The network connection was lost."
+    let _ = ws_tx.send(Message::Close(None)).await;
+
     bridge.remove_client(client_id).await;
+
+    // Clear stale bridge when last client disconnects so the next
+    // expand creates a fresh upstream connection.
+    if bridge.client_count().await == 0 {
+        *entry.ws_bridge.write().await = None;
+    }
 }
 
 /// Get the existing WS bridge or create a new one.

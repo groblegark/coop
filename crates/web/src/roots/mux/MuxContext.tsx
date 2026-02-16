@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useCallback, useContext, useState } from "react";
+import { createContext, type ReactNode, useContext, useState } from "react";
 
 interface MuxState {
   sidebarCollapsed: boolean;
@@ -9,7 +9,7 @@ const MuxContext = createContext<MuxState>({ sidebarCollapsed: false, toggleSide
 
 export function MuxProvider({ children }: { children: ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const toggleSidebar = useCallback(() => setSidebarCollapsed((prev) => !prev), []);
+  const toggleSidebar = () => setSidebarCollapsed((prev) => !prev);
 
   return (
     <MuxContext.Provider value={{ sidebarCollapsed, toggleSidebar }}>

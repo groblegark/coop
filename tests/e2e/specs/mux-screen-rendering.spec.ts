@@ -30,7 +30,7 @@ test.afterAll(async () => {
 });
 
 test.describe("screen rendering", () => {
-	test("tile renders terminal preview", async ({ page }) => {
+	test("tile renders terminal preview with screen content", async ({ page }) => {
 		const mock = new MockCoop({
 			port: MOCK_BASE_PORT,
 			sessionId: "scrn-1",
@@ -48,15 +48,16 @@ test.describe("screen rendering", () => {
 
 		await openDashboard(page);
 
-		// Wait for the session tile to appear (name <=8 chars avoids truncation)
+		// Wait for the session tile to appear
 		await expect(page.getByText("scrn-1")).toBeVisible({
 			timeout: 10_000,
 		});
 
-		// Tiles use a lightweight TerminalPreview (HTML <pre>) instead of
-		// xterm.js. Wait for screen content to be polled and rendered.
-		const preview = page.locator("pre").first();
-		await expect(preview).toBeAttached({ timeout: 15_000 });
+		// Tiles render screen content via TerminalPreview (<pre> element),
+		// not xterm.js. Verify screen lines appear in the tile.
+		await expect(page.getByText("Hello from scrn-1!")).toBeVisible({
+			timeout: 15_000,
+		});
 	});
 
 	test("screen_batch delivers content via WebSocket", async ({ page }) => {
@@ -139,10 +140,13 @@ test.describe("screen rendering", () => {
 			timeout: 10_000,
 		});
 
-		// Both sessions should have terminal preview elements
-		await sleep(3000);
-		const previewCount = await page.locator("pre").count();
-		expect(previewCount).toBeGreaterThanOrEqual(2);
+		// Both sessions should render their screen content in tile previews
+		await expect(page.getByText("Screen 1 content")).toBeVisible({
+			timeout: 15_000,
+		});
+		await expect(page.getByText("Screen 2 content")).toBeVisible({
+			timeout: 15_000,
+		});
 	});
 
 	test("screen API returns cached content after dashboard opens", async ({

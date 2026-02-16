@@ -137,6 +137,18 @@ fn classify_claude_screen(snapshot: &ScreenSnapshot) -> Option<(AgentState, Stri
         None => {}
     }
 
+    // Detect Claude's thinking indicator: `… thinking` or `… thought for 9s`.
+    // The ellipsis (U+2026) appears on a line while the model is actively
+    // thinking, optionally followed by timing/token metadata.
+    for line in &snapshot.lines {
+        let trimmed = line.trim();
+        if trimmed.starts_with('\u{2026}')
+            && (trimmed.contains("thinking") || trimmed.contains("thought for"))
+        {
+            return Some((AgentState::Working, "screen:thinking".to_owned()));
+        }
+    }
+
     // Look for Claude's idle prompt indicator anywhere in the visible lines.
     // Claude Code renders `❯` (U+276F) at the start of its input line.
     // Status text like "ctrl+t to hide tasks" may appear below the prompt,

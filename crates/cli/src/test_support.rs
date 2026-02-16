@@ -144,6 +144,7 @@ impl StoreBuilder {
         let (input_tx, input_rx) = mpsc::channel(64);
         let (switch_tx, switch_rx) = mpsc::channel::<SwitchRequest>(1);
         let (output_tx, _) = broadcast::channel::<OutputEvent>(256);
+        let (screen_tx, _) = broadcast::channel::<u64>(16);
         let (state_tx, _) = broadcast::channel::<TransitionEvent>(64);
         let (prompt_tx, _) = broadcast::channel::<PromptOutcome>(64);
         let (hook_tx, _) = broadcast::channel::<RawHookEvent>(64);
@@ -167,6 +168,7 @@ impl StoreBuilder {
             channels: TransportChannels {
                 input_tx,
                 output_tx,
+                screen_tx,
                 state_tx,
                 prompt_tx,
                 hook_tx,

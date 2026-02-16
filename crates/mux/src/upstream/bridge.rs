@@ -69,6 +69,18 @@ struct ClientSlot {
     flags: SubscriptionFlags,
 }
 
+/// In-flight request awaiting an upstream response.
+struct PendingRequest {
+    client_id: ClientId,
+    /// Whether the downstream client included a `request_id` in its message.
+    /// When false, we strip the bridge-assigned `request_id` from the response
+    /// so the client sees it as a streaming event.
+    client_had_rid: bool,
+    /// Original downstream message text, retained so the request can be
+    /// re-sent if the upstream connection drops before the response arrives.
+    text: String,
+}
+
 /// Bidirectional WebSocket bridge for a single upstream session.
 ///
 /// One upstream WS connection is shared across all downstream clients.  The bridge handles:
@@ -130,6 +142,11 @@ impl WsBridge {
         self.clients.write().await.remove(&id);
     }
 
+    /// Return the number of connected downstream clients.
+    pub async fn client_count(&self) -> usize {
+        self.clients.read().await.len()
+    }
+
     /// Send a message from a downstream client through the upstream WS connection.
     ///
     /// The bridge stamps a `request_id` so the response can be correlation-routed
@@ -155,11 +172,9 @@ async fn run_loop(
     let mut backoff_ms = 100u64;
     let max_backoff_ms = 5000u64;
     let mut rid_counter: u64 = 0;
-    // Pending correlation IDs: request_id -> (originating ClientId, client_had_request_id).
-    // The bool tracks whether the downstream client included a `request_id` in its message.
-    // When false, we strip the bridge-assigned `request_id` from the response so the client
-    // sees it as a streaming event rather than an RPC response.
-    let mut pending: HashMap<String, (ClientId, bool)> = HashMap::new();
+    // Pending correlation IDs: request_id -> PendingRequest.
+    // Stores the original message text so orphaned requests can be re-sent on upstream reconnect.
+    let mut pending: HashMap<String, PendingRequest> = HashMap::new();
 
     loop {
         if cancel.is_cancelled() {
@@ -172,6 +187,25 @@ async fn run_loop(
                 tracing::debug!(session_id = %entry_id, "upstream WS connected");
 
                 let (mut write, mut read) = ws_stream.split();
+
+                // Re-send orphaned pending requests from the previous connection.
+                // Their responses were lost when the old upstream dropped.
+                let stale: Vec<PendingRequest> = pending.drain().map(|(_, req)| req).collect();
+                for req in stale {
+                    let stamped = stamp_request_id(&mut rid_counter, &req.text);
+                    pending.insert(
+                        stamped.request_id.clone(),
+                        PendingRequest {
+                            client_id: req.client_id,
+                            client_had_rid: req.client_had_rid,
+                            text: req.text,
+                        },
+                    );
+                    if write.send(Message::Text(stamped.text.into())).await.is_err() {
+                        tracing::debug!(session_id = %entry_id, "upstream WS write failed during resend");
+                        break;
+                    }
+                }
 
                 loop {
                     tokio::select! {
@@ -187,13 +221,13 @@ async fn run_loop(
 
                                     if let Some(rid) = info.request_id {
                                         // Response: route to originator only.
-                                        if let Some((cid, client_had_rid)) = pending.remove(rid) {
+                                        if let Some(req) = pending.remove(rid) {
                                             let guard = clients.read().await;
-                                            if let Some(slot) = guard.get(&cid) {
+                                            if let Some(slot) = guard.get(&req.client_id) {
                                                 // If the client sent a fire-and-forget (no request_id),
                                                 // strip the bridge-assigned request_id so the client
                                                 // sees it as a streaming event.
-                                                let msg = if client_had_rid {
+                                                let msg = if req.client_had_rid {
                                                     shared
                                                 } else {
                                                     Arc::from(strip_request_id(&text))
@@ -229,7 +263,11 @@ async fn run_loop(
                                 Some((client_id, text)) => {
                                     let client_had_rid = extract_route_info(&text).request_id.is_some();
                                     let stamped = stamp_request_id(&mut rid_counter, &text);
-                                    pending.insert(stamped.request_id.clone(), (client_id, client_had_rid));
+                                    pending.insert(stamped.request_id.clone(), PendingRequest {
+                                        client_id,
+                                        client_had_rid,
+                                        text,
+                                    });
                                     if write.send(Message::Text(stamped.text.into())).await.is_err() {
                                         tracing::debug!(session_id = %entry_id, "upstream WS write failed");
                                         break;

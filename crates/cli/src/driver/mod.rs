@@ -62,7 +62,7 @@ pub enum AgentState {
     Prompt { prompt: PromptContext },
     Error { detail: String },
     Parked { reason: String, resume_at_epoch_ms: u64 },
-    Switching,
+    Restarting,
     Exited { status: ExitStatus },
     Unknown,
 }
@@ -337,7 +337,7 @@ impl AgentState {
             Self::Prompt { .. } => "prompt",
             Self::Error { .. } => "error",
             Self::Parked { .. } => "parked",
-            Self::Switching => "switching",
+            Self::Restarting => "restarting",
             Self::Exited { .. } => "exited",
             Self::Unknown => "unknown",
         }
@@ -362,7 +362,7 @@ impl AgentState {
             Self::Error { .. } | Self::Parked { .. } => 2,
             Self::Working => 3,
             Self::Prompt { .. } => 4,
-            Self::Switching | Self::Exited { .. } => 5,
+            Self::Restarting | Self::Exited { .. } => 5,
         }
     }
 

@@ -23,6 +23,7 @@ ci:
 	quench check --fix
 	cargo build --all
 	cargo test --all
+	tests/e2e/run.sh
 	cargo audit
 	cargo deny check licenses bans sources
 

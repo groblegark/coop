@@ -301,6 +301,8 @@ async fn handle_mux_ws(state: Arc<MuxState>, socket: WebSocket) {
         }
     }
 
+    let _ = ws_tx.send(Message::Close(None)).await;
+
     // Cleanup: stop watching all sessions.
     for sid in &watched {
         stop_watching(&state, sid).await;

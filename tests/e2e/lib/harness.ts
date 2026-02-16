@@ -12,7 +12,7 @@
 
 import { type Page } from "@playwright/test";
 
-const MUX_PORT = Number(process.env.MUX_PORT ?? 9800);
+const MUX_PORT = Number(process.env.MUX_PORT ?? 19_800);
 const MUX_AUTH_TOKEN = process.env.MUX_AUTH_TOKEN ?? "";
 
 /** Base URL for the mux API. */

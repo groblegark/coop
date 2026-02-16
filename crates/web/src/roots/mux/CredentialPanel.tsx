@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActionBtn } from "@/components/ActionBtn";
 import { ResultDisplay, showResult } from "@/components/ResultDisplay";
 import { Section } from "@/components/Section";
 import { apiGet, apiPost } from "@/hooks/useApiClient";
+import { useInterval } from "@/hooks/utils";
 
 export interface CredentialAlert {
   event: string;
@@ -69,66 +70,61 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Fetch account status on mount and periodically.
-  const fetchStatus = useCallback(async () => {
+  async function fetchStatus() {
     const res = await apiGet("/api/v1/credentials/status");
     if (res.ok && Array.isArray(res.json)) {
       setAccounts(res.json as AccountStatus[]);
     }
-  }, []);
+  }
 
-  useEffect(() => {
-    fetchStatus();
-    const timer = setInterval(fetchStatus, 10_000);
-    return () => clearInterval(timer);
-  }, [fetchStatus]);
+  useInterval(fetchStatus, 10_000);
 
   // Click outside closes panel.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onClose();
+        onCloseRef.current();
       }
     };
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
-  }, [onClose]);
+  }, []);
 
-  const handleReauth = useCallback(
-    async (account: string) => {
-      setResult(null);
-      setPendingExchange(null);
-      setExchangeCode("");
-      const res = await apiPost("/api/v1/credentials/reauth", { account });
-      if (res.ok && res.json && typeof res.json === "object") {
-        const data = res.json as Record<string, unknown>;
-        const authUrl = data.auth_url as string | undefined;
-        const userCode = data.user_code as string | undefined;
-        const state = data.state as string | undefined;
+  async function handleReauth(account: string) {
+    setResult(null);
+    setPendingExchange(null);
+    setExchangeCode("");
+    const res = await apiPost("/api/v1/credentials/reauth", { account });
+    if (res.ok && res.json && typeof res.json === "object") {
+      const data = res.json as Record<string, unknown>;
+      const authUrl = data.auth_url as string | undefined;
+      const userCode = data.user_code as string | undefined;
+      const state = data.state as string | undefined;
 
-        if (userCode) {
-          // Device code flow — show code for user to enter.
-          setResult({ ok: true, text: `Enter code: ${userCode}` });
-          fetchStatus();
-          return;
-        }
-        if (authUrl) {
-          // PKCE flow — open authorization URL in browser.
-          window.open(authUrl, "_blank");
-          if (state) {
-            // Platform redirect — user will paste the code back.
-            setPendingExchange({ account, state });
-          }
+      if (userCode) {
+        // Device code flow — show code for user to enter.
+        setResult({ ok: true, text: `Enter code: ${userCode}` });
+        fetchStatus();
+        return;
+      }
+      if (authUrl) {
+        // PKCE flow — open authorization URL in browser.
+        window.open(authUrl, "_blank");
+        if (state) {
+          // Platform redirect — user will paste the code back.
+          setPendingExchange({ account, state });
         }
       }
-      if (!pendingExchange) {
-        setResult(showResult(res));
-      }
-      fetchStatus();
-    },
-    [fetchStatus, pendingExchange],
-  );
+    }
+    if (!pendingExchange) {
+      setResult(showResult(res));
+    }
+    fetchStatus();
+  }
 
-  const handleExchange = useCallback(async () => {
+  async function handleExchange() {
     if (!pendingExchange || !exchangeCode.trim()) return;
     setResult(null);
     const res = await apiPost("/api/v1/credentials/exchange", {
@@ -143,13 +139,13 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
       setResult(showResult(res));
     }
     fetchStatus();
-  }, [pendingExchange, exchangeCode, fetchStatus]);
+  }
 
-  const handleDistribute = useCallback(async (account: string) => {
+  async function handleDistribute(account: string) {
     setResult(null);
     const res = await apiPost("/api/v1/credentials/distribute", { account, switch: true });
     setResult(showResult(res));
-  }, []);
+  }
 
   const [formName, setFormName] = useState("");
   const [formProvider, setFormProvider] = useState("claude");
@@ -157,7 +153,7 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
   const [formToken, setFormToken] = useState("");
   const [formSubmitting, setFormSubmitting] = useState(false);
 
-  const handleAddAccount = useCallback(async () => {
+  async function handleAddAccount() {
     if (!formName.trim()) return;
     setFormSubmitting(true);
     setResult(null);
@@ -183,7 +179,7 @@ export function CredentialPanel({ onClose, alerts }: CredentialPanelProps) {
       setShowForm(false);
       fetchStatus();
     }
-  }, [formName, formProvider, formEnvKey, formToken, fetchStatus]);
+  }
 
   return (
     <div

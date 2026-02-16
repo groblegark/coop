@@ -15,7 +15,7 @@ use tracing::{debug, warn};
 use crate::backend::BackendInput;
 use crate::config::Config;
 use crate::driver::{AgentState, CompositeDetector, DetectedState, ExitStatus, OptionParser};
-use crate::event::{InputEvent, OutputEvent};
+use crate::event::InputEvent;
 use crate::switch::SwitchRequest;
 use crate::transport::Store;
 
@@ -166,7 +166,7 @@ impl Session {
                     }
                 }
 
-                // 4. Screen debounce timer → broadcast ScreenUpdate if changed.
+                // 4. Screen debounce timer → broadcast screen seq if changed.
                 _ = screen_debounce.tick() => {
                     let mut screen = self.store.terminal.screen.write().await;
                     let changed = screen.changed();
@@ -174,7 +174,7 @@ impl Session {
                         let seq = screen.seq();
                         screen.clear_changed();
                         drop(screen);
-                        let _ = self.store.channels.output_tx.send(OutputEvent::ScreenUpdate { seq });
+                        let _ = self.store.channels.screen_tx.send(seq);
                     }
                 }
 
@@ -226,8 +226,9 @@ impl Session {
                                 break;
                             }
                             if req.force || matches!(state.last_state, AgentState::Idle) {
+                                let cause = if req.credentials.is_some() { "switch" } else { "restart" };
                                 state.pending_switch = Some(req);
-                                transition::broadcast_switching(&self.store, &mut state).await;
+                                transition::broadcast_restarting(&self.store, &mut state, cause).await;
                                 transition::sighup_child_group(&self.store);
                             } else {
                                 state.pending_switch = Some(req);

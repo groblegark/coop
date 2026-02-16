@@ -24,6 +24,7 @@ use axum::response::Html;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 
@@ -266,6 +267,36 @@ pub fn read_ring_combined(ring: &crate::ring::RingBuffer, offset: u64) -> Vec<u8
     [a, b].concat()
 }
 
+/// Result of reading and encoding a ring buffer replay.
+pub struct ReplayData {
+    pub data: String,
+    pub offset: u64,
+    pub next_offset: u64,
+    pub total_written: u64,
+}
+
+/// Clamp offset to the oldest available position, read from the ring buffer,
+/// optionally truncate, and base64-encode.  Shared by WS and HTTP handlers.
+pub fn read_ring_replay(
+    ring: &crate::ring::RingBuffer,
+    offset: u64,
+    limit: Option<usize>,
+) -> ReplayData {
+    let total_written = ring.total_written();
+    let offset = offset.max(ring.oldest_offset());
+    let mut combined = read_ring_combined(ring, offset);
+    if let Some(limit) = limit {
+        combined.truncate(limit);
+    }
+    let read_len = combined.len() as u64;
+    ReplayData {
+        data: base64::engine::general_purpose::STANDARD.encode(&combined),
+        offset,
+        next_offset: offset + read_len,
+        total_written,
+    }
+}
+
 /// Top-level error response envelope shared across HTTP and WebSocket.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorResponse {
@@ -375,6 +406,7 @@ fn build_router_inner(
             get(http::get_profile_mode).put(http::put_profile_mode),
         )
         .route("/api/v1/session/switch", post(http::switch_session))
+        .route("/api/v1/session/restart", post(http::restart_session))
         .route("/api/v1/shutdown", post(http::shutdown))
         .route("/api/v1/config/stop", get(http::get_stop_config).put(http::put_stop_config))
         .route("/api/v1/hooks/start", post(http::hooks_start))

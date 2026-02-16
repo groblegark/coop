@@ -127,11 +127,13 @@ async fn ws_subscription_mode_raw() -> anyhow::Result<()> {
 
     // Push raw output via broadcast
     let data = bytes::Bytes::from("hello raw");
+    let offset;
     {
         let mut ring = store.terminal.ring.write().await;
         ring.write(&data);
+        offset = ring.total_written() - data.len() as u64;
     }
-    let _ = store.channels.output_tx.send(OutputEvent::Raw(data));
+    let _ = store.channels.output_tx.send(OutputEvent::Raw { data, offset });
 
     // Should receive Output message
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;
@@ -142,7 +144,7 @@ async fn ws_subscription_mode_raw() -> anyhow::Result<()> {
     );
 
     // Push a ScreenUpdate — should NOT be forwarded in raw mode
-    let _ = store.channels.output_tx.send(OutputEvent::ScreenUpdate { seq: 1 });
+    let _ = store.channels.screen_tx.send(1);
 
     // Try to read — should timeout (no message)
     let result =
@@ -187,7 +189,10 @@ async fn ws_subscription_mode_state() -> anyhow::Result<()> {
     assert_eq!(resp.get("next").and_then(|n| n.as_str()), Some("working"));
 
     // Push raw output — should NOT be forwarded in state mode
-    let _ = store.channels.output_tx.send(OutputEvent::Raw(bytes::Bytes::from("ignored")));
+    let _ = store
+        .channels
+        .output_tx
+        .send(OutputEvent::Raw { data: bytes::Bytes::from("ignored"), offset: 0 });
 
     let result =
         tokio::time::timeout(Duration::from_millis(200), ws_recv(&mut rx, RECV_TIMEOUT)).await;
@@ -204,7 +209,7 @@ async fn ws_subscription_mode_screen() -> anyhow::Result<()> {
     let (mut _tx, mut rx) = ws_connect(&addr, "subscribe=screen").await?;
 
     // Push screen update
-    let _ = store.channels.output_tx.send(OutputEvent::ScreenUpdate { seq: 42 });
+    let _ = store.channels.screen_tx.send(42);
 
     // Should receive Screen message
     let resp = ws_recv(&mut rx, RECV_TIMEOUT).await?;

@@ -48,6 +48,21 @@ fn no_idle_on_working_output() {
 }
 
 #[test]
+fn thinking_ellipsis_emits_working() {
+    let snap = snapshot(&["Some output", "\u{2026} thinking", ""]);
+    assert_eq!(state(&snap), Some(AgentState::Working));
+    assert_eq!(cause(&snap).as_deref(), Some("screen:thinking"));
+}
+
+#[test]
+fn thought_for_ellipsis_emits_working() {
+    let snap =
+        snapshot(&["\u{2026} (2m 19s \u{00b7} \u{2191} 4.7k tokens \u{00b7} thought for 9s)", ""]);
+    assert_eq!(state(&snap), Some(AgentState::Working));
+    assert_eq!(cause(&snap).as_deref(), Some("screen:thinking"));
+}
+
+#[test]
 fn startup_trust_prompt_emits_setup() {
     let snap = snapshot(&["Do you trust the files in this folder?", "(y/n)", ""]);
     let (s, c) = classify_claude_screen(&snap).expect("should emit state");

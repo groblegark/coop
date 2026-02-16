@@ -9,6 +9,7 @@ export type AgentState =
   | "question_prompt"
   | "error"
   | "parked"
+  | "restarting"
   | "exited"
   | "unknown";
 
@@ -37,7 +38,7 @@ export interface PromptContext {
 // WebSocket messages (terminal single-session)
 export type WsMessage =
   | { event: "pty"; data: string; offset: number }
-  | { event: "replay"; data: string; offset: number }
+  | { event: "replay"; data: string; offset: number; next_offset: number }
   | {
       event: "transition";
       prev: string;
@@ -95,8 +96,8 @@ export type MuxWsMessage =
   | { event: "credential:refresh:failed"; account: string }
   | { event: "credential:reauth:required"; account: string; auth_url?: string; user_code?: string }
   // Expanded session messages (forwarded from per-session ws)
-  | { event: "pty"; data: string }
-  | { event: "replay"; data: string };
+  | { event: "pty"; data: string; offset: number }
+  | { event: "replay"; data: string; offset: number; next_offset: number };
 
 export interface MuxSession {
   id: string;
@@ -106,7 +107,9 @@ export interface MuxSession {
 }
 
 export interface MuxMetadata {
+  agent?: string;
   k8s?: { pod?: string; namespace?: string };
+  [key: string]: unknown;
 }
 
 export interface MuxScreen {
@@ -130,4 +133,19 @@ export interface EventEntry {
   detail: string;
   count?: number;
   bytes?: number;
+}
+
+export interface SessionInfo {
+  id: string;
+  url: string | null;
+  state: string | null;
+  metadata: MuxMetadata | null;
+  lastMessage: string | null;
+  term: import("@xterm/xterm").Terminal | null;
+  fit: import("@xterm/addon-fit").FitAddon | null;
+  webgl: import("@xterm/addon-webgl").WebglAddon | null;
+  sourceCols: number;
+  sourceRows: number;
+  lastScreenLines: string[] | null;
+  credAlert: boolean;
 }

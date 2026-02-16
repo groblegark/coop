@@ -21,6 +21,7 @@ use futures_util::{SinkExt, StreamExt};
 use nix::sys::termios;
 use tokio::sync::mpsc;
 
+use crate::replay_gate::ReplayGate;
 use crate::transport::ws::{ClientMessage, ServerMessage};
 
 /// CLI arguments for `coop attach`.
@@ -125,8 +126,8 @@ struct AttachState {
     cols: u16,
     rows: u16,
     started: Instant,
-    /// Byte offset into the output ring for smart replay.
-    next_offset: u64,
+    /// Offset-gated dedup for interleaved Replay/Pty messages.
+    gate: ReplayGate,
     /// True while waiting for the first Replay response after (re)connect.
     /// Used to end the synchronized update that wraps the initial redraw.
     sync_pending: bool,
@@ -139,7 +140,7 @@ impl AttachState {
             cols,
             rows,
             started: Instant::now(),
-            next_offset: 0,
+            gate: ReplayGate::new(),
             sync_pending: false,
         }
     }
@@ -443,11 +444,10 @@ async fn attach(
         let _ = stdout.write_all(CLEAR_HOME);
         let _ = stdout.flush();
         state.sync_pending = true;
-        let _ = send_msg(
-            &mut ws_tx,
-            &ClientMessage::GetReplay { offset: state.next_offset, limit: None },
-        )
-        .await;
+        let replay_offset = state.gate.offset().unwrap_or(0);
+        let _ =
+            send_msg(&mut ws_tx, &ClientMessage::GetReplay { offset: replay_offset, limit: None })
+                .await;
 
         let mut ctx = AttachContext {
             state: &mut state,
@@ -529,11 +529,28 @@ struct AttachContext<'a> {
 }
 
 impl AttachContext<'_> {
-    /// Decode base64 PTY data, write to stdout, advance offset, end sync if pending.
+    /// Process a Replay message through the gate and write the unseen suffix.
+    fn write_replay_data(&mut self, data: &str, offset: u64, next_offset: u64) {
+        if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(data) {
+            let Some(action) = self.state.gate.on_replay(decoded.len(), offset, next_offset) else {
+                return;
+            };
+            let _ = self.stdout.write_all(&decoded[action.skip..]);
+            if self.state.sync_pending {
+                self.state.sync_pending = false;
+                let _ = self.stdout.write_all(SYNC_END);
+            }
+            let _ = self.stdout.flush();
+        }
+    }
+
+    /// Process a Pty broadcast message through the gate and write the unseen suffix.
     fn write_pty_data(&mut self, data: &str, offset: u64) {
         if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(data) {
-            self.state.next_offset = offset + decoded.len() as u64;
-            let _ = self.stdout.write_all(&decoded);
+            let Some(skip) = self.state.gate.on_pty(decoded.len(), offset) else {
+                return;
+            };
+            let _ = self.stdout.write_all(&decoded[skip..]);
             if self.state.sync_pending {
                 self.state.sync_pending = false;
                 let _ = self.stdout.write_all(SYNC_END);
@@ -555,7 +572,9 @@ impl AttachContext<'_> {
     }
 
     /// Begin a synchronized redraw: sync-start + clear + optional scroll region.
+    /// Resets the replay gate so the upcoming replay is treated as first.
     fn begin_sync_redraw(&mut self) {
+        self.state.gate.reset();
         let _ = self.stdout.write_all(SYNC_START);
         let _ = self.stdout.write_all(CLEAR_HOME);
         if *self.sl_active {
@@ -597,8 +616,10 @@ where
                 match msg {
                     Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) => {
                         match serde_json::from_str::<ServerMessage>(&text) {
-                            Ok(ServerMessage::Pty { data, offset, .. })
-                            | Ok(ServerMessage::Replay { data, offset, .. }) => {
+                            Ok(ServerMessage::Replay { data, offset, next_offset, .. }) => {
+                                ctx.write_replay_data(&data, offset, next_offset);
+                            }
+                            Ok(ServerMessage::Pty { data, offset, .. }) => {
                                 ctx.write_pty_data(&data, offset);
                             }
                             Ok(ServerMessage::Exit { code, .. }) => {
@@ -606,8 +627,14 @@ where
                                 while let Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text)))) =
                                     tokio::time::timeout_at(deadline, ws_rx.next()).await
                                 {
-                                    if let Ok(ServerMessage::Pty { data, offset, .. } | ServerMessage::Replay { data, offset, .. }) = serde_json::from_str(&text) {
-                                        ctx.write_pty_data(&data, offset);
+                                    match serde_json::from_str(&text) {
+                                        Ok(ServerMessage::Replay { data, offset, next_offset, .. }) => {
+                                            ctx.write_replay_data(&data, offset, next_offset);
+                                        }
+                                        Ok(ServerMessage::Pty { data, offset, .. }) => {
+                                            ctx.write_pty_data(&data, offset);
+                                        }
+                                        _ => {}
                                     }
                                 }
                                 return SessionResult::Exited(code.unwrap_or(0));

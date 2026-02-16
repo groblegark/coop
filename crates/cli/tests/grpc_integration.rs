@@ -169,11 +169,13 @@ async fn grpc_stream_output() -> anyhow::Result<()> {
 
     // Write data to ring + broadcast
     let data = bytes::Bytes::from("stream-test-data");
+    let offset;
     {
         let mut ring = state.terminal.ring.write().await;
         ring.write(&data);
+        offset = ring.total_written() - data.len() as u64;
     }
-    let _ = state.channels.output_tx.send(OutputEvent::Raw(data.clone()));
+    let _ = state.channels.output_tx.send(OutputEvent::Raw { data: data.clone(), offset });
 
     // Read from stream
     let chunk = tokio::time::timeout(Duration::from_secs(5), stream.next())
@@ -222,7 +224,7 @@ async fn grpc_stream_screen() -> anyhow::Result<()> {
     let mut stream = client.stream_screen(proto::StreamScreenRequest {}).await?.into_inner();
 
     // Push screen update
-    let _ = state.channels.output_tx.send(OutputEvent::ScreenUpdate { seq: 7 });
+    let _ = state.channels.screen_tx.send(7);
 
     let snap = tokio::time::timeout(Duration::from_secs(5), stream.next())
         .await?

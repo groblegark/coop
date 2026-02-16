@@ -3,17 +3,19 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { InspectorSidebar, type WsEventListener } from "@/components/inspector/InspectorSidebar";
+import { StreamAlert } from "@/components/StreamAlert";
 import { Terminal } from "@/components/Terminal";
 import { TerminalLayout } from "@/components/TerminalLayout";
-import { sessionSubtitle, sessionTitle } from "@/components/Tile";
+import { formatLabels, sessionSubtitle, sessionTitle } from "@/components/Tile";
 import { type ConnectionStatus, WsRpc } from "@/hooks/useWebSocket";
-import { useInit, useLatest } from "@/hooks/utils";
-import { parseAnsiLine, spanStyle } from "@/lib/ansi";
+import { useInit } from "@/hooks/utils";
+import { renderAnsiPre } from "@/lib/ansi-render";
 import { b64decode, textToB64 } from "@/lib/base64";
 import { EXPANDED_FONT_SIZE, MONO_FONT, THEME } from "@/lib/constants";
-import type { PromptContext, WsMessage } from "@/lib/types";
+import { ReplayGate } from "@/lib/replay-gate";
+import type { PromptContext, SessionInfo, WsMessage } from "@/lib/types";
+import { WsMessageHarness } from "@/lib/ws-harness";
 import { apiGet } from "@/hooks/useApiClient";
-import type { SessionInfo } from "./App";
 
 interface ExpandedSessionProps {
   info: SessionInfo;
@@ -39,12 +41,18 @@ export function ExpandedSession({
 }: ExpandedSessionProps) {
   const wsRef = useRef<WebSocket | null>(null);
   const rpcRef = useRef<WsRpc | null>(null);
+  const gateRef = useRef(new ReplayGate());
+  const harnessRef = useRef(new WsMessageHarness());
+  const lastDiagnoseCountRef = useRef(0);
+  const diagnoseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [wsStatus, setWsStatus] = useState<ConnectionStatus>("disconnected");
   const [ready, setReady] = useState(false);
   const [prompt, setPrompt] = useState<PromptContext | null>(null);
   const [lastMessage, setLastMessage] = useState<string | null>(null);
+  const [showStreamAlert, setShowStreamAlert] = useState<string | null>(null);
   const wsListenersRef = useRef(new Set<WsEventListener>());
-  const onTransitionRef = useLatest(onTransition);
+  const onTransitionRef = useRef(onTransition);
+  onTransitionRef.current = onTransition;
 
   // Stable XTerm + FitAddon, created once on mount
   const [{ term, fit }] = useState(() => {
@@ -67,6 +75,7 @@ export function ExpandedSession({
 
   // Initialize handlers (runs once during first render)
   useInit(() => {
+    (window as unknown as Record<string, unknown>).__wsHarness = harnessRef.current;
     info.term = term;
     info.fit = fit;
 
@@ -93,6 +102,7 @@ export function ExpandedSession({
     };
 
     cleanupRef.current = () => {
+      (window as unknown as Record<string, unknown>).__wsHarness = undefined;
       dataDisp.dispose();
       resizeDisp.dispose();
       rpcRef.current?.dispose();
@@ -113,7 +123,24 @@ export function ExpandedSession({
   // Cleanup on unmount
   useEffect(() => () => cleanupRef.current?.(), []);
 
+  function scheduleDiagnose() {
+    if (diagnoseTimerRef.current !== null) return;
+    diagnoseTimerRef.current = setTimeout(() => {
+      diagnoseTimerRef.current = null;
+      const issues = harnessRef.current.diagnose();
+      if (issues.length > lastDiagnoseCountRef.current) {
+        lastDiagnoseCountRef.current = issues.length;
+        setShowStreamAlert(issues[0].message);
+        setTimeout(() => setShowStreamAlert(null), 10_000);
+      }
+    }, 2_000);
+  }
+
   function connectWs() {
+    gateRef.current.reset();
+    harnessRef.current.reconnect();
+    lastDiagnoseCountRef.current = 0;
+    setShowStreamAlert(null);
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const params = new URLSearchParams(location.search);
     let url = `${proto}//${location.host}/ws/${info.id}?subscribe=pty,state,usage,hooks`;
@@ -128,8 +155,11 @@ export function ExpandedSession({
 
     ws.onopen = () => {
       setWsStatus("connected");
-      ws.send(JSON.stringify({ event: "replay:get", offset: 0 }));
+      // Resize before replay so the PTY dimensions match XTerm when the
+      // ring buffer snapshot is captured. WS messages are ordered, so the
+      // server processes resize before replay:get — no need to await.
       ws.send(JSON.stringify({ event: "resize", cols: term.cols, rows: term.rows }));
+      ws.send(JSON.stringify({ event: "replay:get", offset: 0 }));
 
       rpc.request({ event: "agent:get" }).then((res) => {
         if (res.ok && res.json) {
@@ -150,9 +180,13 @@ export function ExpandedSession({
 
         for (const fn of wsListenersRef.current) fn(msg as WsMessage);
 
-        if (msg.event === "pty" || msg.event === "replay") {
-          term.write(b64decode(msg.data));
-          if (msg.event === "replay") {
+        if (msg.event === "replay") {
+          const bytes = b64decode(msg.data);
+          harnessRef.current.replay(bytes, msg.offset, msg.next_offset);
+          const action = gateRef.current.onReplay(bytes.length, msg.offset, msg.next_offset);
+          if (!action) return;
+          if (action.isFirst) {
+            term.reset();
             handleReplayReady(term, setReady);
             // If replay didn't produce visible content (e.g. ring buffer
             // wrapped past the alt-screen-enter sequence), fall back to
@@ -164,6 +198,15 @@ export function ExpandedSession({
               }
             }, 200);
           }
+          term.write(action.skip > 0 ? bytes.subarray(action.skip) : bytes);
+          scheduleDiagnose();
+        } else if (msg.event === "pty") {
+          const bytes = b64decode(msg.data);
+          harnessRef.current.pty(bytes, msg.offset);
+          const skip = gateRef.current.onPty(bytes.length, msg.offset);
+          if (skip === null) return;
+          term.write(skip > 0 ? bytes.subarray(skip) : bytes);
+          scheduleDiagnose();
         } else if (msg.event === "transition") {
           setPrompt(msg.prompt ?? null);
           setLastMessage(msg.last_message ?? null);
@@ -230,7 +273,9 @@ export function ExpandedSession({
       className="absolute inset-y-0 right-0 z-[100] transition-[left] duration-200"
       style={{ left: sidebarWidth }}
       title={sessionTitle(info)}
-      subtitle={sessionSubtitle(info)}
+      subtitle={[sessionSubtitle(info), formatLabels(info.metadata)]
+        .filter(Boolean)
+        .join(" \u00b7 ")}
       credAlert={info.credAlert}
       headerRight={
         <button
@@ -269,6 +314,9 @@ export function ExpandedSession({
         />
       }
     >
+      {showStreamAlert && (
+        <StreamAlert message={showStreamAlert} onDismiss={() => setShowStreamAlert(null)} />
+      )}
       <div className="relative min-w-0 flex-1">
         <Terminal
           instance={term}
@@ -282,8 +330,8 @@ export function ExpandedSession({
             className="absolute inset-0 overflow-hidden"
             style={{ background: THEME.background }}
           >
-            {/* Loading bar */}
-            <div className="relative h-0.5 w-full overflow-hidden bg-zinc-800">
+            {/* Loading bar — absolutely positioned so it doesn't shift the preview */}
+            <div className="absolute top-0 left-0 right-0 h-0.5 overflow-hidden bg-zinc-800">
               <div
                 className="absolute inset-y-0 w-1/3 animate-[shimmer_1.5s_ease-in-out_infinite] bg-blue-500/60"
                 style={{ animation: "shimmer 1.5s ease-in-out infinite" }}
@@ -291,34 +339,9 @@ export function ExpandedSession({
               <style>{`@keyframes shimmer { 0% { left: -33% } 100% { left: 100% } }`}</style>
             </div>
             {/* Cached screen preview */}
-            <div className="py-4 pl-4">
+            <div className="mr-[14px] overflow-hidden py-4 pl-4">
               {info.lastScreenLines ? (
-                <pre
-                  style={{
-                    margin: 0,
-                    fontFamily: MONO_FONT,
-                    fontSize: EXPANDED_FONT_SIZE,
-                    lineHeight: 1.2,
-                    whiteSpace: "pre",
-                    color: THEME.foreground,
-                  }}
-                >
-                  {info.lastScreenLines.map((line, i) => (
-                    <div key={i}>
-                      {parseAnsiLine(line).map((span, j) => {
-                        const s = spanStyle(span, THEME);
-                        return s ? (
-                          <span key={j} style={s}>
-                            {span.text}
-                          </span>
-                        ) : (
-                          <span key={j}>{span.text}</span>
-                        );
-                      })}
-                      {"\n"}
-                    </div>
-                  ))}
-                </pre>
+                <LoadingPreview lines={info.lastScreenLines} />
               ) : (
                 <div
                   className="flex items-center gap-2 text-sm text-zinc-500"
@@ -332,6 +355,19 @@ export function ExpandedSession({
         )}
       </div>
     </TerminalLayout>
+  );
+}
+
+/** Render cached screen lines using the shared ANSI renderer. */
+function LoadingPreview({ lines }: { lines: string[] }) {
+  return (
+    <div
+      ref={(el) => {
+        if (el && !el.firstChild) {
+          el.appendChild(renderAnsiPre(lines, { fontSize: EXPANDED_FONT_SIZE }));
+        }
+      }}
+    />
   );
 }
 

@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { parseAnsiLine, spanStyle } from "@/lib/ansi";
+import { useEffect, useRef } from "react";
+import { renderAnsiPre } from "@/lib/ansi-render";
 import { MONO_FONT, PREVIEW_FONT_SIZE, THEME } from "@/lib/constants";
 
 interface TerminalPreviewProps {
@@ -10,46 +10,33 @@ interface TerminalPreviewProps {
 
 /** Read-only, non-interactive terminal preview anchored to the bottom. */
 export function TerminalPreview({ lastScreenLines, sourceCols }: TerminalPreviewProps) {
-  const rendered = useMemo(() => {
-    if (!lastScreenLines) return null;
-    return lastScreenLines.map((line) => parseAnsiLine(line));
-  }, [lastScreenLines]);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    while (el.firstChild) el.removeChild(el.firstChild);
+    if (!lastScreenLines) return;
+    const pre = renderAnsiPre(lastScreenLines, {
+      fontSize: PREVIEW_FONT_SIZE,
+      background: THEME.background,
+    });
+    Object.assign(pre.style, {
+      position: "absolute",
+      bottom: "0",
+      left: "0",
+      padding: "2px 4px",
+      width: `${sourceCols}ch`,
+      overflow: "hidden",
+    });
+    el.appendChild(pre);
+  }, [lastScreenLines, sourceCols]);
 
   return (
-    <div className="pointer-events-none relative flex-1 overflow-hidden">
-      <pre
-        style={{
-          position: "absolute",
-          bottom: 0,
-          left: 0,
-          margin: 0,
-          padding: "2px 4px",
-          fontFamily: MONO_FONT,
-          fontSize: PREVIEW_FONT_SIZE,
-          lineHeight: 1.2,
-          whiteSpace: "pre",
-          color: THEME.foreground,
-          background: THEME.background,
-          width: `${sourceCols}ch`,
-          overflow: "hidden",
-        }}
-      >
-        {rendered?.map((spans, lineIdx) => (
-          <div key={lineIdx}>
-            {spans.map((span, spanIdx) => {
-              const s = spanStyle(span, THEME);
-              return s ? (
-                <span key={spanIdx} style={s}>
-                  {span.text}
-                </span>
-              ) : (
-                <span key={spanIdx}>{span.text}</span>
-              );
-            })}
-            {"\n"}
-          </div>
-        ))}
-      </pre>
-    </div>
+    <div
+      ref={containerRef}
+      className="pointer-events-none relative flex-1 overflow-hidden"
+      style={{ fontFamily: MONO_FONT }}
+    />
   );
 }

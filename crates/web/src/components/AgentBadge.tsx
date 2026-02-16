@@ -8,6 +8,7 @@ const stateStyles: Record<string, string> = {
   question_prompt: "bg-yellow-500/20 text-yellow-500",
   error: "bg-red-500/20 text-red-400",
   parked: "bg-red-500/20 text-red-400",
+  restarting: "bg-blue-500/20 text-blue-400",
   exited: "bg-zinc-700 text-zinc-400",
   starting: "bg-blue-500/20 text-blue-400",
   unknown: "bg-zinc-700 text-zinc-400",
@@ -21,7 +22,7 @@ export function badgeClassForState(state: string | null | undefined): string {
   if (s.includes("prompt")) return stateStyles.permission_prompt;
   if (s.includes("error") || s === "parked") return stateStyles.error;
   if (s === "exited") return stateStyles.exited;
-  if (s === "starting") return stateStyles.starting;
+  if (s === "starting" || s === "restarting") return stateStyles.starting;
   return stateStyles.unknown;
 }
 

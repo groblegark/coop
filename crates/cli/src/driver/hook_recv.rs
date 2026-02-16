@@ -57,6 +57,8 @@ impl HookReceiver {
     /// `open(O_WRONLY)` until the async detector task calls `ensure_fd()`,
     /// causing "startup hook error" under load (e.g. mux with many sessions).
     pub fn new(pipe_path: &Path) -> anyhow::Result<Self> {
+        // Remove any stale pipe from a previous unclean shutdown.
+        let _ = std::fs::remove_file(pipe_path);
         nix::unistd::mkfifo(pipe_path, Mode::from_bits_truncate(0o600))?;
 
         // Open O_RDWR immediately so the kernel sees a reader on the FIFO.

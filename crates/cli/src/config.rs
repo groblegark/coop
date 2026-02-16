@@ -173,6 +173,10 @@ pub struct Config {
     #[arg(long, hide = true, env = "COOP_HOT")]
     pub hot: bool,
 
+    /// Metadata labels (key=value, dots create nesting: a.b=v → {"a":{"b":"v"}}).
+    #[arg(long = "label", value_name = "KEY=VALUE")]
+    pub label: Vec<String>,
+
     /// Profile rotation mode: auto or manual.
     #[arg(long, env = "COOP_PROFILE", default_value = "auto")]
     pub profile: String,
@@ -357,6 +361,7 @@ impl Config {
             groom: "manual".into(),
             #[cfg(debug_assertions)]
             hot: false,
+            label: Vec::new(),
             profile: "auto".into(),
             command: vec!["echo".into()],
             mux_url: Some(String::new()), // Disable mux registration in tests

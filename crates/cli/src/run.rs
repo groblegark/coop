@@ -247,16 +247,17 @@ impl PreparedSession {
         }
 
         // 11. Broadcast Starting transition.
+        let cause = if request.credentials.is_some() { "switch" } else { "restart" };
         let last_message = self.store.driver.last_message.read().await.clone();
         let _ = self.store.channels.state_tx.send(crate::event::TransitionEvent {
-            prev: AgentState::Switching,
+            prev: AgentState::Restarting,
             next: AgentState::Starting,
             seq: 0,
-            cause: "switch".to_owned(),
+            cause: cause.to_owned(),
             last_message,
         });
 
-        info!("session switched");
+        info!("session {cause}ed");
         Ok(())
     }
 }
@@ -463,6 +464,7 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
     // Create shared channels
     let (input_tx, consumer_input_rx) = mpsc::channel(256);
     let (output_tx, _) = broadcast::channel(256);
+    let (screen_tx, _) = broadcast::channel::<u64>(16);
     let (state_tx, _) = broadcast::channel(64);
     let (prompt_tx, _) = broadcast::channel(64);
 
@@ -517,6 +519,7 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
         channels: TransportChannels {
             input_tx,
             output_tx,
+            screen_tx,
             state_tx,
             prompt_tx,
             hook_tx,
@@ -611,6 +614,7 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
             nats_url,
             &config.nats_prefix,
             &agent_enum.to_string(),
+            &config.label,
             nats_auth,
         )
         .await?;
@@ -766,6 +770,7 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
             config.auth_token.as_deref(),
             config.mux_url(),
             &agent_enum.to_string(),
+            &config.label,
             shutdown.clone(),
         )
         .await;

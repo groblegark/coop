@@ -764,3 +764,54 @@ async fn start_config_roundtrip() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn replay_returns_next_offset_for_ring_data() -> anyhow::Result<()> {
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
+    let data = b"hello world from the PTY";
+    state.terminal.ring.write().await.write(data);
+
+    let msg = ClientMessage::GetReplay { offset: 0, limit: None };
+    let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
+    match reply {
+        Some(ServerMessage::Replay { offset, next_offset, total_written, .. }) => {
+            assert_eq!(offset, 0);
+            assert_eq!(next_offset, data.len() as u64);
+            assert_eq!(total_written, data.len() as u64);
+        }
+        other => anyhow::bail!("expected Replay, got {other:?}"),
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn replay_next_offset_advances_past_previous() -> anyhow::Result<()> {
+    let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
+
+    // Simulate initial pty output tracked by the connection loop.
+    let initial = b"first chunk";
+    state.terminal.ring.write().await.write(initial);
+    let mut next_offset: u64 = initial.len() as u64;
+
+    // More data arrives (e.g., agent response after user input).
+    let extra = b" second chunk";
+    state.terminal.ring.write().await.write(extra);
+
+    // Client requests full replay from offset 0 (as expanded terminal does).
+    let msg = ClientMessage::GetReplay { offset: 0, limit: None };
+    let reply = handle_client_message(&state, msg, "test-ws", &mut true).await;
+    match &reply {
+        Some(ServerMessage::Replay { next_offset: replay_next, .. }) => {
+            // Apply the same logic as handle_connection: advance next_offset.
+            if *replay_next > next_offset {
+                next_offset = *replay_next;
+            }
+        }
+        other => anyhow::bail!("expected Replay, got {other:?}"),
+    }
+
+    // next_offset should now cover all data, preventing duplicate pty events.
+    let total = (initial.len() + extra.len()) as u64;
+    assert_eq!(next_offset, total);
+    Ok(())
+}

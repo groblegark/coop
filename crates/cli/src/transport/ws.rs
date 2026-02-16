@@ -32,8 +32,8 @@ use crate::transport::handler::{
     handle_input_raw, handle_keys, handle_nudge, handle_resize, handle_respond, handle_signal,
     resolve_switch_profile,
 };
-use crate::transport::read_ring_combined;
 use crate::transport::state::Store;
+use crate::transport::{read_ring_combined, read_ring_replay};
 
 /// Short-circuit: return an auth error if the client has not authenticated.
 macro_rules! require_auth {
@@ -91,6 +91,7 @@ async fn handle_connection(
 
     let (mut ws_tx, mut ws_rx) = socket.split();
     let mut output_rx = state.channels.output_tx.subscribe();
+    let mut screen_rx = state.channels.screen_tx.subscribe();
     let mut state_rx = state.channels.state_tx.subscribe();
     let mut prompt_rx = state.channels.prompt_tx.subscribe();
     let mut stop_rx = state.stop.stop_tx.subscribe();
@@ -217,10 +218,7 @@ async fn handle_connection(
             }
             event = output_rx.recv() => {
                 match event {
-                    Ok(OutputEvent::Raw(data)) if flags.pty => {
-                        let ring = state.terminal.ring.read().await;
-                        let msg_offset = ring.total_written().saturating_sub(data.len() as u64);
-                        drop(ring);
+                    Ok(OutputEvent::Raw { data, offset: msg_offset }) if flags.pty => {
                         // Skip if already covered by a prior replay.
                         if msg_offset + data.len() as u64 <= next_offset {
                             continue;
@@ -229,12 +227,6 @@ async fn handle_connection(
                         let msg = ServerMessage::Pty { data: encoded, offset: msg_offset };
                         next_offset = msg_offset + data.len() as u64;
                         if send_json(&mut ws_tx, &msg).await.is_err() {
-                            break;
-                        }
-                    }
-                    Ok(OutputEvent::ScreenUpdate { seq }) if flags.screen => {
-                        let snap = state.terminal.screen.read().await.snapshot();
-                        if send_json(&mut ws_tx, &snapshot_to_msg(snap, seq)).await.is_err() {
                             break;
                         }
                     }
@@ -270,6 +262,19 @@ async fn handle_connection(
                             );
                         }
                     }
+                    Err(RecvError::Closed) => break,
+                }
+            }
+            seq = screen_rx.recv() => {
+                match seq {
+                    Ok(seq) if flags.screen => {
+                        let snap = state.terminal.screen.read().await.snapshot();
+                        if send_json(&mut ws_tx, &snapshot_to_msg(snap, seq)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(RecvError::Lagged(_)) => {}
                     Err(RecvError::Closed) => break,
                 }
             }
@@ -367,6 +372,12 @@ async fn handle_connection(
                         };
 
                         if let Some(reply) = handle_client_message(&state, envelope.message, &client_id, &mut authed).await {
+                            // Advance next_offset after replay to avoid duplicate pty events.
+                            if let ServerMessage::Replay { next_offset: replay_next, .. } = &reply {
+                                if *replay_next > next_offset {
+                                    next_offset = *replay_next;
+                                }
+                            }
                             if envelope.request_id.is_some() {
                                 let wrapped = ServerEnvelope { message: reply, request_id: envelope.request_id };
                                 if send_json(&mut ws_tx, &wrapped).await.is_err() {
@@ -383,6 +394,8 @@ async fn handle_connection(
             }
         }
     }
+
+    let _ = ws_tx.send(Message::Close(None)).await;
 
     // Cleanup
     state.lifecycle.ws_client_count.fetch_sub(1, Ordering::Relaxed);
@@ -439,18 +452,12 @@ async fn handle_client_message(
         ClientMessage::GetReplay { offset, limit } => {
             require_auth!(authed);
             let ring = state.terminal.ring.read().await;
-            let total_written = ring.total_written();
-            let mut combined = read_ring_combined(&ring, offset);
-            if let Some(limit) = limit {
-                combined.truncate(limit);
-            }
-            let read_len = combined.len() as u64;
-            let encoded = base64::engine::general_purpose::STANDARD.encode(&combined);
+            let r = read_ring_replay(&ring, offset, limit);
             Some(ServerMessage::Replay {
-                data: encoded,
-                offset,
-                next_offset: offset + read_len,
-                total_written,
+                data: r.data,
+                offset: r.offset,
+                next_offset: r.next_offset,
+                total_written: r.total_written,
             })
         }
 
@@ -720,6 +727,21 @@ async fn handle_client_message(
         }
 
         // Lifecycle
+        ClientMessage::RestartSession {} => {
+            require_auth!(authed);
+            let req =
+                crate::switch::SwitchRequest { credentials: None, force: true, profile: None };
+            match state.switch.switch_tx.try_send(req) {
+                Ok(()) => Some(ServerMessage::SessionRestarted { scheduled: true }),
+                Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                    Some(ws_error(ErrorCode::SwitchInProgress, "a switch is already in progress"))
+                }
+                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                    Some(ws_error(ErrorCode::Internal, "switch channel closed"))
+                }
+            }
+        }
+
         ClientMessage::Shutdown {} => {
             require_auth!(authed);
             state.lifecycle.shutdown.cancel();

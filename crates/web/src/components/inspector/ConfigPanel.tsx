@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { ActionBtn } from "@/components/ActionBtn";
 import { ResultDisplay, showResult } from "@/components/ResultDisplay";
 import { Section } from "@/components/Section";
 import type { WsRequest } from "@/hooks/useWebSocket";
+import { useInit } from "@/hooks/utils";
 
 export function ConfigPanel({ wsRequest }: { wsRequest: WsRequest }) {
   return (
@@ -30,7 +31,7 @@ function ProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [autoRotate, setAutoRotate] = useState(true);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const refresh = useCallback(async () => {
+  async function refresh() {
     const res = await wsRequest({ event: "profiles:list" });
     if (!res.ok) {
       setResult(showResult(res));
@@ -39,30 +40,24 @@ function ProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
     const data = res.json as { mode?: string; profiles?: ProfileInfo[] };
     setAutoRotate(data.mode === "auto");
     setProfiles(data.profiles ?? []);
-  }, [wsRequest]);
+  }
 
-  useEffect(() => {
+  useInit(() => {
     refresh();
-  }, [refresh]);
+  });
 
-  const toggleAutoRotate = useCallback(
-    async (checked: boolean) => {
-      const mode = checked ? "auto" : "manual";
-      const res = await wsRequest({ event: "profiles:mode:set", mode });
-      setResult(showResult(res));
-      if (res.ok) refresh();
-    },
-    [refresh, wsRequest],
-  );
+  async function toggleAutoRotate(checked: boolean) {
+    const mode = checked ? "auto" : "manual";
+    const res = await wsRequest({ event: "profiles:mode:set", mode });
+    setResult(showResult(res));
+    if (res.ok) refresh();
+  }
 
-  const switchProfile = useCallback(
-    async (name: string) => {
-      const res = await wsRequest({ event: "session:switch", profile: name, force: false });
-      setResult(showResult(res));
-      if (res.ok) setTimeout(refresh, 500);
-    },
-    [refresh, wsRequest],
-  );
+  async function switchProfile(name: string) {
+    const res = await wsRequest({ event: "session:switch", profile: name, force: false });
+    setResult(showResult(res));
+    if (res.ok) setTimeout(refresh, 500);
+  }
 
   return (
     <Section
@@ -126,7 +121,7 @@ function RegisterProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [json, setJson] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const handleRegister = useCallback(async () => {
+  async function handleRegister() {
     let profiles: unknown;
     try {
       profiles = JSON.parse(json);
@@ -138,7 +133,7 @@ function RegisterProfilesSection({ wsRequest }: { wsRequest: WsRequest }) {
     const res = await wsRequest({ event: "profiles:register", profiles: list });
     setResult(showResult(res));
     if (res.ok) setJson("");
-  }, [json, wsRequest]);
+  }
 
   return (
     <Section label="Register Profiles">
@@ -164,7 +159,7 @@ function SessionSwitchSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [force, setForce] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const handleSwitch = useCallback(async () => {
+  async function handleSwitch() {
     let credentials = null;
     if (creds.trim()) {
       try {
@@ -178,7 +173,7 @@ function SessionSwitchSection({ wsRequest }: { wsRequest: WsRequest }) {
     if (credentials) body.credentials = credentials;
     const res = await wsRequest(body);
     setResult(showResult(res));
-  }, [creds, force, wsRequest]);
+  }
 
   return (
     <Section label="Session Switch">
@@ -213,7 +208,7 @@ function StopConfigSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [prompt, setPrompt] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const handleGet = useCallback(async () => {
+  async function handleGet() {
     const res = await wsRequest({ event: "stop:config:get" });
     setResult(showResult(res));
     if (res.ok && res.json) {
@@ -222,15 +217,15 @@ function StopConfigSection({ wsRequest }: { wsRequest: WsRequest }) {
       setMode(cfg.mode || "allow");
       setPrompt(cfg.prompt || "");
     }
-  }, [wsRequest]);
+  }
 
-  const handlePut = useCallback(async () => {
+  async function handlePut() {
     const res = await wsRequest({
       event: "stop:config:put",
       config: { mode, prompt: prompt || null },
     });
     setResult(showResult(res));
-  }, [mode, prompt, wsRequest]);
+  }
 
   return (
     <Section label="Stop Config">
@@ -264,16 +259,16 @@ function StartConfigSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [json, setJson] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const handleGet = useCallback(async () => {
+  async function handleGet() {
     const res = await wsRequest({ event: "config:start:get" });
     setResult(showResult(res));
     if (res.ok && res.json) {
       const data = res.json as { config?: unknown };
       setJson(JSON.stringify(data.config ?? res.json, null, 2));
     }
-  }, [wsRequest]);
+  }
 
-  const handlePut = useCallback(async () => {
+  async function handlePut() {
     let body: unknown;
     try {
       body = JSON.parse(json);
@@ -283,7 +278,7 @@ function StartConfigSection({ wsRequest }: { wsRequest: WsRequest }) {
     }
     const res = await wsRequest({ event: "config:put:get", config: body });
     setResult(showResult(res));
-  }, [json, wsRequest]);
+  }
 
   return (
     <Section label="Start Config">
@@ -321,7 +316,7 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [activeLine, setActiveLine] = useState<number | null>(null);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const refresh = useCallback(async () => {
+  async function refresh() {
     const [listRes, catchupRes] = await Promise.all([
       wsRequest({ event: "transcript:list" }),
       wsRequest({ event: "transcript:catchup", since_transcript: 0, since_line: 0 }),
@@ -334,13 +329,13 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
     if (catchupRes.ok && catchupRes.json) {
       setActiveLine((catchupRes.json as { current_line?: number }).current_line ?? null);
     }
-  }, [wsRequest]);
+  }
 
-  useEffect(() => {
+  useInit(() => {
     refresh();
-  }, [refresh]);
+  });
 
-  const downloadTranscriptCatchup = useCallback(async () => {
+  async function downloadTranscriptCatchup() {
     try {
       const res = await wsRequest({
         event: "transcript:catchup",
@@ -372,33 +367,30 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
     } catch (err) {
       setResult({ ok: false, text: `Download failed: ${err}` });
     }
-  }, [wsRequest]);
+  }
 
-  const downloadTranscriptSnapshot = useCallback(
-    async (number: number) => {
-      try {
-        const res = await wsRequest({ event: "transcript:get", number });
-        if (!res.ok || !res.json) {
-          throw new Error(res.text || "Request failed");
-        }
-        const data = res.json as { content?: string };
-        if (!data.content) {
-          throw new Error("No content in response");
-        }
-        const blob = new Blob([data.content], { type: "text/plain;charset=utf-8" });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `transcript-${number}.txt`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(link.href);
-      } catch (err) {
-        setResult({ ok: false, text: `Download failed: ${err}` });
+  async function downloadTranscriptSnapshot(number: number) {
+    try {
+      const res = await wsRequest({ event: "transcript:get", number });
+      if (!res.ok || !res.json) {
+        throw new Error(res.text || "Request failed");
       }
-    },
-    [wsRequest],
-  );
+      const data = res.json as { content?: string };
+      if (!data.content) {
+        throw new Error("No content in response");
+      }
+      const blob = new Blob([data.content], { type: "text/plain;charset=utf-8" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `transcript-${number}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+    } catch (err) {
+      setResult({ ok: false, text: `Download failed: ${err}` });
+    }
+  }
 
   return (
     <Section
@@ -451,13 +443,10 @@ function TranscriptsSection({ wsRequest }: { wsRequest: WsRequest }) {
 function SignalSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const sendSignal = useCallback(
-    async (signal: string) => {
-      const res = await wsRequest({ event: "signal:send", signal });
-      setResult(showResult(res));
-    },
-    [wsRequest],
-  );
+  async function sendSignal(signal: string) {
+    const res = await wsRequest({ event: "signal:send", signal });
+    setResult(showResult(res));
+  }
 
   return (
     <Section label="Signal">
@@ -483,16 +472,26 @@ function SignalSection({ wsRequest }: { wsRequest: WsRequest }) {
 function ShutdownSection({ wsRequest }: { wsRequest: WsRequest }) {
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const handleShutdown = useCallback(async () => {
+  const handleRestart = async () => {
+    const res = await wsRequest({ event: "session:restart" });
+    setResult(showResult(res));
+  };
+
+  const handleShutdown = async () => {
     const res = await wsRequest({ event: "shutdown" });
     setResult(showResult(res));
-  }, [wsRequest]);
+  };
 
   return (
     <Section label="Lifecycle">
-      <ActionBtn variant="danger" onClick={handleShutdown}>
-        Shutdown
-      </ActionBtn>
+      <div className="flex items-center gap-1">
+        <ActionBtn variant="warn" onClick={handleRestart}>
+          Restart
+        </ActionBtn>
+        <ActionBtn variant="danger" onClick={handleShutdown}>
+          Shutdown
+        </ActionBtn>
+      </div>
       <ResultDisplay result={result} />
     </Section>
   );

@@ -96,6 +96,9 @@ impl proto::coop_server::Coop for CoopGrpc {
         // Replay buffered data from ring buffer
         {
             let ring = self.state.terminal.ring.read().await;
+            // Clamp to oldest available offset so wrapped ring buffers
+            // still return the most recent data instead of empty.
+            let from_offset = from_offset.max(ring.oldest_offset());
             let data = read_ring_combined(&ring, from_offset);
             if !data.is_empty() {
                 let _ = tx.send(Ok(proto::OutputChunk { data, offset: from_offset })).await;
@@ -104,22 +107,15 @@ impl proto::coop_server::Coop for CoopGrpc {
 
         // Subscribe to live output
         let mut output_rx = self.state.channels.output_tx.subscribe();
-        let terminal = Arc::clone(&self.state.terminal);
 
         tokio::spawn(async move {
             loop {
                 match output_rx.recv().await {
-                    Ok(OutputEvent::Raw(data)) => {
-                        let r = terminal.ring.read().await;
-                        let offset = r.total_written() - data.len() as u64;
-                        drop(r);
+                    Ok(OutputEvent::Raw { data, offset }) => {
                         let chunk = proto::OutputChunk { data: data.to_vec(), offset };
                         if tx.send(Ok(chunk)).await.is_err() {
                             break;
                         }
-                    }
-                    Ok(OutputEvent::ScreenUpdate { .. }) => {
-                        // Skip screen-update events in raw output stream
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {
                         // Skip missed messages
@@ -139,13 +135,13 @@ impl proto::coop_server::Coop for CoopGrpc {
         _request: Request<proto::StreamScreenRequest>,
     ) -> Result<Response<Self::StreamScreenStream>, Status> {
         let (tx, rx) = mpsc::channel(16);
-        let mut output_rx = self.state.channels.output_tx.subscribe();
+        let mut screen_rx = self.state.channels.screen_tx.subscribe();
         let terminal = Arc::clone(&self.state.terminal);
 
         tokio::spawn(async move {
             loop {
-                match output_rx.recv().await {
-                    Ok(OutputEvent::ScreenUpdate { .. }) => {
+                match screen_rx.recv().await {
+                    Ok(_seq) => {
                         let s = terminal.screen.read().await;
                         let snap = s.snapshot();
                         drop(s);
@@ -154,7 +150,6 @@ impl proto::coop_server::Coop for CoopGrpc {
                             break;
                         }
                     }
-                    Ok(OutputEvent::Raw(_)) => {}
                     Err(broadcast::error::RecvError::Lagged(_)) => {}
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
@@ -734,6 +729,22 @@ impl proto::coop_server::Coop for CoopGrpc {
     }
 
     // -- Lifecycle ------------------------------------------------------------
+
+    async fn restart_session(
+        &self,
+        _request: Request<proto::RestartSessionRequest>,
+    ) -> Result<Response<proto::RestartSessionResponse>, Status> {
+        let req = crate::switch::SwitchRequest { credentials: None, force: true, profile: None };
+        match self.state.switch.switch_tx.try_send(req) {
+            Ok(()) => Ok(Response::new(proto::RestartSessionResponse { scheduled: true })),
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                Err(ErrorCode::SwitchInProgress.to_grpc_status("a switch is already in progress"))
+            }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                Err(ErrorCode::Internal.to_grpc_status("switch channel closed"))
+            }
+        }
+    }
 
     async fn shutdown(
         &self,

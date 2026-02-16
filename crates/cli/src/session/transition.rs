@@ -37,10 +37,12 @@ pub enum DetectAction {
 
 /// Feed raw backend output into the ring buffer, screen, and broadcast channel.
 pub async fn feed_output(store: &Store, bytes: &Bytes) {
-    // Write to ring buffer
+    // Write to ring buffer and stamp offset while holding the lock.
+    let offset;
     {
         let mut ring = store.terminal.ring.write().await;
         ring.write(bytes);
+        offset = ring.total_written() - bytes.len() as u64;
         store
             .terminal
             .ring_total_written
@@ -51,8 +53,8 @@ pub async fn feed_output(store: &Store, bytes: &Bytes) {
         let mut screen = store.terminal.screen.write().await;
         screen.feed(bytes);
     }
-    // Broadcast raw output
-    let _ = store.channels.output_tx.send(OutputEvent::Raw(bytes.clone()));
+    // Broadcast raw output with stamped offset
+    let _ = store.channels.output_tx.send(OutputEvent::Raw { data: bytes.clone(), offset });
 }
 
 /// Process a detected state change from the composite detector.
@@ -136,7 +138,12 @@ pub async fn process_detected_state(
     // Switch check: agent reached idle during pending switch → SIGHUP now.
     if session.pending_switch.is_some() && matches!(detected.state, AgentState::Idle) {
         debug!("switch: agent reached idle, sending SIGHUP");
-        broadcast_switching(store, session).await;
+        let cause = if session.pending_switch.as_ref().is_some_and(|r| r.credentials.is_some()) {
+            "switch"
+        } else {
+            "restart"
+        };
+        broadcast_restarting(store, session, cause).await;
         sighup_child_group(store);
     }
 
@@ -183,20 +190,20 @@ async fn handle_rate_limit(store: Arc<Store>, session: &mut SessionState) {
     }
 }
 
-/// Broadcast an `AgentState::Switching` transition and update tracking state.
-pub async fn broadcast_switching(store: &Store, session: &mut SessionState) {
+/// Broadcast an `AgentState::Restarting` transition and update tracking state.
+pub async fn broadcast_restarting(store: &Store, session: &mut SessionState, cause: &str) {
     session.state_seq += 1;
     let mut current = store.driver.agent_state.write().await;
     let prev = current.clone();
-    *current = AgentState::Switching;
+    *current = AgentState::Restarting;
     drop(current);
-    session.last_state = AgentState::Switching;
+    session.last_state = AgentState::Restarting;
     let last_message = store.driver.last_message.read().await.clone();
     let _ = store.channels.state_tx.send(TransitionEvent {
         prev,
-        next: AgentState::Switching,
+        next: AgentState::Restarting,
         seq: session.state_seq,
-        cause: "switch".to_owned(),
+        cause: cause.to_owned(),
         last_message,
     });
 }

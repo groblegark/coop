@@ -1,8 +1,40 @@
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 import { AgentBadge } from "@/components/AgentBadge";
 import { TerminalPreview } from "@/components/TerminalPreview";
-import type { SessionInfo } from "@/roots/mux/App";
+import type { MuxMetadata, SessionInfo } from "@/lib/types";
 import { LaunchDialog } from "@/roots/mux/LaunchDialog";
+
+const KNOWN_METADATA_KEYS = new Set(["agent", "k8s"]);
+
+export function flattenLabels(
+  metadata: MuxMetadata | null | undefined,
+): { key: string; value: string }[] {
+  if (!metadata) return [];
+  const result: { key: string; value: string }[] = [];
+
+  function walk(obj: Record<string, unknown>, prefix: string) {
+    for (const [k, v] of Object.entries(obj)) {
+      if (v == null) continue;
+      const fullKey = prefix ? `${prefix}.${k}` : k;
+      if (typeof v === "object" && !Array.isArray(v)) {
+        walk(v as Record<string, unknown>, fullKey);
+      } else {
+        result.push({ key: fullKey, value: String(v) });
+      }
+    }
+  }
+
+  for (const [k, v] of Object.entries(metadata)) {
+    if (KNOWN_METADATA_KEYS.has(k) || v == null) continue;
+    if (typeof v === "object" && !Array.isArray(v)) {
+      walk(v as Record<string, unknown>, k);
+    } else {
+      result.push({ key: k, value: String(v) });
+    }
+  }
+
+  return result;
+}
 
 export function sessionTitle(info: SessionInfo): string {
   if (info.metadata?.k8s?.pod) return info.metadata.k8s.pod;
@@ -24,6 +56,12 @@ export function sessionSubtitle(info: SessionInfo): string {
   return shortId;
 }
 
+export function formatLabels(metadata: MuxMetadata | null | undefined): string {
+  return flattenLabels(metadata)
+    .map((l) => `${l.key}: ${l.value}`)
+    .join(" \u00b7 ");
+}
+
 export function Tile({
   info,
   focused,
@@ -33,8 +71,8 @@ export function Tile({
   focused: boolean;
   onToggleExpand: () => void;
 }) {
-  const title = useMemo(() => sessionTitle(info), [info.id, info.url, info.metadata, info]);
-  const subtitle = useMemo(() => sessionSubtitle(info), [info.id, info.metadata, info]);
+  const title = sessionTitle(info);
+  const subtitle = sessionSubtitle(info);
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: card contains block-level children incompatible with <button>
@@ -71,9 +109,9 @@ export function Tile({
 export function LaunchCard() {
   const [showDialog, setShowDialog] = useState(false);
 
-  const handleClick = useCallback(() => {
+  function handleClick() {
     setShowDialog(true);
-  }, []);
+  }
 
   return (
     <>
