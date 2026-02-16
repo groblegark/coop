@@ -10,7 +10,10 @@
 	"devDependencies": {
 		"@playwright/test": "^1.52.0",
 		"@types/node": "^25.2.2",
+		"@types/pngjs": "^6.0.0",
 		"@types/ws": "^8.18.1",
+		"pixelmatch": "^6.0.0",
+		"pngjs": "^7.0.0",
 		"ws": "^8.19.0"
 	}
 }

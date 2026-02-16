@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Preview Fidelity Comparison</title>
+<link rel="stylesheet" href="/vendor/xterm.css">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #111; display: flex; gap: 24px; padding: 24px; }
+  .label {
+    color: #888;
+    font-family: sans-serif;
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  .container {
+    width: 800px;
+    height: 600px;
+    overflow: hidden;
+    background: #1e1e1e;
+  }
+</style>
+</head>
+<body>
+<div>
+  <div class="label">HTML Preview (TerminalPreview)</div>
+  <div id="html-preview" class="container"></div>
+</div>
+<div>
+  <div class="label">xterm.js (Canvas)</div>
+  <div id="xterm-container" class="container"></div>
+</div>
+
+<script src="/vendor/xterm.js"></script>
+<script src="/bundle.js"></script>
+</body>
+</html>
