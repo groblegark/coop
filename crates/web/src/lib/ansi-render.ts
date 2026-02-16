@@ -12,10 +12,7 @@ export interface AnsiPreOptions {
  * Shared by the React preview components and the fidelity test harness
  * so there is a single rendering implementation to measure and improve.
  */
-export function renderAnsiPre(
-  lines: string[],
-  opts: AnsiPreOptions,
-): HTMLPreElement {
+export function renderAnsiPre(lines: string[], opts: AnsiPreOptions): HTMLPreElement {
   const pre = document.createElement("pre");
   Object.assign(pre.style, {
     margin: "0",

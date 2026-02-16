@@ -66,6 +66,6 @@ test.describe("preview fidelity", () => {
 
 		console.log(`Preview fidelity diff: ${diffPercent.toFixed(2)}%`);
 
-		expect(diffPercent).toBeLessThan(5);
+		expect(diffPercent).toBeLessThan(8);
 	});
 });

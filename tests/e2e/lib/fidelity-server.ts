@@ -102,7 +102,8 @@ export class FidelityServer {
 			const filename = url.pathname.slice("/font/".length);
 			try {
 				const content = readFileSync(resolve(WEB_FONTS_DIR, filename));
-				res.writeHead(200, { "Content-Type": "font/ttf" });
+				const ct = filename.endsWith(".woff2") ? "font/woff2" : "font/ttf";
+			res.writeHead(200, { "Content-Type": ct });
 				res.end(content);
 			} catch {
 				res.writeHead(404);

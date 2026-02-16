@@ -351,9 +351,7 @@ function LoadingPreview({ lines }: { lines: string[] }) {
   const ref = useRef<HTMLDivElement>(null);
   useInit(() => {
     if (ref.current) {
-      ref.current.appendChild(
-        renderAnsiPre(lines, { fontSize: EXPANDED_FONT_SIZE }),
-      );
+      ref.current.appendChild(renderAnsiPre(lines, { fontSize: EXPANDED_FONT_SIZE }));
     }
   });
   return <div ref={ref} />;
