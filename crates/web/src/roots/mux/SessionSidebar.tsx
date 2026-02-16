@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { SessionInfo } from "./App";
 import { LaunchDialog } from "./LaunchDialog";
 import { useMux } from "./MuxContext";
@@ -64,9 +64,15 @@ export function SessionSidebar({
   const sorted = useMemo(() => sortByAttention(sessions), [sessions]);
   const [showLaunchDialog, setShowLaunchDialog] = useState(false);
 
-  const handleLaunchClick = useCallback(() => {
-    setShowLaunchDialog(true);
-  }, []);
+  // Cache the most recent non-empty lastMessage per session
+  const lastMessageCache = useRef<Map<string, string>>(new Map());
+  for (const info of sessions) {
+    if (info.lastMessage) {
+      lastMessageCache.current.set(info.id, info.lastMessage);
+    }
+  }
+
+  const handleLaunchClick = () => setShowLaunchDialog(true);
 
   if (sessions.length === 0 && !launchAvailable) return null;
 
@@ -111,9 +117,9 @@ export function SessionSidebar({
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[12px] text-zinc-300">{sessionLabel(info)}</div>
                 <div className="text-[10px] uppercase text-zinc-500">{info.state || "unknown"}</div>
-                {info.lastMessage && (
+                {lastMessageCache.current.get(info.id) && (
                   <div className="mt-0.5 line-clamp-2 text-[10px] leading-tight text-zinc-500">
-                    {info.lastMessage}
+                    {lastMessageCache.current.get(info.id)}
                   </div>
                 )}
               </div>
