@@ -600,16 +600,31 @@ impl CredentialBroker {
                     None => {
                         // No refresh token. If token has no expiry (long-lived)
                         // or hasn't expired yet, keep current status and wait.
-                        // Otherwise mark expired.
+                        // Otherwise mark expired and auto-initiate reauth.
                         let is_expired = state.expires_at > 0 && state.expires_at <= epoch_secs();
+                        // New accounts (expires_at == 0, no access token) are also expired.
+                        let is_new_account = state.expires_at == 0 && state.access_token.is_none();
+                        let needs_reauth = is_expired || is_new_account;
                         drop(accounts);
-                        if is_expired {
+                        if needs_reauth {
                             let mut accounts = self.accounts.write().await;
                             if let Some(s) = accounts.get_mut(account_name) {
                                 s.status = AccountStatus::Expired;
                             }
+                            drop(accounts);
+                            // Auto-initiate reauth for expired accounts with no
+                            // refresh token (e.g. newly added accounts). Only try
+                            // once — if it fails, fall through to the 60s sleep.
+                            // pending_auths reuse protection prevents duplicate sessions.
+                            tracing::info!(account = %account_name, "no refresh token, auto-initiating reauth");
+                            if let Err(e) = self.initiate_reauth(account_name).await {
+                                tracing::warn!(account = %account_name, err = %e, "auto-reauth initiation failed");
+                            }
+                            // Give user time to complete authorization.
+                            tokio::time::sleep(Duration::from_secs(300)).await;
+                        } else {
+                            tokio::time::sleep(Duration::from_secs(60)).await;
                         }
-                        tokio::time::sleep(Duration::from_secs(60)).await;
                         continue;
                     }
                 };
