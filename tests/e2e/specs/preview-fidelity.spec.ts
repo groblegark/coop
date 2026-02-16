@@ -24,52 +24,57 @@ test.afterAll(async () => {
 	await server.stop();
 });
 
+const FIXTURES = [
+	{ name: "screen-snapshot", label: "welcome-screen" },
+	{ name: "screen-snapshot-tools", label: "tool-output" },
+];
+
 test.describe("preview fidelity", () => {
-	test("preview matches xterm.js rendering", async ({ browser }) => {
-		// Use dpr=2 to match Retina displays where rounding differences emerge
-		const context = await browser.newContext({ deviceScaleFactor: 2 });
-		const page = await context.newPage();
+	for (const fixture of FIXTURES) {
+		test(`preview matches xterm.js — ${fixture.label}`, async ({ browser }) => {
+			// Use dpr=2 to match Retina displays where rounding differences emerge
+			const context = await browser.newContext({ deviceScaleFactor: 2 });
+			const page = await context.newPage();
 
-		// Capture browser console for debugging cell height measurements
-		page.on("console", (msg) => console.log(`[browser] ${msg.text()}`));
+			// Capture browser console for debugging cell height measurements
+			page.on("console", (msg) => console.log(`[browser] ${msg.text()}`));
 
-		await page.goto(`http://localhost:${FIDELITY_PORT}/`);
+			await page.goto(
+				`http://localhost:${FIDELITY_PORT}/?fixture=${fixture.name}`,
+			);
 
-		// Wait for both renderers to signal completion
-		await page.waitForSelector("#html-preview[data-ready='true']", {
-			timeout: 10_000,
+			// Wait for both renderers to signal completion
+			await page.waitForSelector("#html-preview[data-ready='true']", {
+				timeout: 10_000,
+			});
+			await page.waitForSelector("#xterm-container[data-ready='true']", {
+				timeout: 10_000,
+			});
+
+			// Give xterm canvas an extra beat to flush
+			await page.waitForTimeout(300);
+
+			// Screenshot each container
+			const previewEl = page.locator("#html-preview");
+			const xtermEl = page.locator("#xterm-container");
+
+			const previewBuf = await previewEl.screenshot();
+			const xtermBuf = await xtermEl.screenshot();
+
+			// Compare
+			const { diffPercent, diffBuffer } = compareScreenshots(
+				previewBuf,
+				xtermBuf,
+			);
+
+			// Save artifacts
+			writeFileSync(resolve(RESULTS_DIR, `${fixture.label}-preview.png`), previewBuf);
+			writeFileSync(resolve(RESULTS_DIR, `${fixture.label}-xterm.png`), xtermBuf);
+			writeFileSync(resolve(RESULTS_DIR, `${fixture.label}-diff.png`), diffBuffer);
+
+			console.log(`Preview fidelity diff (${fixture.label}): ${diffPercent.toFixed(2)}%`);
+
+			expect(diffPercent).toBeLessThan(1);
 		});
-		await page.waitForSelector("#xterm-container[data-ready='true']", {
-			timeout: 10_000,
-		});
-
-		// Give xterm canvas an extra beat to flush
-		await page.waitForTimeout(300);
-
-		// Screenshot each container
-		const previewEl = page.locator("#html-preview");
-		const xtermEl = page.locator("#xterm-container");
-
-		const previewBuf = await previewEl.screenshot();
-		const xtermBuf = await xtermEl.screenshot();
-
-		// Compare
-		const { diffPercent, diffBuffer } = compareScreenshots(
-			previewBuf,
-			xtermBuf,
-		);
-
-		// Save artifacts
-		writeFileSync(resolve(RESULTS_DIR, "preview.png"), previewBuf);
-		writeFileSync(resolve(RESULTS_DIR, "xterm.png"), xtermBuf);
-		writeFileSync(resolve(RESULTS_DIR, "diff.png"), diffBuffer);
-		writeFileSync(
-			resolve(RESULTS_DIR, "report.txt"),
-			`Pixel diff: ${diffPercent.toFixed(2)}%\n`,
-		);
-
-		console.log(`Preview fidelity diff: ${diffPercent.toFixed(2)}%`);
-
-		expect(diffPercent).toBeLessThan(2);
-	});
+	}
 });

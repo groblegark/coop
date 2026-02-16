@@ -122,11 +122,18 @@ export class FidelityServer {
 		}
 
 		if (url.pathname === "/fixture.json") {
-			const content = readFileSync(
-				resolve(FIXTURES_DIR, "screen-snapshot.json"),
-			);
-			res.writeHead(200, { "Content-Type": "application/json" });
-			res.end(content);
+			const name = url.searchParams.get("name") ?? "screen-snapshot";
+			const safe = name.replace(/[^a-zA-Z0-9_-]/g, "");
+			try {
+				const content = readFileSync(
+					resolve(FIXTURES_DIR, `${safe}.json`),
+				);
+				res.writeHead(200, { "Content-Type": "application/json" });
+				res.end(content);
+			} catch {
+				res.writeHead(404);
+				res.end("not found");
+			}
 			return;
 		}
 

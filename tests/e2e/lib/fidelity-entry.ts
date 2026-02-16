@@ -54,7 +54,8 @@ async function loadFont(): Promise<void> {
 async function main() {
 	await loadFont();
 
-	const resp = await fetch("/fixture.json");
+	const fixtureName = new URLSearchParams(location.search).get("fixture") ?? "screen-snapshot";
+	const resp = await fetch(`/fixture.json?name=${encodeURIComponent(fixtureName)}`);
 	const lines: string[] = await resp.json();
 
 	// --- Render xterm.js (matches ExpandedSession.tsx XTerm constructor) ---

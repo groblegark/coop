@@ -318,8 +318,8 @@ export function ExpandedSession({
             className="absolute inset-0 overflow-hidden"
             style={{ background: THEME.background }}
           >
-            {/* Loading bar */}
-            <div className="relative h-0.5 w-full overflow-hidden bg-zinc-800">
+            {/* Loading bar — absolutely positioned so it doesn't shift the preview */}
+            <div className="absolute top-0 left-0 right-0 h-0.5 overflow-hidden bg-zinc-800">
               <div
                 className="absolute inset-y-0 w-1/3 animate-[shimmer_1.5s_ease-in-out_infinite] bg-blue-500/60"
                 style={{ animation: "shimmer 1.5s ease-in-out infinite" }}
