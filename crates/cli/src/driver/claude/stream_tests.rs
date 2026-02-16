@@ -266,48 +266,15 @@ async fn hook_detector_pre_tool_use_enter_plan_mode() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn hook_detector_tool_complete() -> anyhow::Result<()> {
-    // PostToolUse is intentionally ignored (returns None) because it doesn't
-    // indicate agent state — it could be command mode (user manually executing
-    // tools) or mid-turn in agent mode. TurnStart/TurnEnd determine the actual
-    // working state.
-    use crate::driver::hook_recv::HookReceiver;
-    use tokio::io::AsyncWriteExt;
+    // PostToolUse fires only for real agent tool calls (not command mode).
+    // It confirms the agent is actively working mid-turn.
+    let states = run_hook_detector(vec![
+        r#"{"event":"post_tool_use","data":{"tool_name":"Bash","tool_input":{"command":"ls"}}}"#,
+    ])
+    .await?;
 
-    let dir = tempfile::tempdir()?;
-    let pipe_path = dir.path().join("hook.pipe");
-    let receiver = HookReceiver::new(&pipe_path)?;
-    let detector = Box::new(super::new_hook_detector(receiver, None));
-
-    let (state_tx, mut state_rx) = mpsc::channel(32);
-    let shutdown = CancellationToken::new();
-    let sd = shutdown.clone();
-
-    let handle = tokio::spawn(async move {
-        detector.run(state_tx, sd).await;
-    });
-
-    // Write PostToolUse event
-    let pipe = pipe_path.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        let mut file = match tokio::fs::OpenOptions::new().write(true).open(&pipe).await {
-            Ok(f) => f,
-            Err(_) => return,
-        };
-        let event = r#"{"event":"post_tool_use","data":{"tool_name":"Bash","tool_input":{"command":"ls"}}}"#;
-        let _ = file.write_all(event.as_bytes()).await;
-        let _ = file.write_all(b"\n").await;
-    });
-
-    // Wait briefly for any states (there should be none)
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    shutdown.cancel();
-    let _ = handle.await;
-
-    // Should receive no state emissions since ToolAfter is ignored
-    let states: Vec<_> = state_rx.try_recv().into_iter().collect();
-    assert_eq!(states.len(), 0, "PostToolUse should not emit any state");
+    assert_eq!(states.len(), 1);
+    assert!(matches!(states[0], AgentState::Working));
     Ok(())
 }
 
@@ -323,21 +290,25 @@ async fn hook_detector_stop() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn hook_detector_agent_mode_turn() -> anyhow::Result<()> {
-    // Verify agent mode: user submits message (TurnStart → Working),
-    // tools execute (no state change), turn ends (TurnEnd → Idle).
-    // This ensures PostToolUse doesn't interfere with turn-based state tracking.
+    // Agent mode: user submits message (TurnStart → Working), tools execute
+    // (PostToolUse → Working confirmations), turn ends (TurnEnd → Idle).
+    //
+    // The raw detector emits Working for each PostToolUse (which the composite
+    // detector would dedup). This test verifies the raw detector output.
     let states = run_hook_detector(vec![
         r#"{"event":"user_prompt_submit","data":{"prompt":"hello"}}"#, // → TurnStart → Working
-        r#"{"event":"post_tool_use","data":{"tool_name":"Read","tool_input":{}}}"#, // ignored
-        r#"{"event":"post_tool_use","data":{"tool_name":"Write","tool_input":{}}}"#, // ignored
+        r#"{"event":"post_tool_use","data":{"tool_name":"Read","tool_input":{}}}"#, // → Working
+        r#"{"event":"post_tool_use","data":{"tool_name":"Write","tool_input":{}}}"#, // → Working
         r#"{"event":"stop","data":{"stop_hook_active":false}}"#,       // → TurnEnd → Idle
     ])
     .await?;
 
-    // Should get: Working (from user_prompt_submit → TurnStart), then Idle (from stop → TurnEnd)
-    // PostToolUse events are ignored and don't emit states
-    assert_eq!(states.len(), 2, "expected 2 states: Working, Idle");
-    assert!(matches!(states[0], AgentState::Working), "first state should be Working");
-    assert!(matches!(states[1], AgentState::Idle), "second state should be Idle");
+    // Raw detector emits: Working, Working, Working, Idle
+    // (The composite detector would dedup the repeated Working states)
+    assert_eq!(states.len(), 4, "expected 4 raw states");
+    assert!(matches!(states[0], AgentState::Working), "TurnStart → Working");
+    assert!(matches!(states[1], AgentState::Working), "PostToolUse(Read) → Working");
+    assert!(matches!(states[2], AgentState::Working), "PostToolUse(Write) → Working");
+    assert!(matches!(states[3], AgentState::Idle), "TurnEnd → Idle");
     Ok(())
 }

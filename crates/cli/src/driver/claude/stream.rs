@@ -26,12 +26,17 @@ use super::prompt::extract_ask_user_from_tool_input;
 ///
 /// - `TurnStart` → `Working` (agent begins processing)
 /// - `TurnEnd` / `SessionEnd` → `Idle`
+/// - `ToolAfter` → `Working` (confirms agent is executing tools mid-turn)
 /// - `Notification(idle_prompt)` → `Idle`
 /// - `Notification(permission_prompt)` → `Prompt(Permission)`
 /// - `ToolBefore(AskUserQuestion)` → `Prompt(Question)` with context
 /// - `ToolBefore(ExitPlanMode)` → `Prompt(Plan)`
 /// - `ToolBefore(EnterPlanMode)` → `Working`
-/// - `ToolAfter` → ignored (doesn't indicate agent state; could be command mode or mid-turn)
+///
+/// Note: `PostToolUse` hooks only fire for real agent tool calls — command mode
+/// (user running bash commands via the `>` prompt) does not trigger hooks.
+/// Command mode instead writes `<bash-input>`/`<bash-stdout>` user messages
+/// to the JSONL log, which are filtered in `parse_claude_state()`.
 ///
 /// Returns `None` for events that should be ignored (e.g. `SessionStart`, unrecognised notifications).
 pub fn map_claude_hook(event: HookEvent) -> Option<(AgentState, String)> {
@@ -39,7 +44,9 @@ pub fn map_claude_hook(event: HookEvent) -> Option<(AgentState, String)> {
         HookEvent::TurnEnd | HookEvent::SessionEnd => {
             Some((AgentState::Idle, "hook:idle".to_owned()))
         }
-        HookEvent::ToolAfter { .. } => None, // ignore: doesn't indicate agent state
+        HookEvent::ToolAfter { ref tool } => {
+            Some((AgentState::Working, format!("hook:tool({tool})")))
+        }
         HookEvent::Notification { notification_type } => match notification_type.as_str() {
             "idle_prompt" => Some((AgentState::Idle, "hook:idle".into())),
             "permission_prompt" => Some((

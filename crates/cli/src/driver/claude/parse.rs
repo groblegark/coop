@@ -97,12 +97,23 @@ pub fn parse_claude_state(json: &Value) -> Option<AgentState> {
             return None;
         }
 
-        // Local command entries have string content with XML-like markers.
+        // Non-turn user messages have plain-string content (not an array) with
+        // XML-like tag markers. These are injected by the CLI for:
+        //   - Local commands: `<command-name>/model</command-name>...`
+        //   - Local command output: `<local-command-stdout>...</local-command-stdout>`
+        //   - Command mode bash: `<bash-input>ls</bash-input>`,
+        //     `<bash-stdout>...</bash-stdout><bash-stderr>...</bash-stderr>`
+        //
+        // None of these start a real API turn, so emitting Working would
+        // leave the session stuck. Skip them.
         if let Some(content_str) =
             json.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_str())
         {
             let trimmed = content_str.trim_start();
-            if trimmed.starts_with("<command-name>") || trimmed.starts_with("<local-command-") {
+            if trimmed.starts_with("<command-name>")
+                || trimmed.starts_with("<local-command-")
+                || trimmed.starts_with("<bash-")
+            {
                 return None;
             }
         }
