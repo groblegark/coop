@@ -3,7 +3,11 @@
 
 FROM rust:1.92-bookworm AS builder
 ARG TARGETARCH
-RUN apt-get update && apt-get install -y protobuf-compiler musl-tools linux-headers-amd64 \
+RUN case "$TARGETARCH" in \
+      arm64) HEADERS=linux-headers-arm64 ;; \
+      *)     HEADERS=linux-headers-amd64 ;; \
+    esac \
+    && apt-get update && apt-get install -y protobuf-compiler musl-tools $HEADERS \
     && rustup target add x86_64-unknown-linux-musl \
     && rustup target add aarch64-unknown-linux-musl
 ENV RUSTC_WRAPPER=""
@@ -69,8 +73,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Empty: coop binary with common developer tools
 # ---------------------------------------------------------------------------
 FROM base AS empty
-COPY --from=builder /coop-bin /coop
-ENTRYPOINT ["/coop"]
+COPY --from=builder /coop-bin /usr/local/bin/coop
+ENTRYPOINT ["coop"]
 
 # ---------------------------------------------------------------------------
 # Claudeless: coop + claudeless + scenario fixtures (for testing)
