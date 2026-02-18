@@ -203,7 +203,11 @@ impl CredentialBroker {
 
             let has_token = access_token.is_some();
             // Non-refreshable credentials (reauth: false) have no expiry.
-            let expires_at = if config.reauth {
+            // New accounts with no token get expires_at=0 so refresh_loop
+            // immediately detects them and triggers reauth. (bd-x8q8i)
+            let expires_at = if !config.reauth {
+                0
+            } else if has_token {
                 epoch_secs() + expires_in.unwrap_or(DEFAULT_EXPIRES_IN)
             } else {
                 0
