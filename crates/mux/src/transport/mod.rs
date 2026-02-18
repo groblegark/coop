@@ -6,6 +6,7 @@
 pub mod auth;
 pub mod http;
 pub mod http_cred;
+pub mod nats_pub;
 pub mod ws;
 pub mod ws_mux;
 
@@ -89,6 +90,9 @@ fn build_router_inner(
         .route("/api/v1/credentials/reauth", post(http_cred::credentials_reauth))
         .route("/api/v1/credentials/exchange", post(http_cred::credentials_exchange))
         .route("/api/v1/credentials/distribute", post(http_cred::credentials_distribute))
+        // Credential pool
+        .route("/api/v1/credentials/pool", get(http_cred::credentials_pool))
+        .route("/api/v1/credentials/pool/rebalance", post(http_cred::credentials_pool_rebalance))
         // Middleware
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_layer))
         .layer(CorsLayer::permissive())

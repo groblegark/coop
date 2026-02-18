@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -40,6 +41,8 @@ struct PendingAuth {
     token_url: String,
     client_id: String,
     state: String,
+    /// Full authorization URL (for reuse when same account is requested again).
+    auth_url: String,
 }
 
 /// The credential broker manages token freshness for all configured accounts.
@@ -53,6 +56,9 @@ pub struct CredentialBroker {
     http: reqwest::Client,
     /// Directory for credential persistence. `None` disables persistence (used in tests).
     persist_dir: Option<PathBuf>,
+    /// Per-account session counts for pool load balancing.
+    /// Key: account name, Value: number of sessions assigned to this account.
+    session_counts: RwLock<HashMap<String, AtomicU32>>,
 }
 
 impl CredentialBroker {
@@ -80,6 +86,10 @@ impl CredentialBroker {
                 },
             );
         }
+        // Initialize session counts for each account.
+        let session_counts: HashMap<String, AtomicU32> =
+            accounts.keys().map(|name| (name.clone(), AtomicU32::new(0))).collect();
+
         Arc::new(Self {
             accounts: RwLock::new(accounts),
             static_names,
@@ -91,6 +101,7 @@ impl CredentialBroker {
                 .build()
                 .unwrap_or_default(),
             persist_dir,
+            session_counts: RwLock::new(session_counts),
         })
     }
 
@@ -223,6 +234,13 @@ impl CredentialBroker {
             self.persist(&accounts).await;
         }
 
+        // Initialize pool session count for the new account.
+        self.session_counts
+            .write()
+            .await
+            .entry(name.clone())
+            .or_insert_with(|| AtomicU32::new(0));
+
         // Spawn a refresh loop for the new account.
         let broker = Arc::clone(self);
         let loop_name = name.clone();
@@ -279,6 +297,127 @@ impl CredentialBroker {
             })
             .collect()
     }
+
+    // ── Pool load balancing ─────────────────────────────────────────────
+
+    /// Pick the least-loaded healthy account for a new session.
+    ///
+    /// If `preferred` is given and the account is healthy, return it.
+    /// Otherwise, select the healthy account with the fewest assigned sessions.
+    /// Returns `None` only if no healthy accounts exist.
+    pub async fn assign_account(&self, preferred: Option<&str>) -> Option<String> {
+        let accounts = self.accounts.read().await;
+        let counts = self.session_counts.read().await;
+
+        // Check preferred account first.
+        if let Some(pref) = preferred {
+            if let Some(state) = accounts.get(pref) {
+                if state.status == AccountStatus::Healthy {
+                    return Some(pref.to_owned());
+                }
+            }
+        }
+
+        // Find healthy account with lowest session count.
+        let mut best: Option<(String, u32)> = None;
+        for (name, state) in accounts.iter() {
+            if state.status != AccountStatus::Healthy {
+                continue;
+            }
+            let count = counts
+                .get(name)
+                .map(|c| c.load(Ordering::Relaxed))
+                .unwrap_or(0);
+            match &best {
+                None => best = Some((name.clone(), count)),
+                Some((_, best_count)) if count < *best_count => {
+                    best = Some((name.clone(), count));
+                }
+                _ => {}
+            }
+        }
+        best.map(|(name, _)| name)
+    }
+
+    /// Record that a session has been assigned to an account.
+    pub async fn session_assigned(&self, account: &str) {
+        let counts = self.session_counts.read().await;
+        if let Some(counter) = counts.get(account) {
+            counter.fetch_add(1, Ordering::Relaxed);
+        } else {
+            drop(counts);
+            let mut counts = self.session_counts.write().await;
+            counts
+                .entry(account.to_owned())
+                .or_insert_with(|| AtomicU32::new(0))
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        tracing::debug!(account, "pool: session assigned");
+    }
+
+    /// Record that a session has been unassigned from an account.
+    pub async fn session_unassigned(&self, account: &str) {
+        let counts = self.session_counts.read().await;
+        if let Some(counter) = counts.get(account) {
+            // Saturating subtract to avoid underflow.
+            let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+                if v > 0 { Some(v - 1) } else { None }
+            });
+        }
+        tracing::debug!(account, "pool: session unassigned");
+    }
+
+    /// Get the pool status: per-account utilization info.
+    pub async fn pool_status(&self) -> Vec<PoolAccountInfo> {
+        let accounts = self.accounts.read().await;
+        let counts = self.session_counts.read().await;
+        let now = epoch_secs();
+
+        accounts
+            .iter()
+            .map(|(name, state)| {
+                let session_count = counts
+                    .get(name)
+                    .map(|c| c.load(Ordering::Relaxed))
+                    .unwrap_or(0);
+                let expires_in = if state.expires_at > now {
+                    Some(state.expires_at - now)
+                } else {
+                    None
+                };
+                PoolAccountInfo {
+                    name: name.clone(),
+                    provider: state.config.provider.clone(),
+                    status: state.status,
+                    session_count,
+                    expires_in_secs: expires_in,
+                    has_refresh_token: state.refresh_token.is_some(),
+                }
+            })
+            .collect()
+    }
+
+    /// List accounts that have gone unhealthy, with the sessions that need reassignment.
+    pub async fn unhealthy_accounts(&self) -> Vec<String> {
+        let accounts = self.accounts.read().await;
+        accounts
+            .iter()
+            .filter(|(_, state)| state.status == AccountStatus::Expired)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    /// Get all healthy account names.
+    pub async fn healthy_accounts(&self) -> Vec<String> {
+        let accounts = self.accounts.read().await;
+        accounts
+            .iter()
+            .filter(|(_, state)| state.status == AccountStatus::Healthy)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    // ── OAuth reauth ──────────────────────────────────────────────────────
 
     /// Initiate OAuth reauth flow for an account.
     ///
@@ -445,6 +584,25 @@ impl CredentialBroker {
             (auth_url, client_id, token_url, scope, redirect_uri)
         };
 
+        // Reuse existing pending auth for the same account if one exists.
+        // This prevents creating multiple PKCE sessions — the user would open
+        // auth_url_A (with challenge_A) but the exchange would use verifier_B,
+        // causing "Code challenge failed".
+        {
+            let existing = self.pending_auths.read().await;
+            for pending in existing.values() {
+                if pending.account == account_name {
+                    tracing::debug!(account = %account_name, state = %pending.state, "reusing existing PKCE session");
+                    return Ok(ReauthResponse {
+                        account: account_name.to_owned(),
+                        auth_url: pending.auth_url.clone(),
+                        user_code: None,
+                        state: Some(pending.state.clone()),
+                    });
+                }
+            }
+        }
+
         let code_verifier = pkce::generate_code_verifier();
         let code_challenge = pkce::compute_code_challenge(&code_verifier);
         let state = pkce::generate_state();
@@ -468,6 +626,7 @@ impl CredentialBroker {
                 token_url,
                 client_id,
                 state: state.clone(),
+                auth_url: full_auth_url.clone(),
             },
         );
 
@@ -578,16 +737,31 @@ impl CredentialBroker {
                     None => {
                         // No refresh token. If token has no expiry (long-lived)
                         // or hasn't expired yet, keep current status and wait.
-                        // Otherwise mark expired.
+                        // Otherwise mark expired and auto-initiate reauth.
                         let is_expired = state.expires_at > 0 && state.expires_at <= epoch_secs();
+                        // New accounts (expires_at == 0, no access token) are also expired.
+                        let is_new_account = state.expires_at == 0 && state.access_token.is_none();
+                        let needs_reauth = is_expired || is_new_account;
                         drop(accounts);
-                        if is_expired {
+                        if needs_reauth {
                             let mut accounts = self.accounts.write().await;
                             if let Some(s) = accounts.get_mut(account_name) {
                                 s.status = AccountStatus::Expired;
                             }
+                            drop(accounts);
+                            // Auto-initiate reauth for expired accounts with no
+                            // refresh token (e.g. newly added accounts). Only try
+                            // once — if it fails, fall through to the 60s sleep.
+                            // pending_auths reuse protection prevents duplicate sessions.
+                            tracing::info!(account = %account_name, "no refresh token, auto-initiating reauth");
+                            if let Err(e) = self.initiate_reauth(account_name).await {
+                                tracing::warn!(account = %account_name, err = %e, "auto-reauth initiation failed");
+                            }
+                            // Give user time to complete authorization.
+                            tokio::time::sleep(Duration::from_secs(300)).await;
+                        } else {
+                            tokio::time::sleep(Duration::from_secs(60)).await;
                         }
-                        tokio::time::sleep(Duration::from_secs(60)).await;
                         continue;
                     }
                 };
@@ -717,6 +891,18 @@ pub struct AccountStatusInfo {
     pub expires_in_secs: Option<u64>,
     pub has_refresh_token: bool,
     pub reauth: bool,
+}
+
+/// Pool utilization info for an account (returned by the pool API).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PoolAccountInfo {
+    pub name: String,
+    pub provider: String,
+    pub status: AccountStatus,
+    pub session_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_in_secs: Option<u64>,
+    pub has_refresh_token: bool,
 }
 
 /// Response from initiating a reauth flow.

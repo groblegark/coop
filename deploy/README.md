@@ -11,14 +11,14 @@ This directory contains Kubernetes manifests and scripts for deploying coopmux w
 ## Quick Start
 
 ```bash
-# Build images
-docker build --target coopmux -t coop:coopmux .
-docker build --target claude -t coop:claude .
+# Pull images from GHCR
+docker pull ghcr.io/groblegark/coop:coopmux
+docker pull ghcr.io/groblegark/coop:claude
 
 # Load into cluster (kind/k3d)
-kind load docker-image coop:coopmux coop:claude --name <cluster-name>
+kind load docker-image ghcr.io/groblegark/coop:coopmux ghcr.io/groblegark/coop:claude --name <cluster-name>
 # or
-k3d image import coop:coopmux coop:claude --cluster <cluster-name>
+k3d image import ghcr.io/groblegark/coop:coopmux ghcr.io/groblegark/coop:claude --cluster <cluster-name>
 
 # Deploy
 kubectl apply -f deploy/k8s-mux.yaml
@@ -37,7 +37,7 @@ The `k8s-launch.sh` script creates session pods dynamically when the launch API 
 #### Required (set by coopmux deployment)
 
 - **`POD_NAMESPACE`**: Kubernetes namespace (injected via downward API)
-- **`COOP_SESSION_IMAGE`**: Docker image for session pods (e.g., `coop:claude`)
+- **`COOP_SESSION_IMAGE`**: OCI image for session pods (e.g., `ghcr.io/groblegark/coop:claude`)
 
 #### Optional (set via launch API)
 

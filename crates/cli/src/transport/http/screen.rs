@@ -52,6 +52,14 @@ pub struct ReadyResponse {
     pub ready: bool,
 }
 
+/// Response for the liveness probe — fully lock-free.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LivezResponse {
+    pub status: String,
+    pub uptime_secs: i64,
+    pub pid: Option<i32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ScreenQuery {
     #[serde(default, alias = "cursor")]
@@ -156,6 +164,19 @@ pub async fn ready(State(s): State<Arc<Store>>) -> impl IntoResponse {
         axum::http::StatusCode::SERVICE_UNAVAILABLE
     };
     (status, Json(ReadyResponse { ready: is_ready }))
+}
+
+/// `GET /api/v1/livez` — liveness probe. Fully lock-free: only reads atomics
+/// and computes elapsed time. Use this for K8s liveness probes to avoid
+/// spurious kills when RwLocks are contended under heavy terminal I/O.
+pub async fn livez(State(s): State<Arc<Store>>) -> impl IntoResponse {
+    let pid = s.terminal.child_pid.load(Ordering::Relaxed);
+    let uptime = s.config.started_at.elapsed().as_secs() as i64;
+    Json(LivezResponse {
+        status: "alive".to_owned(),
+        uptime_secs: uptime,
+        pid: if pid == 0 { None } else { Some(pid as i32) },
+    })
 }
 
 /// `GET /api/v1/screen`

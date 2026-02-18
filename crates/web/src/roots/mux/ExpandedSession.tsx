@@ -15,6 +15,7 @@ import { EXPANDED_FONT_SIZE, MONO_FONT, THEME } from "@/lib/constants";
 import { ReplayGate } from "@/lib/replay-gate";
 import type { PromptContext, SessionInfo, WsMessage } from "@/lib/types";
 import { WsMessageHarness } from "@/lib/ws-harness";
+import { apiGet } from "@/hooks/useApiClient";
 
 interface ExpandedSessionProps {
   info: SessionInfo;
@@ -187,6 +188,15 @@ export function ExpandedSession({
           if (action.isFirst) {
             term.reset();
             handleReplayReady(term, setReady);
+            // If replay didn't produce visible content (e.g. ring buffer
+            // wrapped past the alt-screen-enter sequence), fall back to
+            // the cached screen snapshot from the mux poller. Delay the
+            // check slightly so xterm.js finishes processing the replay.
+            setTimeout(() => {
+              if (isTerminalBlank(term)) {
+                fetchScreenFallback(info.id, term);
+              }
+            }, 200);
           }
           term.write(action.skip > 0 ? bytes.subarray(action.skip) : bytes);
           scheduleDiagnose();
@@ -371,4 +381,37 @@ export function handleReplayReady(
   term.options.disableStdin = false;
   setReady(true);
   requestAnimationFrame(() => term.focus());
+}
+
+/** Check if the xterm.js active buffer is visually blank (all empty lines). */
+function isTerminalBlank(term: XTerm): boolean {
+  const buf = term.buffer.active;
+  for (let i = 0; i < buf.length; i++) {
+    const line = buf.getLine(i);
+    if (line && line.translateToString(true).trim() !== "") return false;
+  }
+  return true;
+}
+
+/** Fetch the cached screen snapshot and write it into xterm.js as a fallback.
+ *  Used when PTY replay didn't produce visible content (e.g. ring buffer
+ *  wrapped past the alt-screen-enter sequence for long-idle sessions). */
+async function fetchScreenFallback(sessionId: string, term: XTerm) {
+  const res = await apiGet(`/api/v1/sessions/${sessionId}/screen`);
+  if (!res.ok || !res.json) return;
+  const screen = res.json as { ansi?: string[]; lines?: string[]; alt_screen?: boolean; cols?: number; rows?: number };
+  const content = screen.ansi ?? screen.lines;
+  if (!content || content.length === 0) return;
+
+  // Enter alt screen if the upstream session is in alt screen mode,
+  // then write the screen snapshot line by line with cursor positioning.
+  if (screen.alt_screen) {
+    term.write("\x1b[?1049h"); // SMCUP — enter alt screen
+  }
+  term.write("\x1b[H"); // cursor home
+  term.write("\x1b[2J"); // clear screen
+  for (let i = 0; i < content.length; i++) {
+    term.write(`\x1b[${i + 1};1H`); // move cursor to row i+1, col 1
+    term.write(content[i]);
+  }
 }

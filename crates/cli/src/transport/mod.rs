@@ -8,6 +8,7 @@ pub mod compat;
 pub mod grpc;
 pub mod handler;
 pub mod http;
+pub mod inbox;
 pub mod nats;
 pub mod state;
 pub mod ws;
@@ -384,6 +385,7 @@ fn build_router_inner(
         .route("/", index_route)
         .route("/api/v1/health", get(http::health))
         .route("/api/v1/ready", get(http::ready))
+        .route("/api/v1/livez", get(http::livez))
         .route("/api/v1/screen", get(http::screen))
         .route("/api/v1/screen/text", get(http::screen_text))
         .route("/api/v1/output", get(http::output))
@@ -430,6 +432,7 @@ pub fn build_health_router(state: Arc<Store>) -> Router {
     Router::new()
         .route("/api/v1/health", get(http::health))
         .route("/api/v1/ready", get(http::ready))
+        .route("/api/v1/livez", get(http::livez))
         .route("/api/v1/agent", get(http::agent))
         .with_state(state)
 }

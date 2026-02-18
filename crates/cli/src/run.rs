@@ -165,10 +165,14 @@ impl PreparedSession {
 
             // 5a. Write credentials file for Claude OAuth tokens.
             // Claude Code reads OAuth tokens from ~/.claude/.credentials.json
-            // rather than the CLAUDE_CODE_OAUTH_TOKEN env var, so we must
-            // write the file before spawning the new backend.
+            // rather than env vars, so we must write the file before spawning
+            // the new backend. The broker may send the token under either
+            // CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY depending on
+            // provider config, so check both keys.
             if agent_enum == AgentType::Claude {
-                if let Some(token) = creds.get("CLAUDE_CODE_OAUTH_TOKEN") {
+                let token =
+                    creds.get("CLAUDE_CODE_OAUTH_TOKEN").or_else(|| creds.get("ANTHROPIC_API_KEY"));
+                if let Some(token) = token {
                     if !token.is_empty() {
                         if let Err(e) = claude_setup::write_credentials_file(token) {
                             error!("failed to write OAuth credentials file: {e}");
@@ -619,6 +623,42 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
         tokio::spawn(async move {
             publisher.run(&store_ref, sd).await;
         });
+    }
+
+    // Spawn inbox JetStream consumer if configured (bd-xtahx.3).
+    // Requires both NATS URL and an agent name (explicit or from GT_ROLE).
+    if let Some(ref nats_url) = config.nats_url {
+        let inbox_agent = config.inbox_agent.clone().or_else(|| std::env::var("GT_ROLE").ok());
+        if let Some(agent_name) = inbox_agent {
+            let inject_dir =
+                config.inject_dir.clone().unwrap_or_else(|| PathBuf::from(".runtime/inject-queue"));
+            let nats_auth = crate::transport::nats::NatsAuth {
+                token: config.nats_token.clone(),
+                user: config.nats_user.clone(),
+                password: config.nats_password.clone(),
+                creds_path: config.nats_creds.as_deref().map(Into::into),
+            };
+            match crate::transport::inbox::InboxConsumer::connect(
+                nats_url,
+                &agent_name,
+                config.inbox_rig.as_deref(),
+                &inject_dir,
+                nats_auth,
+            )
+            .await
+            {
+                Ok(consumer) => {
+                    let store_ref = Arc::clone(&store);
+                    let sd = shutdown.clone();
+                    tokio::spawn(async move {
+                        consumer.run(store_ref, sd).await;
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!("inbox: failed to connect consumer: {e}");
+                }
+            }
+        }
     }
 
     // Spawn HTTP server

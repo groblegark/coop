@@ -27,8 +27,18 @@ use crate::transport::build_router_hot;
 use crate::upstream::health::spawn_health_checker;
 use crate::upstream::prewarm::spawn_prewarm_task;
 
+/// Optional NATS event publishing configuration.
+///
+/// Passed separately from [`MuxConfig`] because these args live on the
+/// binary's CLI struct rather than the library config.
+pub struct NatsConfig {
+    pub url: String,
+    pub token: Option<String>,
+    pub prefix: String,
+}
+
 /// Run the mux server until shutdown.
-pub async fn run(config: MuxConfig) -> anyhow::Result<()> {
+pub async fn run(config: MuxConfig, nats: Option<NatsConfig>) -> anyhow::Result<()> {
     let addr = format!("{}:{}", config.host, config.port);
     let shutdown = CancellationToken::new();
 
@@ -45,6 +55,7 @@ pub async fn run(config: MuxConfig) -> anyhow::Result<()> {
 
     let (event_tx, event_rx) = broadcast::channel(64);
     let cred_bridge_rx = event_tx.subscribe();
+    let nats_cred_rx = nats.as_ref().map(|_| event_tx.subscribe());
     let state_dir = config.state_dir();
     let broker = CredentialBroker::new(cred_config, event_tx, Some(state_dir.clone()));
 
@@ -63,6 +74,19 @@ pub async fn run(config: MuxConfig) -> anyhow::Result<()> {
     let state = Arc::new(state);
     broker.spawn_refresh_loops();
     crate::credential::distributor::spawn_distributor(Arc::clone(&state), event_rx);
+
+    // Spawn NATS credential event publisher if configured.
+    if let (Some(nats_cfg), Some(cred_rx)) = (nats, nats_cred_rx) {
+        let nats_shutdown = shutdown.clone();
+        match crate::transport::nats_pub::NatsPublisher::connect(&nats_cfg).await {
+            Ok(publisher) => {
+                tokio::spawn(publisher.run(cred_rx, nats_shutdown));
+            }
+            Err(e) => {
+                tracing::error!(err = %e, "failed to connect NATS publisher");
+            }
+        }
+    }
 
     // Bridge credential events into the MuxEvent broadcast channel.
     {

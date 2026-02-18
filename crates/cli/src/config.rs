@@ -151,6 +151,19 @@ pub struct Config {
     #[arg(long, env = "COOP_NATS_CREDS")]
     pub nats_creds: Option<std::path::PathBuf>,
 
+    /// Agent name for inbox subscription (e.g., "mayor"). Uses GT_ROLE env var if not set.
+    /// Enables inbox JetStream consumer when both this and --nats-url are set.
+    #[arg(long, env = "COOP_INBOX_AGENT")]
+    pub inbox_agent: Option<String>,
+
+    /// Rig name for inbox rig-scoped messages.
+    #[arg(long, env = "COOP_INBOX_RIG")]
+    pub inbox_rig: Option<String>,
+
+    /// Path to inject-queue directory for inbox JSONL delivery.
+    #[arg(long, env = "COOP_INJECT_DIR")]
+    pub inject_dir: Option<PathBuf>,
+
     /// Groom level: auto, manual, pristine.
     #[arg(long, env = "COOP_GROOM", default_value = "auto")]
     pub groom: String,
@@ -342,6 +355,9 @@ impl Config {
             nats_user: None,
             nats_password: None,
             nats_creds: None,
+            inbox_agent: None,
+            inbox_rig: None,
+            inject_dir: None,
             groom: "manual".into(),
             #[cfg(debug_assertions)]
             hot: false,

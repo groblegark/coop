@@ -94,6 +94,8 @@ pub async fn auth_layer(
     // WebSocket auth is handled in the WS handler via query param or Auth message.
     // Hook endpoints are called from inside the PTY (same machine, no token).
     if path == "/api/v1/health"
+        || path == "/api/v1/livez"
+        || path == "/api/v1/ready"
         || path == "/ws"
         || path == "/api/v1/hooks/stop"
         || path == "/api/v1/stop/resolve"

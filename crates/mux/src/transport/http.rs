@@ -150,16 +150,17 @@ pub async fn register_session(
         health_failures: std::sync::atomic::AtomicU32::new(0),
         cancel,
         ws_bridge: tokio::sync::RwLock::new(None),
+        assigned_account: tokio::sync::RwLock::new(None),
     });
 
-    let (is_new, stale) = {
+    let (is_new, stale, evicted_entries) = {
         let mut sessions = s.sessions.write().await;
         if sessions.contains_key(&id) {
             // Heartbeat re-registration: keep the existing entry so that
             // pollers/feeds (which hold Arc clones of the old entry) continue
             // writing to the same cached_screen/cached_status that screen_batch
             // reads.  Replacing the entry would orphan their writes.
-            (false, vec![])
+            (false, vec![], vec![])
         } else {
             // Evict any stale session(s) pointing to the same URL (e.g. after a
             // pod restart generated a new session UUID for the same coop instance).
@@ -168,6 +169,7 @@ pub async fn register_session(
                 .filter(|(k, v)| *k != &id && v.url == entry.url)
                 .map(|(k, _)| k.clone())
                 .collect();
+            let mut evicted = Vec::new();
             for stale_id in &stale {
                 if let Some(old) = sessions.remove(stale_id) {
                     old.cancel.cancel();
@@ -181,12 +183,25 @@ pub async fn register_session(
                         url = %entry.url,
                         "evicted stale session with same URL"
                     );
+                    evicted.push(old);
                 }
             }
             sessions.insert(id.clone(), Arc::clone(&entry));
-            (true, stale)
+            (true, stale, evicted)
         }
     };
+    // Unassign evicted sessions from the credential pool.
+    if let Some(ref broker) = s.credential_broker {
+        for evicted_entry in &evicted_entries {
+            if let Some(account) = evicted_entry.assigned_account.read().await.as_ref() {
+                broker.session_unassigned(account).await;
+            }
+        }
+    }
+    // Clean up watchers for any evicted sessions (separate lock to avoid
+    // holding sessions + watchers simultaneously).
+    // Note: evicted sessions already had their cancel tokens triggered above,
+    // so their pollers/feeds will stop. This just cleans the watchers map.
     if is_new {
         // Clean up watchers + prewarm for evicted stale sessions.
         if !stale.is_empty() {
@@ -207,6 +222,9 @@ pub async fn register_session(
         // Add to pre-warm cache for slow-poll background updates.
         s.prewarm.lock().await.touch(&id);
 
+        // Clone metadata for credential filtering before moving into the event.
+        let cred_metadata = event_metadata.clone();
+
         // Notify connected dashboard clients about the new session.
         let _ = s.feed.event_tx.send(MuxEvent::SessionOnline {
             session: id.clone(),
@@ -214,15 +232,42 @@ pub async fn register_session(
             metadata: event_metadata,
         });
 
-        // Push all healthy account profiles to the new session.
+        // Push healthy account profiles to the new session (filtered by profiles_needed).
+        // Pool assignment: assign the least-loaded healthy account, push all profiles,
+        // then switch the session to its assigned account.
         if let Some(ref broker) = s.credential_broker {
             let broker = Arc::clone(broker);
             let session_url = cred_url;
             let session_token = cred_token;
+            let session_metadata = cred_metadata;
+            let entry_clone = Arc::clone(&entry);
             tokio::spawn(async move {
+                // Pick an assigned account from the pool.
+                let assigned = broker.assign_account(None).await;
+                if let Some(ref assigned_name) = assigned {
+                    broker.session_assigned(assigned_name).await;
+                    *entry_clone.assigned_account.write().await = Some(assigned_name.clone());
+                    tracing::info!(
+                        account = %assigned_name,
+                        "pool: assigned account to new session"
+                    );
+                }
+
+                // Push all healthy account profiles to the session.
                 let status_list = broker.status_list().await;
                 for acct in &status_list {
                     if acct.status != crate::credential::AccountStatus::Healthy {
+                        continue;
+                    }
+                    // Apply per-pod filtering: skip accounts this session doesn't need.
+                    if !crate::credential::distributor::session_needs_account_metadata(
+                        &session_metadata,
+                        &acct.name,
+                    ) {
+                        tracing::debug!(
+                            account = %acct.name,
+                            "skipping profile push to new session (not in profiles_needed)"
+                        );
                         continue;
                     }
                     let Some(credentials) = broker.get_credentials(&acct.name).await else {
@@ -241,6 +286,21 @@ pub async fn register_session(
                         tracing::debug!(account = %acct.name, err = %e, "failed to push profile to new session");
                     }
                 }
+
+                // Switch the session to its assigned account profile.
+                if let Some(ref assigned_name) = assigned {
+                    let client = UpstreamClient::new(session_url.clone(), session_token.clone());
+                    let switch_body = serde_json::json!({ "profile": assigned_name });
+                    if let Err(e) =
+                        client.post_json("/api/v1/session/switch", &switch_body).await
+                    {
+                        tracing::warn!(
+                            account = %assigned_name,
+                            err = %e,
+                            "pool: failed to switch session to assigned account"
+                        );
+                    }
+                }
             });
         }
 
@@ -257,7 +317,13 @@ pub async fn deregister_session(
     State(s): State<Arc<MuxState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    if s.remove_session(&id).await.is_some() {
+    if let Some(entry) = s.remove_session(&id).await {
+        // Unassign from the credential pool.
+        if let Some(ref broker) = s.credential_broker {
+            if let Some(account) = entry.assigned_account.read().await.as_ref() {
+                broker.session_unassigned(account).await;
+            }
+        }
         tracing::info!(session_id = %id, "session deregistered");
         Json(DeregisterResponse { id, removed: true }).into_response()
     } else {

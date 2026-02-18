@@ -218,3 +218,112 @@ pub async fn credentials_exchange(
         Err(e) => MuxError::BadRequest.to_http_response(e.to_string()).into_response(),
     }
 }
+
+/// `GET /api/v1/credentials/pool` — pool utilization status.
+///
+/// Returns per-account utilization: session count, health status, expiry.
+/// Used for observability and debugging credential pool load balancing.
+pub async fn credentials_pool(State(s): State<Arc<MuxState>>) -> impl IntoResponse {
+    let broker = match get_broker(&s) {
+        Ok(b) => b,
+        Err(resp) => return *resp,
+    };
+
+    let pool = broker.pool_status().await;
+    let total_sessions: u32 = pool.iter().map(|a| a.session_count).sum();
+    let healthy_accounts = pool.iter().filter(|a| a.status == crate::credential::AccountStatus::Healthy).count();
+
+    Json(serde_json::json!({
+        "accounts": pool,
+        "total_sessions": total_sessions,
+        "healthy_accounts": healthy_accounts,
+        "total_accounts": pool.len(),
+    }))
+    .into_response()
+}
+
+/// Request body for `POST /api/v1/credentials/pool/rebalance`.
+#[derive(Debug, Deserialize)]
+pub struct RebalanceRequest {
+    /// Optional: only rebalance sessions from this account.
+    #[serde(default)]
+    pub from_account: Option<String>,
+}
+
+/// `POST /api/v1/credentials/pool/rebalance` — manually trigger credential rebalance.
+///
+/// Reassigns sessions from unhealthy/overloaded accounts to healthier ones.
+pub async fn credentials_pool_rebalance(
+    State(s): State<Arc<MuxState>>,
+    Json(req): Json<RebalanceRequest>,
+) -> impl IntoResponse {
+    let broker = match get_broker(&s) {
+        Ok(b) => b,
+        Err(resp) => return *resp,
+    };
+
+    // Find sessions that need reassignment.
+    let sessions = s.sessions.read().await;
+    let mut reassigned = 0u32;
+    let mut failed = 0u32;
+
+    for entry in sessions.values() {
+        let current_account = entry.assigned_account.read().await.clone();
+
+        // Skip sessions that don't match the filter.
+        if let Some(ref from) = req.from_account {
+            if current_account.as_deref() != Some(from.as_str()) {
+                continue;
+            }
+        }
+
+        // Try to assign a better account.
+        let new_account = broker.assign_account(None).await;
+        let Some(ref new_name) = new_account else { continue };
+
+        // Skip if already on the best account.
+        if current_account.as_deref() == Some(new_name.as_str()) {
+            continue;
+        }
+
+        // Unassign old, assign new.
+        if let Some(ref old) = current_account {
+            broker.session_unassigned(old).await;
+        }
+        broker.session_assigned(new_name).await;
+        *entry.assigned_account.write().await = Some(new_name.clone());
+
+        // Switch the session's active profile.
+        let client = crate::upstream::client::UpstreamClient::new(
+            entry.url.clone(),
+            entry.auth_token.clone(),
+        );
+        let switch_body = serde_json::json!({ "profile": new_name });
+        match client.post_json("/api/v1/session/switch", &switch_body).await {
+            Ok(_) => {
+                tracing::info!(
+                    session = %entry.id,
+                    from = ?current_account,
+                    to = %new_name,
+                    "pool: rebalanced session"
+                );
+                reassigned += 1;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    session = %entry.id,
+                    to = %new_name,
+                    err = %e,
+                    "pool: rebalance switch failed"
+                );
+                failed += 1;
+            }
+        }
+    }
+
+    Json(serde_json::json!({
+        "rebalanced": reassigned,
+        "failed": failed,
+    }))
+    .into_response()
+}
