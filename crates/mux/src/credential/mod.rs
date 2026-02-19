@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-//! Credential brokering: OAuth token refresh and distribution.
+//! Credential brokering: static API key store with distribution.
 //!
 //! Always initialized. Optionally pre-populated from `--credential-config <path>`.
-//! Manages token freshness for registered accounts and pushes fresh credentials
-//! to coop sessions as profiles. Accounts can also be added dynamically at runtime.
+//! Stores API keys for configured accounts and pushes them to coop sessions
+//! as profiles. Accounts can also be added dynamically at runtime.
 
 pub mod broker;
 pub mod device_code;
@@ -37,21 +37,19 @@ pub struct AccountConfig {
     /// Explicit env var name for the credential. Falls back to provider default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env_key: Option<String>,
-    /// OAuth token URL for refresh.
+    /// OAuth token URL for refresh (legacy, ignored for static keys).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_url: Option<String>,
-    /// OAuth client ID.
+    /// OAuth client ID (legacy, ignored for static keys).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_id: Option<String>,
-    /// OAuth authorization URL for reauth flow.
+    /// OAuth authorization URL (legacy, ignored for static keys).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth_url: Option<String>,
-    /// OAuth device authorization endpoint (RFC 8628). When set, the broker
-    /// uses device code flow instead of auth code + PKCE.
+    /// OAuth device authorization endpoint (legacy, ignored for static keys).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_auth_url: Option<String>,
-    /// Whether this account supports OAuth reauth/refresh. Defaults to `true`.
-    /// Set to `false` for tokens pasted directly (API keys, long-lived tokens).
+    /// Whether this account supports OAuth reauth/refresh (legacy, ignored).
     #[serde(default = "default_true")]
     pub reauth: bool,
 }
@@ -60,7 +58,7 @@ pub fn default_true() -> bool {
     true
 }
 
-/// Refresh margin in seconds (`COOP_MUX_REFRESH_MARGIN_SECS`, default 900).
+/// Refresh margin in seconds (legacy, kept for API compat).
 pub fn refresh_margin_secs() -> u64 {
     std::env::var("COOP_MUX_REFRESH_MARGIN_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(900)
 }
@@ -88,10 +86,10 @@ pub fn state_dir() -> PathBuf {
 pub enum CredentialEvent {
     /// Fresh credentials are available for distribution.
     Refreshed { account: String, credentials: HashMap<String, String> },
-    /// A refresh attempt failed.
+    /// A credential operation failed.
     #[serde(rename = "refresh:failed")]
     RefreshFailed { account: String, error: String },
-    /// User interaction required (OAuth reauth flow).
+    /// User interaction required (legacy OAuth reauth flow).
     #[serde(rename = "reauth:required")]
     ReauthRequired {
         account: String,
@@ -106,7 +104,11 @@ pub enum CredentialEvent {
 #[serde(rename_all = "snake_case")]
 pub enum AccountStatus {
     Healthy,
+    /// Account exists but has no API key configured.
+    Missing,
+    /// Legacy: kept for deserialization compatibility.
     Refreshing,
+    /// Legacy: kept for deserialization compatibility.
     Expired,
 }
 
@@ -150,8 +152,6 @@ pub fn provider_default_pkce_auth_url(provider: &str) -> Option<&'static str> {
 /// PKCE flow: token endpoint.
 pub fn provider_default_pkce_token_url(provider: &str) -> Option<&'static str> {
     match provider.to_lowercase().as_str() {
-        // TODO(validate): platform.claude.com works (fork-tested); claude.ai may not
-        // "claude" | "anthropic" => Some("https://claude.ai/oauth/token"),
         "claude" | "anthropic" => Some("https://platform.claude.com/v1/oauth/token"),
         _ => None,
     }
@@ -166,10 +166,6 @@ pub fn provider_default_client_id(provider: &str) -> Option<&'static str> {
 }
 
 /// Resolve the default OAuth redirect URI for a provider.
-///
-/// Some providers (e.g. Claude) register a platform-hosted redirect URI that
-/// displays the authorization code for the user to copy, rather than
-/// redirecting back to a local server.
 pub fn provider_default_redirect_uri(provider: &str) -> Option<&'static str> {
     match provider.to_lowercase().as_str() {
         "claude" | "anthropic" => Some("https://platform.claude.com/oauth/code/callback"),

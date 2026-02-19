@@ -55,7 +55,7 @@ fn test_state_with_broker(accounts: Vec<AccountConfig>) -> Arc<MuxState> {
     let cred_config = CredentialConfig { accounts };
     let (event_tx, _rx) = tokio::sync::broadcast::channel(64);
     let mux_config = test_config();
-    let broker = CredentialBroker::new(cred_config, event_tx, Some(mux_config.state_dir()));
+    let broker = CredentialBroker::new(cred_config, event_tx);
     let mut state = MuxState::new(mux_config, CancellationToken::new());
     state.credential_broker = Some(broker);
     Arc::new(state)
@@ -238,7 +238,7 @@ async fn credentials_add_account_then_status() -> anyhow::Result<()> {
     assert_eq!(list.len(), 1, "expected 1 account, got: {list:?}");
     assert_eq!(list[0]["name"], "my-account");
     assert_eq!(list[0]["provider"], "claude");
-    assert_eq!(list[0]["status"], "expired");
+    assert_eq!(list[0]["status"], "missing");
     Ok(())
 }
 

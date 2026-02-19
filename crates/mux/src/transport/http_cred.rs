@@ -48,7 +48,7 @@ pub struct SetRequest {
     pub expires_in: Option<u64>,
 }
 
-/// `POST /api/v1/credentials/set` — set tokens for an existing account.
+/// `POST /api/v1/credentials/set` — set API key for an existing account.
 pub async fn credentials_set(
     State(s): State<Arc<MuxState>>,
     Json(req): Json<SetRequest>,
@@ -63,45 +63,21 @@ pub async fn credentials_set(
     }
 }
 
-/// Request body for `POST /api/v1/credentials/reauth`.
+/// Request body for `POST /api/v1/credentials/reauth` (legacy).
 #[derive(Debug, Deserialize)]
 pub struct ReauthRequest {
     #[serde(default)]
     pub account: Option<String>,
 }
 
-/// `POST /api/v1/credentials/reauth` — trigger OAuth authorization code flow for an account.
+/// `POST /api/v1/credentials/reauth` — legacy endpoint, returns error.
 pub async fn credentials_reauth(
-    State(s): State<Arc<MuxState>>,
-    Json(req): Json<ReauthRequest>,
+    State(_s): State<Arc<MuxState>>,
+    Json(_req): Json<ReauthRequest>,
 ) -> impl IntoResponse {
-    let broker = match get_broker(&s) {
-        Ok(b) => b,
-        Err(resp) => return *resp,
-    };
-
-    let account = match req.account {
-        Some(name) => name,
-        None => match broker.first_account_name().await {
-            Some(name) => name,
-            None => {
-                return MuxError::BadRequest
-                    .to_http_response("no accounts configured")
-                    .into_response()
-            }
-        },
-    };
-
-    match broker.initiate_reauth(&account).await {
-        Ok(resp) => Json(serde_json::json!({
-            "account": resp.account,
-            "auth_url": resp.auth_url,
-            "user_code": resp.user_code,
-            "state": resp.state,
-        }))
-        .into_response(),
-        Err(e) => MuxError::BadRequest.to_http_response(e.to_string()).into_response(),
-    }
+    MuxError::BadRequest
+        .to_http_response("OAuth reauth is no longer supported; use static API keys via /api/v1/credentials/set")
+        .into_response()
 }
 
 /// Request body for `POST /api/v1/credentials/new`.
@@ -117,17 +93,17 @@ pub struct NewAccountRequest {
     pub client_id: Option<String>,
     #[serde(default)]
     pub auth_url: Option<String>,
-    /// OAuth device authorization endpoint (RFC 8628).
+    /// OAuth device authorization endpoint (legacy).
     #[serde(default)]
     pub device_auth_url: Option<String>,
-    /// Optional token to set immediately.
+    /// Optional API key to set immediately.
     #[serde(default)]
     pub token: Option<String>,
     #[serde(default)]
     pub refresh_token: Option<String>,
     #[serde(default)]
     pub expires_in: Option<u64>,
-    /// Whether this account supports OAuth reauth/refresh (default: true).
+    /// Legacy field, ignored.
     #[serde(default = "crate::credential::default_true")]
     pub reauth: bool,
 }
@@ -196,33 +172,24 @@ pub async fn credentials_distribute(
     Json(serde_json::json!({ "distributed": true, "account": req.account })).into_response()
 }
 
-/// Request body for `POST /api/v1/credentials/exchange`.
+/// Request body for `POST /api/v1/credentials/exchange` (legacy).
 #[derive(Debug, Deserialize)]
 pub struct ExchangeRequest {
     pub state: String,
     pub code: String,
 }
 
-/// `POST /api/v1/credentials/exchange` — exchange an authorization code (pasted by the user) for tokens.
+/// `POST /api/v1/credentials/exchange` — legacy endpoint, returns error.
 pub async fn credentials_exchange(
-    State(s): State<Arc<MuxState>>,
-    Json(req): Json<ExchangeRequest>,
+    State(_s): State<Arc<MuxState>>,
+    Json(_req): Json<ExchangeRequest>,
 ) -> impl IntoResponse {
-    let broker = match get_broker(&s) {
-        Ok(b) => b,
-        Err(resp) => return *resp,
-    };
-
-    match broker.complete_reauth(&req.state, &req.code).await {
-        Ok(()) => Json(serde_json::json!({ "completed": true })).into_response(),
-        Err(e) => MuxError::BadRequest.to_http_response(e.to_string()).into_response(),
-    }
+    MuxError::BadRequest
+        .to_http_response("OAuth code exchange is no longer supported; use static API keys via /api/v1/credentials/set")
+        .into_response()
 }
 
 /// `GET /api/v1/credentials/pool` — pool utilization status.
-///
-/// Returns per-account utilization: session count, health status, expiry.
-/// Used for observability and debugging credential pool load balancing.
 pub async fn credentials_pool(State(s): State<Arc<MuxState>>) -> impl IntoResponse {
     let broker = match get_broker(&s) {
         Ok(b) => b,
@@ -251,8 +218,6 @@ pub struct RebalanceRequest {
 }
 
 /// `POST /api/v1/credentials/pool/rebalance` — manually trigger credential rebalance.
-///
-/// Reassigns sessions from unhealthy/overloaded accounts to healthier ones.
 pub async fn credentials_pool_rebalance(
     State(s): State<Arc<MuxState>>,
     Json(req): Json<RebalanceRequest>,
@@ -262,7 +227,6 @@ pub async fn credentials_pool_rebalance(
         Err(resp) => return *resp,
     };
 
-    // Find sessions that need reassignment.
     let sessions = s.sessions.read().await;
     let mut reassigned = 0u32;
     let mut failed = 0u32;
@@ -270,30 +234,25 @@ pub async fn credentials_pool_rebalance(
     for entry in sessions.values() {
         let current_account = entry.assigned_account.read().await.clone();
 
-        // Skip sessions that don't match the filter.
         if let Some(ref from) = req.from_account {
             if current_account.as_deref() != Some(from.as_str()) {
                 continue;
             }
         }
 
-        // Try to assign a better account.
         let new_account = broker.assign_account(None).await;
         let Some(ref new_name) = new_account else { continue };
 
-        // Skip if already on the best account.
         if current_account.as_deref() == Some(new_name.as_str()) {
             continue;
         }
 
-        // Unassign old, assign new.
         if let Some(ref old) = current_account {
             broker.session_unassigned(old).await;
         }
         broker.session_assigned(new_name).await;
         *entry.assigned_account.write().await = Some(new_name.clone());
 
-        // Switch the session's active profile.
         let client = crate::upstream::client::UpstreamClient::new(
             entry.url.clone(),
             entry.auth_token.clone(),
