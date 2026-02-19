@@ -55,7 +55,6 @@ pub async fn run(config: MuxConfig, nats: Option<NatsConfig>) -> anyhow::Result<
 
     let (event_tx, event_rx) = broadcast::channel(64);
     let cred_bridge_rx = event_tx.subscribe();
-    let nats_cred_rx = nats.as_ref().map(|_| event_tx.subscribe());
     let broker = CredentialBroker::new(cred_config, event_tx);
 
     state.credential_broker = Some(Arc::clone(&broker));
@@ -64,18 +63,10 @@ pub async fn run(config: MuxConfig, nats: Option<NatsConfig>) -> anyhow::Result<
     let state = Arc::new(state);
     crate::credential::distributor::spawn_distributor(Arc::clone(&state), event_rx);
 
-    // Spawn NATS credential event publisher if configured.
-    if let (Some(nats_cfg), Some(cred_rx)) = (nats, nats_cred_rx) {
-        let nats_shutdown = shutdown.clone();
-        match crate::transport::nats_pub::NatsPublisher::connect(&nats_cfg).await {
-            Ok(publisher) => {
-                tokio::spawn(publisher.run(cred_rx, nats_shutdown));
-            }
-            Err(e) => {
-                tracing::error!(err = %e, "failed to connect NATS publisher");
-            }
-        }
-    }
+    // NATS credential event publishing removed — static API keys don't need
+    // periodic refresh notifications. The nats arg is kept for API compat but
+    // ignored for credential events.
+    let _ = nats;
 
     // Bridge credential events into the MuxEvent broadcast channel.
     {
