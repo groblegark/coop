@@ -8,7 +8,18 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::Once;
 use std::time::Duration;
+
+static CRYPTO_INIT: Once = Once::new();
+
+/// Install the ring crypto provider for reqwest/rustls.
+/// Safe to call multiple times — only the first call has effect.
+pub fn ensure_crypto() {
+    CRYPTO_INIT.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
 
 /// Resolve the path to the compiled `coop` binary.
 pub fn coop_binary() -> PathBuf {
@@ -100,6 +111,7 @@ impl CoopBuilder {
 
     /// Spawn coop with the configured transports, wrapping `cmd`.
     pub fn spawn(self, cmd: &[&str]) -> anyhow::Result<CoopProcess> {
+        ensure_crypto();
         let binary = coop_binary();
         anyhow::ensure!(binary.exists(), "coop binary not found at {}", binary.display());
 
@@ -175,6 +187,7 @@ impl CoopProcess {
 
     /// Spawn coop with the default TCP-only configuration.
     pub fn start(cmd: &[&str]) -> anyhow::Result<Self> {
+        ensure_crypto();
         Self::build().spawn(cmd)
     }
 

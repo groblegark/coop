@@ -111,6 +111,10 @@ enum Commands {
 
 #[tokio::main]
 async fn main() {
+    // Install ring as the default rustls CryptoProvider before any TLS use.
+    // This replaces aws-lc-rs, enabling cross-compilation to macOS.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let cli = Cli::parse();
 
     match cli.subcommand {

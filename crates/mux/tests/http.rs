@@ -6,8 +6,15 @@
 //! Uses `axum_test::TestServer` — no real TCP needed.
 
 use std::sync::atomic::AtomicU32;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use std::time::Instant;
+
+static CRYPTO_INIT: Once = Once::new();
+fn ensure_crypto() {
+    CRYPTO_INIT.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
 
 use axum_test::TestServer;
 use tokio_util::sync::CancellationToken;
@@ -39,10 +46,12 @@ fn test_config() -> MuxConfig {
 }
 
 fn test_state() -> Arc<MuxState> {
+    ensure_crypto();
     Arc::new(MuxState::new(test_config(), CancellationToken::new()))
 }
 
 fn test_state_with_broker(accounts: Vec<AccountConfig>) -> Arc<MuxState> {
+    ensure_crypto();
     let cred_config = CredentialConfig { accounts };
     let (event_tx, _rx) = tokio::sync::broadcast::channel(64);
     let mux_config = test_config();

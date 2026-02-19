@@ -11,6 +11,8 @@ async-nats.workspace = true
 coop = { path = "../../crates/cli" }
 futures-util.workspace = true
 reqwest.workspace = true
+ring.workspace = true
+rustls.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 tokio.workspace = true

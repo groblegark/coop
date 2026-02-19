@@ -41,9 +41,20 @@ tasks:
     run: |
       curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0
       . "$HOME/.cargo/env"
-      rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
+      rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-apple-darwin aarch64-apple-darwin
+      cargo install cargo-zigbuild
       echo "$HOME/.cargo/bin" >> $RWX_ENV/PATH
       echo "" | tee $RWX_ENV/RUSTC_WRAPPER
+
+  # ── Zig cross-compiler for darwin builds ──────────────────────────────
+  - key: zig
+    filter:
+      - .rwx/release.yml
+    run: |
+      curl -fsSL "https://ziglang.org/download/0.14.0/zig-linux-x86_64-0.14.0.tar.xz" \
+        | tar -xJ -C /tmp
+      sudo ln -sf /tmp/zig-linux-x86_64-0.14.0/zig /usr/local/bin/zig
+      zig version
 
   - key: set-version
     use: rust
@@ -94,11 +105,30 @@ tasks:
       cp coopmux coop-mux 2>/dev/null || true
       tar czf /tmp/coop-linux-arm64.tar.gz coop coop-mux
 
-  # NOTE: Darwin builds removed — aws-lc-sys does not cross-compile from Linux.
-  # Re-add when native macOS runners are available or aws-lc-sys is replaced.
+  - key: build-darwin-amd64
+    use: [set-version, zig]
+    agent:
+      cpus: 8
+    tool-cache: release-darwin-amd64
+    run: |
+      cargo zigbuild --release --target x86_64-apple-darwin
+      cd target/x86_64-apple-darwin/release
+      cp coopmux coop-mux 2>/dev/null || true
+      tar czf /tmp/coop-darwin-amd64.tar.gz coop coop-mux
+
+  - key: build-darwin-arm64
+    use: [set-version, zig]
+    agent:
+      cpus: 8
+    tool-cache: release-darwin-arm64
+    run: |
+      cargo zigbuild --release --target aarch64-apple-darwin
+      cd target/aarch64-apple-darwin/release
+      cp coopmux coop-mux 2>/dev/null || true
+      tar czf /tmp/coop-darwin-arm64.tar.gz coop coop-mux
 
   - key: release
-    use: [build-linux-amd64, build-linux-arm64]
+    use: [build-linux-amd64, build-linux-arm64, build-darwin-amd64, build-darwin-arm64]
     if: ${{ init.tag != 'dev' }}
     run: |
       # Install gh CLI
@@ -108,15 +138,18 @@ tasks:
 
       # Create checksums
       cd /tmp
-      sha256sum coop-linux-amd64.tar.gz coop-linux-arm64.tar.gz > checksums.txt
+      sha256sum coop-linux-amd64.tar.gz coop-linux-arm64.tar.gz \
+        coop-darwin-amd64.tar.gz coop-darwin-arm64.tar.gz > checksums.txt
 
-      # Create GitHub release (Linux only — Darwin builds removed, see note above)
+      # Create GitHub release
       gh release create "$TAG" \
         --repo groblegark/coop \
         --title "$TAG" \
         --generate-notes \
         coop-linux-amd64.tar.gz \
         coop-linux-arm64.tar.gz \
+        coop-darwin-amd64.tar.gz \
+        coop-darwin-arm64.tar.gz \
         checksums.txt
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
