@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-//! Credential distributor: pushes refreshed credentials to sessions as profiles.
+//! Credential distributor: pushes credentials to sessions as profiles.
 //!
-//! Smart distribution features:
+//! Listens for `CredentialEvent::Refreshed` events (emitted when API keys are
+//! set via `set_token()` or `add_account()`) and distributes them to registered
+//! sessions as profiles.
+//!
+//! Features:
 //! - **Per-pod filtering**: sessions can declare `profiles_needed` in metadata
 //!   to receive only matching credentials (wildcard `*` or omission = all).
 //! - **Idle-check**: queries upstream status before triggering a profile switch;
