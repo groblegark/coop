@@ -55,7 +55,10 @@ fn test_state_with_broker(accounts: Vec<AccountConfig>) -> Arc<MuxState> {
     let cred_config = CredentialConfig { accounts };
     let (event_tx, _rx) = tokio::sync::broadcast::channel(64);
     let mux_config = test_config();
+    #[cfg(not(feature = "legacy-oauth"))]
     let broker = CredentialBroker::new(cred_config, event_tx);
+    #[cfg(feature = "legacy-oauth")]
+    let broker = CredentialBroker::new(cred_config, event_tx, None);
     let mut state = MuxState::new(mux_config, CancellationToken::new());
     state.credential_broker = Some(broker);
     Arc::new(state)
@@ -238,7 +241,12 @@ async fn credentials_add_account_then_status() -> anyhow::Result<()> {
     assert_eq!(list.len(), 1, "expected 1 account, got: {list:?}");
     assert_eq!(list[0]["name"], "my-account");
     assert_eq!(list[0]["provider"], "claude");
+    // Without legacy-oauth, token-less accounts are "missing".
+    // With legacy-oauth, they start as "expired" (refresh loop handles reauth).
+    #[cfg(not(feature = "legacy-oauth"))]
     assert_eq!(list[0]["status"], "missing");
+    #[cfg(feature = "legacy-oauth")]
+    assert_eq!(list[0]["status"], "expired");
     Ok(())
 }
 

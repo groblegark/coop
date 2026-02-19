@@ -62,6 +62,11 @@ pub fn spawn_distributor(state: Arc<MuxState>, mut event_rx: broadcast::Receiver
                     // to a healthy one so agents don't lose API access.
                     rebalance_from_account(&state, account).await;
                 }
+                #[cfg(feature = "legacy-oauth")]
+                CredentialEvent::ReauthRequired { .. } => {
+                    // Reauth events are handled by the NATS publisher and
+                    // MuxEvent bridge — distributor has nothing to do.
+                }
             }
         }
     });

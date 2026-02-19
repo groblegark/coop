@@ -188,6 +188,10 @@ async fn handle_mux_ws(state: Arc<MuxState>, socket: WebSocket) {
                     | MuxEvent::SessionOnline { .. }
                     | MuxEvent::SessionOffline { .. } => true,
                     MuxEvent::Transition { session, .. } => watched.contains(session),
+                    // Forward any other event variants (e.g. CredentialReauthRequired
+                    // when legacy-oauth is enabled).
+                    #[allow(unreachable_patterns)]
+                    _ => true,
                 };
                 if should_forward {
                     let msg = MuxServerMessage::Event(Box::new(event));

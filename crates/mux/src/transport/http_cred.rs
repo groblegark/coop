@@ -63,14 +63,15 @@ pub async fn credentials_set(
     }
 }
 
-/// Request body for `POST /api/v1/credentials/reauth` (legacy).
+/// Request body for `POST /api/v1/credentials/reauth`.
 #[derive(Debug, Deserialize)]
 pub struct ReauthRequest {
     #[serde(default)]
     pub account: Option<String>,
 }
 
-/// `POST /api/v1/credentials/reauth` — legacy endpoint, returns error.
+/// `POST /api/v1/credentials/reauth` — trigger OAuth reauth (legacy-oauth) or return error.
+#[cfg(not(feature = "legacy-oauth"))]
 pub async fn credentials_reauth(
     State(_s): State<Arc<MuxState>>,
     Json(_req): Json<ReauthRequest>,
@@ -78,6 +79,40 @@ pub async fn credentials_reauth(
     MuxError::BadRequest
         .to_http_response("OAuth reauth is no longer supported; use static API keys via /api/v1/credentials/set")
         .into_response()
+}
+
+#[cfg(feature = "legacy-oauth")]
+pub async fn credentials_reauth(
+    State(s): State<Arc<MuxState>>,
+    Json(req): Json<ReauthRequest>,
+) -> impl IntoResponse {
+    let broker = match get_broker(&s) {
+        Ok(b) => b,
+        Err(resp) => return *resp,
+    };
+
+    let account = match req.account {
+        Some(name) => name,
+        None => match broker.first_account_name().await {
+            Some(name) => name,
+            None => {
+                return MuxError::BadRequest
+                    .to_http_response("no accounts configured")
+                    .into_response()
+            }
+        },
+    };
+
+    match broker.initiate_reauth(&account).await {
+        Ok(resp) => Json(serde_json::json!({
+            "account": resp.account,
+            "auth_url": resp.auth_url,
+            "user_code": resp.user_code,
+            "state": resp.state,
+        }))
+        .into_response(),
+        Err(e) => MuxError::BadRequest.to_http_response(e.to_string()).into_response(),
+    }
 }
 
 /// Request body for `POST /api/v1/credentials/new`.
@@ -172,14 +207,15 @@ pub async fn credentials_distribute(
     Json(serde_json::json!({ "distributed": true, "account": req.account })).into_response()
 }
 
-/// Request body for `POST /api/v1/credentials/exchange` (legacy).
+/// Request body for `POST /api/v1/credentials/exchange`.
 #[derive(Debug, Deserialize)]
 pub struct ExchangeRequest {
     pub state: String,
     pub code: String,
 }
 
-/// `POST /api/v1/credentials/exchange` — legacy endpoint, returns error.
+/// `POST /api/v1/credentials/exchange` — exchange auth code (legacy-oauth) or return error.
+#[cfg(not(feature = "legacy-oauth"))]
 pub async fn credentials_exchange(
     State(_s): State<Arc<MuxState>>,
     Json(_req): Json<ExchangeRequest>,
@@ -187,6 +223,22 @@ pub async fn credentials_exchange(
     MuxError::BadRequest
         .to_http_response("OAuth code exchange is no longer supported; use static API keys via /api/v1/credentials/set")
         .into_response()
+}
+
+#[cfg(feature = "legacy-oauth")]
+pub async fn credentials_exchange(
+    State(s): State<Arc<MuxState>>,
+    Json(req): Json<ExchangeRequest>,
+) -> impl IntoResponse {
+    let broker = match get_broker(&s) {
+        Ok(b) => b,
+        Err(resp) => return *resp,
+    };
+
+    match broker.complete_reauth(&req.state, &req.code).await {
+        Ok(()) => Json(serde_json::json!({ "completed": true })).into_response(),
+        Err(e) => MuxError::BadRequest.to_http_response(e.to_string()).into_response(),
+    }
 }
 
 /// `GET /api/v1/credentials/pool` — pool utilization status.

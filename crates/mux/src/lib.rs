@@ -55,17 +55,48 @@ pub async fn run(config: MuxConfig, nats: Option<NatsConfig>) -> anyhow::Result<
 
     let (event_tx, event_rx) = broadcast::channel(64);
     let cred_bridge_rx = event_tx.subscribe();
+    #[cfg(feature = "legacy-oauth")]
+    let nats_cred_rx = nats.as_ref().map(|_| event_tx.subscribe());
+
+    #[cfg(not(feature = "legacy-oauth"))]
     let broker = CredentialBroker::new(cred_config, event_tx);
+    #[cfg(feature = "legacy-oauth")]
+    let broker = {
+        let state_dir = config.state_dir();
+        let b = CredentialBroker::new(cred_config, event_tx, Some(state_dir.clone()));
+        // Load persisted credentials (including dynamic accounts) if available.
+        let persist_path = state_dir.join("credentials.json");
+        if persist_path.exists() {
+            match crate::credential::persist::load(&persist_path) {
+                Ok(persisted) => b.load_persisted(&persisted).await,
+                Err(e) => tracing::warn!(err = %e, "failed to load persisted credentials"),
+            }
+        }
+        b
+    };
 
     state.credential_broker = Some(Arc::clone(&broker));
 
     // Spawn distributor (pushes credentials to sessions on events).
     let state = Arc::new(state);
+    #[cfg(feature = "legacy-oauth")]
+    broker.spawn_refresh_loops();
     crate::credential::distributor::spawn_distributor(Arc::clone(&state), event_rx);
 
-    // NATS credential event publishing removed — static API keys don't need
-    // periodic refresh notifications. The nats arg is kept for API compat but
-    // ignored for credential events.
+    // NATS credential event publisher (legacy-oauth only).
+    #[cfg(feature = "legacy-oauth")]
+    if let (Some(nats_cfg), Some(cred_rx)) = (nats, nats_cred_rx) {
+        let nats_shutdown = shutdown.clone();
+        match crate::transport::nats_pub::NatsPublisher::connect(&nats_cfg).await {
+            Ok(publisher) => {
+                tokio::spawn(publisher.run(cred_rx, nats_shutdown));
+            }
+            Err(e) => {
+                tracing::error!(err = %e, "failed to connect NATS publisher");
+            }
+        }
+    }
+    #[cfg(not(feature = "legacy-oauth"))]
     let _ = nats;
 
     // Bridge credential events into the MuxEvent broadcast channel.
