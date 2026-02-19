@@ -235,6 +235,11 @@ pub async fn register_session(
         // Push healthy account profiles to the new session (filtered by profiles_needed).
         // Pool assignment: assign the least-loaded healthy account, push all profiles,
         // then switch the session to its assigned account.
+        //
+        // Uses retry logic with exponential backoff for both profile pushes and the
+        // switch, matching the distributor's push_to_session() resilience. This
+        // prevents the race where new pods have no profiles registered yet and the
+        // immediate switch returns 400 Bad Request. (hq-uc5sup)
         if let Some(ref broker) = s.credential_broker {
             let broker = Arc::clone(broker);
             let session_url = cred_url;
@@ -253,8 +258,9 @@ pub async fn register_session(
                     );
                 }
 
-                // Push all healthy account profiles to the session.
+                // Push all healthy account profiles to the session with retries.
                 let status_list = broker.status_list().await;
+                let mut assigned_profile_pushed = false;
                 for acct in &status_list {
                     if acct.status != crate::credential::AccountStatus::Healthy {
                         continue;
@@ -280,25 +286,78 @@ pub async fn register_session(
                             "credentials": credentials,
                         }]
                     });
-                    if let Err(e) =
-                        client.post_json("/api/v1/session/profiles", &profile_body).await
-                    {
-                        tracing::debug!(account = %acct.name, err = %e, "failed to push profile to new session");
+                    // Retry profile push with exponential backoff. (hq-uc5sup)
+                    let mut backoff = std::time::Duration::from_millis(500);
+                    let max_retries = 3u32;
+                    let mut ok = false;
+                    for attempt in 0..=max_retries {
+                        match client.post_json("/api/v1/session/profiles", &profile_body).await {
+                            Ok(_) => {
+                                ok = true;
+                                break;
+                            }
+                            Err(e) => {
+                                if attempt == max_retries {
+                                    tracing::warn!(
+                                        account = %acct.name, attempt, err = %e,
+                                        "pool: failed to push profile to new session after retries"
+                                    );
+                                } else {
+                                    tracing::debug!(
+                                        account = %acct.name, attempt, err = %e,
+                                        "pool: profile push to new session failed, retrying"
+                                    );
+                                    tokio::time::sleep(backoff).await;
+                                    backoff = (backoff * 2).min(std::time::Duration::from_secs(5));
+                                }
+                            }
+                        }
+                    }
+                    if ok && assigned.as_deref() == Some(&acct.name) {
+                        assigned_profile_pushed = true;
                     }
                 }
 
-                // Switch the session to its assigned account profile.
+                // Switch the session to its assigned account profile, but only if
+                // the profile was successfully pushed. (hq-uc5sup)
                 if let Some(ref assigned_name) = assigned {
-                    let client = UpstreamClient::new(session_url.clone(), session_token.clone());
-                    let switch_body = serde_json::json!({ "profile": assigned_name });
-                    if let Err(e) =
-                        client.post_json("/api/v1/session/switch", &switch_body).await
-                    {
+                    if !assigned_profile_pushed {
                         tracing::warn!(
                             account = %assigned_name,
-                            err = %e,
-                            "pool: failed to switch session to assigned account"
+                            "pool: skipping session switch — assigned profile was not pushed"
                         );
+                    } else {
+                        let client = UpstreamClient::new(session_url.clone(), session_token.clone());
+                        let switch_body = serde_json::json!({ "profile": assigned_name });
+                        // Retry switch with exponential backoff. (hq-uc5sup)
+                        let mut backoff = std::time::Duration::from_millis(500);
+                        let max_retries = 3u32;
+                        for attempt in 0..=max_retries {
+                            match client.post_json("/api/v1/session/switch", &switch_body).await {
+                                Ok(_) => {
+                                    tracing::info!(
+                                        account = %assigned_name,
+                                        "pool: switched new session to assigned account"
+                                    );
+                                    break;
+                                }
+                                Err(e) => {
+                                    if attempt == max_retries {
+                                        tracing::warn!(
+                                            account = %assigned_name, attempt, err = %e,
+                                            "pool: failed to switch session after retries"
+                                        );
+                                    } else {
+                                        tracing::debug!(
+                                            account = %assigned_name, attempt, err = %e,
+                                            "pool: session switch failed, retrying"
+                                        );
+                                        tokio::time::sleep(backoff).await;
+                                        backoff = (backoff * 2).min(std::time::Duration::from_secs(5));
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             });
