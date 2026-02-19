@@ -8,12 +8,7 @@
 //! as profiles. Accounts can also be added dynamically at runtime.
 
 pub mod broker;
-pub mod device_code;
 pub mod distributor;
-pub mod oauth;
-pub mod persist;
-pub mod pkce;
-pub mod refresh;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -28,6 +23,10 @@ pub struct CredentialConfig {
 }
 
 /// Configuration for a single credential account.
+///
+/// Legacy OAuth fields (`token_url`, `client_id`, `auth_url`, `device_auth_url`,
+/// `reauth`) are kept for deserialization compatibility with existing config files
+/// but are ignored at runtime.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccountConfig {
     /// Display name for this account.
@@ -37,19 +36,19 @@ pub struct AccountConfig {
     /// Explicit env var name for the credential. Falls back to provider default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env_key: Option<String>,
-    /// OAuth token URL for refresh (legacy, ignored for static keys).
+    /// Legacy: OAuth token URL (ignored).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_url: Option<String>,
-    /// OAuth client ID (legacy, ignored for static keys).
+    /// Legacy: OAuth client ID (ignored).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_id: Option<String>,
-    /// OAuth authorization URL (legacy, ignored for static keys).
+    /// Legacy: OAuth authorization URL (ignored).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth_url: Option<String>,
-    /// OAuth device authorization endpoint (legacy, ignored for static keys).
+    /// Legacy: OAuth device authorization endpoint (ignored).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_auth_url: Option<String>,
-    /// Whether this account supports OAuth reauth/refresh (legacy, ignored).
+    /// Legacy: whether this account supports OAuth reauth (ignored).
     #[serde(default = "default_true")]
     pub reauth: bool,
 }
@@ -58,12 +57,7 @@ pub fn default_true() -> bool {
     true
 }
 
-/// Refresh margin in seconds (legacy, kept for API compat).
-pub fn refresh_margin_secs() -> u64 {
-    std::env::var("COOP_MUX_REFRESH_MARGIN_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(900)
-}
-
-/// Resolve the state directory for mux data (credentials, etc.).
+/// Resolve the state directory for mux data.
 ///
 /// Checks `COOP_MUX_STATE_DIR`, then `$XDG_STATE_HOME/coop/mux`,
 /// then `$HOME/.local/state/coop/mux`.
@@ -89,14 +83,6 @@ pub enum CredentialEvent {
     /// A credential operation failed.
     #[serde(rename = "refresh:failed")]
     RefreshFailed { account: String, error: String },
-    /// User interaction required (legacy OAuth reauth flow).
-    #[serde(rename = "reauth:required")]
-    ReauthRequired {
-        account: String,
-        auth_url: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        user_code: Option<String>,
-    },
 }
 
 /// Status of an account.
@@ -122,63 +108,5 @@ pub fn provider_default_env_key(provider: &str) -> &str {
         "openai" => "OPENAI_API_KEY",
         "gemini" | "google" => "GEMINI_API_KEY",
         _ => "API_KEY",
-    }
-}
-
-/// Device code flow: authorization endpoint (RFC 8628).
-pub fn provider_default_device_auth_url(provider: &str) -> Option<&'static str> {
-    match provider.to_lowercase().as_str() {
-        "claude" | "anthropic" => Some("https://console.anthropic.com/v1/oauth/device/code"),
-        _ => None,
-    }
-}
-
-/// Device code flow: token endpoint (also used for refresh).
-pub fn provider_default_device_token_url(provider: &str) -> Option<&'static str> {
-    match provider.to_lowercase().as_str() {
-        "claude" | "anthropic" => Some("https://platform.claude.com/v1/oauth/token"),
-        _ => None,
-    }
-}
-
-/// PKCE flow: authorization endpoint.
-pub fn provider_default_pkce_auth_url(provider: &str) -> Option<&'static str> {
-    match provider.to_lowercase().as_str() {
-        "claude" | "anthropic" => Some("https://claude.ai/oauth/authorize"),
-        _ => None,
-    }
-}
-
-/// PKCE flow: token endpoint.
-pub fn provider_default_pkce_token_url(provider: &str) -> Option<&'static str> {
-    match provider.to_lowercase().as_str() {
-        "claude" | "anthropic" => Some("https://platform.claude.com/v1/oauth/token"),
-        _ => None,
-    }
-}
-
-/// Resolve the default OAuth client ID for a provider.
-pub fn provider_default_client_id(provider: &str) -> Option<&'static str> {
-    match provider.to_lowercase().as_str() {
-        "claude" | "anthropic" => Some("9d1c250a-e61b-44d9-88ed-5944d1962f5e"),
-        _ => None,
-    }
-}
-
-/// Resolve the default OAuth redirect URI for a provider.
-pub fn provider_default_redirect_uri(provider: &str) -> Option<&'static str> {
-    match provider.to_lowercase().as_str() {
-        "claude" | "anthropic" => Some("https://platform.claude.com/oauth/code/callback"),
-        _ => None,
-    }
-}
-
-/// Resolve the default OAuth scopes for a provider.
-pub fn provider_default_scopes(provider: &str) -> &'static str {
-    match provider.to_lowercase().as_str() {
-        "claude" | "anthropic" => {
-            "user:profile user:inference user:sessions:claude_code user:mcp_servers"
-        }
-        _ => "",
     }
 }

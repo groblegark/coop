@@ -62,9 +62,6 @@ pub fn spawn_distributor(state: Arc<MuxState>, mut event_rx: broadcast::Receiver
                     // to a healthy one so agents don't lose API access.
                     rebalance_from_account(&state, account).await;
                 }
-                CredentialEvent::ReauthRequired { .. } => {
-                    // No action needed for distribution.
-                }
             }
         }
     });

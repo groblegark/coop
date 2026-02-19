@@ -185,7 +185,6 @@ async fn handle_mux_ws(state: Arc<MuxState>, socket: WebSocket) {
                 let should_forward = match &event {
                     MuxEvent::CredentialRefreshed { .. }
                     | MuxEvent::CredentialRefreshFailed { .. }
-                    | MuxEvent::CredentialReauthRequired { .. }
                     | MuxEvent::SessionOnline { .. }
                     | MuxEvent::SessionOffline { .. } => true,
                     MuxEvent::Transition { session, .. } => watched.contains(session),
