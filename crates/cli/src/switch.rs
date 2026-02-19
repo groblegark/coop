@@ -19,7 +19,7 @@ use tokio::sync::{mpsc, RwLock};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SwitchRequest {
     /// Environment variables to merge into the new child process.
-    /// Typically contains credential keys like `ANTHROPIC_API_KEY`.
+    /// Typically contains credential keys like `CLAUDE_CODE_OAUTH_TOKEN`.
     #[serde(default)]
     pub credentials: Option<HashMap<String, String>>,
     /// Skip waiting for idle — SIGHUP immediately.

@@ -113,7 +113,10 @@ pub enum AccountStatus {
 /// Resolve the default env var name for a provider.
 pub fn provider_default_env_key(provider: &str) -> &str {
     match provider.to_lowercase().as_str() {
-        "claude" | "anthropic" => "ANTHROPIC_API_KEY",
+        // Claude provider uses OAuth tokens, not API keys. Using
+        // CLAUDE_CODE_OAUTH_TOKEN avoids the "Detected a custom API key"
+        // prompt in Claude Code that ANTHROPIC_API_KEY triggers.
+        "claude" | "anthropic" => "CLAUDE_CODE_OAUTH_TOKEN",
         "openai" => "OPENAI_API_KEY",
         "gemini" | "google" => "GEMINI_API_KEY",
         _ => "API_KEY",
