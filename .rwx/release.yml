@@ -128,7 +128,7 @@ tasks:
       tar czf /tmp/coop-darwin-arm64.tar.gz coop coop-mux
 
   - key: release
-    use: [build-linux-amd64, build-linux-arm64, build-darwin-amd64, build-darwin-arm64]
+    use: [build-linux-amd64, build-linux-arm64]
     if: ${{ init.tag != 'dev' }}
     run: |
       # Install gh CLI
@@ -138,18 +138,16 @@ tasks:
 
       # Create checksums
       cd /tmp
-      sha256sum coop-linux-amd64.tar.gz coop-linux-arm64.tar.gz \
-        coop-darwin-amd64.tar.gz coop-darwin-arm64.tar.gz > checksums.txt
+      sha256sum coop-linux-amd64.tar.gz coop-linux-arm64.tar.gz > checksums.txt
 
-      # Create GitHub release
+      # Create GitHub release (linux only — darwin cross-compile is broken
+      # due to ring/Security framework linking; macOS builds are local-only)
       gh release create "$TAG" \
         --repo groblegark/coop \
         --title "$TAG" \
         --generate-notes \
         coop-linux-amd64.tar.gz \
         coop-linux-arm64.tar.gz \
-        coop-darwin-amd64.tar.gz \
-        coop-darwin-arm64.tar.gz \
         checksums.txt
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
