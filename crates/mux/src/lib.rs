@@ -75,6 +75,26 @@ pub async fn run(config: MuxConfig, nats: Option<NatsConfig>) -> anyhow::Result<
         b
     };
 
+    // Seed API key from file if configured (static key mode for K8s deployments).
+    if let Some(ref key_file) = config.api_key_file {
+        match std::fs::read_to_string(key_file) {
+            Ok(contents) => {
+                let api_key = contents.trim().to_owned();
+                if api_key.is_empty() {
+                    tracing::warn!(path = %key_file.display(), "api-key-file is empty, skipping seed");
+                } else if let Some(account) = broker.first_account_name().await {
+                    match broker.set_token(&account, api_key, None, None).await {
+                        Ok(()) => tracing::info!(account = %account, path = %key_file.display(), "seeded API key from file"),
+                        Err(e) => tracing::error!(account = %account, err = %e, "failed to seed API key from file"),
+                    }
+                } else {
+                    tracing::warn!("api-key-file provided but no accounts configured");
+                }
+            }
+            Err(e) => tracing::error!(path = %key_file.display(), err = %e, "failed to read api-key-file"),
+        }
+    }
+
     state.credential_broker = Some(Arc::clone(&broker));
 
     // Spawn distributor (pushes credentials to sessions on events).

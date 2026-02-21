@@ -40,6 +40,12 @@ pub struct MuxConfig {
     #[arg(long, env = "COOP_MUX_CREDENTIAL_CONFIG")]
     pub credential_config: Option<std::path::PathBuf>,
 
+    /// Path to a file containing the API key for the first configured account.
+    /// The file contents are trimmed and injected via the credentials/set API
+    /// at startup. Use this for static API key deployments (e.g. K8s Secrets).
+    #[arg(long, env = "COOP_MUX_API_KEY_FILE")]
+    pub api_key_file: Option<std::path::PathBuf>,
+
     /// Pre-warm LRU cache capacity (number of sessions to slow-poll).
     #[arg(long, default_value_t = 64, env = "COOP_MUX_PREWARM_CAPACITY")]
     pub prewarm_capacity: usize,
