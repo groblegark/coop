@@ -102,3 +102,28 @@ tasks:
     run: |
       cargo build -p coop
       ./target/debug/coop --help
+
+  # ── Rendering fidelity: Layer A (no external deps) ─────────────────
+  - key: rendering-a
+    use: cargo-deps
+    tool-cache: ci-rendering-a
+    run: cargo test -p coop --test rendering_fidelity
+
+  # ── Install claudeless (cached) ────────────────────────────────────
+  - key: install-claudeless
+    use: system-deps
+    filter:
+      - .rwx/ci.yml
+    run: |
+      curl -fsSL -o /tmp/claudeless.tar.gz \
+        https://github.com/alfredjeanlab/claudeless/releases/download/v0.4.0/claudeless-linux-x86_64.tar.gz
+      tar -xzf /tmp/claudeless.tar.gz -C /usr/local/bin
+      chmod +x /usr/local/bin/claudeless
+      claudeless --version
+
+  # ── Rendering fidelity: Layer B+C (claudeless + tmux + built coop) ─
+  - key: rendering-bc
+    use: [smoke-test, install-claudeless]
+    run: |
+      export COOP_BIN="$(pwd)/target/debug/coop"
+      cargo test -p coop --test rendering_tmux_oracle --test rendering_attach
