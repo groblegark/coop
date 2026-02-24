@@ -68,10 +68,7 @@ async fn cmd_list(client: &reqwest::Client, mux_url: &str, token: Option<&str>) 
                 if sessions.is_empty() {
                     println!("No sessions registered.");
                 } else {
-                    println!(
-                        "{:<38} {:<30} {:<12} {}",
-                        "SESSION ID", "POD", "STATE", "HEALTH"
-                    );
+                    println!("{:<38} {:<30} {:<12} HEALTH", "SESSION ID", "POD", "STATE");
                     println!("{}", "-".repeat(88));
                     for s in &sessions {
                         let id = s.get("id").and_then(|v| v.as_str()).unwrap_or("?");
@@ -81,14 +78,10 @@ async fn cmd_list(client: &reqwest::Client, mux_url: &str, token: Option<&str>) 
                             .and_then(|k| k.get("pod"))
                             .and_then(|v| v.as_str())
                             .unwrap_or("-");
-                        let state = s
-                            .get("cached_state")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown");
-                        let failures = s
-                            .get("health_failures")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0);
+                        let state =
+                            s.get("cached_state").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        let failures =
+                            s.get("health_failures").and_then(|v| v.as_u64()).unwrap_or(0);
                         let health = if failures == 0 {
                             "ok".to_string()
                         } else {
@@ -233,7 +226,7 @@ async fn resolve_session_id(
             eprintln!("error: no session matching '{partial}'");
             Err(1)
         }
-        1 => Ok(matches.into_iter().next().unwrap()),
+        1 => matches.into_iter().next().ok_or(1),
         n => {
             eprintln!("error: '{partial}' matches {n} sessions:");
             for id in &matches {
