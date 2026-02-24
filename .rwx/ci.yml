@@ -117,8 +117,8 @@ tasks:
     run: |
       curl -fsSL -o /tmp/claudeless.tar.gz \
         https://github.com/alfredjeanlab/claudeless/releases/download/v0.4.0/claudeless-linux-x86_64.tar.gz
-      tar -xzf /tmp/claudeless.tar.gz -C /usr/local/bin
-      chmod +x /usr/local/bin/claudeless
+      sudo tar -xzf /tmp/claudeless.tar.gz -C /usr/local/bin
+      sudo chmod +x /usr/local/bin/claudeless
       claudeless --version
 
   # ── Rendering fidelity: Layer B+C (claudeless + tmux + built coop) ─
