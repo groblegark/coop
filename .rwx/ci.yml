@@ -121,5 +121,8 @@ tasks:
   - key: rendering-bc
     use: [smoke-test, install-claudeless]
     run: |
+      which tmux || (echo "tmux not found, installing..." && sudo apt-get update && sudo apt-get install -y tmux)
+      tmux -V
+      claudeless --version
       export COOP_BIN="$(pwd)/target/debug/coop"
       cargo test -p coop --test rendering_tmux_oracle --test rendering_attach
