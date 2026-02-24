@@ -37,8 +37,15 @@ pub struct NatsConfig {
     pub prefix: String,
 }
 
+/// Optional NATS relay configuration for auto-discovering local agent sessions.
+pub use crate::transport::nats_sub::NatsRelayConfig;
+
 /// Run the mux server until shutdown.
-pub async fn run(config: MuxConfig, nats: Option<NatsConfig>) -> anyhow::Result<()> {
+pub async fn run(
+    config: MuxConfig,
+    nats: Option<NatsConfig>,
+    nats_relay: Option<NatsRelayConfig>,
+) -> anyhow::Result<()> {
     let addr = format!("{}:{}", config.host, config.port);
     let shutdown = CancellationToken::new();
 
@@ -149,6 +156,12 @@ pub async fn run(config: MuxConfig, nats: Option<NatsConfig>) -> anyhow::Result<
         tracing::info!("coopmux listening on {addr}");
     }
     spawn_health_checker(Arc::clone(&state));
+
+    // Spawn NATS relay subscriber for auto-discovering local agent sessions.
+    if let Some(relay_config) = nats_relay {
+        crate::transport::nats_sub::spawn_nats_subscriber(Arc::clone(&state), relay_config);
+    }
+
     spawn_prewarm_task(
         Arc::clone(&state),
         Arc::clone(&state.prewarm),

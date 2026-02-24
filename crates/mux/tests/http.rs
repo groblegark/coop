@@ -84,6 +84,7 @@ async fn insert_session(state: &MuxState, id: &str, url: &str) {
         cancel: CancellationToken::new(),
         ws_bridge: tokio::sync::RwLock::new(None),
         assigned_account: tokio::sync::RwLock::new(None),
+        transport: coopmux::state::SessionTransport::default(),
     });
     state.sessions.write().await.insert(id.to_owned(), entry);
 }

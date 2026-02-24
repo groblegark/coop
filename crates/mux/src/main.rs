@@ -25,6 +25,19 @@ struct Cli {
     #[arg(long, default_value = "coop", env = "COOP_MUX_NATS_PREFIX")]
     nats_prefix: String,
 
+    /// NATS server URL for relay session auto-discovery (e.g. "nats://bd-daemon:4222").
+    /// When set, coopmux subscribes to `{relay-prefix}.session.>` for local agents.
+    #[arg(long, env = "COOP_MUX_NATS_RELAY_URL")]
+    nats_relay_url: Option<String>,
+
+    /// Auth token for the NATS relay connection.
+    #[arg(long, env = "COOP_MUX_NATS_RELAY_TOKEN")]
+    nats_relay_token: Option<String>,
+
+    /// Subject prefix for NATS relay session discovery (default: "coop.mux").
+    #[arg(long, default_value = "coop.mux", env = "COOP_MUX_NATS_RELAY_PREFIX")]
+    nats_relay_prefix: String,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -67,7 +80,12 @@ async fn main() {
                 token: cli.nats_token,
                 prefix: cli.nats_prefix,
             });
-            if let Err(e) = coopmux::run(cli.config, nats).await {
+            let nats_relay = cli.nats_relay_url.map(|url| coopmux::NatsRelayConfig {
+                url,
+                token: cli.nats_relay_token,
+                prefix: cli.nats_relay_prefix,
+            });
+            if let Err(e) = coopmux::run(cli.config, nats, nats_relay).await {
                 error!("fatal: {e:#}");
                 std::process::exit(1);
             }

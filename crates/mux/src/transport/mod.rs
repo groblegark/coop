@@ -6,6 +6,7 @@
 pub mod auth;
 pub mod http;
 pub mod http_cred;
+pub mod nats_sub;
 #[cfg(feature = "legacy-oauth")]
 pub mod nats_pub;
 pub mod ws;

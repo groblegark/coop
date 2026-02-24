@@ -625,6 +625,57 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
         });
     }
 
+    // Spawn NATS relay publisher + subscriber if configured.
+    // The relay publishes session-scoped events (announce, status, state) to NATS
+    // so coopmux can auto-discover local sessions without direct HTTP access.
+    if config.nats_relay.is_some() {
+        if let Some(ref nats_url) = config.nats_url {
+            let nats_auth = crate::transport::nats::NatsAuth {
+                token: config.nats_token.clone(),
+                user: config.nats_user.clone(),
+                password: config.nats_password.clone(),
+                creds_path: config.nats_creds.as_deref().map(Into::into),
+            };
+            match crate::transport::nats_relay::NatsRelay::connect(
+                nats_url,
+                &config.nats_prefix,
+                &agent_enum.to_string(),
+                &config.label,
+                nats_auth,
+            )
+            .await
+            {
+                Ok(relay) => {
+                    // Grab a client clone and prefix before moving relay into the publisher task.
+                    let sub_client = relay.client();
+                    let sub_prefix = relay.prefix().to_owned();
+
+                    let store_ref = Arc::clone(&store);
+                    let sd = shutdown.clone();
+                    tokio::spawn(async move {
+                        relay.run(store_ref, sd).await;
+                    });
+
+                    // Spawn the subscriber for bidirectional input (Phase 2).
+                    let subscriber = crate::transport::nats_relay::NatsRelaySubscriber::new(
+                        sub_client,
+                        sub_prefix,
+                    );
+                    let store_ref = Arc::clone(&store);
+                    let sd = shutdown.clone();
+                    tokio::spawn(async move {
+                        subscriber.run(store_ref, sd).await;
+                    });
+
+                    tracing::info!("nats-relay: publisher + subscriber started");
+                }
+                Err(e) => {
+                    tracing::warn!("nats-relay: failed to connect: {e}");
+                }
+            }
+        }
+    }
+
     // Spawn inbox JetStream consumer if configured (bd-xtahx.3).
     // Requires both NATS URL and an agent name (explicit or from GT_ROLE).
     if let Some(ref nats_url) = config.nats_url {

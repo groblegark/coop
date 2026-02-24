@@ -36,6 +36,12 @@ pub fn spawn_health_checker(state: Arc<MuxState>) {
                     continue;
                 }
 
+                // Skip NATS-transport sessions — their liveness is tracked
+                // by announce heartbeats in the NATS relay subscriber.
+                if matches!(entry.transport, crate::state::SessionTransport::Nats { .. }) {
+                    continue;
+                }
+
                 let client = UpstreamClient::new(entry.url.clone(), entry.auth_token.clone());
                 match client.health().await {
                     Ok(_) => {

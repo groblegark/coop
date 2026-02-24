@@ -151,6 +151,7 @@ pub async fn register_session(
         cancel,
         ws_bridge: tokio::sync::RwLock::new(None),
         assigned_account: tokio::sync::RwLock::new(None),
+        transport: crate::state::SessionTransport::default(),
     });
 
     let (is_new, stale, evicted_entries) = {
@@ -612,6 +613,10 @@ pub async fn launch_session(
 }
 
 /// Generic POST proxy to upstream coop.
+///
+/// For NATS-transport sessions, routes input/nudge/respond through NATS
+/// instead of HTTP. Other paths fall through to HTTP (which may fail if
+/// the session is only reachable via NATS).
 async fn proxy_post(
     state: &MuxState,
     session_id: &str,
@@ -626,6 +631,34 @@ async fn proxy_post(
         }
     };
     drop(sessions);
+
+    // For NATS-transport sessions, route input/nudge/respond via NATS.
+    if let crate::state::SessionTransport::Nats { ref prefix } = entry.transport {
+        let nats_subject = match path {
+            "/api/v1/input" | "/api/v1/input/raw" | "/api/v1/input/keys" => {
+                Some(format!("{prefix}.session.{session_id}.input"))
+            }
+            "/api/v1/agent/nudge" => Some(format!("{prefix}.session.{session_id}.nudge")),
+            "/api/v1/agent/respond" => Some(format!("{prefix}.session.{session_id}.respond")),
+            _ => None,
+        };
+
+        if let Some(subject) = nats_subject {
+            let client_guard = state.nats_client.read().await;
+            if let Some(ref nats_client) = *client_guard {
+                let payload = serde_json::to_vec(&body).unwrap_or_default();
+                if let Err(e) = nats_client.publish(subject, payload.into()).await {
+                    return MuxError::UpstreamError
+                        .to_http_response(format!("nats publish error: {e}"))
+                        .into_response();
+                }
+                return Json(serde_json::json!({"ok": true})).into_response();
+            }
+            return MuxError::UpstreamError
+                .to_http_response("nats client not available")
+                .into_response();
+        }
+    }
 
     let client = UpstreamClient::new(entry.url.clone(), entry.auth_token.clone());
     match client.post_json(path, &body).await {

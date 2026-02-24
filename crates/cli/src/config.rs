@@ -151,6 +151,12 @@ pub struct Config {
     #[arg(long, env = "COOP_NATS_CREDS")]
     pub nats_creds: Option<std::path::PathBuf>,
 
+    /// Enable NATS relay publishing for session-scoped events (announce, status, state).
+    /// When set (any non-empty value), coop publishes to `{nats_prefix}.session.{id}.*` subjects
+    /// so coopmux can auto-discover local sessions via NATS.
+    #[arg(long, env = "COOP_NATS_RELAY")]
+    pub nats_relay: Option<String>,
+
     /// Agent name for inbox subscription (e.g., "mayor"). Uses GT_ROLE env var if not set.
     /// Enables inbox JetStream consumer when both this and --nats-url are set.
     #[arg(long, env = "COOP_INBOX_AGENT")]
@@ -355,6 +361,7 @@ impl Config {
             nats_user: None,
             nats_password: None,
             nats_creds: None,
+            nats_relay: None,
             inbox_agent: None,
             inbox_rig: None,
             inject_dir: None,

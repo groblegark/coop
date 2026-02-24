@@ -18,11 +18,11 @@ default = []
 # Enable legacy OAuth code paths (refresh loops, PKCE, device code, NATS cred events).
 # Disabled by default — static API key mode is the production path.
 # Enable for rollback: `cargo build --features legacy-oauth`
-legacy-oauth = ["dep:async-nats", "dep:base64", "dep:rand", "dep:sha2"]
+legacy-oauth = ["dep:base64", "dep:rand", "dep:sha2"]
 
 [dependencies]
 anyhow.workspace = true
-async-nats = { workspace = true, optional = true }
+async-nats.workspace = true
 axum.workspace = true
 base64 = { workspace = true, optional = true }
 bytes.workspace = true

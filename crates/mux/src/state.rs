@@ -127,6 +127,9 @@ pub struct MuxState {
     pub feed: SessionFeed,
     pub credential_broker: Option<Arc<CredentialBroker>>,
     pub prewarm: Arc<Mutex<PrewarmCache>>,
+    /// NATS client for publishing input commands to NATS-transport sessions.
+    /// Set when a NATS relay subscriber is configured.
+    pub nats_client: RwLock<Option<async_nats::Client>>,
 }
 
 impl MuxState {
@@ -139,6 +142,7 @@ impl MuxState {
             shutdown,
             feed: SessionFeed::new(),
             credential_broker: None,
+            nats_client: RwLock::new(None),
         }
     }
 
@@ -161,6 +165,16 @@ impl MuxState {
     }
 }
 
+/// How coopmux communicates with an upstream coop session.
+#[derive(Debug, Clone, Default)]
+pub enum SessionTransport {
+    /// Direct HTTP to the coop instance (default for K8s sessions).
+    #[default]
+    Http,
+    /// NATS relay: session discovered via NATS announce, input routed via NATS.
+    Nats { prefix: String },
+}
+
 /// A registered upstream coop session.
 pub struct SessionEntry {
     pub id: String,
@@ -176,6 +190,9 @@ pub struct SessionEntry {
     /// The credential account assigned to this session by the pool.
     /// Set during registration, used for unassignment on removal.
     pub assigned_account: RwLock<Option<String>>,
+    /// Transport type for this session. NATS-transport sessions are discovered
+    /// via NATS announce and have input routed through NATS instead of HTTP.
+    pub transport: SessionTransport,
 }
 
 /// Cached screen snapshot from upstream.

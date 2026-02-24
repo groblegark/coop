@@ -329,10 +329,14 @@ async fn start_watching(state: &MuxState, session_id: &str) {
     drop(sessions);
 
     let feed_cancel = CancellationToken::new();
-    spawn_event_feed(state.feed.event_tx.clone(), Arc::clone(&entry), feed_cancel.clone());
-
     let poller_cancel = CancellationToken::new();
-    spawn_screen_poller(entry, &state.config, poller_cancel.clone());
+
+    // NATS-transport sessions get their state transitions and status via NATS
+    // (pushed by the relay), so we skip the HTTP event feed and screen poller.
+    if !matches!(entry.transport, crate::state::SessionTransport::Nats { .. }) {
+        spawn_event_feed(state.feed.event_tx.clone(), Arc::clone(&entry), feed_cancel.clone());
+        spawn_screen_poller(entry, &state.config, poller_cancel.clone());
+    }
 
     watchers.insert(session_id.to_owned(), WatcherState { count: 1, feed_cancel, poller_cancel });
 }
@@ -359,9 +363,21 @@ async fn proxy_input(state: &MuxState, session_id: &str, text: &str, enter: bool
     };
     drop(sessions);
 
+    let body = serde_json::json!({ "text": text, "enter": enter });
+
+    // For NATS-transport sessions, publish via NATS instead of HTTP.
+    if let crate::state::SessionTransport::Nats { ref prefix } = entry.transport {
+        let subject = format!("{prefix}.session.{session_id}.input");
+        let client_guard = state.nats_client.read().await;
+        if let Some(ref nats_client) = *client_guard {
+            let payload = serde_json::to_vec(&body).unwrap_or_default();
+            let _ = nats_client.publish(subject, payload.into()).await;
+        }
+        return;
+    }
+
     let client =
         crate::upstream::client::UpstreamClient::new(entry.url.clone(), entry.auth_token.clone());
-    let body = serde_json::json!({ "text": text, "enter": enter });
     let _ = client.post_json("/api/v1/input", &body).await;
 }
 

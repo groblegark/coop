@@ -439,6 +439,7 @@ mod tests {
             cancel: CancellationToken::new(),
             ws_bridge: RwLock::new(None),
             assigned_account: RwLock::new(None),
+            transport: crate::state::SessionTransport::default(),
         }
     }
 
