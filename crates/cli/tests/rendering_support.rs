@@ -158,6 +158,7 @@ impl Drop for TmuxOracle {
 pub struct CoopScenario {
     child: std::process::Child,
     addr: String,
+    stderr_path: std::path::PathBuf,
 }
 
 impl CoopScenario {
@@ -172,6 +173,10 @@ impl CoopScenario {
 
         let coop_bin = coop_binary_path()?;
         let scenario_file = scenario_path(scenario);
+
+        // Capture stderr to a temp file for debugging startup failures.
+        let stderr_path = std::env::temp_dir().join(format!("coop-test-{port}.stderr"));
+        let stderr_file = std::fs::File::create(&stderr_path)?;
 
         let child = Command::new(&coop_bin)
             .args([
@@ -188,10 +193,10 @@ impl CoopScenario {
                 prompt,
             ])
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(stderr_file)
             .spawn()?;
 
-        let coop = Self { child, addr: addr.clone() };
+        let coop = Self { child, addr: addr.clone(), stderr_path };
 
         // Wait for health endpoint.
         coop.wait_for_health(Duration::from_secs(15))?;
@@ -251,7 +256,12 @@ impl CoopScenario {
                 return Ok(());
             }
             if start.elapsed() > timeout {
-                anyhow::bail!("timed out waiting for coop health endpoint at {url}");
+                let stderr = std::fs::read_to_string(&self.stderr_path).unwrap_or_default();
+                let tail: String =
+                    stderr.lines().rev().take(30).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+                anyhow::bail!(
+                    "timed out waiting for coop health endpoint at {url}\ncoop stderr (last 30 lines):\n{tail}"
+                );
             }
             std::thread::sleep(Duration::from_millis(100));
         }
