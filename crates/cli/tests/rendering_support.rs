@@ -80,7 +80,8 @@ impl TmuxOracle {
         let session_name = format!("test-{id}");
 
         // Start a new detached tmux session with fixed size.
-        // Set UTF-8 locale so wide/multi-byte characters work correctly.
+        // Use remain-on-exit so the pane stays alive after the command exits,
+        // giving us time to capture the output before tmux shuts down.
         let status = Command::new("tmux")
             .args([
                 "-L",
@@ -93,13 +94,30 @@ impl TmuxOracle {
                 &cols.to_string(),
                 "-y",
                 &rows.to_string(),
+                "-e",
+                "LANG=C.UTF-8",
+                "-e",
+                "LC_ALL=C.UTF-8",
                 shell_cmd,
             ])
-            .env("LANG", "C.UTF-8")
-            .env("LC_ALL", "C.UTF-8")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()?;
+
+        // Set remain-on-exit so the pane stays after the command completes.
+        let _ = Command::new("tmux")
+            .args([
+                "-L",
+                &socket_name,
+                "set-option",
+                "-t",
+                &session_name,
+                "remain-on-exit",
+                "on",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
 
         if !status.success() {
             anyhow::bail!("failed to start tmux session: {status}");
