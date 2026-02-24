@@ -11,7 +11,17 @@
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::Once;
 use std::time::{Duration, Instant};
+
+static INIT: Once = Once::new();
+
+/// Install the rustls crypto provider (needed for reqwest even on plain HTTP).
+pub fn ensure_crypto_provider() {
+    INIT.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
 
 /// Check that a binary is available in PATH.
 pub fn has_binary(name: &str) -> bool {
@@ -156,6 +166,7 @@ impl CoopScenario {
     /// Finds a free port, starts coop listening on it, and waits for the
     /// health endpoint to respond.
     pub fn start(scenario: &str, prompt: &str, cols: u16, rows: u16) -> anyhow::Result<Self> {
+        ensure_crypto_provider();
         let port = find_free_port()?;
         let addr = format!("127.0.0.1:{port}");
 
