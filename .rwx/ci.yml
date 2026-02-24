@@ -48,6 +48,7 @@ tasks:
       - Cargo.lock
       - Cargo.toml
       - "crates/*/Cargo.toml"
+      - "tests/*/Cargo.toml"
     run: cargo fetch
 
   # ── Format check (parallel) ──────────────────────────────────────────
