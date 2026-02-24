@@ -180,8 +180,10 @@ impl CoopScenario {
 
         let child = Command::new(&coop_bin)
             .args([
-                "--http-addr",
-                &addr,
+                "--host",
+                "127.0.0.1",
+                "--port",
+                &port.to_string(),
                 "--cols",
                 &cols.to_string(),
                 "--rows",
