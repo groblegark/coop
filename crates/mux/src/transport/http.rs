@@ -327,7 +327,8 @@ pub async fn register_session(
                             "pool: skipping session switch — assigned profile was not pushed"
                         );
                     } else {
-                        let client = UpstreamClient::new(session_url.clone(), session_token.clone());
+                        let client =
+                            UpstreamClient::new(session_url.clone(), session_token.clone());
                         let switch_body = serde_json::json!({ "profile": assigned_name });
                         // Retry switch with exponential backoff. (hq-uc5sup)
                         let mut backoff = std::time::Duration::from_millis(500);
@@ -353,7 +354,8 @@ pub async fn register_session(
                                             "pool: session switch failed, retrying"
                                         );
                                         tokio::time::sleep(backoff).await;
-                                        backoff = (backoff * 2).min(std::time::Duration::from_secs(5));
+                                        backoff =
+                                            (backoff * 2).min(std::time::Duration::from_secs(5));
                                     }
                                 }
                             }

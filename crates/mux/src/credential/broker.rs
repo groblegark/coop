@@ -25,14 +25,14 @@ use tokio::sync::{broadcast, RwLock};
 use crate::credential::persist::{PersistedAccount, PersistedCredentials};
 #[cfg(feature = "legacy-oauth")]
 use crate::credential::refresh::refresh_with_retries;
-use crate::credential::{
-    provider_default_env_key, AccountConfig, AccountStatus, CredentialConfig, CredentialEvent,
-};
 #[cfg(feature = "legacy-oauth")]
 use crate::credential::{
     provider_default_client_id, provider_default_device_auth_url,
     provider_default_device_token_url, provider_default_pkce_auth_url,
     provider_default_pkce_token_url, provider_default_scopes,
+};
+use crate::credential::{
+    provider_default_env_key, AccountConfig, AccountStatus, CredentialConfig, CredentialEvent,
 };
 
 /// Set of account names that were defined in the original static config file
@@ -203,10 +203,7 @@ impl CredentialBroker {
             if state.status != AccountStatus::Healthy {
                 continue;
             }
-            let count = counts
-                .get(name)
-                .map(|c| c.load(Ordering::Relaxed))
-                .unwrap_or(0);
+            let count = counts.get(name).map(|c| c.load(Ordering::Relaxed)).unwrap_or(0);
             match &best {
                 None => best = Some((name.clone(), count)),
                 Some((_, best_count)) if count < *best_count => {
@@ -239,7 +236,11 @@ impl CredentialBroker {
         let counts = self.session_counts.read().await;
         if let Some(counter) = counts.get(account) {
             let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
-                if v > 0 { Some(v - 1) } else { None }
+                if v > 0 {
+                    Some(v - 1)
+                } else {
+                    None
+                }
             });
         }
         tracing::debug!(account, "pool: session unassigned");
@@ -322,11 +323,8 @@ impl CredentialBroker {
             let has_token = access_token.is_some();
             let status = if has_token { AccountStatus::Healthy } else { AccountStatus::Missing };
 
-            let state = AccountState {
-                config: config.clone(),
-                status,
-                api_key: access_token.clone(),
-            };
+            let state =
+                AccountState { config: config.clone(), status, api_key: access_token.clone() };
             accounts.insert(name.clone(), state);
 
             if let Some(ref token) = access_token {
@@ -341,11 +339,7 @@ impl CredentialBroker {
             }
         }
 
-        self.session_counts
-            .write()
-            .await
-            .entry(name.clone())
-            .or_insert_with(|| AtomicU32::new(0));
+        self.session_counts.write().await.entry(name.clone()).or_insert_with(|| AtomicU32::new(0));
 
         tracing::info!(account = %name, "account added");
         Ok(())
@@ -373,10 +367,8 @@ impl CredentialBroker {
         accounts
             .iter()
             .map(|(name, state)| {
-                let session_count = counts
-                    .get(name)
-                    .map(|c| c.load(Ordering::Relaxed))
-                    .unwrap_or(0);
+                let session_count =
+                    counts.get(name).map(|c| c.load(Ordering::Relaxed)).unwrap_or(0);
                 PoolAccountInfo {
                     name: name.clone(),
                     provider: state.config.provider.clone(),
@@ -512,11 +504,7 @@ impl CredentialBroker {
             self.persist(&accounts).await;
         }
 
-        self.session_counts
-            .write()
-            .await
-            .entry(name.clone())
-            .or_insert_with(|| AtomicU32::new(0));
+        self.session_counts.write().await.entry(name.clone()).or_insert_with(|| AtomicU32::new(0));
 
         // Spawn a refresh loop for the new account.
         let broker = Arc::clone(self);
@@ -566,15 +554,10 @@ impl CredentialBroker {
         accounts
             .iter()
             .map(|(name, state)| {
-                let session_count = counts
-                    .get(name)
-                    .map(|c| c.load(Ordering::Relaxed))
-                    .unwrap_or(0);
-                let expires_in = if state.expires_at > now {
-                    Some(state.expires_at - now)
-                } else {
-                    None
-                };
+                let session_count =
+                    counts.get(name).map(|c| c.load(Ordering::Relaxed)).unwrap_or(0);
+                let expires_in =
+                    if state.expires_at > now { Some(state.expires_at - now) } else { None };
                 PoolAccountInfo {
                     name: name.clone(),
                     provider: state.config.provider.clone(),

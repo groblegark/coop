@@ -77,7 +77,9 @@ pub async fn credentials_reauth(
     Json(_req): Json<ReauthRequest>,
 ) -> impl IntoResponse {
     MuxError::BadRequest
-        .to_http_response("OAuth reauth is no longer supported; use static API keys via /api/v1/credentials/set")
+        .to_http_response(
+            "OAuth reauth is no longer supported; use static API keys via /api/v1/credentials/set",
+        )
         .into_response()
 }
 
@@ -250,7 +252,8 @@ pub async fn credentials_pool(State(s): State<Arc<MuxState>>) -> impl IntoRespon
 
     let pool = broker.pool_status().await;
     let total_sessions: u32 = pool.iter().map(|a| a.session_count).sum();
-    let healthy_accounts = pool.iter().filter(|a| a.status == crate::credential::AccountStatus::Healthy).count();
+    let healthy_accounts =
+        pool.iter().filter(|a| a.status == crate::credential::AccountStatus::Healthy).count();
 
     Json(serde_json::json!({
         "accounts": pool,

@@ -84,14 +84,20 @@ pub async fn run(config: MuxConfig, nats: Option<NatsConfig>) -> anyhow::Result<
                     tracing::warn!(path = %key_file.display(), "api-key-file is empty, skipping seed");
                 } else if let Some(account) = broker.first_account_name().await {
                     match broker.set_token(&account, api_key, None, None).await {
-                        Ok(()) => tracing::info!(account = %account, path = %key_file.display(), "seeded API key from file"),
-                        Err(e) => tracing::error!(account = %account, err = %e, "failed to seed API key from file"),
+                        Ok(()) => {
+                            tracing::info!(account = %account, path = %key_file.display(), "seeded API key from file")
+                        }
+                        Err(e) => {
+                            tracing::error!(account = %account, err = %e, "failed to seed API key from file")
+                        }
                     }
                 } else {
                     tracing::warn!("api-key-file provided but no accounts configured");
                 }
             }
-            Err(e) => tracing::error!(path = %key_file.display(), err = %e, "failed to read api-key-file"),
+            Err(e) => {
+                tracing::error!(path = %key_file.display(), err = %e, "failed to read api-key-file")
+            }
         }
     }
 

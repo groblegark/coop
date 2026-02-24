@@ -63,8 +63,7 @@ pub fn spawn_health_checker(state: Arc<MuxState>) {
                             );
                             // Unassign from credential pool before removal.
                             if let Some(ref broker) = state.credential_broker {
-                                if let Some(account) =
-                                    entry.assigned_account.read().await.as_ref()
+                                if let Some(account) = entry.assigned_account.read().await.as_ref()
                                 {
                                     broker.session_unassigned(account).await;
                                 }
