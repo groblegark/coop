@@ -264,8 +264,15 @@ impl CoopScenario {
             }
             if start.elapsed() > timeout {
                 let stderr = std::fs::read_to_string(&self.stderr_path).unwrap_or_default();
-                let tail: String =
-                    stderr.lines().rev().take(30).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+                let tail: String = stderr
+                    .lines()
+                    .rev()
+                    .take(30)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 anyhow::bail!(
                     "timed out waiting for coop health endpoint at {url}\ncoop stderr (last 30 lines):\n{tail}"
                 );
