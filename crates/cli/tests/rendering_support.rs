@@ -71,15 +71,13 @@ pub struct TmuxOracle {
 }
 
 impl TmuxOracle {
-    /// Create a new tmux server and session with the given command.
+    /// Create a new tmux server and session with the given shell command.
     ///
-    /// The command is run inside a tmux pane with the specified dimensions.
-    pub fn new(cmd: &[&str], cols: u16, rows: u16) -> anyhow::Result<Self> {
+    /// The command string is passed to tmux which runs it via the default shell.
+    pub fn new(shell_cmd: &str, cols: u16, rows: u16) -> anyhow::Result<Self> {
         let id = uuid::Uuid::new_v4().to_string()[..8].to_owned();
         let socket_name = format!("coop-test-{id}");
         let session_name = format!("test-{id}");
-
-        let full_cmd = cmd.join(" ");
 
         // Start a new detached tmux session with fixed size.
         let status = Command::new("tmux")
@@ -94,7 +92,7 @@ impl TmuxOracle {
                 &cols.to_string(),
                 "-y",
                 &rows.to_string(),
-                &full_cmd,
+                shell_cmd,
             ])
             .stdout(Stdio::null())
             .stderr(Stdio::null())

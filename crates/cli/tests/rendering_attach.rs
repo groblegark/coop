@@ -55,7 +55,7 @@ fn attach_screen_matches_server_plain() -> anyhow::Result<()> {
 
     // Start attach inside tmux.
     let attach_cmd = format!("{} attach --no-statusline {}", coop_bin(), coop.base_url());
-    let tmux = TmuxOracle::new(&["sh", "-c", &attach_cmd], COLS, ROWS)?;
+    let tmux = TmuxOracle::new(&attach_cmd, COLS, ROWS)?;
     let attach_lines = tmux.wait_for_text(sentinel, WAIT)?;
 
     // Compare attach output vs server screen API.
@@ -80,7 +80,7 @@ fn attach_screen_matches_server_colors() -> anyhow::Result<()> {
     coop.wait_for_screen_text(sentinel, WAIT)?;
 
     let attach_cmd = format!("{} attach --no-statusline {}", coop_bin(), coop.base_url());
-    let tmux = TmuxOracle::new(&["sh", "-c", &attach_cmd], COLS, ROWS)?;
+    let tmux = TmuxOracle::new(&attach_cmd, COLS, ROWS)?;
     let attach_lines = tmux.wait_for_text(sentinel, WAIT)?;
 
     let server_lines = coop.fetch_screen_lines()?;
@@ -105,7 +105,7 @@ fn attach_screen_matches_server_utf8() -> anyhow::Result<()> {
     coop.wait_for_screen_text(sentinel, WAIT)?;
 
     let attach_cmd = format!("{} attach --no-statusline {}", coop_bin(), coop.base_url());
-    let tmux = TmuxOracle::new(&["sh", "-c", &attach_cmd], COLS, ROWS)?;
+    let tmux = TmuxOracle::new(&attach_cmd, COLS, ROWS)?;
     let attach_lines = tmux.wait_for_text(sentinel, WAIT)?;
 
     let server_lines = coop.fetch_screen_lines()?;
@@ -131,7 +131,7 @@ fn attach_with_statusline_preserves_content() -> anyhow::Result<()> {
 
     // Attach WITH statusline (default — no --no-statusline flag).
     let attach_cmd = format!("{} attach {}", coop_bin(), coop.base_url());
-    let tmux = TmuxOracle::new(&["sh", "-c", &attach_cmd], COLS, ROWS + 1)?;
+    let tmux = TmuxOracle::new(&attach_cmd, COLS, ROWS + 1)?;
     let attach_lines = tmux.wait_for_text(sentinel, WAIT)?;
 
     // The content area should still contain the sentinel text.
@@ -168,7 +168,7 @@ fn attach_replay_after_late_connect() -> anyhow::Result<()> {
 
     // NOW connect attach — it should replay the buffered output.
     let attach_cmd = format!("{} attach --no-statusline {}", coop_bin(), coop.base_url());
-    let tmux = TmuxOracle::new(&["sh", "-c", &attach_cmd], COLS, ROWS)?;
+    let tmux = TmuxOracle::new(&attach_cmd, COLS, ROWS)?;
     let attach_lines = tmux.wait_for_text(sentinel, WAIT)?;
 
     let server_lines = coop.fetch_screen_lines()?;

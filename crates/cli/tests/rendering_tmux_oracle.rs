@@ -36,11 +36,8 @@ fn coop_vs_tmux_plain_text() -> anyhow::Result<()> {
     let coop_lines = coop.wait_for_screen_text(sentinel, WAIT)?;
 
     // Start same command in tmux.
-    let tmux = TmuxOracle::new(
-        &["claudeless", "--scenario", &scenario_path(scenario), "render plain"],
-        COLS,
-        ROWS,
-    )?;
+    let tmux_cmd = format!("claudeless --scenario {} 'render plain'", scenario_path(scenario));
+    let tmux = TmuxOracle::new(&tmux_cmd, COLS, ROWS)?;
     let tmux_lines = tmux.wait_for_text(sentinel, WAIT)?;
 
     compare_output_region("coop", &coop_lines, "tmux", &tmux_lines, sentinel)?;
@@ -61,11 +58,8 @@ fn coop_vs_tmux_colors() -> anyhow::Result<()> {
     let coop = CoopScenario::start(scenario, "render colors", COLS, ROWS)?;
     let coop_lines = coop.wait_for_screen_text(sentinel, WAIT)?;
 
-    let tmux = TmuxOracle::new(
-        &["claudeless", "--scenario", &scenario_path(scenario), "render colors"],
-        COLS,
-        ROWS,
-    )?;
+    let tmux_cmd = format!("claudeless --scenario {} 'render colors'", scenario_path(scenario));
+    let tmux = TmuxOracle::new(&tmux_cmd, COLS, ROWS)?;
     let tmux_lines = tmux.wait_for_text(sentinel, WAIT)?;
 
     // Compare text content (not ANSI — tmux capture-pane -p strips colors).
@@ -87,11 +81,8 @@ fn coop_vs_tmux_scrollback() -> anyhow::Result<()> {
     let coop = CoopScenario::start(scenario, "render long", COLS, ROWS)?;
     let coop_lines = coop.wait_for_screen_text(sentinel, WAIT)?;
 
-    let tmux = TmuxOracle::new(
-        &["claudeless", "--scenario", &scenario_path(scenario), "render long"],
-        COLS,
-        ROWS,
-    )?;
+    let tmux_cmd = format!("claudeless --scenario {} 'render long'", scenario_path(scenario));
+    let tmux = TmuxOracle::new(&tmux_cmd, COLS, ROWS)?;
     let tmux_lines = tmux.wait_for_text(sentinel, WAIT)?;
 
     // Both should have "Line 35" in the visible viewport.
@@ -113,11 +104,8 @@ fn coop_vs_tmux_utf8() -> anyhow::Result<()> {
     let coop = CoopScenario::start(scenario, "render utf8", COLS, ROWS)?;
     let coop_lines = coop.wait_for_screen_text(sentinel, WAIT)?;
 
-    let tmux = TmuxOracle::new(
-        &["claudeless", "--scenario", &scenario_path(scenario), "render utf8"],
-        COLS,
-        ROWS,
-    )?;
+    let tmux_cmd = format!("claudeless --scenario {} 'render utf8'", scenario_path(scenario));
+    let tmux = TmuxOracle::new(&tmux_cmd, COLS, ROWS)?;
     let tmux_lines = tmux.wait_for_text(sentinel, WAIT)?;
 
     compare_output_region("coop", &coop_lines, "tmux", &tmux_lines, sentinel)?;
@@ -138,11 +126,8 @@ fn coop_vs_tmux_tool_use() -> anyhow::Result<()> {
     let coop = CoopScenario::start(scenario, "read a file", COLS, ROWS)?;
     let coop_lines = coop.wait_for_screen_text(sentinel, WAIT)?;
 
-    let tmux = TmuxOracle::new(
-        &["claudeless", "--scenario", &scenario_path(scenario), "read a file"],
-        COLS,
-        ROWS,
-    )?;
+    let tmux_cmd = format!("claudeless --scenario {} 'read a file'", scenario_path(scenario));
+    let tmux = TmuxOracle::new(&tmux_cmd, COLS, ROWS)?;
     let tmux_lines = tmux.wait_for_text(sentinel, WAIT)?;
 
     compare_output_region("coop", &coop_lines, "tmux", &tmux_lines, sentinel)?;
