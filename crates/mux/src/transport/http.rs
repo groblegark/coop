@@ -475,6 +475,24 @@ pub async fn session_agent(
     }
 }
 
+/// `POST /api/v1/sessions/{id}/agent/nudge` — proxy nudge to upstream agent.
+pub async fn session_agent_nudge(
+    State(s): State<Arc<MuxState>>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    proxy_post(&s, &id, "/api/v1/agent/nudge", body).await
+}
+
+/// `POST /api/v1/sessions/{id}/agent/respond` — proxy respond to upstream agent.
+pub async fn session_agent_respond(
+    State(s): State<Arc<MuxState>>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    proxy_post(&s, &id, "/api/v1/agent/respond", body).await
+}
+
 /// `POST /api/v1/sessions/{id}/input` — proxy input to upstream.
 pub async fn session_input(
     State(s): State<Arc<MuxState>>,

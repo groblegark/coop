@@ -40,6 +40,7 @@ fn test_config() -> MuxConfig {
         prewarm_capacity: 64,
         prewarm_poll_ms: 15000,
         state_dir: Some(std::env::temp_dir().join(format!("coopmux-test-{}", std::process::id()))),
+        api_key_file: None,
         #[cfg(debug_assertions)]
         hot: false,
     }

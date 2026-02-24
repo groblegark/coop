@@ -72,6 +72,8 @@ fn build_router_inner(
         .route("/api/v1/sessions/{id}/status", get(http::session_status))
         // Proxy endpoints
         .route("/api/v1/sessions/{id}/agent", get(http::session_agent))
+        .route("/api/v1/sessions/{id}/agent/nudge", post(http::session_agent_nudge))
+        .route("/api/v1/sessions/{id}/agent/respond", post(http::session_agent_respond))
         .route("/api/v1/sessions/{id}/input", post(http::session_input))
         .route("/api/v1/sessions/{id}/input/raw", post(http::session_input_raw))
         .route("/api/v1/sessions/{id}/input/keys", post(http::session_input_keys))
