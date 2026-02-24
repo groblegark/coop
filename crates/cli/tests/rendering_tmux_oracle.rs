@@ -113,24 +113,6 @@ fn coop_vs_tmux_utf8() -> anyhow::Result<()> {
     Ok(())
 }
 
-// -- Test 5: Tool use ---------------------------------------------------------
-
-#[test]
-fn coop_vs_tmux_tool_use() -> anyhow::Result<()> {
-    require_claudeless();
-    require_tmux();
-
-    let sentinel = "mock content";
-    let scenario = "claude_tool_use.toml";
-
-    let coop = CoopScenario::start(scenario, "read a file", COLS, ROWS)?;
-    let coop_lines = coop.wait_for_screen_text(sentinel, WAIT)?;
-
-    let tmux_cmd = format!("claudeless --scenario {} 'read a file'", scenario_path(scenario));
-    let tmux = TmuxOracle::new(&tmux_cmd, COLS, ROWS)?;
-    let tmux_lines = tmux.wait_for_text(sentinel, WAIT)?;
-
-    compare_output_region("coop", &coop_lines, "tmux", &tmux_lines, sentinel)?;
-
-    Ok(())
-}
+// NOTE: Tool use rendering is not tested in Layer B because the coop server's
+// hook-based tool detection flow differs fundamentally from claudeless running
+// standalone. Tool rendering correctness is covered by Layer A (API-level) tests.

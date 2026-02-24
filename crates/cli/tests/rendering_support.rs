@@ -80,6 +80,7 @@ impl TmuxOracle {
         let session_name = format!("test-{id}");
 
         // Start a new detached tmux session with fixed size.
+        // Set UTF-8 locale so wide/multi-byte characters work correctly.
         let status = Command::new("tmux")
             .args([
                 "-L",
@@ -94,6 +95,8 @@ impl TmuxOracle {
                 &rows.to_string(),
                 shell_cmd,
             ])
+            .env("LANG", "C.UTF-8")
+            .env("LC_ALL", "C.UTF-8")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()?;
