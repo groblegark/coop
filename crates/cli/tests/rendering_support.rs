@@ -80,8 +80,9 @@ impl TmuxOracle {
         let session_name = format!("test-{id}");
 
         // Start a new detached tmux session with fixed size.
-        // Use remain-on-exit so the pane stays alive after the command exits,
-        // giving us time to capture the output before tmux shuts down.
+        // Append a long sleep so the tmux session stays alive after the command
+        // exits — this gives capture_pane time to read the final output.
+        let wrapped_cmd = format!("{shell_cmd}; sleep 300");
         let status = Command::new("tmux")
             .args([
                 "-L",
@@ -98,26 +99,11 @@ impl TmuxOracle {
                 "LANG=C.UTF-8",
                 "-e",
                 "LC_ALL=C.UTF-8",
-                shell_cmd,
+                &wrapped_cmd,
             ])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()?;
-
-        // Set remain-on-exit so the pane stays after the command completes.
-        let _ = Command::new("tmux")
-            .args([
-                "-L",
-                &socket_name,
-                "set-option",
-                "-t",
-                &session_name,
-                "remain-on-exit",
-                "on",
-            ])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
 
         if !status.success() {
             anyhow::bail!("failed to start tmux session: {status}");
