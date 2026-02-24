@@ -11,6 +11,7 @@ pub mod event_log;
 pub mod mux_client;
 pub mod profile;
 pub mod record;
+pub mod rendering_test_support;
 pub mod replay_gate;
 pub mod ring;
 pub mod run;
