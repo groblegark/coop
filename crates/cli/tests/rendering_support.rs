@@ -15,8 +15,8 @@ use std::time::{Duration, Instant};
 
 /// Check that a binary is available in PATH.
 pub fn has_binary(name: &str) -> bool {
-    Command::new(name)
-        .arg("--version")
+    Command::new("which")
+        .arg(name)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
