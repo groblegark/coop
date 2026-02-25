@@ -26,7 +26,7 @@ jobs:
             os: ubuntu-latest
             artifact: coop-linux-arm64
           - target: x86_64-apple-darwin
-            os: macos-latest
+            os: macos-13
             artifact: coop-darwin-amd64
           - target: aarch64-apple-darwin
             os: macos-latest
