@@ -162,7 +162,7 @@ jobs:
           cp /tmp/bin/${{ matrix.artifact }}-coopmux /tmp/docker/coopmux
           chmod +x /tmp/docker/coopmux
           cat > /tmp/docker/Dockerfile <<'DOCKERFILE'
-          FROM debian:bookworm-slim
+          FROM ubuntu:24.04
           RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
           COPY coopmux /usr/local/bin/coopmux
           ENTRYPOINT ["coopmux"]
