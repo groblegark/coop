@@ -12,6 +12,7 @@ concurrency:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   build:
@@ -80,12 +81,15 @@ jobs:
           # Include coopmux as coop-mux for backwards compatibility with Dockerfiles.
           cp coopmux coop-mux 2>/dev/null || true
           tar czf /tmp/${{ matrix.artifact }}.tar.gz coop coop-mux
+          cp coopmux /tmp/${{ matrix.artifact }}-coopmux
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: /tmp/${{ matrix.artifact }}.tar.gz
+          path: |
+            /tmp/${{ matrix.artifact }}.tar.gz
+            /tmp/${{ matrix.artifact }}-coopmux
 
   release:
     needs: build
@@ -122,3 +126,89 @@ jobs:
           gh api repos/groblegark/gastown/dispatches \
             -f event_type=coop-release \
             -f client_payload[tag]=${{ github.ref_name }} || true
+
+  docker:
+    name: Coopmux Docker (${{ matrix.arch }})
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            artifact: coop-linux-amd64
+          - arch: arm64
+            artifact: coop-linux-arm64
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: /tmp/bin
+
+      - name: Prepare context
+        run: |
+          mkdir -p /tmp/docker
+          cp /tmp/bin/${{ matrix.artifact }}-coopmux /tmp/docker/coopmux
+          chmod +x /tmp/docker/coopmux
+          cat > /tmp/docker/Dockerfile <<'DOCKERFILE'
+          FROM debian:bookworm-slim
+          RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+          COPY coopmux /usr/local/bin/coopmux
+          ENTRYPOINT ["coopmux"]
+          DOCKERFILE
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}},suffix=-coopmux-${{ matrix.arch }}
+            type=raw,value=coopmux-${{ matrix.arch }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: /tmp/docker
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  docker-manifest:
+    name: Coopmux manifest
+    needs: docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}},suffix=-coopmux
+            type=raw,value=coopmux
+      - name: Create multi-arch manifests
+        run: |
+          while IFS= read -r TAG; do
+            [ -z "$TAG" ] && continue
+            echo "::group::$TAG"
+            docker buildx imagetools create \
+              -t "$TAG" \
+              "${TAG}-amd64" \
+              "${TAG}-arm64"
+            echo "::endgroup::"
+          done <<< "${{ steps.meta.outputs.tags }}"
