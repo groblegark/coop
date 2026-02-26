@@ -166,3 +166,16 @@ tasks:
     env:
       RWX_TOKEN: ${{ secrets.RWX_ACCESS_TOKEN }}
       TAG: ${{ init.tag }}
+
+  - key: dispatch-gasboat
+    use: release
+    run: |
+      # Trigger gasboat agent image rebuild via RWX dispatch API
+      echo "Dispatching to gasboat for agent rebuild (coop: $TAG)..."
+      curl -fsSL -X POST https://cloud.rwx.com/mint/api/runs/dispatches \
+        -H "Authorization: Bearer $RWX_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "{\"key\": \"gasboat-agent-rebuild\", \"params\": {\"trigger-source\": \"coop-release-$TAG\", \"coop-version\": \"$TAG\"}, \"ref\": \"main\", \"title\": \"Agent rebuild (coop $TAG)\"}"
+    env:
+      RWX_TOKEN: ${{ secrets.RWX_ACCESS_TOKEN }}
+      TAG: ${{ init.tag }}
