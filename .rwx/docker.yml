@@ -6,7 +6,7 @@
 on:
   github:
     push:
-      if: ${{ event.git.branch == 'main' }}
+      if: ${{ event.git.branch == 'main' || starts-with(event.git.tag, '20') }}
       init:
         commit-sha: ${{ event.git.sha }}
         ref-name: ${{ event.git.ref }}

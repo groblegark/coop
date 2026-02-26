@@ -34,6 +34,8 @@ tasks:
       if [[ "$REF_NAME" == v* ]]; then
         VERSION="${REF_NAME#v}"
         rwx image push $IMAGE_TASK_ID --to ghcr.io/groblegark/coop:claude-${VERSION}
+      elif [[ "$REF_NAME" == 20* ]]; then
+        rwx image push $IMAGE_TASK_ID --to ghcr.io/groblegark/coop:claude-${REF_NAME}
       fi
     env:
       COMMIT_SHA: ${{ init.commit-sha }}
@@ -54,6 +56,11 @@ tasks:
       if [[ "$REF_NAME" == v* ]]; then
         VERSION="${REF_NAME#v}"
         rwx image push $IMAGE_TASK_ID --to ghcr.io/groblegark/coop:coopmux-${VERSION}
+      elif [[ "$REF_NAME" == 20* ]]; then
+        # Bare calver tag for gasboat helm appVersion fallback
+        rwx image push $IMAGE_TASK_ID \
+          --to ghcr.io/groblegark/coop:coopmux-${REF_NAME} \
+          --to ghcr.io/groblegark/coop:${REF_NAME}
       fi
     env:
       COMMIT_SHA: ${{ init.commit-sha }}
