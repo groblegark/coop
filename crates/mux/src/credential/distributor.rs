@@ -195,15 +195,22 @@ pub async fn rebalance_from_account(state: &MuxState, failed_account: &str) {
         return;
     };
 
-    let sessions = state.sessions.read().await;
+    // Collect affected sessions under the read lock, then drop before I/O.
+    let affected: Vec<_> = {
+        let sessions = state.sessions.read().await;
+        let mut result = Vec::new();
+        for entry in sessions.values() {
+            let current = entry.assigned_account.read().await.clone();
+            if current.as_deref() == Some(failed_account) {
+                result.push(entry.clone());
+            }
+        }
+        result
+    };
+
     let mut reassigned = 0u32;
 
-    for entry in sessions.values() {
-        let current = entry.assigned_account.read().await.clone();
-        if current.as_deref() != Some(failed_account) {
-            continue;
-        }
-
+    for entry in &affected {
         // Reassign.
         broker.session_unassigned(failed_account).await;
         broker.session_assigned(&target_name).await;
