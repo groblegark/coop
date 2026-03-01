@@ -161,6 +161,7 @@ async fn handle_mux_ws(state: Arc<MuxState>, socket: WebSocket) {
                 metadata: entry.metadata.clone(),
             });
         }
+        drop(sessions);
         let msg = MuxServerMessage::Sessions { sessions: snapshots };
         if send_json(&mut ws_tx, &msg).await.is_err() {
             return;
@@ -222,6 +223,7 @@ async fn handle_mux_ws(state: Arc<MuxState>, socket: WebSocket) {
                         }
                     }
                 }
+                drop(sessions);
                 if !screens.is_empty() {
                     let msg = MuxServerMessage::ScreenBatch { screens };
                     if send_json(&mut ws_tx, &msg).await.is_err() {

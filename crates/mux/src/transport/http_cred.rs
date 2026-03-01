@@ -282,11 +282,16 @@ pub async fn credentials_pool_rebalance(
         Err(resp) => return *resp,
     };
 
-    let sessions = s.sessions.read().await;
+    // Collect sessions under the read lock, then drop before I/O.
+    let entries: Vec<_> = {
+        let sessions = s.sessions.read().await;
+        sessions.values().cloned().collect()
+    };
+
     let mut reassigned = 0u32;
     let mut failed = 0u32;
 
-    for entry in sessions.values() {
+    for entry in &entries {
         let current_account = entry.assigned_account.read().await.clone();
 
         if let Some(ref from) = req.from_account {
