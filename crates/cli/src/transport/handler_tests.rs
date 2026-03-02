@@ -126,17 +126,20 @@ async fn nudge_no_driver_returns_error() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn nudge_busy_returns_soft_failure() -> anyhow::Result<()> {
-    let StoreCtx { store: state, .. } = StoreBuilder::new()
+async fn nudge_working_delivers() -> anyhow::Result<()> {
+    let StoreCtx { store: state, mut input_rx, .. } = StoreBuilder::new()
         .agent_state(AgentState::Working)
         .nudge_encoder(Arc::new(StubNudgeEncoder))
         .build();
     state.ready.store(true, std::sync::atomic::Ordering::Release);
 
     let result = handle_nudge(&state, "hello").await.map_err(|e| anyhow::anyhow!("{e}"))?;
-    assert!(!result.delivered);
+    assert!(result.delivered);
     assert_eq!(result.state_before.as_deref(), Some("working"));
-    assert!(result.reason.as_deref().unwrap_or("").contains("agent is working"));
+    assert!(result.reason.is_none());
+
+    let event = input_rx.recv().await;
+    assert!(matches!(event, Some(InputEvent::Write(_))));
     Ok(())
 }
 
