@@ -218,6 +218,9 @@ pub async fn handle_nudge(state: &Store, message: &str) -> Result<NudgeOutcome, 
 
     match &*agent {
         AgentState::Idle => {}
+        // Accept nudges while the agent is working — Claude picks up the
+        // message when the current generation finishes.
+        AgentState::Working => {}
         // Allow nudge on oauth_login prompts (user pastes a login code + enter).
         AgentState::Prompt { prompt }
             if prompt.kind == crate::driver::PromptKind::Setup

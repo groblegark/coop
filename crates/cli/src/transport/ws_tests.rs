@@ -314,7 +314,7 @@ async fn resize_zero_rows_returns_error() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn nudge_rejected_when_agent_working() -> anyhow::Result<()> {
+async fn nudge_delivered_when_agent_working() -> anyhow::Result<()> {
     let StoreCtx { store: state, .. } = ws_test_state(AgentState::Working);
     state.ready.store(true, std::sync::atomic::Ordering::Release);
     let client_id = "test-ws";
@@ -323,9 +323,9 @@ async fn nudge_rejected_when_agent_working() -> anyhow::Result<()> {
     let reply = handle_client_message(&state, msg, client_id, &mut true).await;
     match reply {
         Some(ServerMessage::Nudged { delivered, state_before, reason }) => {
-            assert!(!delivered);
+            assert!(delivered);
             assert_eq!(state_before.as_deref(), Some("working"));
-            assert!(reason.as_deref().unwrap_or("").contains("agent is working"));
+            assert!(reason.is_none());
         }
         other => anyhow::bail!("expected NudgeResult, got {other:?}"),
     }

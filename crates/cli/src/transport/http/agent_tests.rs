@@ -105,7 +105,7 @@ async fn agent_state_omits_error_fields_when_not_error() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn agent_nudge_rejected_when_working() -> anyhow::Result<()> {
+async fn agent_nudge_delivered_when_working() -> anyhow::Result<()> {
     let StoreCtx { store: state, .. } = StoreBuilder::new()
         .child_pid(1234)
         .agent_state(AgentState::Working)
@@ -119,8 +119,7 @@ async fn agent_nudge_rejected_when_working() -> anyhow::Result<()> {
         server.post("/api/v1/agent/nudge").json(&serde_json::json!({"message": "hello"})).await;
     resp.assert_status(StatusCode::OK);
     let body = resp.text();
-    assert!(body.contains("\"delivered\":false"));
-    assert!(body.contains("agent is working"), "body: {body}");
+    assert!(body.contains("\"delivered\":true"), "body: {body}");
     Ok(())
 }
 
