@@ -105,14 +105,31 @@ impl LogWatcher {
 
     /// Set up a `notify` file watcher on the log file's parent directory.
     /// Returns the watcher handle (must be kept alive).
+    ///
+    /// Only wakes on content-changing events (Modify, Create). Access and
+    /// Open events are filtered out to prevent a feedback loop: without this
+    /// filter, `read_new_lines()` opening the file triggers IN_OPEN on the
+    /// watched directory, which wakes the run loop, which opens the file
+    /// again — burning ~60K syscalls/s and ~13% CPU on the inotify thread.
     fn setup_notify_watcher(
         &self,
         wake_tx: mpsc::Sender<()>,
     ) -> Option<notify::RecommendedWatcher> {
         use notify::{RecursiveMode, Watcher};
 
-        let mut watcher = notify::recommended_watcher(move |_: notify::Result<notify::Event>| {
-            let _ = wake_tx.try_send(());
+        let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            if let Ok(event) = res {
+                // Only wake on content-changing events. Ignore Access/Open/Close
+                // events which are triggered by our own read_new_lines() calls.
+                match event.kind {
+                    notify::EventKind::Modify(_)
+                    | notify::EventKind::Create(_)
+                    | notify::EventKind::Remove(_) => {
+                        let _ = wake_tx.try_send(());
+                    }
+                    _ => {}
+                }
+            }
         })
         .ok()?;
 
