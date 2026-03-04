@@ -109,13 +109,17 @@ pub async fn deliver_steps(
     Ok(())
 }
 
-/// Spawn a background monitor that retries Enter once if the agent doesn't
+/// Spawn a background monitor that retries Enter if the agent doesn't
 /// transition away from `Idle` within `timeout`.
 ///
-/// Cancellation conditions (any of these cancels the retry):
-/// - State transitions to Working, Prompt, or Exited
-/// - Any input activity on the PTY (raw keys, resize, signal, new delivery)
-/// - The returned `CancellationToken` is cancelled (by next `InputGate::acquire`)
+/// **Phase 1 (initial wait):** waits `timeout` for the original Enter to
+/// register. Cancelled by state transitions, external input activity, or
+/// the cancellation token.
+///
+/// **Phase 2 (retry loop):** sends Enter up to 3 more times with increasing
+/// delays (500ms, 1000ms, 1500ms). Only state transitions and the
+/// cancellation token stop the loop — `input_activity` is ignored because
+/// our own Enter writes would trigger it.
 ///
 /// **Scope:** nudge only.  Respond is excluded because double-Enter on a
 /// prompt could select the wrong option.
@@ -128,28 +132,49 @@ pub fn spawn_enter_retry(
     let cancel = CancellationToken::new();
     let cancel_clone = cancel.clone();
     tokio::spawn(async move {
+        // Phase 1: wait for the original Enter to register. Any external
+        // input activity cancels the retry (user may be typing).
         tokio::select! {
-            _ = cancel_clone.cancelled() => {}
-            _ = input_activity.notified() => {}
-            _ = async {
-                // Wait for a state transition that confirms Enter was processed.
-                while let Ok(event) = state_rx.recv().await {
-                    match &event.next {
-                        AgentState::Working
-                        | AgentState::Prompt { .. }
-                        | AgentState::Exited { .. } => break,
-                        _ => continue,
-                    }
-                }
-            } => {}
-            _ = tokio::time::sleep(timeout) => {
-                // Timeout — retry Enter once
-                tracing::debug!("nudge enter-retry: timeout reached, resending \\r");
-                let _ = input_tx.send(InputEvent::Write(bytes::Bytes::from_static(b"\r"))).await;
+            _ = cancel_clone.cancelled() => { return; }
+            _ = input_activity.notified() => { return; }
+            _ = wait_for_confirming_transition(&mut state_rx) => { return; }
+            _ = tokio::time::sleep(timeout) => {}
+        }
+
+        // Phase 2: retry Enter up to MAX_RETRIES times with increasing delays.
+        // input_activity is NOT checked here because our own \r writes trigger
+        // it via the session loop's handle_input().
+        const MAX_RETRIES: u32 = 3;
+        const RETRY_INTERVAL_MS: u64 = 500;
+        for attempt in 1..=MAX_RETRIES {
+            tracing::debug!("nudge enter-retry: attempt {attempt}/{MAX_RETRIES}, resending \\r");
+            let _ = input_tx
+                .send(InputEvent::Write(bytes::Bytes::from_static(b"\r")))
+                .await;
+
+            let retry_delay =
+                std::time::Duration::from_millis(RETRY_INTERVAL_MS * u64::from(attempt));
+            tokio::select! {
+                _ = cancel_clone.cancelled() => { return; }
+                _ = wait_for_confirming_transition(&mut state_rx) => { return; }
+                _ = tokio::time::sleep(retry_delay) => {}
             }
         }
+        tracing::warn!("nudge enter-retry: exhausted all {MAX_RETRIES} retries");
     });
     cancel
+}
+
+/// Wait for a state transition that confirms Enter was processed.
+async fn wait_for_confirming_transition(
+    state_rx: &mut broadcast::Receiver<TransitionEvent>,
+) {
+    while let Ok(event) = state_rx.recv().await {
+        match &event.next {
+            AgentState::Working | AgentState::Prompt { .. } | AgentState::Exited { .. } => break,
+            _ => continue,
+        }
+    }
 }
 
 /// Resolve the option number for a permission prompt from `accept` and `option`.
