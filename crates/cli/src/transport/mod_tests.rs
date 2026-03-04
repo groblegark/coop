@@ -126,7 +126,7 @@ async fn enter_retry_sends_cr_on_timeout() -> anyhow::Result<()> {
     let _cancel =
         spawn_enter_retry(input_tx, state_rx, activity, std::time::Duration::from_millis(50));
 
-    // Wait for the retry to fire
+    // Wait for the first retry Enter (phase 2, attempt 1)
     let event =
         tokio::time::timeout(std::time::Duration::from_millis(200), input_rx.recv()).await?;
 
@@ -136,6 +136,70 @@ async fn enter_retry_sends_cr_on_timeout() -> anyhow::Result<()> {
         }
         other => panic!("expected Write(\\r), got {other:?}"),
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn enter_retry_sends_multiple_crs() -> anyhow::Result<()> {
+    let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(16);
+    let (state_tx, _) = tokio::sync::broadcast::channel::<TransitionEvent>(16);
+    let state_rx = state_tx.subscribe();
+    let activity = Arc::new(tokio::sync::Notify::new());
+
+    let _cancel =
+        spawn_enter_retry(input_tx, state_rx, activity, std::time::Duration::from_millis(20));
+
+    // Collect all \r events within a generous timeout (all 3 retries should fire)
+    let mut cr_count = 0;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(5000);
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(std::time::Duration::from_millis(2000), input_rx.recv()).await {
+            Ok(Some(crate::event::InputEvent::Write(data))) if &data[..] == b"\r" => {
+                cr_count += 1;
+                if cr_count >= 3 {
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+
+    assert_eq!(cr_count, 3, "expected 3 retry Enter presses, got {cr_count}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn enter_retry_stops_on_working_transition_in_phase2() -> anyhow::Result<()> {
+    let (input_tx, mut input_rx) = tokio::sync::mpsc::channel(16);
+    let _keep_alive = input_tx.clone();
+    let (state_tx, _) = tokio::sync::broadcast::channel::<TransitionEvent>(16);
+    let state_rx = state_tx.subscribe();
+    let activity = Arc::new(tokio::sync::Notify::new());
+
+    let _cancel =
+        spawn_enter_retry(input_tx, state_rx, activity, std::time::Duration::from_millis(20));
+
+    // Wait for the first retry Enter
+    let event =
+        tokio::time::timeout(std::time::Duration::from_millis(200), input_rx.recv()).await?;
+    assert!(matches!(event, Some(crate::event::InputEvent::Write(_))));
+
+    // Send Working transition to stop further retries
+    let _ = state_tx.send(TransitionEvent {
+        prev: AgentState::Idle,
+        next: AgentState::Working,
+        seq: 1,
+        cause: "test".to_owned(),
+        last_message: None,
+    });
+
+    // Give the task a moment to process the transition
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // No more Enter presses should arrive
+    let result =
+        tokio::time::timeout(std::time::Duration::from_millis(2000), input_rx.recv()).await;
+    assert!(result.is_err(), "expected no more retries after Working transition");
     Ok(())
 }
 
