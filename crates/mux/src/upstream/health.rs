@@ -5,9 +5,15 @@
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::state::MuxState;
 use crate::upstream::client::UpstreamClient;
+
+/// Timeout for individual upstream health check requests.
+/// Kept short so dead pods don't block the checker and starve the mux's
+/// own liveness probe.
+const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Spawn a single background task that periodically checks health of all sessions.
 pub fn spawn_health_checker(state: Arc<MuxState>) {
@@ -30,29 +36,43 @@ pub fn spawn_health_checker(state: Arc<MuxState>) {
                 sessions.values().map(Arc::clone).collect()
             };
 
-            for entry in &entries {
-                // Skip sessions deregistered since the snapshot was taken.
+            // Run all health checks concurrently so a single dead pod
+            // doesn't block the entire tick and starve the mux health endpoint.
+            let state_ref = &state;
+            let checks: Vec<_> = entries
+                .iter()
+                .filter(|entry| {
+                    !entry.cancel.is_cancelled()
+                        && !matches!(
+                            entry.transport,
+                            crate::state::SessionTransport::Nats { .. }
+                        )
+                })
+                .map(|entry| {
+                    let entry = Arc::clone(entry);
+                    async move {
+                        let client = UpstreamClient::with_timeout(
+                            entry.url.clone(),
+                            entry.auth_token.clone(),
+                            HEALTH_CHECK_TIMEOUT,
+                        );
+                        (entry, client.health().await)
+                    }
+                })
+                .collect();
+
+            let results = futures_util::future::join_all(checks).await;
+
+            for (entry, result) in results {
                 if entry.cancel.is_cancelled() {
                     continue;
                 }
 
-                // Skip NATS-transport sessions — their liveness is tracked
-                // by announce heartbeats in the NATS relay subscriber.
-                if matches!(entry.transport, crate::state::SessionTransport::Nats { .. }) {
-                    continue;
-                }
-
-                let client = UpstreamClient::new(entry.url.clone(), entry.auth_token.clone());
-                match client.health().await {
+                match result {
                     Ok(_) => {
                         entry.health_failures.store(0, Ordering::Relaxed);
                     }
                     Err(e) => {
-                        // Re-check: session may have been deregistered during the request.
-                        if entry.cancel.is_cancelled() {
-                            continue;
-                        }
-
                         let prev = entry.health_failures.fetch_add(1, Ordering::Relaxed);
                         let count = prev + 1;
                         tracing::warn!(
@@ -68,13 +88,14 @@ pub fn spawn_health_checker(state: Arc<MuxState>) {
                                 "evicting session after {count} consecutive health failures"
                             );
                             // Unassign from credential pool before removal.
-                            if let Some(ref broker) = state.credential_broker {
-                                if let Some(account) = entry.assigned_account.read().await.as_ref()
+                            if let Some(ref broker) = state_ref.credential_broker {
+                                if let Some(account) =
+                                    entry.assigned_account.read().await.as_ref()
                                 {
                                     broker.session_unassigned(account).await;
                                 }
                             }
-                            state.remove_session(&entry.id).await;
+                            state_ref.remove_session(&entry.id).await;
                         }
                     }
                 }

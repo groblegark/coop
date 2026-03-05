@@ -21,6 +21,16 @@ impl UpstreamClient {
         Self { base_url, auth_token, client }
     }
 
+    /// Create a client with a custom timeout (e.g. for health checks).
+    pub fn with_timeout(
+        base_url: String,
+        auth_token: Option<String>,
+        timeout: std::time::Duration,
+    ) -> Self {
+        let client = Client::builder().timeout(timeout).build().unwrap_or_default();
+        Self { base_url, auth_token, client }
+    }
+
     fn url(&self, path: &str) -> String {
         format!("{}{}", self.base_url, path)
     }
