@@ -79,7 +79,7 @@ export function Tile({
     <div
       role="button"
       tabIndex={0}
-      className={`flex flex-col overflow-hidden rounded-lg border bg-[#1e1e1e] transition-[border-color,background-color] duration-150 h-[280px] ${focused ? "border-blue-500" : "border-[#21262d] hover:border-[#444c56]"} cursor-pointer select-none hover:bg-[#242424]`}
+      className={`flex flex-col overflow-hidden rounded-lg border bg-[#1e1e1e] transition-[border-color,background-color] duration-150 min-h-[280px] ${focused ? "border-blue-500" : "border-[#21262d] hover:border-[#444c56]"} cursor-pointer select-none hover:bg-[#242424]`}
       onClick={onToggleExpand}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") onToggleExpand();
@@ -117,7 +117,7 @@ export function LaunchCard() {
     <>
       <button
         type="button"
-        className="flex h-[280px] cursor-pointer items-center justify-center rounded-lg border border-dashed border-[#21262d] text-zinc-500 transition-colors hover:border-[#444c56] hover:text-blue-400"
+        className="flex min-h-[280px] cursor-pointer items-center justify-center rounded-lg border border-dashed border-[#21262d] text-zinc-500 transition-colors hover:border-[#444c56] hover:text-blue-400"
         onClick={handleClick}
         title="Launch new session"
       >
