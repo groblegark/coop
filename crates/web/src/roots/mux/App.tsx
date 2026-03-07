@@ -97,8 +97,28 @@ function AppInner() {
   }
 
   // Deep-link: read session ID from URL hash fragment (e.g. #pod-name).
-  // Consumed once on the first "sessions" message, then cleared.
+  // Set on mount and updated on hashchange events (e.g. clicking a Slack
+  // link while the page is already open). Consumed when the target session
+  // becomes available, then cleared.
   const deepLinkRef = useRef<string | null>(location.hash.replace(/^#/, "") || null);
+
+  // Listen for hash changes so that clicking a coopmux link while the
+  // dashboard is already open expands the targeted session.
+  useEffect(() => {
+    const onHashChange = () => {
+      const target = location.hash.replace(/^#/, "") || null;
+      if (!target) return;
+      if (sessionsRef.current.has(target)) {
+        setExpandedSession(target);
+        setFocusedSession(target);
+      } else {
+        // Session not yet known — stash for consumption when it arrives.
+        deepLinkRef.current = target;
+      }
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
 
   const muxSendRef = useRef<((msg: unknown) => void) | null>(null);
 
