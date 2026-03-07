@@ -814,7 +814,12 @@ pub async fn prepare(mut config: Config) -> anyhow::Result<PreparedSession> {
     // Placed after all server binds so we never register a session that isn't
     // reachable, and never orphan a registration if a bind fails.
     {
-        let sid = store.session_id.read().await.clone();
+        // Allow overriding the mux session ID (e.g. to use the K8s pod hostname
+        // so that deep-links from Slack resolve correctly).
+        let sid = match std::env::var("COOP_MUX_SESSION_ID").ok().filter(|s| !s.is_empty()) {
+            Some(override_id) => override_id,
+            None => store.session_id.read().await.clone(),
+        };
         crate::mux_client::spawn_if_configured(
             &sid,
             config.port,
