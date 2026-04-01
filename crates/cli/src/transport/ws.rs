@@ -90,18 +90,22 @@ async fn handle_connection(
     state.lifecycle.ws_client_count.fetch_add(1, Ordering::Relaxed);
 
     let (mut ws_tx, mut ws_rx) = socket.split();
-    let mut output_rx = state.channels.output_tx.subscribe();
-    let mut screen_rx = state.channels.screen_tx.subscribe();
-    let mut state_rx = state.channels.state_tx.subscribe();
-    let mut prompt_rx = state.channels.prompt_tx.subscribe();
-    let mut stop_rx = state.stop.stop_tx.subscribe();
-    let mut start_rx = state.start.start_tx.subscribe();
-    let mut hook_rx = state.channels.hook_tx.subscribe();
-    let mut message_rx = state.channels.message_tx.subscribe();
-    let mut transcript_rx = state.transcript.transcript_tx.subscribe();
-    let mut usage_rx = state.usage.usage_tx.subscribe();
-    let mut record_rx = state.record.record_tx.subscribe();
-    let mut profile_rx = state.profile.profile_tx.subscribe();
+
+    // Only subscribe to broadcast channels the client actually requested.
+    // Unsubscribed channels avoid waker registration in the select! loop,
+    // preventing unnecessary tokio worker wakeups on every broadcast.
+    let mut output_rx = if flags.pty { Some(state.channels.output_tx.subscribe()) } else { None };
+    let mut screen_rx = if flags.screen { Some(state.channels.screen_tx.subscribe()) } else { None };
+    let mut state_rx = if flags.state { Some(state.channels.state_tx.subscribe()) } else { None };
+    let mut prompt_rx = if flags.state { Some(state.channels.prompt_tx.subscribe()) } else { None };
+    let mut stop_rx = if flags.state { Some(state.stop.stop_tx.subscribe()) } else { None };
+    let mut start_rx = if flags.state { Some(state.start.start_tx.subscribe()) } else { None };
+    let mut hook_rx = if flags.hooks { Some(state.channels.hook_tx.subscribe()) } else { None };
+    let mut message_rx = if flags.messages { Some(state.channels.message_tx.subscribe()) } else { None };
+    let mut transcript_rx = if flags.transcripts { Some(state.transcript.transcript_tx.subscribe()) } else { None };
+    let mut usage_rx = if flags.usage { Some(state.usage.usage_tx.subscribe()) } else { None };
+    let mut record_rx = if flags.recording { Some(state.record.record_tx.subscribe()) } else { None };
+    let mut profile_rx = if flags.profiles { Some(state.profile.profile_tx.subscribe()) } else { None };
     let mut authed = !needs_auth;
 
     // Track byte offset for PTY lag recovery via ring buffer replay.
@@ -146,79 +150,69 @@ async fn handle_connection(
 
     loop {
         tokio::select! {
-            event = transcript_rx.recv() => {
+            event = opt_recv(&mut transcript_rx), if transcript_rx.is_some() => {
                 let event = match event {
                     Ok(e) => e,
                     Err(RecvError::Lagged(_)) => continue,
                     Err(RecvError::Closed) => break,
                 };
-                if flags.transcripts {
-                    let msg = transcript_event_to_msg(&event);
-                    if send_json(&mut ws_tx, &msg).await.is_err() {
-                        break;
-                    }
+                let msg = transcript_event_to_msg(&event);
+                if send_json(&mut ws_tx, &msg).await.is_err() {
+                    break;
                 }
             }
-            event = usage_rx.recv() => {
+            event = opt_recv(&mut usage_rx), if usage_rx.is_some() => {
                 let event = match event {
                     Ok(e) => e,
                     Err(RecvError::Lagged(_)) => continue,
                     Err(RecvError::Closed) => break,
                 };
-                if flags.usage {
-                    let msg = usage_event_to_msg(&event);
-                    if send_json(&mut ws_tx, &msg).await.is_err() {
-                        break;
-                    }
+                let msg = usage_event_to_msg(&event);
+                if send_json(&mut ws_tx, &msg).await.is_err() {
+                    break;
                 }
             }
-            event = prompt_rx.recv() => {
+            event = opt_recv(&mut prompt_rx), if prompt_rx.is_some() => {
                 let event = match event {
                     Ok(e) => e,
                     Err(RecvError::Lagged(_)) => continue,
                     Err(RecvError::Closed) => break,
                 };
-                if flags.state {
-                    let msg = ServerMessage::PromptOutcome {
-                        source: event.source,
-                        r#type: event.r#type,
-                        subtype: event.subtype,
-                        option: event.option,
-                    };
-                    if send_json(&mut ws_tx, &msg).await.is_err() {
-                        break;
-                    }
+                let msg = ServerMessage::PromptOutcome {
+                    source: event.source,
+                    r#type: event.r#type,
+                    subtype: event.subtype,
+                    option: event.option,
+                };
+                if send_json(&mut ws_tx, &msg).await.is_err() {
+                    break;
                 }
             }
-            event = stop_rx.recv() => {
+            event = opt_recv(&mut stop_rx), if stop_rx.is_some() => {
                 let event = match event {
                     Ok(e) => e,
                     Err(RecvError::Lagged(_)) => continue,
                     Err(RecvError::Closed) => break,
                 };
-                if flags.state {
-                    let msg = stop_event_to_msg(&event);
-                    if send_json(&mut ws_tx, &msg).await.is_err() {
-                        break;
-                    }
+                let msg = stop_event_to_msg(&event);
+                if send_json(&mut ws_tx, &msg).await.is_err() {
+                    break;
                 }
             }
-            event = start_rx.recv() => {
+            event = opt_recv(&mut start_rx), if start_rx.is_some() => {
                 let event = match event {
                     Ok(e) => e,
                     Err(RecvError::Lagged(_)) => continue,
                     Err(RecvError::Closed) => break,
                 };
-                if flags.state {
-                    let msg = start_event_to_msg(&event);
-                    if send_json(&mut ws_tx, &msg).await.is_err() {
-                        break;
-                    }
+                let msg = start_event_to_msg(&event);
+                if send_json(&mut ws_tx, &msg).await.is_err() {
+                    break;
                 }
             }
-            event = output_rx.recv() => {
+            event = opt_recv(&mut output_rx), if output_rx.is_some() => {
                 match event {
-                    Ok(OutputEvent::Raw { data, offset: msg_offset }) if flags.pty => {
+                    Ok(OutputEvent::Raw { data, offset: msg_offset }) => {
                         // Skip if already covered by a prior replay.
                         if msg_offset + data.len() as u64 <= next_offset {
                             continue;
@@ -230,123 +224,109 @@ async fn handle_connection(
                             break;
                         }
                     }
-                    Ok(_) => {}
                     Err(RecvError::Lagged(n)) => {
-                        if flags.pty {
-                            let ring = state.terminal.ring.read().await;
-                            let total_written = ring.total_written();
-                            // If ring has wrapped past next_offset, read from oldest available.
-                            let read_offset = next_offset.max(ring.oldest_offset());
-                            let combined = read_ring_combined(&ring, read_offset);
-                            drop(ring);
-                            if !combined.is_empty() {
-                                let read_len = combined.len() as u64;
-                                let encoded = base64::engine::general_purpose::STANDARD.encode(&combined);
-                                let msg = ServerMessage::Replay {
-                                    data: encoded,
-                                    offset: read_offset,
-                                    next_offset: read_offset + read_len,
-                                    total_written,
-                                };
-                                next_offset = read_offset + read_len;
-                                if send_json(&mut ws_tx, &msg).await.is_err() {
-                                    break;
-                                }
-                            } else {
-                                next_offset = total_written;
+                        let ring = state.terminal.ring.read().await;
+                        let total_written = ring.total_written();
+                        // If ring has wrapped past next_offset, read from oldest available.
+                        let read_offset = next_offset.max(ring.oldest_offset());
+                        let combined = read_ring_combined(&ring, read_offset);
+                        drop(ring);
+                        if !combined.is_empty() {
+                            let read_len = combined.len() as u64;
+                            let encoded = base64::engine::general_purpose::STANDARD.encode(&combined);
+                            let msg = ServerMessage::Replay {
+                                data: encoded,
+                                offset: read_offset,
+                                next_offset: read_offset + read_len,
+                                total_written,
+                            };
+                            next_offset = read_offset + read_len;
+                            if send_json(&mut ws_tx, &msg).await.is_err() {
+                                break;
                             }
-                            tracing::debug!(
-                                client_id = %client_id,
-                                skipped = n,
-                                "recovered from broadcast lag via ring buffer replay"
-                            );
+                        } else {
+                            next_offset = total_written;
                         }
+                        tracing::debug!(
+                            client_id = %client_id,
+                            skipped = n,
+                            "recovered from broadcast lag via ring buffer replay"
+                        );
                     }
                     Err(RecvError::Closed) => break,
                 }
             }
-            seq = screen_rx.recv() => {
+            seq = opt_recv(&mut screen_rx), if screen_rx.is_some() => {
                 match seq {
-                    Ok(seq) if flags.screen => {
+                    Ok(seq) => {
                         let snap = state.terminal.screen.read().await.snapshot();
                         if send_json(&mut ws_tx, &snapshot_to_msg(snap, seq)).await.is_err() {
                             break;
                         }
                     }
-                    Ok(_) => {}
                     Err(RecvError::Lagged(_)) => {}
                     Err(RecvError::Closed) => break,
                 }
             }
-            event = state_rx.recv() => {
+            event = opt_recv(&mut state_rx), if state_rx.is_some() => {
                 let event = match event {
                     Ok(e) => e,
                     Err(RecvError::Lagged(_)) => continue,
                     Err(RecvError::Closed) => break,
                 };
-                if flags.state {
-                    let msg = transition_to_msg(&event);
-                    if send_json(&mut ws_tx, &msg).await.is_err() {
-                        break;
-                    }
+                let msg = transition_to_msg(&event);
+                if send_json(&mut ws_tx, &msg).await.is_err() {
+                    break;
                 }
             }
-            event = hook_rx.recv() => {
+            event = opt_recv(&mut hook_rx), if hook_rx.is_some() => {
                 let event = match event {
                     Ok(e) => e,
                     Err(RecvError::Lagged(_)) => continue,
                     Err(RecvError::Closed) => break,
                 };
-                if flags.hooks {
-                    let msg = ServerMessage::HookRaw { data: event.json };
-                    if send_json(&mut ws_tx, &msg).await.is_err() {
-                        break;
-                    }
+                let msg = ServerMessage::HookRaw { data: event.json };
+                if send_json(&mut ws_tx, &msg).await.is_err() {
+                    break;
                 }
             }
-            event = message_rx.recv() => {
+            event = opt_recv(&mut message_rx), if message_rx.is_some() => {
                 let event = match event {
                     Ok(e) => e,
                     Err(RecvError::Lagged(_)) => continue,
                     Err(RecvError::Closed) => break,
                 };
-                if flags.messages {
-                    let msg = ServerMessage::MessageRaw { data: event.json, source: event.source };
-                    if send_json(&mut ws_tx, &msg).await.is_err() {
-                        break;
-                    }
+                let msg = ServerMessage::MessageRaw { data: event.json, source: event.source };
+                if send_json(&mut ws_tx, &msg).await.is_err() {
+                    break;
                 }
             }
-            event = record_rx.recv() => {
+            event = opt_recv(&mut record_rx), if record_rx.is_some() => {
                 let event = match event {
                     Ok(e) => e,
                     Err(RecvError::Lagged(_)) => continue,
                     Err(RecvError::Closed) => break,
                 };
-                if flags.recording {
-                    let msg = ServerMessage::RecordingEntryMsg {
-                        ts: event.ts,
-                        seq: event.seq,
-                        kind: event.kind,
-                        detail: event.detail,
-                        screen: event.screen,
-                    };
-                    if send_json(&mut ws_tx, &msg).await.is_err() {
-                        break;
-                    }
+                let msg = ServerMessage::RecordingEntryMsg {
+                    ts: event.ts,
+                    seq: event.seq,
+                    kind: event.kind,
+                    detail: event.detail,
+                    screen: event.screen,
+                };
+                if send_json(&mut ws_tx, &msg).await.is_err() {
+                    break;
                 }
             }
-            event = profile_rx.recv() => {
+            event = opt_recv(&mut profile_rx), if profile_rx.is_some() => {
                 let event = match event {
                     Ok(e) => e,
                     Err(RecvError::Lagged(_)) => continue,
                     Err(RecvError::Closed) => break,
                 };
-                if flags.profiles {
-                    let msg = profile_event_to_msg(&event);
-                    if send_json(&mut ws_tx, &msg).await.is_err() {
-                        break;
-                    }
+                let msg = profile_event_to_msg(&event);
+                if send_json(&mut ws_tx, &msg).await.is_err() {
+                    break;
                 }
             }
             msg = ws_rx.next() => {
@@ -763,6 +743,22 @@ async fn handle_client_message(
                 }),
             }
         }
+    }
+}
+
+/// Receive from an optional broadcast receiver.
+///
+/// Returns `std::future::pending()` when the receiver is `None`, so the
+/// corresponding `tokio::select!` branch never fires.  Combined with an
+/// `if rx.is_some()` guard this lets the handler skip channels the client
+/// did not subscribe to — avoiding waker registration and the resulting
+/// unnecessary tokio worker wakeups on every broadcast.
+async fn opt_recv<T: Clone>(
+    rx: &mut Option<tokio::sync::broadcast::Receiver<T>>,
+) -> Result<T, RecvError> {
+    match rx.as_mut() {
+        Some(r) => r.recv().await,
+        None => std::future::pending().await,
     }
 }
 
